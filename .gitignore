@@ -1,0 +1,14 @@
+﻿# Env & secrets
+.env
+.env.*
+!.env.template
+
+# Node/Python
+node_modules/
+__pycache__/
+*.pyc
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
