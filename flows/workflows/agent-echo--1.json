@@ -1,0 +1,89 @@
+{
+  "id": "1",
+  "name": "Agent Echo",
+  "active": true,
+  "createdAt": "2024-05-01T00:00:00.000Z",
+  "updatedAt": "2024-05-01T00:00:00.000Z",
+  "nodes": [
+    {
+      "id": "c7e5f6b5-723a-4f61-8c2b-2dfc1fb32973",
+      "name": "Agent Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        280,
+        300
+      ],
+      "parameters": {
+        "path": "agent",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "webhookId": "agent_echo_webhook"
+    },
+    {
+      "id": "7a3137a9-4d0a-4e13-9f7c-5a26a4685665",
+      "name": "Prepare Response",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        600,
+        300
+      ],
+      "parameters": {
+        "functionCode": "const body = $json.body ?? {};\nconst headers = $json.headers ?? {};\nconst query = $json.query ?? {};\nconst action = body.action ?? 'agent.echo';\nconst args = body.args ?? {};\nreturn [{ json: { ok: true, action, received: { args, raw: body }, meta: { headers, query }, timestamp: new Date().toISOString() } }];"
+      }
+    },
+    {
+      "id": "f8af6d52-40d4-4de1-90dd-c54154c7f9f4",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Agent Webhook": {
+      "main": [
+        [
+          {
+            "node": "Prepare Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": null,
+  "tags": [],
+  "versionId": "42f919aa-0f7f-4c55-8f84-68132e726021"
+}

@@ -24,6 +24,7 @@ Open WebUI → (tool) `research_web` → `webfetch` → SearxNG + extraction →
 
 ### Actions (target)
 Open WebUI → (tool) `n8n_action` → n8n `/webhook/agent` → capability mapping → provider flow (GitHub/ADO/M365/…).
+Baseline idag: `agent_echo`-workflowen (se `flows/workflows.json`) svarar med kvittens och tidsstämpel.
 
 ## Workflow Lifecycle (n8n)
 1. **Create or modify** workflows in the n8n UI (persisted in `n8n_data`).
