@@ -1,212 +1,153 @@
-<#
-.SYNOPSIS
-    Exporterar och importerar n8n-workflows med Docker.
+<# 
+.N8N-Workflows.ps1
+Import/export n8n workflows between the running container and the repository.
 
-.DESCRIPTION
-    Scriptet synkroniserar workflows mellan den körande n8n-containern och repo:t.
-    Använd kommandot "export" för att hämta workflows till git och "import" för att
-    återställa dem till en n8n-instans. Flaggan -IncludeCredentials hanterar även
-    credentials-filen (flows/credentials.json).
+Usage:
+  .\N8N-Workflows.ps1 import        # repo -> container
+  .\N8N-Workflows.ps1 export        # container -> repo
+  .\N8N-Workflows.ps1 -Mode import -Container n8n -FlowsDir "..\flows"
 
-.EXAMPLE
-    .\N8N-Workflows.ps1 export
+Notes:
+- ASCII only. Works from any folder (uses Push-Location/Pop-Location).
+- Uses n8n CLI inside the container:
+    n8n import:workflow --separate --input <dir>
+    n8n export:workflow --all --pretty --separate --output <dir>
+- Requires the container name (default: 'n8n').
+- Flows are stored in repo folder 'flows' by default.
 
-.EXAMPLE
-    .\N8N-Workflows.ps1 import -IncludeCredentials
 #>
-[CmdletBinding(PositionalBinding = $false)]
+
+[CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [ValidateSet('export', 'import')]
-    [string]$Command,
-
-    [string]$Container = 'n8n',
-
-    [string]$WorkflowsDir,
-
-    [string]$CombinedFile,
-
-    [switch]$IncludeCredentials
+  [ValidateSet("import","export")]
+  [string]$Mode = "import",
+  [string]$Container = "n8n",
+  [string]$FlowsDir = "..\flows"
 )
 
 Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = "Stop"
 
-function Resolve-PathOrDefault {
-    param(
-        [string]$Path,
-        [string]$Default
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return $Default
-    }
-
-    return [System.IO.Path]::GetFullPath($Path)
+function Resolve-RepoRoot {
+  param([string]$Start)
+  $dir = Resolve-Path $Start
+  for ($i=0; $i -lt 10; $i++) {
+    $compose = Join-Path $dir "compose\docker-compose.yml"
+    if (Test-Path $compose) { return Split-Path $compose -Parent | Split-Path -Parent }
+    $parent = Split-Path $dir -Parent
+    if ($parent -eq $dir) { break }
+    $dir = $parent
+  }
+  throw "Could not find compose\docker-compose.yml upwards from $Start"
 }
 
-function Ensure-ContainerRunning {
-    param([string]$Name)
-    $id = (& docker ps --filter "name=^$Name$" --format '{{.ID}}').Trim()
-    if (-not $id) {
-        throw "Containern '$Name' kör inte. Starta stacken innan du synkar workflows."
-    }
+function Join-ContainerPath {
+  param(
+    [Parameter(Mandatory)][string]$Container,
+    [Parameter(Mandatory)][string]$Path
+  )
+  if (-not $Path.StartsWith("/")) { $Path = "/$Path" }
+  return "${Container}:$Path"
 }
 
-function Invoke-External {
-    param(
-        [Parameter(Mandatory = $true)][string]$File,
-        [string[]]$Args = @()
-    )
-    Write-Host '$' $File ($Args -join ' ')
-    & $File @Args
-    if ($LASTEXITCODE -ne 0) {
-        throw "Kommandot $File $($Args -join ' ') misslyckades med kod $LASTEXITCODE."
-    }
+function Exec {
+  param(
+    [Parameter(Mandatory)][string]$File,
+    [Parameter()][string[]]$Args = @()
+  )
+  Write-Host ">> $File $($Args -join ' ')" -ForegroundColor DarkGray
+  $p = Start-Process -FilePath $File -ArgumentList $Args -NoNewWindow -Wait -PassThru
+  if ($p.ExitCode -ne 0) {
+    throw "Command failed: $File $($Args -join ' ') (exit $($p.ExitCode))"
+  }
 }
 
-function Write-JsonFile {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Path,
-        [Parameter(Mandatory = $true)]
-        $Content
-    )
-    $json = $Content | ConvertTo-Json -Depth 100
-    [System.IO.File]::WriteAllText($Path, $json + [Environment]::NewLine, [System.Text.Encoding]::UTF8)
+function Docker-Exec-Sh {
+  param(
+    [Parameter(Mandatory)][string]$Container,
+    [Parameter(Mandatory)][string]$ShellCommand
+  )
+  Exec -File "docker" -Args @("exec","-i",$Container,"sh","-lc",$ShellCommand)
 }
 
-function Read-JsonFile {
-    param([string]$Path)
-    return Get-Content -Raw -Encoding UTF8 -LiteralPath $Path | ConvertFrom-Json
+# Main
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = Resolve-RepoRoot -Start $scriptRoot
+$flowsPath = Resolve-Path (Join-Path $repoRoot $FlowsDir) -ErrorAction SilentlyContinue
+if (-not $flowsPath) {
+  $flowsPath = Join-Path $repoRoot "flows"
+  New-Item -ItemType Directory -Force -Path $flowsPath | Out-Null
 }
+$flowsPath = Resolve-Path $flowsPath
 
-function New-TempDir {
-    $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
-    New-Item -Path $tmp -ItemType Directory | Out-Null
-    return $tmp
-}
+Write-Host "[i] Repo root: $repoRoot" -ForegroundColor Yellow
+Write-Host "[i] Flows dir: $flowsPath" -ForegroundColor Yellow
+Write-Host "[i] Container: $Container" -ForegroundColor Yellow
+Write-Host "[i] Mode: $Mode" -ForegroundColor Yellow
 
-function Get-Slug {
-    param([string]$Name)
-    if ([string]::IsNullOrWhiteSpace($Name)) {
-        return 'workflow'
+Push-Location $repoRoot
+try {
+  # Quick container sanity
+  Exec -File "docker" -Args @("ps","--format","table {{.Names}}\t{{.Status}}")
+  Exec -File "docker" -Args @("inspect","$Container","--format","{{.Name}}") | Out-Null
+
+  if ($Mode -eq "export") {
+    # Export from container to host
+    $tmpInContainer = "/tmp/n8n_export"
+    Write-Host "[i] Preparing container export dir $tmpInContainer" -ForegroundColor Cyan
+    Docker-Exec-Sh -Container $Container -ShellCommand "rm -rf $tmpInContainer && mkdir -p $tmpInContainer"
+
+    Write-Host "[i] Running: n8n export:workflow --all --pretty --separate --output $tmpInContainer" -ForegroundColor Cyan
+    Docker-Exec-Sh -Container $Container -ShellCommand "n8n export:workflow --all --pretty --separate --output $tmpInContainer"
+
+    # Copy back to host flows dir
+    $dest = Join-Path $flowsPath "export"
+    if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+    New-Item -ItemType Directory -Force -Path $dest | Out-Null
+
+    $containerSrc = Join-ContainerPath -Container $Container -Path $tmpInContainer
+    Exec -File "docker" -Args @("cp", $containerSrc, "$dest")
+
+    Write-Host "[ok] Export completed -> $dest" -ForegroundColor Green
+    Write-Host "[i] Files:" -ForegroundColor DarkGray
+    Get-ChildItem -Path $dest -Recurse -File | Select-Object -First 10 | ForEach-Object { Write-Host " - $($_.FullName)" }
+
+  } elseif ($Mode -eq "import") {
+    # Import from host to container
+    $srcDir = $flowsPath
+    if (-not (Get-ChildItem -Path $srcDir -Recurse -Include *.json -File -ErrorAction SilentlyContinue)) {
+      throw "No .json workflow files found under $srcDir. Place exported workflows there (or under $srcDir\export) and retry."
     }
-    $slug = $Name.ToLowerInvariant() -replace '[^a-z0-9]+', '-' -replace '^-+', '' -replace '-+$', ''
-    if ([string]::IsNullOrWhiteSpace($slug)) {
-        return 'workflow'
-    }
-    return $slug
-}
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$WorkflowsDir = Resolve-PathOrDefault -Path $WorkflowsDir -Default (Join-Path $repoRoot 'flows/workflows')
-$CombinedFile = Resolve-PathOrDefault -Path $CombinedFile -Default (Join-Path $repoRoot 'flows/workflows.json')
-$CredentialsFile = Join-Path $repoRoot 'flows/credentials.json'
+    $tmpInContainer = "/tmp/n8n_import"
+    Write-Host "[i] Preparing container import dir $tmpInContainer" -ForegroundColor Cyan
+    Docker-Exec-Sh -Container $Container -ShellCommand "rm -rf $tmpInContainer && mkdir -p $tmpInContainer"
 
-New-Item -ItemType Directory -Path $WorkflowsDir -Force | Out-Null
-New-Item -ItemType Directory -Path (Split-Path -Parent $CombinedFile) -Force | Out-Null
+    # If user has 'flows\export' use its content; else use flows root
+    $importSource = (Test-Path (Join-Path $srcDir "export")) ? (Join-Path $srcDir "export") : $srcDir
+    Write-Host "[i] Copying workflows from $importSource to container..." -ForegroundColor Cyan
+    Exec -File "docker" -Args @("cp", "$importSource", (Join-ContainerPath -Container $Container -Path $tmpInContainer))
 
-Ensure-ContainerRunning -Name $Container
+    Write-Host "[i] Running: n8n import:workflow --separate --input $tmpInContainer/export" -ForegroundColor Cyan
+    # Try both /tmp/n8n_import/export and /tmp/n8n_import (depending on what we copied)
+    $cmd = @"
+if [ -d '$tmpInContainer/export' ]; then
+  n8n import:workflow --separate --input '$tmpInContainer/export';
+else
+  n8n import:workflow --separate --input '$tmpInContainer';
+fi
+"@
+    Docker-Exec-Sh -Container $Container -ShellCommand $cmd
 
-$exportPath = '/home/node/.n8n/export/workflows.json'
-$importPath = '/home/node/.n8n/import/workflows.json'
-$credentialsExportPath = '/home/node/.n8n/export/credentials.json'
-$credentialsImportPath = '/home/node/.n8n/import/credentials.json'
+    Write-Host "[ok] Import completed." -ForegroundColor Green
+    Write-Host "[i] Verify in n8n UI and activate the workflows." -ForegroundColor DarkGray
+  } else {
+    throw "Unsupported mode: $Mode"
+  }
 
-switch ($Command) {
-    'export' {
-        Invoke-External -File 'docker' -Args @('exec', $Container, 'mkdir', '-p', (Split-Path -Parent $exportPath))
-        Invoke-External -File 'docker' -Args @('exec', $Container, 'n8n', 'export:workflow', '--all', '--output', $exportPath)
-
-        $tmpDir = New-TempDir
-        try {
-            $tmpFile = Join-Path $tmpDir 'workflows.json'
-            Invoke-External -File 'docker' -Args @('cp', "$Container:$exportPath", $tmpFile)
-            $workflows = Read-JsonFile -Path $tmpFile
-        }
-        finally {
-            Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-
-        if ($null -eq $workflows -or $workflows -is [string]) {
-            throw 'Exporten returnerade inte en lista av workflows.'
-        }
-
-        Write-JsonFile -Path $CombinedFile -Content $workflows
-
-        $existing = @{}
-        Get-ChildItem -Path $WorkflowsDir -Filter '*.json' -ErrorAction SilentlyContinue | ForEach-Object { $existing[$_.Name] = $_ }
-
-        $seen = @{}
-        foreach ($workflow in $workflows) {
-            $name = $workflow.name
-            $id = $workflow.id
-            $slug = Get-Slug -Name $name
-            $fileName = if ($id) { "$slug--$id.json" } else { "$slug.json" }
-            $target = Join-Path $WorkflowsDir $fileName
-            Write-JsonFile -Path $target -Content $workflow
-            $seen[$fileName] = $true
-        }
-
-        foreach ($file in $existing.Keys) {
-            if (-not $seen.ContainsKey($file)) {
-                Remove-Item -LiteralPath (Join-Path $WorkflowsDir $file) -Force
-            }
-        }
-
-        if ($IncludeCredentials) {
-            Invoke-External -File 'docker' -Args @('exec', $Container, 'mkdir', '-p', (Split-Path -Parent $credentialsExportPath))
-            Invoke-External -File 'docker' -Args @('exec', $Container, 'n8n', 'export:credentials', '--all', '--output', $credentialsExportPath)
-            Invoke-External -File 'docker' -Args @('cp', "$Container:$credentialsExportPath", $CredentialsFile)
-            Write-Host "Credentials exporterades till $CredentialsFile"
-        }
-
-        $count = if ($workflows -is [System.Array]) { $workflows.Count } else { ($workflows | Measure-Object).Count }
-        Write-Host "Exporterade $count workflow(s) till $WorkflowsDir och $CombinedFile"
-    }
-    'import' {
-        $workflows = @()
-        $files = @(Get-ChildItem -Path $WorkflowsDir -Filter '*.json' -ErrorAction SilentlyContinue | Sort-Object Name)
-        foreach ($file in $files) {
-            $workflows += Read-JsonFile -Path $file.FullName
-        }
-        if ($workflows.Count -eq 0 -and (Test-Path -LiteralPath $CombinedFile)) {
-            $data = Read-JsonFile -Path $CombinedFile
-            if ($data -is [System.Collections.IEnumerable] -and $data -isnot [string]) {
-                $workflows = @($data)
-            }
-            elseif ($null -ne $data) {
-                $workflows = @($data)
-            }
-        }
-        if ($workflows.Count -eq 0) {
-            throw "Inga workflows hittades. Kör export först eller lägg JSON-filer i $WorkflowsDir."
-        }
-
-        Write-JsonFile -Path $CombinedFile -Content $workflows
-
-        $tmpDir = New-TempDir
-        try {
-            $tmpFile = Join-Path $tmpDir 'workflows.json'
-            Write-JsonFile -Path $tmpFile -Content $workflows
-            Invoke-External -File 'docker' -Args @('cp', $tmpFile, "$Container:$importPath")
-        }
-        finally {
-            Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-
-        Invoke-External -File 'docker' -Args @('exec', $Container, 'n8n', 'import:workflow', '--input', $importPath)
-        $count = if ($workflows -is [System.Array]) { $workflows.Count } else { ($workflows | Measure-Object).Count }
-        Write-Host "Importerade $count workflow(s) till containern '$Container'"
-
-        if ($IncludeCredentials) {
-            if (-not (Test-Path -LiteralPath $CredentialsFile)) {
-                throw "Credentials-filen $CredentialsFile saknas; kan inte importera."
-            }
-            Invoke-External -File 'docker' -Args @('cp', $CredentialsFile, "$Container:$credentialsImportPath")
-            Invoke-External -File 'docker' -Args @('exec', $Container, 'n8n', 'import:credentials', '--input', $credentialsImportPath)
-            Write-Host 'Credentials importerades.'
-        }
-    }
+} catch {
+  Write-Host "[error] $($_.Exception.Message)" -ForegroundColor Red
+  throw
+} finally {
+  Pop-Location
 }
