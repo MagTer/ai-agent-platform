@@ -22,12 +22,18 @@ docker compose -f compose\docker-compose.yml ps
 
 # Logs
 .\scripts\Stack-Logs.ps1 -Service webfetch
+.\scripts\Stack-Logs.ps1 -Service n8n
 ```
 
-## Research Smoke Test
+## Smoke Tests
 ```powershell
+# Research pipeline
 $b=@{ query="RAG i kundsupport"; k=2; lang="sv" } | ConvertTo-Json -Compress
 irm http://localhost:8081/research -Method POST -ContentType 'application/json' -Body $b
+
+# Placeholder: Actions echo (activate once workflow is imported)
+# $payload=@{ action="agent.echo"; args=@{ message="ping" } } | ConvertTo-Json -Compress
+# irm http://localhost:5678/webhook/agent -Method POST -ContentType 'application/json' -Body $payload
 ```
 
 ## Common Issues
@@ -42,3 +48,22 @@ irm http://localhost:8081/research -Method POST -ContentType 'application/json' 
 docker compose -f compose\docker-compose.yml build webfetch
 docker compose -f compose\docker-compose.yml up -d webfetch
 ```
+
+## n8n Backups & Restore
+```powershell
+# Export all workflows & credentials to mounted volume
+docker exec n8n mkdir -p /home/node/.n8n/export
+docker exec n8n n8n export:workflow --all --output /home/node/.n8n/export/workflows.json
+docker exec n8n n8n export:credentials --all --output /home/node/.n8n/export/credentials.json
+
+# Copy exports to host repo (e.g., ./flows)
+docker cp n8n:/home/node/.n8n/export .\flows
+
+# Restore after clean environment
+docker cp .\flows\workflows.json n8n:/home/node/.n8n/import-workflows.json
+docker exec n8n n8n import:workflow --input /home/node/.n8n/import-workflows.json --separate
+docker cp .\flows\credentials.json n8n:/home/node/.n8n/import-credentials.json
+docker exec n8n n8n import:credentials --input /home/node/.n8n/import-credentials.json
+```
+
+> Tips: keep exports in git (with secrets redacted) and rely on the `n8n_data` volume for quick local recovery. Consider scripting these steps once we stabilise the workflow catalogue.

@@ -19,6 +19,7 @@
 - n8n running; `/webhook/agent` active
 - “Echo” action returns ack JSON
 - Capability catalog checked in
+- Docs updated with n8n smoke test + export/import guidance
 
 **MVP Steps:**
 - M1.1: Add n8n service + health + persisted data ✅

@@ -3,11 +3,13 @@
 ## Today
 - **Reasoning** (SV/EN) with local models via LiteLLM.
 - **Research**: SearxNG → webfetch extraction → LiteLLM summary (sources included).
+- **Actions groundwork**: n8n service online with persisted storage and health checks (awaiting workflows).
 
 ## Next
 - **Actions Skeleton** (n8n):
-  - Webhook-driven “Single Wrapper”
-  - Capability catalog to map `action` → workflow
+  - Import and activate `agent_echo` webhook workflow.
+  - Document POST contract in Open WebUI action preset.
+  - Begin versioning exports (`n8n export --all`) under `flows/` directory.
 
 ## Planned Capabilities
 - GitHub:
