@@ -1,8 +1,8 @@
 # Capabilities — Outcome-Oriented View
 
 ## Today
-- **Reasoning** (SV/EN) with local models via LiteLLM
-- **Research**: webfetch → SearxNG → extract → summarize (sources included)
+- **Reasoning** (SV/EN) with local models via LiteLLM.
+- **Research**: SearxNG → webfetch extraction → LiteLLM summary (sources included).
 
 ## Next
 - **Actions Skeleton** (n8n):
@@ -17,9 +17,11 @@
   - `create_work_item(project, type, title, description)`
 - Microsoft 365 / Gmail:
   - `send_mail(to, subject, body)`
-  - `create_event(cal, when, duration, title)`
+  - `create_event(calendar, when, duration, title)`
 - CLI / FFmpeg:
   - `transcode(input, profile)`
+- YouTube:
+  - `transcript(url)`; `search(query)`
 - Homey:
   - `trigger_flow(name, params)`
 - RAG:

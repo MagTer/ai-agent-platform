@@ -1,7 +1,7 @@
 # Roadmap — Milestones and Iterative Steps
 
 ## Milestone M0 — Baseline Stack (DONE/IN PROGRESS)
-**Goal:** Local stack up; Reasoning + Research usable  
+**Goal:** Local stack runs; Reasoning + Research usable  
 **Exit criteria:**
 - Stack up via scripts; health checks pass
 - Research POST tool works end-to-end
@@ -17,8 +17,8 @@
 **Goal:** Action calls via n8n webhook; capability catalog present  
 **Exit criteria:**
 - n8n running; `/webhook/agent` active
-- “Echo” action returns ack
-- Capability catalog checked-in
+- “Echo” action returns ack JSON
+- Capability catalog checked in
 
 **MVP Steps:**
 - M1.1: Add n8n service + health + persisted data
@@ -29,12 +29,12 @@
 ## Milestone M2 — First Real Capabilities
 **Goal:** At least 2 real actions behind n8n  
 **Exit criteria:**
-- `github.create_branch` (with repo, branch name, base)
+- `github.create_branch` (repo, base, name)
 - `ado.create_work_item` or `m365.create_calendar_event`
 
 **MVP Steps:**
 - M2.1: n8n credential setup & secret handling
-- M2.2: GitHub create branch flow + tests
+- M2.2: GitHub create-branch flow + tests
 - M2.3: ADO or M365 action + tests
 
 ## Milestone M3 — Memory & RAG
@@ -47,4 +47,3 @@
 - M3.1: Ingestion job to Qdrant
 - M3.2: Simple retriever → prompt augment in webfetch or LiteLLM function
 - M3.3: RUNBOOKS and smoke tests
-
