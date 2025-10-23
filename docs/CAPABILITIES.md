@@ -5,10 +5,19 @@
 - **Research**: SearxNG → webfetch extraction → LiteLLM summary (sources included).
 - **Actions**: n8n `/webhook/agent` echo workflow som kvitterar JSON med tidsstämpel.
 
+> Detaljerad kontraktsbeskrivning finns i [`capabilities/catalog.yaml`](../capabilities/catalog.yaml).
+
 ## Next
 - **Actions Skeleton** (n8n):
   - Document POST contract in Open WebUI action preset.
   - Automatisera exportsteg (skript) för att hålla `flows/` uppdaterad.
+
+## Capability Catalog
+- Fil: [`capabilities/catalog.yaml`](../capabilities/catalog.yaml)
+- Innehåll: Maskinläsbar översikt över tillgängliga åtgärder,
+  deras kontrakt samt vilket Open WebUI-verktyg som ska användas.
+- Statusfältet markerar om en förmåga är aktiv (`available`), under arbete
+  (`in-progress`) eller planerad (`planned`).
 
 ## Planned Capabilities
 - GitHub:

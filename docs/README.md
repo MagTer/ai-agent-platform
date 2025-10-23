@@ -14,6 +14,7 @@
 - [Capabilities](./CAPABILITIES.md) — what the platform can do today, next, and later.
 - [Architecture](./ARCHITECTURE.md) — active services, data flow, and security guidance.
 - [Operations](./OPERATIONS.md) — scripts, health checks, smoke tests, and maintenance.
+- [Open WebUI Actions](./OPENWEBUI_ACTIONS.md) — verktygskonfiguration för n8n-webhooken.
 
 ## Working Notes for Codex
 1. **Language:** default to Swedish (sv-SE) when writing user-facing text, but code and
@@ -24,6 +25,8 @@
    or PR summary (e.g., alternative automation ideas, better defaults).
 4. **Versioning:** treat compose files, configuration, and n8n workflows as code. Persist
    exports in the repo whenever feasible.
+5. **Open WebUI:** konfigurera verktyg via UI men exportera alltid till
+   `openwebui/export/app.db.sql` efter ändringar.
 
 ## How to Contribute a Change
 1. Review the milestone and step you are addressing in [ROADMAP.md](./ROADMAP.md).

@@ -1,0 +1,64 @@
+version: 0.1.0
+kind: capability-catalog
+actions:
+  - id: agent.echo
+    title: Agent Echo
+    status: available
+    owner: n8n
+    summary: "Kvitterar inkommande JSON och returnerar nyttolasten med tidsstämpel."
+    entrypoint:
+      type: http
+      method: POST
+      url: http://n8n:5678/webhook/agent
+      auth: none
+      timeout_s: 15
+    contract:
+      request:
+        content_type: application/json
+        schema:
+          type: object
+          required:
+            - action
+            - args
+          properties:
+            action:
+              type: string
+              const: agent.echo
+            args:
+              type: object
+              description: "Godtyckliga nyckel/värde-par som returneras i svaret."
+      response:
+        content_type: application/json
+        schema:
+          type: object
+          required:
+            - ok
+            - action
+            - received
+            - timestamp
+          properties:
+            ok:
+              type: boolean
+            action:
+              type: string
+            received:
+              type: object
+            timestamp:
+              type: string
+              format: date-time
+    verification:
+      smoke_test:
+        command: |
+          curl -sS -X POST http://localhost:5678/webhook/agent -H 'Content-Type: application/json' -d '{"action":"agent.echo","args":{"message":"ping"}}'
+        expect_json: true
+    openwebui:
+      tool_name: n8n_action
+      preset: Actions
+      description: "POST:ar ett JSON-payload till n8n:s webhook och visar svaret i chattfönstret."
+      body_template: |
+        {
+          "action": "agent.echo",
+          "args": {
+            "message": "<skriv ditt meddelande>"
+          }
+        }
