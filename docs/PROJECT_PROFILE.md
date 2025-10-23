@@ -29,7 +29,7 @@ A local, containerized agent platform that can **do things** (not just reason), 
 ## Outcome-Oriented View
 - Reasoning (SV/EN) with local models.
 - Research: search → extract → summarize with sources.
-- Actions (next): call server-side capabilities (GitHub, ADO, M365/Gmail, CLI/FFmpeg, YouTube, Homey, etc.) via n8n workflows checked into the repo.
+- Actions (baseline): n8n `/webhook/agent` echo kvitterar åtgärdsanrop; nästa steg är riktiga integrationer (GitHub, ADO, M365/Gmail, CLI/FFmpeg, YouTube, Homey, etc.).
 
 ## Codex Onboarding Checklist
 1. Skim [docs/README.md](./README.md) to confirm the current milestone and guardrails.
