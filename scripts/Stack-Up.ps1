@@ -10,7 +10,10 @@ $ErrorActionPreference = "Stop"
 
 # ---- Configuration ----
 # Add more models as needed (e.g., "qwen2.5:7b")
-$Models = @("llama3:8b")
+$Models = @(
+  "llama3:8b",
+  "fcole90/ai-sweden-gpt-sw3:6.7b"
+)
 $OllamaHealthTimeoutSec  = 120
 $LiteLLMHealthTimeoutSec = 60
 
@@ -59,10 +62,13 @@ function Wait-HttpOk {
 
 function Ensure-Models {
   param([string[]]$ModelNames)
+  if (-not $ModelNames -or $ModelNames.Count -eq 0) { return }
+
+  Say "[i] Ensuring models: $($ModelNames -join ', ')"
   foreach ($m in $ModelNames) {
     Say "[i] Ensuring model: $m"
     # Run shell inside container; if model is missing -> pull it.
-    $cmd = "ollama show $m >/dev/null 2>&1 || ollama pull $m"
+    $cmd = "ollama show `"$m`" >/dev/null 2>&1 || ollama pull `"$m`""
     docker exec ollama /bin/sh -lc "$cmd"
   }
 }
