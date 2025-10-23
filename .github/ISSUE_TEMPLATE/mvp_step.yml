@@ -1,0 +1,30 @@
+name: "MVP Step"
+description: "A 2–3 hour deliverable with a runnable outcome"
+title: "[MVP] <short description>"
+labels: ["mvp-step"]
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Outcome (capability)
+      description: What can the system do after this step?
+      placeholder: "n8n echo webhook returns ack JSON"
+  - type: textarea
+    id: exit
+    attributes:
+      label: Exit Criteria
+      placeholder: "Health ok, curl POST returns ack, docs updated"
+  - type: checkboxes
+    id: tasks
+    attributes:
+      label: Tasks
+      options:
+        - label: Patch files committed
+        - label: .env.template updated (if needed)
+        - label: Smoke test commands included
+        - label: Docs updated (DELIVERY_MODEL/OPERATIONS/RUNBOOKS)
+  - type: textarea
+    id: tests
+    attributes:
+      label: Smoke Test (copy/paste)
+      placeholder: "curl /health ...; irm POST /research ..."

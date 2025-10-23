@@ -1,16 +1,29 @@
 # ---- Models ----
 model_list:
-  # Local fast path (Ollama)
+  # English / general
   - model_name: local/llama3-8b
     litellm_params:
       model: ollama/llama3:8b
       api_base: http://ollama:11434
 
-  # Premium / fallback (OpenRouter)
+  # Swedish
+  - model_name: local/sv-sw3-6.7b
+    litellm_params:
+      model: ollama/fcole90/ai-sweden-gpt-sw3:6.7b
+      api_base: http://ollama:11434
+
+  # Optional premium (fallback)
   - model_name: openrouter/premium
     litellm_params:
       model: openrouter/auto
       api_key: ${OPENROUTER_API_KEY}
+
+routing:
+  - strategy: tokens
+    default: local/llama3-8b
+    rules:
+      - if_input_tokens_greater_than: 1000
+        use: openrouter/premium
 
 # ---- Routing policy ----
 routing:
@@ -20,11 +33,11 @@ routing:
       - if_input_tokens_greater_than: 1000
         use: openrouter/premium
 
-# ---- Guardrails ----
 general_settings:
-  # Hard caps per request (prevents accidental huge calls)
   max_input_tokens: 8000
   max_output_tokens: 1024
+logging:
+  level: INFO
 
 # LiteLLM limits (simple rate limiting / budgets)
 litellm_settings:
