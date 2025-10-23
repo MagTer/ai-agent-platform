@@ -8,13 +8,11 @@ Usage:
   .\N8N-Workflows.ps1 -Mode import -Container n8n -FlowsDir "..\flows"
 
 Notes:
-- ASCII only. Works from any folder (uses Push-Location/Pop-Location).
+- ASCII only. Works from any folder (Push-Location/Pop-Location).
 - Uses n8n CLI inside the container:
     n8n import:workflow --separate --input <dir>
     n8n export:workflow --all --pretty --separate --output <dir>
-- Requires the container name (default: 'n8n').
-- Flows are stored in repo folder 'flows' by default.
-
+- Default container: 'n8n'. Default flows dir: '../flows'
 #>
 
 [CmdletBinding()]
@@ -33,7 +31,7 @@ function Resolve-RepoRoot {
   $dir = Resolve-Path $Start
   for ($i=0; $i -lt 10; $i++) {
     $compose = Join-Path $dir "compose\docker-compose.yml"
-    if (Test-Path $compose) { return Split-Path $compose -Parent | Split-Path -Parent }
+    if (Test-Path $compose) { return (Split-Path (Split-Path $compose -Parent) -Parent) }
     $parent = Split-Path $dir -Parent
     if ($parent -eq $dir) { break }
     $dir = $parent
@@ -42,43 +40,47 @@ function Resolve-RepoRoot {
 }
 
 function Join-ContainerPath {
-  param(
-    [Parameter(Mandatory)][string]$Container,
-    [Parameter(Mandatory)][string]$Path
-  )
+  param([Parameter(Mandatory)][string]$Container,
+        [Parameter(Mandatory)][string]$Path)
   if (-not $Path.StartsWith("/")) { $Path = "/$Path" }
   return "${Container}:$Path"
 }
 
 function Exec {
-  param(
-    [Parameter(Mandatory)][string]$File,
-    [Parameter()][string[]]$Args = @()
-  )
+  param([Parameter(Mandatory)][string]$File,
+        [Parameter()][string[]]$Args = @())
   Write-Host ">> $File $($Args -join ' ')" -ForegroundColor DarkGray
-  $p = Start-Process -FilePath $File -ArgumentList $Args -NoNewWindow -Wait -PassThru
-  if ($p.ExitCode -ne 0) {
-    throw "Command failed: $File $($Args -join ' ') (exit $($p.ExitCode))"
+  $output = & $File @Args 2>&1
+  $code = $LASTEXITCODE
+  if ($code -ne 0) {
+    if ($output) { Write-Host $output -ForegroundColor Red }
+    throw "Command failed: $File $($Args -join ' ') (exit $code)"
   }
+  if ($output) { Write-Host $output }
+  return $output
 }
 
 function Docker-Exec-Sh {
-  param(
-    [Parameter(Mandatory)][string]$Container,
-    [Parameter(Mandatory)][string]$ShellCommand
-  )
-  Exec -File "docker" -Args @("exec","-i",$Container,"sh","-lc",$ShellCommand)
+  param([Parameter(Mandatory)][string]$Container,
+        [Parameter(Mandatory)][string]$ShellCommand,
+        [Parameter()][string]$User = "")
+  $args = @("exec")
+  if ($User) { $args += @("-u",$User) }
+  $args += @("-i",$Container,"sh","-lc",$ShellCommand)
+  Exec "docker" $args | Out-Null
 }
 
-# Main
+# ---- Main ----
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$repoRoot = Resolve-RepoRoot -Start $scriptRoot
-$flowsPath = Resolve-Path (Join-Path $repoRoot $FlowsDir) -ErrorAction SilentlyContinue
-if (-not $flowsPath) {
-  $flowsPath = Join-Path $repoRoot "flows"
-  New-Item -ItemType Directory -Force -Path $flowsPath | Out-Null
+$repoRoot   = Resolve-RepoRoot -Start $scriptRoot
+
+# Resolve flows dir
+$flowsPathCandidate = Join-Path $repoRoot $FlowsDir
+if (-not (Test-Path $flowsPathCandidate)) {
+  $flowsPathCandidate = Join-Path $repoRoot "flows"
+  New-Item -ItemType Directory -Force -Path $flowsPathCandidate | Out-Null
 }
-$flowsPath = Resolve-Path $flowsPath
+$flowsPath = Resolve-Path $flowsPathCandidate
 
 Write-Host "[i] Repo root: $repoRoot" -ForegroundColor Yellow
 Write-Host "[i] Flows dir: $flowsPath" -ForegroundColor Yellow
@@ -87,60 +89,66 @@ Write-Host "[i] Mode: $Mode" -ForegroundColor Yellow
 
 Push-Location $repoRoot
 try {
-  # Quick container sanity
-  Exec -File "docker" -Args @("ps","--format","table {{.Names}}\t{{.Status}}")
-  Exec -File "docker" -Args @("inspect","$Container","--format","{{.Name}}") | Out-Null
+  # Container exists?
+  Exec "docker" @("inspect",$Container,"--format","{{.Name}}") | Out-Null
+
+  # Use tmp dirs under /home/node to minimize permission issues
+  $tmpExport = "/home/node/n8n_export"
+  $tmpImport = "/home/node/n8n_import"
 
   if ($Mode -eq "export") {
-    # Export from container to host
-    $tmpInContainer = "/tmp/n8n_export"
-    Write-Host "[i] Preparing container export dir $tmpInContainer" -ForegroundColor Cyan
-    Docker-Exec-Sh -Container $Container -ShellCommand "rm -rf $tmpInContainer && mkdir -p $tmpInContainer"
+    # Prepare export dir (as root, then chown to node)
+    Write-Host "[i] Preparing container export dir $tmpExport" -ForegroundColor Cyan
+    Docker-Exec-Sh -Container $Container -User "0" -ShellCommand "rm -rf '$tmpExport' && mkdir -p '$tmpExport' && chown -R node:node '$tmpExport'"
 
-    Write-Host "[i] Running: n8n export:workflow --all --pretty --separate --output $tmpInContainer" -ForegroundColor Cyan
-    Docker-Exec-Sh -Container $Container -ShellCommand "n8n export:workflow --all --pretty --separate --output $tmpInContainer"
+    Write-Host "[i] Running export in container" -ForegroundColor Cyan
+    # Tolerate 'No workflows found'
+    Docker-Exec-Sh -Container $Container -ShellCommand "n8n export:workflow --all --pretty --separate --output '$tmpExport' || true"
 
-    # Copy back to host flows dir
+    # Count exported files
+    $countOut = Exec "docker" @("exec","-i",$Container,"sh","-lc","ls -1 $tmpExport/*.json 2>/dev/null | wc -l")
+    $count = [int]($countOut.Trim())
+
     $dest = Join-Path $flowsPath "export"
     if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
-    $containerSrc = Join-ContainerPath -Container $Container -Path $tmpInContainer
-    Exec -File "docker" -Args @("cp", $containerSrc, "$dest")
-
-    Write-Host "[ok] Export completed -> $dest" -ForegroundColor Green
-    Write-Host "[i] Files:" -ForegroundColor DarkGray
-    Get-ChildItem -Path $dest -Recurse -File | Select-Object -First 10 | ForEach-Object { Write-Host " - $($_.FullName)" }
-
-  } elseif ($Mode -eq "import") {
-    # Import from host to container
-    $srcDir = $flowsPath
-    if (-not (Get-ChildItem -Path $srcDir -Recurse -Include *.json -File -ErrorAction SilentlyContinue)) {
-      throw "No .json workflow files found under $srcDir. Place exported workflows there (or under $srcDir\export) and retry."
+    if ($count -gt 0) {
+      $containerSrc = Join-ContainerPath -Container $Container -Path $tmpExport
+      Exec "docker" @("cp", $containerSrc, "$dest") | Out-Null
+      Write-Host "[ok] Exported $count workflow file(s) -> $dest" -ForegroundColor Green
+      Write-Host "[i] Files (top 10):" -ForegroundColor DarkGray
+      Get-ChildItem -Path $dest -Recurse -File | Select-Object -First 10 | ForEach-Object { Write-Host " - $($_.FullName)" }
+    } else {
+      Write-Host "[i] No workflows in container. Created empty '$dest'." -ForegroundColor Yellow
     }
 
-    $tmpInContainer = "/tmp/n8n_import"
-    Write-Host "[i] Preparing container import dir $tmpInContainer" -ForegroundColor Cyan
-    Docker-Exec-Sh -Container $Container -ShellCommand "rm -rf $tmpInContainer && mkdir -p $tmpInContainer"
+  } elseif ($Mode -eq "import") {
+    # Prefer flows/export if present
+    $exportSub = Join-Path $flowsPath "export"
+    if (Test-Path $exportSub) { $importSource = $exportSub } else { $importSource = $flowsPath }
 
-    # If user has 'flows\export' use its content; else use flows root
-    $importSource = (Test-Path (Join-Path $srcDir "export")) ? (Join-Path $srcDir "export") : $srcDir
+    if (-not (Get-ChildItem -Path $importSource -Recurse -Include *.json -File -ErrorAction SilentlyContinue)) {
+      throw "No .json workflow files found under $importSource. Place exported workflows there (or under flows/export) and retry."
+    }
+
+    # Prepare import dir as root, then chown to node
+    Write-Host "[i] Preparing container import dir $tmpImport" -ForegroundColor Cyan
+    Docker-Exec-Sh -Container $Container -User "0" -ShellCommand "rm -rf '$tmpImport' && mkdir -p '$tmpImport' && chown -R node:node '$tmpImport'"
+
     Write-Host "[i] Copying workflows from $importSource to container..." -ForegroundColor Cyan
-    Exec -File "docker" -Args @("cp", "$importSource", (Join-ContainerPath -Container $Container -Path $tmpInContainer))
+    Exec "docker" @("cp", "$importSource", (Join-ContainerPath -Container $Container -Path $tmpImport)) | Out-Null
 
-    Write-Host "[i] Running: n8n import:workflow --separate --input $tmpInContainer/export" -ForegroundColor Cyan
-    # Try both /tmp/n8n_import/export and /tmp/n8n_import (depending on what we copied)
-    $cmd = @"
-if [ -d '$tmpInContainer/export' ]; then
-  n8n import:workflow --separate --input '$tmpInContainer/export';
-else
-  n8n import:workflow --separate --input '$tmpInContainer';
-fi
-"@
-    Docker-Exec-Sh -Container $Container -ShellCommand $cmd
+    # Fix ownership after cp (docker cp sets root)
+    Docker-Exec-Sh -Container $Container -User "0" -ShellCommand "chown -R node:node '$tmpImport'"
+
+    Write-Host "[i] Importing via n8n CLI" -ForegroundColor Cyan
+    $single = "if [ -d '$tmpImport/export' ]; then n8n import:workflow --separate --input '$tmpImport/export'; else n8n import:workflow --separate --input '$tmpImport'; fi"
+    Docker-Exec-Sh -Container $Container -ShellCommand $single
 
     Write-Host "[ok] Import completed." -ForegroundColor Green
     Write-Host "[i] Verify in n8n UI and activate the workflows." -ForegroundColor DarkGray
+
   } else {
     throw "Unsupported mode: $Mode"
   }

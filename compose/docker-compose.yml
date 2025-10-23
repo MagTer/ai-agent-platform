@@ -94,7 +94,7 @@ services:
       - OPENAI_API_BASE=http://litellm:4000
       - OPENAI_API_KEY=dummy
       - WEBUI_AUTH=True
-      - ENABLE_SIGNUP=false            # sätt False när första kontot är skapat
+      - ENABLE_SIGNUP=true            # sätt False när första kontot är skapat
     volumes:
       - ../openwebui/data:/app/backend/data
     ports:
