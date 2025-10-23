@@ -68,3 +68,16 @@ docker compose -f compose\docker-compose.yml up -d webfetch
 ```
 
 > Tips: kör `export` direkt efter att du sparat ändringar i n8n:s UI så att git-versionen alltid är uppdaterad. Var försiktig med hemligheter om du väljer att inkludera credentials i repo:t.
+
+## Open WebUI Config Dumps
+
+```powershell
+# Spara nuvarande Open WebUI-databas som SQL-dump (för verktyg, presets m.m.)
+./scripts/OpenWebUI-Config.ps1 export
+
+# Återställ UI:t från senast exporterade dumpen
+./scripts/OpenWebUI-Config.ps1 import
+```
+
+> Importen skriver över `/app/backend/data/app.db`. Stoppa gärna containern eller
+se till att inga användare är aktiva för att undvika låsningar.

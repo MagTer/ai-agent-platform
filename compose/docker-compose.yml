@@ -95,6 +95,8 @@ services:
       - OPENAI_API_KEY=dummy
       - WEBUI_AUTH=True
       - ENABLE_SIGNUP=false            # sätt False när första kontot är skapat
+    volumes:
+      - ../openwebui/data:/app/backend/data
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
     depends_on: [litellm]

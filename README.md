@@ -34,3 +34,22 @@ Version-controlled backups of the automation workflows live in [`flows/`](./flow
 4. Add `-IncludeCredentials` to include `flows/credentials.json` in both directions when you intentionally want to version-control secrets.
 
 > Tip: Edit workflows directly in the n8n UI, then run `export` so the repo stays up to date. See [`flows/README.md`](./flows/README.md) for examples.
+
+## Open WebUI Config Sync
+
+Open WebUI stores its state in a SQLite database. The stack now mounts
+[`openwebui/data`](./openwebui/data) into the container so the UI is
+reproducible between restarts, while the helper script
+[`scripts/OpenWebUI-Config.ps1`](./scripts/OpenWebUI-Config.ps1) converts the
+database into a text dump for git:
+
+```powershell
+# Dump the current UI config (tools, presets, settings) to openwebui/export/app.db.sql
+./scripts/OpenWebUI-Config.ps1 export
+
+# Restore the running instance from the dump
+./scripts/OpenWebUI-Config.ps1 import
+```
+
+Commit the SQL dump after adding tools (e.g., the `n8n_action` REST hook) so the
+automation remains reproducible.
