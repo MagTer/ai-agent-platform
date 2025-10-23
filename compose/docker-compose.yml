@@ -92,13 +92,34 @@ services:
     restart: unless-stopped
     environment:
       - OPENAI_API_BASE=http://litellm:4000
-      - OPENAI_API_KEY=dummy         
+      - OPENAI_API_KEY=dummy
       - WEBUI_AUTH=True
       - ENABLE_SIGNUP=false            # sätt False när första kontot är skapat
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
     depends_on: [litellm]
 
+  n8n:
+    container_name: n8n
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    environment:
+      - TZ=${TIMEZONE:-Europe/Stockholm}
+      - GENERIC_TIMEZONE=${TIMEZONE:-Europe/Stockholm}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - N8N_HOST=${N8N_HOST:-localhost}
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
 volumes:
   ollama_data:
   qdrant_data:
+  n8n_data:
