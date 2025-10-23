@@ -54,20 +54,17 @@ docker compose -f compose\docker-compose.yml up -d webfetch
 ```
 
 ## n8n Backups & Restore
+
 ```powershell
-# Export all workflows & credentials to mounted volume
-docker exec n8n mkdir -p /home/node/.n8n/export
-docker exec n8n n8n export:workflow --all --output /home/node/.n8n/export/workflows.json
-docker exec n8n n8n export:credentials --all --output /home/node/.n8n/export/credentials.json
+# Exportera alla workflows till repo:t (skapar/uppdaterar flows/workflows/*.json)
+.\scripts\N8N-Workflows.ps1 export
 
-# Copy exports to host repo (e.g., ./flows)
-docker cp n8n:/home/node/.n8n/export .\flows
+# Importera workflows från repo:t till körande n8n-container
+.\scripts\N8N-Workflows.ps1 import
 
-# Restore after clean environment
-docker cp .\flows\workflows.json n8n:/home/node/.n8n/import-workflows.json
-docker exec n8n n8n import:workflow --input /home/node/.n8n/import-workflows.json --separate
-docker cp .\flows\credentials.json n8n:/home/node/.n8n/import-credentials.json
-docker exec n8n n8n import:credentials --input /home/node/.n8n/import-credentials.json
+# Ta även med credentials (lagras i flows/credentials.json)
+.\scripts\N8N-Workflows.ps1 export -IncludeCredentials
+.\scripts\N8N-Workflows.ps1 import -IncludeCredentials
 ```
 
-> Tips: keep exports in git (with secrets redacted) and rely on the `n8n_data` volume for quick local recovery. Consider scripting these steps once we stabilise the workflow catalogue.
+> Tips: kör `export` direkt efter att du sparat ändringar i n8n:s UI så att git-versionen alltid är uppdaterad. Var försiktig med hemligheter om du väljer att inkludera credentials i repo:t.

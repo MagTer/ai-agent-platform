@@ -22,3 +22,15 @@ irm http://localhost:5678/healthz
 # - Research end-to-end (POST JSON)
 $b=@{ query="Summarize pros/cons of Qdrant (Swedish)"; k=2; lang="sv" } | ConvertTo-Json -Compress
 irm http://localhost:8081/research -Method POST -ContentType 'application/json' -Body $b
+```
+
+## n8n Workflow Sync
+
+Version-controlled backups of the automation workflows live in [`flows/`](./flows). Use the PowerShell helper [`scripts/N8N-Workflows.ps1`](./scripts/N8N-Workflows.ps1) to keep the repository and the running n8n instance in sync:
+
+1. The script verifies that the `n8n` container is running before attempting any action.
+2. `export` runs `n8n export:workflow` inside the container, copies the result into `flows/workflows.json`, and regenerates one JSON file per workflow under `flows/workflows/` (removing any stale files).
+3. `import` bundles the JSON files from `flows/workflows/` (or the combined file as a fallback) and feeds them back into `n8n import:workflow` for a clean restore.
+4. Add `-IncludeCredentials` to include `flows/credentials.json` in both directions when you intentionally want to version-control secrets.
+
+> Tip: Edit workflows directly in the n8n UI, then run `export` so the repo stays up to date. See [`flows/README.md`](./flows/README.md) for examples.
