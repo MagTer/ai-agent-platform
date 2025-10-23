@@ -17,6 +17,8 @@ cp .env.template .env
 # 3) Smoke tests
 # - Webfetch health
 irm http://localhost:8081/health
+# - Actions orchestrator health
+irm http://localhost:5678/healthz
 # - Research end-to-end (POST JSON)
 $b=@{ query="Summarize pros/cons of Qdrant (Swedish)"; k=2; lang="sv" } | ConvertTo-Json -Compress
 irm http://localhost:8081/research -Method POST -ContentType 'application/json' -Body $b

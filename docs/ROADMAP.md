@@ -21,7 +21,7 @@
 - Capability catalog checked in
 
 **MVP Steps:**
-- M1.1: Add n8n service + health + persisted data
+- M1.1: Add n8n service + health + persisted data ✅
 - M1.2: Import and activate `agent_echo` workflow
 - M1.3: Open WebUI POST tool `n8n_action` (JSON body)
 - M1.4: Capability catalog v0 (YAML/JSON) and mapping Function node
