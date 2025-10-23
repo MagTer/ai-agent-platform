@@ -33,10 +33,12 @@ docker compose -f compose\docker-compose.yml ps
 $b=@{ query="RAG i kundsupport"; k=2; lang="sv" } | ConvertTo-Json -Compress
 irm http://localhost:8081/research -Method POST -ContentType 'application/json' -Body $b
 
-# Placeholder: Actions echo (activate once workflow is imported)
-# $payload=@{ action="agent.echo"; args=@{ message="ping" } } | ConvertTo-Json -Compress
-# irm http://localhost:5678/webhook/agent -Method POST -ContentType 'application/json' -Body $payload
+# Actions echo
+$payload=@{ action="agent.echo"; args=@{ message="ping" } } | ConvertTo-Json -Compress
+irm http://localhost:5678/webhook/agent -Method POST -ContentType 'application/json' -Body $payload
 ```
+
+> Förväntat svar (JSON): `{"ok":true,"action":"agent.echo","received":{"args":{"message":"ping"},"raw":{"action":"agent.echo","args":{"message":"ping"}}},"meta":{"headers":{...},"query":{...}},"timestamp":"..."}`
 
 ## Common Issues
 - **403 from SearxNG** → set `BASE_URL=http://searxng:8080/` in compose (internally consistent host).
