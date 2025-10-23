@@ -7,14 +7,14 @@
 - **searxng** — meta-search
 - **webfetch** — FastAPI: search → extract → summarize via LiteLLM
 - **qdrant** — vector database
-- **n8n** *(planned/next)* — action orchestrator (webhook “Single Wrapper”)
+- **n8n** — action orchestrator (webhook “Single Wrapper”)
 
 ## Default Ports (override via `.env`)
 OPENWEBUI=3000 · LITELLM=4000 · QDRANT=6333 · OLLAMA=11434 · SEARXNG=8080 · FETCHER=8081 · N8N=5678
 
 ## Data & Persistence
 - Models: `data/ollama` (bind mount) or named volume with `-KeepVolumes`.
-- n8n data: `data/n8n`.
+- n8n data: named volume `n8n_data` (`/home/node/.n8n`).
 - Backups: scripts under `/scripts/` (planned).
 
 ## Flows

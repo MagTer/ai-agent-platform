@@ -15,6 +15,7 @@ cp .env.template .env
 ```powershell
 # Health
 irm http://localhost:8081/health
+irm http://localhost:5678/healthz
 
 # Compose status
 docker compose -f compose\docker-compose.yml ps
