@@ -6,6 +6,8 @@ cp .env.template .env
 .\scripts\Stack-Up.ps1
 ```
 
+> **Models**: `Stack-Up.ps1` currently ensures the Ollama models `llama3:8b` and `fcole90/ai-sweden-gpt-sw3:6.7b` are present in the `ollama` container.
+
 ## Stop
 ```powershell
 .\scripts\Stack-Down.ps1 -KeepVolumes   # keep models/data
