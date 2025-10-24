@@ -1,0 +1,38 @@
+# SearXNG settings (patch over defaults)
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "SearXNG (internal)"
+
+search:
+  safe_search: 1
+  default_lang: "sv-SE"
+  autocomplete: "duckduckgo"
+
+server:
+  # Viktigt: intern URL för andra containers
+  base_url: "http://searxng:8080/"
+  secret_key: "change_me_minimal"
+  limiter: false
+  image_proxy: false
+  public_instance: false
+  http_protocol_version: "1.1"
+
+botdetection:
+  enabled: false
+
+outgoing:
+  useragent_suffix: "webfetch/1.0"
+
+# Minimal, stabil motoruppsättning
+engines:
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    timeout: 3.0
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    base_url: "https://$lang.wikipedia.org/"
+    timeout: 3.0
