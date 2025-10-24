@@ -1,0 +1,37 @@
+# Minimal stable SearxNG settings for internal use
+server:
+  base_url: http://searxng:8080/
+  secret_key: "change_me_minimal"
+  limiter: false
+  image_proxy: false
+
+botdetection:
+  enabled: false
+
+ui:
+  static_use_hash: true
+
+search:
+  safe_search: 1
+  language: "sv-SE"
+
+outgoing:
+  useragent_suffix: "webfetch/1.0"
+
+engines:
+  # General web
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    timeout: 3.0
+  # Images (optional; kan kommenteras ut om onödig)
+  - name: duckduckgo images
+    engine: duckduckgo_images
+    categories: images
+    timeout: 3.0
+  # Wiki
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    base_url: https://$lang.wikipedia.org/
+    timeout: 3.0

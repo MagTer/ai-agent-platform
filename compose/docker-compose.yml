@@ -1,17 +1,16 @@
 services:
   searxng:
-    container_name: searxng
     image: searxng/searxng:latest
     restart: unless-stopped
     ports:
       - "${SEARXNG_PORT:-8080}:8080"
     environment:
-      - BASE_URL=http://searxng:${SEARXNG_PORT:-8080}/
+      - BASE_URL=http://searxng:8080/
       - SEARXNG_SECRET=change_me
-      - AUTOCOMPLETE=duckduckgo
-      - RESULT_PROXY=false
+    volumes:
+      - ../searxng/searxng.settings.yml:/etc/searxng/settings.yml:ro
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://searxng:${SEARXNG_PORT:-8080}/"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -94,7 +93,7 @@ services:
       - OPENAI_API_BASE=http://litellm:4000
       - OPENAI_API_KEY=dummy
       - WEBUI_AUTH=True
-      - ENABLE_SIGNUP=true            # sätt False när första kontot är skapat
+      - ENABLE_SIGNUP=False
     volumes:
       - ../openwebui/data:/app/backend/data
     ports:
