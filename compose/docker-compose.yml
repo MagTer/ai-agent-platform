@@ -26,7 +26,7 @@ services:
     environment:
       - SEARXNG_URL=http://searxng:8080
       - LITELLM_BASE=http://litellm:4000
-      - DEFAULT_MODEL=local/llama3-8b
+      - DEFAULT_MODEL=local/qwen2.5:14b-instruct-q4_K_M
       - REQUEST_TIMEOUT=15
       - MAX_WORKERS=4
     ports:

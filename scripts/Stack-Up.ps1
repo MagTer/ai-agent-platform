@@ -11,11 +11,11 @@ $ErrorActionPreference = "Stop"
 # ---- Configuration ----
 # Add more models as needed (e.g., "qwen2.5:7b")
 $Models = @(
-  "llama3:8b",
-  "fcole90/ai-sweden-gpt-sw3:6.7b"
+  "qwen2.5:14b-instruct-q4_K_M"
 )
+
 $OllamaHealthTimeoutSec  = 120
-$LiteLLMHealthTimeoutSec = 60
+$LiteLLMHealthTimeoutSec = 120
 
 function Find-ComposePath {
   param([string]$StartDir)
