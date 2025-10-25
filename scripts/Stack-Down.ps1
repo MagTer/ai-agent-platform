@@ -1,8 +1,11 @@
 <# Brings the stack down from anywhere (double-click friendly).
-   By default removes volumes. Use -KeepVolumes to preserve data. ASCII-only. #>
+   Keeps volumes by default. Use -RemoveVolumes to purge data. ASCII-only. #>
 
 [CmdletBinding()]
-param([switch]$KeepVolumes)
+param(
+  [switch]$RemoveVolumes,
+  [switch]$KeepVolumes
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -29,14 +32,64 @@ $composeFile = Find-ComposePath -StartDir $PSScriptRoot
 if (-not $composeFile) { Write-Error "Could not find compose\docker-compose.yml upward from $PSScriptRoot"; exit 1 }
 $repoRoot = Split-Path (Split-Path $composeFile -Parent) -Parent
 
+function Get-EnvValue {
+  param(
+    [Parameter(Mandatory)][string]$FilePath,
+    [Parameter(Mandatory)][string]$Key
+  )
+
+  if (-not (Test-Path $FilePath)) { return $null }
+
+  foreach ($line in Get-Content $FilePath) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+
+    $idx = $trimmed.IndexOf('=')
+    if ($idx -lt 0) { continue }
+
+    $name  = $trimmed.Substring(0, $idx).Trim()
+    $value = $trimmed.Substring($idx + 1).Trim()
+    if ($name -ne $Key) { continue }
+
+    if ($value.StartsWith('"') -and $value.EndsWith('"')) { return $value.Trim('"') }
+    if ($value.StartsWith("'") -and $value.EndsWith("'")) { return $value.Trim("'") }
+    return $value
+  }
+
+  return $null
+}
+
+$composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'COMPOSE_PROJECT_NAME'
+if (-not $composeProjectName) {
+  $composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env.template') -Key 'COMPOSE_PROJECT_NAME'
+}
+
+$composeArgs = @('-f', $composeFile)
+if ($composeProjectName) {
+  $composeArgs += @('-p', $composeProjectName)
+}
+
+if ($RemoveVolumes -and $KeepVolumes) {
+  Write-Error "Cannot specify both -RemoveVolumes and -KeepVolumes."; exit 1
+}
+
+$removeVolumes = $false
+if ($RemoveVolumes) {
+  $removeVolumes = $true
+} elseif ($KeepVolumes) {
+  $removeVolumes = $false
+}
+
 Push-Location $repoRoot
 try {
-  if ($true) {
-    Say "[i] Bringing stack down (keeping volumes)..." "Yellow"
-    docker compose -f $composeFile down --remove-orphans
-  } else {
+  if ($composeProjectName) { Say "[i] Using compose project: $composeProjectName" "Yellow" }
+
+  if ($removeVolumes) {
     Say "[i] Bringing stack down and removing volumes..." "Yellow"
-    docker compose -f $composeFile down -v --remove-orphans
+    docker compose @composeArgs down -v --remove-orphans
+  } else {
+    Say "[i] Bringing stack down (keeping volumes)..." "Yellow"
+    docker compose @composeArgs down --remove-orphans
   }
   Say "[OK] Stack is down." "Green"
 }
