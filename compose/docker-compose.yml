@@ -95,7 +95,7 @@ services:
       - OPENAI_API_BASE=http://litellm:4000
       - OPENAI_API_KEY=dummy
       - WEBUI_AUTH=True
-      - ENABLE_SIGNUP=False
+      - ENABLE_SIGNUP=True
     volumes:
       - ../openwebui/data:/app/backend/data
     ports:
