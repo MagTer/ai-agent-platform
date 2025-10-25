@@ -83,12 +83,50 @@ $composeFile = Find-ComposePath -StartDir $PSScriptRoot
 if (-not $composeFile) { Write-Error "Could not find compose\docker-compose.yml upward from $PSScriptRoot"; exit 1 }
 $repoRoot = Split-Path (Split-Path $composeFile -Parent) -Parent
 
+function Get-EnvValue {
+  param(
+    [Parameter(Mandatory)][string]$FilePath,
+    [Parameter(Mandatory)][string]$Key
+  )
+
+  if (-not (Test-Path $FilePath)) { return $null }
+
+  foreach ($line in Get-Content $FilePath) {
+    $trimmed = $line.Trim()
+    if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+
+    $idx = $trimmed.IndexOf('=')
+    if ($idx -lt 0) { continue }
+
+    $name  = $trimmed.Substring(0, $idx).Trim()
+    $value = $trimmed.Substring($idx + 1).Trim()
+    if ($name -ne $Key) { continue }
+
+    if ($value.StartsWith('"') -and $value.EndsWith('"')) { return $value.Trim('"') }
+    if ($value.StartsWith("'") -and $value.EndsWith("'")) { return $value.Trim("'") }
+    return $value
+  }
+
+  return $null
+}
+
+$composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'COMPOSE_PROJECT_NAME'
+if (-not $composeProjectName) {
+  $composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env.template') -Key 'COMPOSE_PROJECT_NAME'
+}
+
+$composeArgs = @('-f', $composeFile)
+if ($composeProjectName) {
+  $composeArgs += @('-p', $composeProjectName)
+}
+
 Push-Location $repoRoot
 try {
   if (-not (Test-Path $composeFile)) { Write-Error "compose/docker-compose.yml is missing."; exit 1 }
 
   Say "[i] Starting stack using: $composeFile" "Yellow"
-  docker compose -f $composeFile up -d
+  if ($composeProjectName) { Say "[i] Using compose project: $composeProjectName" "Yellow" }
+  docker compose @composeArgs up -d
 
   # Wait for Ollama health
   $ollamaPort = Get-MappedPort -ContainerName "ollama" -InternalPort 11434
@@ -111,7 +149,7 @@ try {
 
   # Show status
   Say "[i] Containers status:" "Cyan"
-  docker compose -f $composeFile ps
+  docker compose @composeArgs ps
 
   Say "[OK] Stack is up and models are ensured." "Green"
 }
