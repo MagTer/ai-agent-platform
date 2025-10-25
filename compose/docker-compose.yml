@@ -1,20 +1,21 @@
 services:
   searxng:
-    container_name: searxng
     image: searxng/searxng:latest
-    restart: unless-stopped
+    container_name: searxng
     ports:
-      - "${SEARXNG_PORT:-8080}:8080"
-    environment:
-      - BASE_URL=http://searxng:8080/
-      - SEARXNG_SECRET=change_me
+      - "8080:8080"
     volumes:
       - ../searxng/settings.yml:/etc/searxng/settings.yml:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
-      interval: 10s
-      timeout: 3s
-      retries: 10
+    environment:
+      - SEARXNG_SECRET=jlsjfjojefisjeofijsoejfse
+      - SEARXNG_BASE_URL=http://searxng:8080/
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
 
   webfetch:
     container_name: webfetch
@@ -111,6 +112,7 @@ services:
       - N8N_PORT=5678
       - N8N_PROTOCOL=http
       - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
     ports:
       - "${N8N_PORT:-5678}:5678"
     volumes:

@@ -1,38 +1,98 @@
-# SearXNG settings (patch over defaults)
+# SearXNG settings.yml 
+
 use_default_settings: true
 
 general:
   debug: false
-  instance_name: "SearXNG (internal)"
+  instance_name: "SearXNG"
+  contact_url: false
+  enable_metrics: false
+
+brand:
+  new_issue_url: ""
+  docs_url: ""
+  public_instances: ""
+  wiki_url: ""
 
 search:
-  safe_search: 1
+  safe_search: 0
+  autocomplete: ""
   default_lang: "sv-SE"
-  autocomplete: "duckduckgo"
+  ban_time_on_fail: 5
+  max_ban_time_on_fail: 120
+  formats:
+    - html
+    - json
 
 server:
-  # Viktigt: intern URL för andra containers
-  base_url: "http://searxng:8080/"
-  secret_key: "change_me_minimal"
+  port: 8080
+  bind_address: "0.0.0.0"
+  secret_key: "jlsjfjojefisjeofijsoejfse"  # ÄNDRA DETTA!
   limiter: false
-  image_proxy: false
-  public_instance: false
-  http_protocol_version: "1.1"
+  image_proxy: true
+  method: "POST"
+  default_http_headers:
+    X-Content-Type-Options: nosniff
+    X-Download-Options: noopen
+    X-Robots-Tag: noindex, nofollow
+    Referrer-Policy: no-referrer
 
-botdetection:
-  enabled: false
+ui:
+  static_use_hash: true
+  default_theme: simple
+  query_in_title: false
+  infinite_scroll: false
+  center_alignment: false
+  default_locale: "sv"
 
 outgoing:
-  useragent_suffix: "webfetch/1.0"
+  request_timeout: 3.0
+  max_request_timeout: 15.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
+  verify: true
 
-# Minimal, stabil motoruppsättning
+redis:
+  url: false
+
+# Enbart sökmotorer som faktiskt fungerar
 engines:
   - name: duckduckgo
     engine: duckduckgo
     shortcut: ddg
-    timeout: 3.0
+    disabled: false
+
+  - name: google
+    engine: google
+    shortcut: go
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+
   - name: wikipedia
     engine: wikipedia
     shortcut: wp
-    base_url: "https://$lang.wikipedia.org/"
-    timeout: 3.0
+    disabled: false
+
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+
+enabled_plugins:
+  - 'Hash plugin'
+  - 'Self Information'
+  - 'Tracker URL remover'
+
+disabled_plugins:
+  - 'Hostnames plugin'
