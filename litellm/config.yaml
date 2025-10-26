@@ -34,6 +34,23 @@ model_list:
       max_output_tokens: 2048
       reuse_client: true
       stream: true
+  - model_name: rag/qwen2.5-en
+    display_name: "RAG → Qwen 2.5 EN"
+    litellm_params:
+      # Route to OpenAI-compatible RAG proxy
+      model: openai/gpt-3.5-turbo
+      api_base: http://ragproxy:4080
+      temperature: 0.35
+      max_output_tokens: 2048
+      stream: true
+  - model_name: rag/qwen2.5-sv
+    display_name: "RAG → Qwen 2.5 SV 🇸🇪"
+    litellm_params:
+      model: openai/gpt-3.5-turbo
+      api_base: http://ragproxy:4080
+      temperature: 0.3
+      max_output_tokens: 2048
+      stream: true
       messages:
         - role: system
           content: >

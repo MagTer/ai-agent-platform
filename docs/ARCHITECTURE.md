@@ -7,8 +7,9 @@
 - **searxng** — meta-search
 - **webfetch** — FastAPI: search → extract → summarize via LiteLLM
 - **qdrant** — vector database
-- **embedder (CPU)** — sentence-transformers (MiniLM L12 v2, 384d) for embeddings
-- **n8n** — action orchestrator (webhook “Single Wrapper”)
+ - **embedder (CPU)** — sentence-transformers (MiniLM L12 v2, 384d) for embeddings
+ - **n8n** — action orchestrator (webhook “Single Wrapper”)
+ - **ragproxy** — OpenAI‑kompatibel pre‑processor som injicerar Qdrant‑träffar före LiteLLM
 
 ## Default Ports (override via `compose/.env`)
 OPENWEBUI=3000 · LITELLM=4000 · QDRANT=6333 · OLLAMA=11434 · SEARXNG=8080 · FETCHER=8081 · N8N=5678
@@ -21,10 +22,13 @@ OPENWEBUI=3000 · LITELLM=4000 · QDRANT=6333 · OLLAMA=11434 · SEARXNG=8080 ·
 ## Flows
 
 ### Research
-Open WebUI → (tool) `research_web` → `webfetch` →
-  - Query embeddings (embedder, CPU) → Qdrant retrieval
-  - Web: SearxNG + extraction
-→ Fusion → LiteLLM → Ollama → concise summary + sources.
+Open WebUI → LiteLLM (`rag/qwen2.5-*`) → ragproxy →
+  - Query embeddings (embedder, CPU) → Qdrant retrieval (MMR + dedup)
+  - Injektion av kontext i prompt (sv/en profil)
+→ LiteLLM → Ollama/Qwen → svar med källor.
+
+Alt (parallellt stöd):
+Open WebUI → (tool) `research_web` → `webfetch` (web + memory fusion) → LiteLLM → Ollama.
 
 ### Actions (target)
 Open WebUI → (tool) `n8n_action` → n8n `/webhook/agent` → capability mapping → provider flow (GitHub/ADO/M365/…).

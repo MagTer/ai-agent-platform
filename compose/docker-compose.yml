@@ -79,10 +79,11 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:6333/readyz"]
-      interval: 10s
-      timeout: 3s
-      retries: 20
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || wget -qO- http://localhost:6333/readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
 
   embedder:
     container_name: embedder
@@ -93,8 +94,12 @@ services:
     environment:
       - MODEL_NAME=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
       - NORMALIZE=true
+      - OMP_NUM_THREADS=2
+      - TOKENIZERS_PARALLELISM=false
     ports:
       - "${EMBEDDER_PORT:-8082}:8082"
+    volumes:
+      - embedder_cache:/root/.cache
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/health"]
       interval: 10s
@@ -143,6 +148,34 @@ services:
       timeout: 3s
       retries: 20
 
+  ragproxy:
+    container_name: ragproxy
+    build:
+      context: ../ragproxy
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - EMBEDDER_BASE=http://embedder:8082
+      - QDRANT_URL=http://qdrant:6333
+      - LITELLM_BASE=http://litellm:4000
+      - QDRANT_TOP_K=${QDRANT_TOP_K:-5}
+      - MMR_LAMBDA=${MMR_LAMBDA:-0.7}
+      - ENABLE_RAG=${ENABLE_RAG:-true}
+      - RAG_MAX_SOURCES=${RAG_MAX_SOURCES:-5}
+      - RAG_MAX_CHARS=${RAG_MAX_CHARS:-1200}
+    depends_on:
+      embedder:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      litellm:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
   n8n:
     container_name: n8n
     image: n8nio/n8n:latest
@@ -168,3 +201,4 @@ volumes:
   ollama_data:
   qdrant_data:
   n8n_data:
+  embedder_cache:

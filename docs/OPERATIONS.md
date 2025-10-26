@@ -38,7 +38,15 @@ $b=@{ query="RAG i kundsupport"; k=2; lang="sv" } | ConvertTo-Json -Compress
 irm http://localhost:8081/research -Method POST -ContentType 'application/json' -Body $b
 
 # Retrieval debug (minnes- + webbträffar utan LLM)
-irm "http://localhost:8081/retrieval_debug?q=Qdrant" | ConvertFrom-Json | Format-List
+# Obs: irm returnerar redan ett objekt — använd Format-List istället för ConvertFrom-Json
+irm "http://localhost:8081/retrieval_debug?q=Qdrant" | Format-List *
+
+# Visa endast minnesträffar (url + kort snippet)
+$r = irm "http://localhost:8081/retrieval_debug?q=Qdrant"
+$r.memory | Select-Object url, @{n='snippet';e={$_.text.Substring(0, [Math]::Min(80, $_.text.Length))}}
+
+# Rå JSON (om du vill klistra in i issue/anteckning)
+irm "http://localhost:8081/retrieval_debug?q=Qdrant" | ConvertTo-Json -Depth 6
 
 # Actions echo
 $payload=@{ action="agent.echo"; args=@{ message="ping" } } | ConvertTo-Json -Compress
@@ -197,3 +205,37 @@ python .\indexer\ingest.py "https://example.com" "https://example.org"
 - `ENABLE_QDRANT=true|false` — slår på/av minnesåtervinning i `webfetch`.
 - `QDRANT_TOP_K=5` — hur många minnesträffar att blanda in.
 - `MMR_LAMBDA=0.7` — balans mellan relevans och diversitet (närmare 1 = mer relevans).
+
+### RAG via LiteLLM (ragproxy)
+
+Konfigureras via `compose/.env`:
+
+- `ENABLE_RAG=true|false` — global av/på för server‑side RAG i `ragproxy`.
+- `RAG_MAX_SOURCES=5` — max antal källor som injiceras.
+- `RAG_MAX_CHARS=1200` — max tecken per källa i prompten (klipps med "...").
+
+Använd modellerna `rag/qwen2.5-sv` eller `rag/qwen2.5-en` via LiteLLM (`http://localhost:4000/v1/chat/completions`).
+## Testa RAG via LiteLLM
+
+```bash
+curl -sS -X POST http://localhost:4000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "rag/qwen2.5-sv",
+    "messages": [
+      {"role":"user","content":"Sammanfatta huvudpunkter om n8n från kända källor på svenska och ange källor."}
+    ],
+    "temperature": 0.3
+  }'
+```
+
+PowerShell-variant:
+
+```powershell
+$body = @{ 
+  model = 'rag/qwen2.5-sv';
+  messages = @(@{ role='user'; content='Sammanfatta huvudpunkter om n8n på svenska och ange källor.' });
+  temperature = 0.3
+} | ConvertTo-Json -Compress
+irm http://localhost:4000/v1/chat/completions -Method POST -ContentType 'application/json' -Body $body
+```
