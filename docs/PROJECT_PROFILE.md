@@ -11,7 +11,7 @@ A local, containerized agent platform that can **do things** (not just reason), 
 
 ## Non-Functional Constraints
 - **Cost:** prefer local LLMs; route to premium only when necessary (rules in LiteLLM).
-- **Security:** secrets in `.env`, never committed; least-privilege creds.
+- **Security:** secrets in `compose/.env`, never committed; least-privilege creds.
 - **Portability:** Docker-first; optional Azure Container Apps later.
 - **Versioning:** everything as code (compose, config, flows, scripts).
 - **Recoverability:** reset scripts + persistence for models/data.

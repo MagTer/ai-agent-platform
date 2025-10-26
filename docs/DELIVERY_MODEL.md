@@ -6,7 +6,7 @@
 
 ## Definition of Done (DoD)
 - Code/config runs locally without manual edits.
-- `.env.template` updated for any new variables.
+- `compose/.env.template` updated for any new variables.
 - Smoke tests documented (copy/paste commands).
 - Reset/rollback documented (scripts or notes).
 - Security respected (no secrets in repo).
@@ -27,6 +27,6 @@
 
 ## Review Checklist
 - Cost impact understood (default to local models).
-- Secrets handled via `.env`/credential stores.
+- Secrets handled via `compose/.env`/credential stores.
 - Health checks & logs easy to access (scripts included).
 - The **capability** (not just component) is clearly improved.

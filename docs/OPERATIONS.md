@@ -2,8 +2,9 @@
 
 ## Start
 ```powershell
-cp .env.template .env
-.\scripts\Stack-Up.ps1
+# From repo root; env lives in compose/
+cp compose\.env.template compose\.env
+./scripts/Stack-Up.ps1
 ```
 
 > Models: `Stack-Up.ps1` säkerställer att basmodellen `qwen2.5:14b-instruct-q4_K_M` finns i `ollama`. Svensk profil tillhandahålls via LiteLLM‑aliaset `local/qwen2.5-sv` utan att skapa en separat Ollama‑modell.
@@ -140,7 +141,7 @@ se till att inga användare är aktiva för att undvika låsningar.
 
 För att slippa logga in efter varje omstart, använd en stabil signeringsnyckel:
 
-- Sätt `OPENWEBUI_SECRET` i `.env` (en lång slumpmässig sträng).
+- Sätt `OPENWEBUI_SECRET` i `compose/.env` (en lång slumpmässig sträng).
 - Compose injicerar den som `SECRET_KEY` och `WEBUI_JWT_SECRET` till containern.
 - Cookies förblir giltiga över container‑omstarter så länge hemligheten är densamma.
 
@@ -175,6 +176,18 @@ TTL för tokens (valfritt och versionsberoende):
 python .\indexer\ingest.py "https://example.com" "https://example.org"
 
 # Därefter påverkar Qdrant-minnet research-svaret via retrieval
+```
+
+Host-setup (om Python saknar beroenden)
+
+```powershell
+# Kör från repo-roten
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r indexer\requirements.txt
+
+# Kör ingestion
+python .\indexer\ingest.py "https://example.com" "https://example.org"
 ```
 
 ## Konfiguration (RAG)

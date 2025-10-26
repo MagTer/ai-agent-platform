@@ -59,9 +59,10 @@ function Get-EnvValue {
   return $null
 }
 
-$composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'COMPOSE_PROJECT_NAME'
+$composeDir = Split-Path $composeFile -Parent
+$composeProjectName = Get-EnvValue -FilePath (Join-Path $composeDir '.env') -Key 'COMPOSE_PROJECT_NAME'
 if (-not $composeProjectName) {
-  $composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env.template') -Key 'COMPOSE_PROJECT_NAME'
+  $composeProjectName = Get-EnvValue -FilePath (Join-Path $composeDir '.env.template') -Key 'COMPOSE_PROJECT_NAME'
 }
 
 $composeArgs = @('-f', $composeFile)
@@ -70,7 +71,7 @@ if ($composeProjectName) {
 }
 
 # Ensure compose reads the repo .env explicitly to avoid env resolution issues
-$envFile = Join-Path $repoRoot '.env'
+$envFile = Join-Path $composeDir '.env'
 if (Test-Path $envFile) {
   $composeArgs += @('--env-file', $envFile)
 }

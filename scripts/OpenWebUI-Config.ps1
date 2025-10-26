@@ -25,6 +25,10 @@ function Invoke-DockerCompose {
 
 $composeFilePath = (Resolve-Path -Path $ComposeFile).Path
 $composeArgs = @('compose','-f',$composeFilePath)
+# Add env-file from compose directory if present
+$composeDir = Split-Path -Path $composeFilePath -Parent
+$envFilePath = Join-Path $composeDir '.env'
+if (Test-Path -Path $envFilePath) { $composeArgs += @('--env-file', $envFilePath) }
 
 switch ($Command) {
     'export' {

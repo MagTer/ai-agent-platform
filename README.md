@@ -11,8 +11,8 @@
 # Context: run in PowerShell from the repo root
 # Example path: C:\AI\ai-agent-platform
 
-# 1) Copy environment and edit if needed
-cp .env.template .env
+# 1) Copy environment and edit if needed (env co-located with compose)
+cp compose\.env.template compose\.env
 
 # 2) Bring the stack up (PowerShell)
 .\scripts\Stack-Up.ps1

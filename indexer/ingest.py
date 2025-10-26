@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import time
+import uuid
 from typing import List
 
 import requests
@@ -25,8 +26,13 @@ def chunk_text(text: str, size: int = 800, overlap: int = 100) -> List[str]:
 
 
 def ensure_collection(client: QdrantClient, name: str, dim: int = 384):
-    if name not in [c.name for c in client.get_collections().collections or []]:
-        client.recreate_collection(name, vectors_config=VectorParams(size=dim, distance=Distance.COSINE))
+    try:
+        exists = client.collection_exists(name)
+    except Exception:
+        # Fallback for older clients
+        exists = name in [c.name for c in client.get_collections().collections or []]
+    if not exists:
+        client.create_collection(name, vectors_config=VectorParams(size=dim, distance=Distance.COSINE))
 
 
 def main():
@@ -74,9 +80,10 @@ def main():
     points = []
     ts = int(time.time())
     for (url, ix), vec, text in zip(mapping, vectors, texts):
-        pid = f"{sha256(url)}:{ix}"
+        # Qdrant allows integer or UUID ids; use a stable UUIDv5 from URL+chunk index
+        pid = uuid.uuid5(uuid.NAMESPACE_URL, f"{url}#{ix}")
         payload = {"url": url, "text": text, "chunk_ix": ix, "ts": ts, "source": "web"}
-        points.append(PointStruct(id=pid, vector=vec, payload=payload))
+        points.append(PointStruct(id=str(pid), vector=vec, payload=payload))
 
     qd.upsert(collection_name=args.collection, wait=True, points=points)
     print(f"Upserted {len(points)} chunks into '{args.collection}'")
@@ -84,4 +91,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -10,7 +10,7 @@
 - **embedder (CPU)** — sentence-transformers (MiniLM L12 v2, 384d) for embeddings
 - **n8n** — action orchestrator (webhook “Single Wrapper”)
 
-## Default Ports (override via `.env`)
+## Default Ports (override via `compose/.env`)
 OPENWEBUI=3000 · LITELLM=4000 · QDRANT=6333 · OLLAMA=11434 · SEARXNG=8080 · FETCHER=8081 · N8N=5678
 
 ## Data & Persistence
@@ -44,6 +44,6 @@ Baseline idag: `agent_echo`-workflowen (se `flows/workflows.json`) svarar med kv
 > _Alternative:_ evaluate [n8n git integration](https://docs.n8n.io/hosting/git-integration/) once we need collaborative editing or non-local deployments. For now, explicit export/import keeps secrets isolated and reproducible.
 
 ## Security Notes
-- Keep all secrets in `.env` (not committed).
+- Keep all secrets in `compose/.env` (not committed).
 - If exposing UIs, prefer Cloudflare/Tailscale or Zero Trust headers.
 - Webhooks (n8n) should be internal-only unless secured.

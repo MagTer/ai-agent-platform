@@ -47,7 +47,7 @@ try {
   if (Test-Path "compose\docker-compose.yml") {
     if (Get-Command docker -ErrorAction SilentlyContinue) {
       Say "[i] Validating docker compose config..." "Yellow"
-      $envFile = Join-Path $repoRoot '.env'
+      $envFile = Join-Path $repoRoot 'compose\.env'
       $args = @('compose','-f','compose\docker-compose.yml')
       if (Test-Path $envFile) { $args += @('--env-file', $envFile) }
       $args += 'config'
