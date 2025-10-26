@@ -3,7 +3,8 @@
 
 [CmdletBinding()]
 param(
-  [switch]$CheckLiteLLM = $true
+  [switch]$CheckLiteLLM = $true,
+  [switch]$Build
 )
 
 $ErrorActionPreference = "Stop"
@@ -139,7 +140,9 @@ try {
 
   Say "[i] Starting stack using: $composeFile" "Yellow"
   if ($composeProjectName) { Say "[i] Using compose project: $composeProjectName" "Yellow" }
-  docker compose @composeArgs up -d
+  $upArgs = @('up','-d')
+  if ($Build) { $upArgs += '--build' }
+  docker compose @composeArgs @upArgs
 
   # Wait for Ollama health
   $ollamaPort = Get-MappedPort -ContainerName "ollama" -InternalPort 11434

@@ -4,7 +4,9 @@
 ```powershell
 # From repo root; env lives in compose/
 cp compose\.env.template compose\.env
-./scripts/Stack-Up.ps1
+./scripts/Stack-Up.ps1              # start
+# or rebuild changed images then start
+./scripts/Stack-Up.ps1 -Build
 ```
 
 > Models: `Stack-Up.ps1` säkerställer att basmodellen `qwen2.5:14b-instruct-q4_K_M` finns i `ollama`. Svensk profil tillhandahålls via LiteLLM‑aliaset `local/qwen2.5-sv` utan att skapa en separat Ollama‑modell.
