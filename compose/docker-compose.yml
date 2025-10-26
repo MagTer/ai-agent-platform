@@ -111,8 +111,6 @@ services:
       - ENABLE_SIGNUP=True
       - SECRET_KEY=${OPENWEBUI_SECRET}
       - WEBUI_JWT_SECRET=${OPENWEBUI_SECRET}
-      - JWT_EXPIRES_IN=${OPENWEBUI_JWT_EXPIRES_IN}
-      - WEBUI_JWT_EXPIRES_IN=${OPENWEBUI_JWT_EXPIRES_IN}
     volumes:
       - ../openwebui/data:/app/backend/data
     ports:

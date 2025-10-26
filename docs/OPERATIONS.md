@@ -140,10 +140,9 @@ För att slippa logga in efter varje omstart, använd en stabil signeringsnyckel
 - Compose injicerar den som `SECRET_KEY` och `WEBUI_JWT_SECRET` till containern.
 - Cookies förblir giltiga över container‑omstarter så länge hemligheten är densamma.
 
-TTL för tokens:
-- Sätt `OPENWEBUI_JWT_EXPIRES_IN` i sekunder i `.env` (t.ex. `2592000` = 30 dagar).
-- Compose mappar det till `JWT_EXPIRES_IN`/`WEBUI_JWT_EXPIRES_IN` i containern.
-- Verifiera genom att dekoda JWT och kontrollera `exp`.
+TTL för tokens (valfritt och versionsberoende):
+- I vissa 0.6‑builds kan anpassad TTL ge felet "Invalid duration string". Om det händer – lämna TTL odefinierad och använd standard.
+- När stöd finns: sätt TTL via miljövariabler enligt projektets dokumentation för din version och verifiera i JWT `exp`.
 
 ## Svensk Qwen-profil via LiteLLM
 
