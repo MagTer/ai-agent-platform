@@ -7,6 +7,7 @@
 - **searxng** — meta-search
 - **webfetch** — FastAPI: search → extract → summarize via LiteLLM
 - **qdrant** — vector database
+- **embedder (CPU)** — sentence-transformers (MiniLM L12 v2, 384d) for embeddings
 - **n8n** — action orchestrator (webhook “Single Wrapper”)
 
 ## Default Ports (override via `.env`)
@@ -20,7 +21,10 @@ OPENWEBUI=3000 · LITELLM=4000 · QDRANT=6333 · OLLAMA=11434 · SEARXNG=8080 ·
 ## Flows
 
 ### Research
-Open WebUI → (tool) `research_web` → `webfetch` → SearxNG + extraction → LiteLLM → Ollama → concise summary + sources.
+Open WebUI → (tool) `research_web` → `webfetch` →
+  - Query embeddings (embedder, CPU) → Qdrant retrieval
+  - Web: SearxNG + extraction
+→ Fusion → LiteLLM → Ollama → concise summary + sources.
 
 ### Actions (target)
 Open WebUI → (tool) `n8n_action` → n8n `/webhook/agent` → capability mapping → provider flow (GitHub/ADO/M365/…).

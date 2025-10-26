@@ -18,6 +18,7 @@ cp .env.template .env
 # Health
 irm http://localhost:8081/health
 irm http://localhost:5678/healthz
+irm http://localhost:8082/health   # embedder
 
 # Compose status
 docker compose -f compose\docker-compose.yml ps
@@ -163,3 +164,12 @@ TTL för tokens (valfritt och versionsberoende):
 
 > Backup/restore använder en temporär Alpine-container med `--volumes-from qdrant` för
 > att läsa/skriva `/qdrant/storage`. Containern stoppas/startas automatiskt vid restore.
+
+## Ingestion (exempel)
+
+```powershell
+# Indexera en eller flera URL:er till Qdrant (collection: memory)
+python .\indexer\ingest.py "https://example.com" "https://example.org"
+
+# Därefter påverkar Qdrant-minnet research-svaret via retrieval
+```

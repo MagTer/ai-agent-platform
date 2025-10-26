@@ -34,6 +34,8 @@ services:
       - DEFAULT_MODEL=local/qwen2.5-en
       - REQUEST_TIMEOUT=15
       - MAX_WORKERS=4
+      - EMBEDDER_BASE=http://embedder:8082
+      - QDRANT_URL=http://qdrant:6333
     ports:
       - "${FETCHER_PORT:-8081}:8081"
     depends_on:
@@ -78,6 +80,23 @@ services:
       - qdrant_data:/qdrant/storage
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  embedder:
+    container_name: embedder
+    build:
+      context: ../embedder
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      - MODEL_NAME=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+      - NORMALIZE=true
+    ports:
+      - "${EMBEDDER_PORT:-8082}:8082"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/health"]
       interval: 10s
       timeout: 3s
       retries: 20

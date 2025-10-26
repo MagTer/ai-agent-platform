@@ -11,12 +11,15 @@ from fastapi import FastAPI, Query, Body, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import trafilatura
+from qdrant_client import QdrantClient
 
 # -----------------------------
 # Environment / defaults
 # -----------------------------
 SEARXNG_URL = os.getenv("SEARXNG_URL", "http://searxng:8080")
 LITELLM_BASE = os.getenv("LITELLM_BASE", "http://litellm:4000")
+EMBEDDER_BASE = os.getenv("EMBEDDER_BASE", "http://embedder:8082")
+QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 
 MODEL_EN = os.getenv("MODEL_EN", "local/qwen2.5-en")
 MODEL_SV = os.getenv("MODEL_SV", "local/qwen2.5-sv")
@@ -124,6 +127,57 @@ def fetch_and_extract(url: str) -> Dict[str, Any]:
         return data
 
 # -----------------------------
+# Embeddings via embedder service
+# -----------------------------
+def embed_texts(texts: List[str], normalize: bool = True) -> List[List[float]]:
+    try:
+        r = requests.post(
+            EMBEDDER_BASE.rstrip("/") + "/embed",
+            json={"inputs": texts, "normalize": normalize},
+            timeout=REQUEST_TIMEOUT * 2,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data.get("vectors", [])
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"embedder error: {e}")
+
+# -----------------------------
+# Qdrant retrieval (best-effort)
+# -----------------------------
+_qdrant: Optional[QdrantClient] = None
+
+def get_qdrant() -> QdrantClient:
+    global _qdrant
+    if _qdrant is None:
+        _qdrant = QdrantClient(url=QDRANT_URL)
+    return _qdrant
+
+def qdrant_query(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    try:
+        vecs = embed_texts([query])
+        if not vecs:
+            return []
+        vec = vecs[0]
+        client = get_qdrant()
+        res = client.search(
+            collection_name="memory",
+            query_vector=vec,
+            limit=top_k,
+            with_payload=True,
+        )
+        items = []
+        for p in res or []:
+            payload = p.payload or {}
+            url = payload.get("url")
+            text = payload.get("text") or ""
+            if url and text:
+                items.append({"ok": True, "url": url, "text": text, "source": "qdrant"})
+        return items
+    except Exception:
+        return []
+
+# -----------------------------
 # SearxNG search
 # -----------------------------
 @app.get("/search")
@@ -227,9 +281,19 @@ def _pick_model(model: Optional[str], lang: str) -> str:
 
 def _research_core(q: str, k: int, model: Optional[str], lang: str):
     chosen_model = _pick_model(model, lang)
+    # Memory (Qdrant) hits
+    mem_extracts = qdrant_query(q, top_k=min(5, k))
+    mem_urls = [m["url"] for m in mem_extracts if m.get("url")]
+
+    # Web
     s = search(q=q, k=k, lang=lang)
-    urls = [r["url"] for r in s["results"] if r.get("url")]
-    extracts = [fetch_and_extract(u) for u in urls]
+    web_urls = [r["url"] for r in s["results"] if r.get("url")]
+    web_extracts = [fetch_and_extract(u) for u in web_urls]
+
+    # Merge, prefer memory first
+    urls = mem_urls + [u for u in web_urls if u not in set(mem_urls)]
+    extracts = mem_extracts + web_extracts
+
     summary = summarize_with_litellm(chosen_model, q, urls, extracts, lang)
     return {"query": q, "model": chosen_model, "lang": lang, "sources": urls, "summary": summary}
 
