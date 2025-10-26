@@ -4,8 +4,8 @@
 # ==========================================
 
 model_list:
-  - model_name: local/qwen2.5
-    display_name: "Qwen 2.5 🇸🇪 (Svenska + Reasoning)"
+  - model_name: local/qwen2.5-en
+    display_name: "Qwen 2.5 EN (Reasoning)"
     litellm_params:
       model: ollama/qwen2.5:14b-instruct-q4_K_M
       api_base: http://ollama:11434
@@ -18,13 +18,15 @@ model_list:
       messages:
         - role: system
           content: >
-            Du är en kunnig och lugn AI-assistent som skriver på naturlig svenska.
-            Resonera steg för steg vid komplexa frågor, men håll svaren tydliga och konkreta.
-            Prioritera korrekt svenska och tydlig struktur.
+            You are a helpful, calm assistant. Prefer concise, clear answers.
+            Use step-by-step reasoning when needed, but avoid verbosity.
+            Maintain a professional and respectful tone.
+            If uncertain, say so and propose next steps.
+            IMPORTANT: Never use Chinese and never translate to Chinese.
   - model_name: local/qwen2.5-sv
     display_name: "Qwen 2.5 SV 🇸🇪 (Svensk profil)"
     litellm_params:
-      model: ollama/qwen2.5-sv
+      model: ollama/qwen2.5:14b-instruct-q4_K_M
       api_base: http://ollama:11434
       temperature: 0.4
       top_p: 0.9
@@ -32,6 +34,17 @@ model_list:
       max_output_tokens: 2048
       reuse_client: true
       stream: true
+      messages:
+        - role: system
+          content: >
+            Du är en hjälpsam, kunnig och vänlig assistent som skriver på korrekt, naturlig svenska
+            med god grammatik. Svara kortfattat och tydligt. Använd engelska endast när användaren
+            ber om det eller när ämnet kräver det (t.ex. kod, tekniska termer). Använd aldrig 
+            kinesiska och översätt inte till kinesiska. Håll en vänlig, professionell och respektfull
+            ton. Vid faktafrågor: svara säkert om du vet, annars förklara tydligt att du är osäker
+            och föreslå nästa steg. Skriv alltid grammatiskt korrekt svenska (inklusive skiljetecken
+            och ordföljd). Undvik långa utläggningar – ge hellre en sammanfattning och erbjud
+            fördjupning vid behov.
 
 # ---- Routing policy ----
 # (Behövs inte längre, men sparas för framtida expansion)

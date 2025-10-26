@@ -47,6 +47,20 @@ Skapa en preset som använder den svenska modellen via LiteLLM (`local/qwen2.5-s
 > Efter att presetet lagts till: kör `./scripts/OpenWebUI-Config.ps1 export` och committa
 > filen `openwebui/export/app.db.sql` så att konfigurationen är reproducerbar.
 
+## Preset för engelsk Qwen-modell
+
+Skapa en preset för engelska med krav att aldrig använda kinesiska.
+
+1. Öppna **Presets → Create Preset**.
+2. Namn: `English — Qwen 2.5`
+3. Välj provider: `OpenAI Compatible` (via LiteLLM)
+4. Modell: `local/qwen2.5-en`
+5. Temperatur: `0.35` (valfritt)
+6. Spara preset och gör den synlig i din standardvy.
+
+> Exportera alltid efter ändring: `./scripts/OpenWebUI-Config.ps1 export` och committa
+> `openwebui/export/app.db.sql`.
+
 ## Export till versionskontroll
 När verktyget är skapat ska Open WebUI-databasen exporteras så att konfigurationen
 kan checkas in:

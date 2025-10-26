@@ -120,6 +120,12 @@ if ($composeProjectName) {
   $composeArgs += @('-p', $composeProjectName)
 }
 
+# Ensure compose reads the repo .env explicitly to avoid env resolution issues
+$envFile = Join-Path $repoRoot '.env'
+if (Test-Path $envFile) {
+  $composeArgs += @('--env-file', $envFile)
+}
+
 Push-Location $repoRoot
 try {
   if (-not (Test-Path $composeFile)) { Write-Error "compose/docker-compose.yml is missing."; exit 1 }
@@ -133,16 +139,6 @@ try {
   Say "[i] Waiting for Ollama on port $ollamaPort ..."
   if (-not (Wait-HttpOk -Url "http://localhost:$ollamaPort/api/version" -TimeoutSec $OllamaHealthTimeoutSec)) {
     Write-Error "Ollama did not become healthy within timeout. See: docker logs ollama"; exit 1
-  }
-
-  # Ensure Swedish Qwen derived model exists
-  Write-Host "Kontrollerar att qwen2.5-sv finns..."
-  $exists = docker exec ollama ollama list | Select-String "qwen2.5-sv"
-  if (-not $exists) {
-    Write-Host "Skapar qwen2.5-sv från modelfile..."
-    docker exec -i ollama ollama create qwen2.5-sv -f /modelfiles/qwen2.5-sv.modelfile
-  } else {
-    Write-Host "qwen2.5-sv finns redan."
   }
 
   # Ensure models exist inside container

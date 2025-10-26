@@ -24,8 +24,6 @@ $b=@{ query="Summarize pros/cons of Qdrant (Swedish)"; k=2; lang="sv" } | Conver
 irm http://localhost:8081/research -Method POST -ContentType 'application/json' -Body $b
 ```
 
-> Models: Vid uppstart ser skriptet till att basmodellen `qwen2.5:14b-instruct-q4_K_M` finns i Ollama och skapar automatiskt den svenska profilen `qwen2.5-sv` från `ollama/models/qwen2.5-sv.modelfile` om den saknas. I LiteLLM exponeras den som `local/qwen2.5-sv`.
-
 ## n8n Workflow Sync
 
 Version-controlled backups of the automation workflows live in [`flows/`](./flows). Use the PowerShell helper [`scripts/N8N-Workflows.ps1`](./scripts/N8N-Workflows.ps1) to keep the repository and the running n8n instance in sync:

@@ -6,7 +6,7 @@ cp .env.template .env
 .\scripts\Stack-Up.ps1
 ```
 
-> Models: `Stack-Up.ps1` säkerställer att basmodellen `qwen2.5:14b-instruct-q4_K_M` finns i `ollama` och skapar automatiskt den svenska profilen `qwen2.5-sv` från `ollama/models/qwen2.5-sv.modelfile` om den saknas.
+> Models: `Stack-Up.ps1` säkerställer att basmodellen `qwen2.5:14b-instruct-q4_K_M` finns i `ollama`. Svensk profil tillhandahålls via LiteLLM‑aliaset `local/qwen2.5-sv` utan att skapa en separat Ollama‑modell.
 
 ## Stop
 ```powershell
@@ -65,6 +65,31 @@ $body = @{
 irm http://localhost:4000/v1/chat/completions -Method POST -ContentType 'application/json' -Body $body
 ```
 
+## Test English model via LiteLLM
+
+```bash
+curl -sS -X POST http://localhost:4000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "local/qwen2.5-en",
+    "messages": [
+      {"role":"user","content":"Write two concise sentences in English about how this model is used in the platform."}
+    ],
+    "temperature": 0.35
+  }'
+```
+
+PowerShell variant:
+
+```powershell
+$body = @{ 
+  model = 'local/qwen2.5-en';
+  messages = @(@{ role='user'; content='Write two concise sentences in English about how this model is used in the platform.' });
+  temperature = 0.35
+} | ConvertTo-Json -Compress
+irm http://localhost:4000/v1/chat/completions -Method POST -ContentType 'application/json' -Body $body
+```
+
 ## Common Issues
 - **403 from SearxNG** → set `BASE_URL=http://searxng:8080/` in compose (internally consistent host).
 - **LiteLLM “unexpected extra argument (litellm)”** → the container’s entrypoint provides the binary; `command:` must contain only flags (e.g., `--config /app/config.yaml --port 4000`).
@@ -107,12 +132,25 @@ docker compose -f compose\docker-compose.yml up -d webfetch
 > Importen skriver över `/app/backend/data/app.db`. Stoppa gärna containern eller
 se till att inga användare är aktiva för att undvika låsningar.
 
-## Svensk Qwen-modell
+### Beständiga inloggningar i Open WebUI
 
-- Modelfil: `ollama/models/qwen2.5-sv.modelfile` (binder in som `/modelfiles` i Ollama)
-- Auto-init: `Stack-Up.ps1` skapar `qwen2.5-sv` med `ollama create` om den inte redan finns.
-- Användning via LiteLLM: modellnamn `local/qwen2.5-sv`
-- `webfetch` väljer `local/qwen2.5-sv` automatiskt när `lang` börjar med `sv`.
+För att slippa logga in efter varje omstart, använd en stabil signeringsnyckel:
+
+- Sätt `OPENWEBUI_SECRET` i `.env` (en lång slumpmässig sträng).
+- Compose injicerar den som `SECRET_KEY` och `WEBUI_JWT_SECRET` till containern.
+- Cookies förblir giltiga över container‑omstarter så länge hemligheten är densamma.
+
+TTL för tokens:
+- Sätt `OPENWEBUI_JWT_EXPIRES_IN` i sekunder i `.env` (t.ex. `2592000` = 30 dagar).
+- Compose mappar det till `JWT_EXPIRES_IN`/`WEBUI_JWT_EXPIRES_IN` i containern.
+- Verifiera genom att dekoda JWT och kontrollera `exp`.
+
+## Svensk Qwen-profil via LiteLLM
+
+- Alias: `local/qwen2.5-sv` i `litellm/config.yaml`
+- Mappas till samma Ollama‑modell: `ollama/qwen2.5:14b-instruct-q4_K_M` (ingen VRAM‑reload)
+- Justeringar (t.ex. temperatur, systemprompt) hanteras i LiteLLM‑aliaset
+- `webfetch` väljer `local/qwen2.5-sv` automatiskt när `lang` börjar med `sv`
 
 ## Qdrant Backups & Restore
 

@@ -22,3 +22,11 @@ Run the helper script after you modify something in the UI:
 
 > **Note:** importing overwrites `/app/backend/data/app.db`. Make sure the UI is
 stopped (or at least idle) before restoring a dump to avoid locking conflicts.
+
+## Persistent logins
+
+Set a stable secret to keep sessions valid across restarts:
+
+- Add `OPENWEBUI_SECRET` to `.env`.
+- The compose file passes it as `SECRET_KEY` and `WEBUI_JWT_SECRET`.
+- This prevents forced logouts on container recreate.

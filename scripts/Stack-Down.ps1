@@ -69,6 +69,12 @@ if ($composeProjectName) {
   $composeArgs += @('-p', $composeProjectName)
 }
 
+# Ensure compose reads the repo .env explicitly to avoid env resolution issues
+$envFile = Join-Path $repoRoot '.env'
+if (Test-Path $envFile) {
+  $composeArgs += @('--env-file', $envFile)
+}
+
 if ($RemoveVolumes -and $KeepVolumes) {
   Write-Error "Cannot specify both -RemoveVolumes and -KeepVolumes."; exit 1
 }

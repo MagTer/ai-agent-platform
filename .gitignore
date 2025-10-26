@@ -16,3 +16,9 @@ Thumbs.db
 # Open WebUI runtime data is stored on the host but exported as SQL dumps.
 openwebui/data/
 !openwebui/data/.gitkeep
+
+# Backups (Qdrant etc.)
+backups/
+
+# n8n sensitive credentials
+flows/credentials.json

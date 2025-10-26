@@ -18,7 +18,7 @@ import trafilatura
 SEARXNG_URL = os.getenv("SEARXNG_URL", "http://searxng:8080")
 LITELLM_BASE = os.getenv("LITELLM_BASE", "http://litellm:4000")
 
-MODEL_EN = os.getenv("MODEL_EN", "local/llama3-8b")
+MODEL_EN = os.getenv("MODEL_EN", "local/qwen2.5-en")
 MODEL_SV = os.getenv("MODEL_SV", "local/qwen2.5-sv")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", MODEL_EN)
 
