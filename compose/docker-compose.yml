@@ -3,11 +3,11 @@ services:
     image: searxng/searxng:latest
     container_name: searxng
     ports:
-      - "8080:8080"
+      - "${SEARXNG_PORT:-8080}:8080"
     volumes:
       - ../searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
-      - SEARXNG_SECRET=jlsjfjojefisjeofijsoejfse
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-}
       - SEARXNG_BASE_URL=http://searxng:8080/
     restart: unless-stopped
     cap_drop:
@@ -16,6 +16,11 @@ services:
       - CHOWN
       - SETGID
       - SETUID
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   webfetch:
     container_name: webfetch
@@ -26,14 +31,16 @@ services:
     environment:
       - SEARXNG_URL=http://searxng:8080
       - LITELLM_BASE=http://litellm:4000
-      - DEFAULT_MODEL=local/qwen2.5:14b-instruct-q4_K_M
+      - DEFAULT_MODEL=local/qwen2.5
       - REQUEST_TIMEOUT=15
       - MAX_WORKERS=4
     ports:
       - "${FETCHER_PORT:-8081}:8081"
     depends_on:
-      - searxng
-      - litellm
+      searxng:
+        condition: service_healthy
+      litellm:
+        condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
       interval: 10s
@@ -48,6 +55,7 @@ services:
       - "${OLLAMA_PORT:-11434}:11434"
     volumes:
       - ollama_data:/root/.ollama
+      - ../ollama/models:/modelfiles
     environment:
       - OLLAMA_KEEP_ALIVE=24h
       - NVIDIA_VISIBLE_DEVICES=all
@@ -69,6 +77,11 @@ services:
       - "${QDRANT_PORT:-6333}:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
 
   litellm:
     container_name: litellm
@@ -92,15 +105,23 @@ services:
     image: ghcr.io/open-webui/open-webui:latest
     restart: unless-stopped
     environment:
-      - OPENAI_API_BASE=http://litellm:4000
+      - OPENAI_API_BASE_URL=http://litellm:4000/v1
       - OPENAI_API_KEY=dummy
+      - ENABLE_OLLAMA_MODELS=False
       - WEBUI_AUTH=True
       - ENABLE_SIGNUP=True
     volumes:
       - ../openwebui/data:/app/backend/data
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
-    depends_on: [litellm]
+    depends_on:
+      litellm:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
 
   n8n:
     container_name: n8n

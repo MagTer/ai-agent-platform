@@ -1,56 +1,56 @@
-# ---- Models ----
+# ==========================================
+# AI Agent Platform - LiteLLM Configuration
+# Single unified profile for Qwen 2.5 14B
+# ==========================================
+
 model_list:
-  # English / general
-  - model_name: local/llama3-8b
+  - model_name: local/qwen2.5
+    display_name: "Qwen 2.5 🇸🇪 (Svenska + Reasoning)"
     litellm_params:
-      model: ollama/llama3:8b
+      model: ollama/qwen2.5:14b-instruct-q4_K_M
       api_base: http://ollama:11434
-
-  # Swedish
-  - model_name: local/sv-sw3-6.7b
+      temperature: 0.35
+      top_p: 0.9
+      num_ctx: 8192
+      max_output_tokens: 2048
+      reuse_client: true
+      stream: true
+      messages:
+        - role: system
+          content: >
+            Du är en kunnig och lugn AI-assistent som skriver på naturlig svenska.
+            Resonera steg för steg vid komplexa frågor, men håll svaren tydliga och konkreta.
+            Prioritera korrekt svenska och tydlig struktur.
+  - model_name: local/qwen2.5-sv
+    display_name: "Qwen 2.5 SV 🇸🇪 (Svensk profil)"
     litellm_params:
-      model: ollama/fcole90/ai-sweden-gpt-sw3:6.7b
+      model: ollama/qwen2.5-sv
       api_base: http://ollama:11434
-
-  # Optional premium (fallback)
-  - model_name: openrouter/premium
-    litellm_params:
-      model: openrouter/auto
-      api_key: ${OPENROUTER_API_KEY}
-
-routing:
-  - strategy: tokens
-    default: local/llama3-8b
-    rules:
-      - if_input_tokens_greater_than: 1000
-        use: openrouter/premium
+      temperature: 0.4
+      top_p: 0.9
+      num_ctx: 8192
+      max_output_tokens: 2048
+      reuse_client: true
+      stream: true
 
 # ---- Routing policy ----
+# (Behövs inte längre, men sparas för framtida expansion)
 routing:
   - strategy: tokens
-    default: local/llama3-8b
-    rules:
-      - if_input_tokens_greater_than: 1000
-        use: openrouter/premium
+    default: local/qwen2.5
 
+# ---- General settings ----
 general_settings:
-  max_input_tokens: 8000
-  max_output_tokens: 1024
-logging:
-  level: INFO
+  max_input_tokens: 16000
+  max_output_tokens: 2048
 
-# LiteLLM limits (simple rate limiting / budgets)
+# ---- LiteLLM settings ----
 litellm_settings:
-  # Soft daily budget across providers (USD); set to 0 to disable
-  budget_limit: 1.50
-  # Minimal rate-limits (requests per minute) per model name
+  budget_limit: 1.50     # USD per dag, 0 = avstängd
   rate_limits:
-    - model: local/llama3-8b
+    - model: local/qwen2.5
       rpm: 120
-    - model: openrouter/premium
-      rpm: 30
 
-# Optional logging verbosity (set to INFO when stable)
+# ---- Logging ----
 logging:
   level: INFO
-

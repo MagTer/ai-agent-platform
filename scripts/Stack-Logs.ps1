@@ -35,7 +35,7 @@ $composeFile = Find-ComposePath -StartDir $PSScriptRoot
 if (-not $composeFile) { Write-Error "Could not find compose\docker-compose.yml upward from $PSScriptRoot"; exit 1 }
 $repoRoot = Split-Path (Split-Path $composeFile -Parent) -Parent
 
-$targets = @("ollama","litellm","openwebui","qdrant")
+$targets = @("webfetch","n8n","litellm","ollama","openwebui","qdrant")
 if ($Service -ne "") { $targets = @($Service) }
 
 Push-Location $repoRoot

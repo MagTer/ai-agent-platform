@@ -6,7 +6,7 @@ cp .env.template .env
 .\scripts\Stack-Up.ps1
 ```
 
-> **Models**: `Stack-Up.ps1` currently ensures the Ollama models `llama3:8b` and `fcole90/ai-sweden-gpt-sw3:6.7b` are present in the `ollama` container.
+> Models: `Stack-Up.ps1` säkerställer att basmodellen `qwen2.5:14b-instruct-q4_K_M` finns i `ollama` och skapar automatiskt den svenska profilen `qwen2.5-sv` från `ollama/models/qwen2.5-sv.modelfile` om den saknas.
 
 ## Stop
 ```powershell
@@ -39,6 +39,31 @@ irm http://localhost:5678/webhook/agent -Method POST -ContentType 'application/j
 ```
 
 > Förväntat svar (JSON): `{"ok":true,"action":"agent.echo","received":{"args":{"message":"ping"},"raw":{"action":"agent.echo","args":{"message":"ping"}}},"meta":{"headers":{...},"query":{...}},"timestamp":"..."}`
+
+## Testa svensk modell via LiteLLM
+
+```bash
+curl -sS -X POST http://localhost:4000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "local/qwen2.5-sv",
+    "messages": [
+      {"role":"user","content":"Skriv två meningar på svenska om hur denna modell används i plattformen."}
+    ],
+    "temperature": 0.4
+  }'
+```
+
+PowerShell-variant:
+
+```powershell
+$body = @{ 
+  model = 'local/qwen2.5-sv';
+  messages = @(@{ role='user'; content='Skriv två meningar på svenska om hur denna modell används i plattformen.' });
+  temperature = 0.4
+} | ConvertTo-Json -Compress
+irm http://localhost:4000/v1/chat/completions -Method POST -ContentType 'application/json' -Body $body
+```
 
 ## Common Issues
 - **403 from SearxNG** → set `BASE_URL=http://searxng:8080/` in compose (internally consistent host).
@@ -81,3 +106,23 @@ docker compose -f compose\docker-compose.yml up -d webfetch
 
 > Importen skriver över `/app/backend/data/app.db`. Stoppa gärna containern eller
 se till att inga användare är aktiva för att undvika låsningar.
+
+## Svensk Qwen-modell
+
+- Modelfil: `ollama/models/qwen2.5-sv.modelfile` (binder in som `/modelfiles` i Ollama)
+- Auto-init: `Stack-Up.ps1` skapar `qwen2.5-sv` med `ollama create` om den inte redan finns.
+- Användning via LiteLLM: modellnamn `local/qwen2.5-sv`
+- `webfetch` väljer `local/qwen2.5-sv` automatiskt när `lang` börjar med `sv`.
+
+## Qdrant Backups & Restore
+
+```powershell
+# Skapa snapshot av Qdrants lagring (tgz i ./backups)
+./scripts/Qdrant-Backup.ps1
+
+# Återställ från en specifik backupfil
+./scripts/Qdrant-Restore.ps1 -BackupFile .\backups\qdrant-YYYYMMDD-HHMMSS.tgz
+```
+
+> Backup/restore använder en temporär Alpine-container med `--volumes-from qdrant` för
+> att läsa/skriva `/qdrant/storage`. Containern stoppas/startas automatiskt vid restore.

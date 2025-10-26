@@ -33,6 +33,20 @@ chatten.
 > **Tips:** Kontraktet för `agent.echo` finns dokumenterat i
 > [`capabilities/catalog.yaml`](../capabilities/catalog.yaml).
 
+## Preset för svensk Qwen-modell
+
+Skapa en preset som använder den svenska modellen via LiteLLM (`local/qwen2.5-sv`).
+
+1. Öppna **Presets → Create Preset**.
+2. Namn: `Svenska — Qwen 2.5`
+3. Välj provider: `OpenAI Compatible` (pekad mot LiteLLM)
+4. Modell: `local/qwen2.5-sv`
+5. Temperatur: `0.4` (valfritt)
+6. Spara preset och gör den synlig i din standardvy.
+
+> Efter att presetet lagts till: kör `./scripts/OpenWebUI-Config.ps1 export` och committa
+> filen `openwebui/export/app.db.sql` så att konfigurationen är reproducerbar.
+
 ## Export till versionskontroll
 När verktyget är skapat ska Open WebUI-databasen exporteras så att konfigurationen
 kan checkas in:

@@ -20,7 +20,8 @@ param(
   [ValidateSet("import","export")]
   [string]$Mode = "import",
   [string]$Container = "n8n",
-  [string]$FlowsDir = "..\flows"
+  [string]$FlowsDir = "..\flows",
+  [switch]$IncludeCredentials
 )
 
 Set-StrictMode -Version Latest
@@ -82,10 +83,10 @@ if (-not (Test-Path $flowsPathCandidate)) {
 }
 $flowsPath = Resolve-Path $flowsPathCandidate
 
-Write-Host "[i] Repo root: $repoRoot" -ForegroundColor Yellow
-Write-Host "[i] Flows dir: $flowsPath" -ForegroundColor Yellow
-Write-Host "[i] Container: $Container" -ForegroundColor Yellow
-Write-Host "[i] Mode: $Mode" -ForegroundColor Yellow
+  Write-Host "[i] Repo root: $repoRoot" -ForegroundColor Yellow
+  Write-Host "[i] Flows dir: $flowsPath" -ForegroundColor Yellow
+  Write-Host "[i] Container: $Container" -ForegroundColor Yellow
+  Write-Host "[i] Mode: $Mode (IncludeCredentials=$IncludeCredentials)" -ForegroundColor Yellow
 
 Push-Location $repoRoot
 try {
@@ -105,6 +106,12 @@ try {
     # Tolerate 'No workflows found'
     Docker-Exec-Sh -Container $Container -ShellCommand "n8n export:workflow --all --pretty --separate --output '$tmpExport' || true"
 
+    if ($IncludeCredentials) {
+      Write-Host "[i] Exporting credentials (no secrets decrypted)" -ForegroundColor Cyan
+      # Export into a fixed filename inside export dir
+      Docker-Exec-Sh -Container $Container -ShellCommand "n8n export:credentials --all --pretty --output '$tmpExport/credentials.json' || true"
+    }
+
     # Count exported files
     $countOut = Exec "docker" @("exec","-i",$Container,"sh","-lc","ls -1 $tmpExport/*.json 2>/dev/null | wc -l")
     $count = [int]($countOut.Trim())
@@ -121,6 +128,18 @@ try {
       Get-ChildItem -Path $dest -Recurse -File | Select-Object -First 10 | ForEach-Object { Write-Host " - $($_.FullName)" }
     } else {
       Write-Host "[i] No workflows in container. Created empty '$dest'." -ForegroundColor Yellow
+    }
+
+    if ($IncludeCredentials) {
+      # Copy credentials.json separately to flows root if present
+      try {
+        $credSrc = Join-ContainerPath -Container $Container -Path "$tmpExport/credentials.json"
+        $credDest = Join-Path $flowsPath "credentials.json"
+        Exec "docker" @("cp", $credSrc, $credDest) | Out-Null
+        Write-Host "[ok] Exported credentials -> $credDest" -ForegroundColor Green
+      } catch {
+        Write-Host "[i] No credentials exported (skipping)." -ForegroundColor DarkGray
+      }
     }
 
   } elseif ($Mode -eq "import") {
@@ -148,6 +167,21 @@ try {
 
     Write-Host "[ok] Import completed." -ForegroundColor Green
     Write-Host "[i] Verify in n8n UI and activate the workflows." -ForegroundColor DarkGray
+
+    if ($IncludeCredentials) {
+      $localCreds = Join-Path $flowsPath "credentials.json"
+      if (Test-Path $localCreds) {
+        Write-Host "[i] Importing credentials from $localCreds" -ForegroundColor Cyan
+        $containerCreds = Join-ContainerPath -Container $Container -Path "$tmpImport/credentials.json"
+        Exec "docker" @("cp", $localCreds, $containerCreds) | Out-Null
+        # Ensure ownership is node
+        Docker-Exec-Sh -Container $Container -User "0" -ShellCommand "chown node:node '$tmpImport/credentials.json'"
+        Docker-Exec-Sh -Container $Container -ShellCommand "n8n import:credentials --input '$tmpImport/credentials.json'"
+        Write-Host "[ok] Credentials import completed." -ForegroundColor Green
+      } else {
+        Write-Host "[i] No local credentials.json found; skipping credentials import." -ForegroundColor DarkGray
+      }
+    }
 
   } else {
     throw "Unsupported mode: $Mode"

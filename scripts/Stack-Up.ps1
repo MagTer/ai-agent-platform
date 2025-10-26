@@ -68,7 +68,7 @@ function Ensure-Models {
   foreach ($m in $ModelNames) {
     Say "[i] Ensuring model: $m"
     # Run shell inside container; if model is missing -> pull it.
-    $cmd = "ollama show `"$m`" >/dev/null 2>&1 || ollama pull `"$m`""
+    $cmd = "if ! ollama list | grep -q `"$m`"; then ollama pull `"$m`"; fi"
     docker exec ollama /bin/sh -lc "$cmd"
   }
 }
@@ -133,6 +133,16 @@ try {
   Say "[i] Waiting for Ollama on port $ollamaPort ..."
   if (-not (Wait-HttpOk -Url "http://localhost:$ollamaPort/api/version" -TimeoutSec $OllamaHealthTimeoutSec)) {
     Write-Error "Ollama did not become healthy within timeout. See: docker logs ollama"; exit 1
+  }
+
+  # Ensure Swedish Qwen derived model exists
+  Write-Host "Kontrollerar att qwen2.5-sv finns..."
+  $exists = docker exec ollama ollama list | Select-String "qwen2.5-sv"
+  if (-not $exists) {
+    Write-Host "Skapar qwen2.5-sv från modelfile..."
+    docker exec -i ollama ollama create qwen2.5-sv -f /modelfiles/qwen2.5-sv.modelfile
+  } else {
+    Write-Host "qwen2.5-sv finns redan."
   }
 
   # Ensure models exist inside container

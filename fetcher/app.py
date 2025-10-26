@@ -19,7 +19,7 @@ SEARXNG_URL = os.getenv("SEARXNG_URL", "http://searxng:8080")
 LITELLM_BASE = os.getenv("LITELLM_BASE", "http://litellm:4000")
 
 MODEL_EN = os.getenv("MODEL_EN", "local/llama3-8b")
-MODEL_SV = os.getenv("MODEL_SV", "local/sv-sw3-6.7b")
+MODEL_SV = os.getenv("MODEL_SV", "local/qwen2.5-sv")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", MODEL_EN)
 
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))

@@ -27,7 +27,7 @@ search:
 server:
   port: 8080
   bind_address: "0.0.0.0"
-  secret_key: "jlsjfjojefisjeofijsoejfse"  # ÄNDRA DETTA!
+  # secret_key läses från miljövariabeln SEARXNG_SECRET via Compose
   limiter: false
   image_proxy: true
   method: "POST"
