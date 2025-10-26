@@ -8,6 +8,9 @@
 ## Quick Start (Local)
 
 ```powershell
+# Context: run in PowerShell from the repo root
+# Example path: C:\AI\ai-agent-platform
+
 # 1) Copy environment and edit if needed
 cp .env.template .env
 
@@ -26,6 +29,12 @@ irm http://localhost:8081/research -Method POST -ContentType 'application/json' 
 # (Optional) Ingestion to memory (Qdrant)
 python .\indexer\ingest.py "https://qdrant.tech/" "https://www.sbert.net/"
 ```
+
+Linux/macOS notes
+- Use your shell from the repo root: `~/ai-agent-platform`
+- Replace PowerShell `irm` with `curl` and use `/` path separators, e.g.:
+  - `curl -sS http://localhost:8081/health`
+  - `python ./indexer/ingest.py "https://qdrant.tech/"`
 
 ## n8n Workflow Sync
 

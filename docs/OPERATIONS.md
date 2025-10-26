@@ -34,6 +34,9 @@ docker compose -f compose\docker-compose.yml ps
 $b=@{ query="RAG i kundsupport"; k=2; lang="sv" } | ConvertTo-Json -Compress
 irm http://localhost:8081/research -Method POST -ContentType 'application/json' -Body $b
 
+# Retrieval debug (minnes- + webbträffar utan LLM)
+irm "http://localhost:8081/retrieval_debug?q=Qdrant" | ConvertFrom-Json | Format-List
+
 # Actions echo
 $payload=@{ action="agent.echo"; args=@{ message="ping" } } | ConvertTo-Json -Compress
 irm http://localhost:5678/webhook/agent -Method POST -ContentType 'application/json' -Body $payload
@@ -173,3 +176,9 @@ python .\indexer\ingest.py "https://example.com" "https://example.org"
 
 # Därefter påverkar Qdrant-minnet research-svaret via retrieval
 ```
+
+## Konfiguration (RAG)
+
+- `ENABLE_QDRANT=true|false` — slår på/av minnesåtervinning i `webfetch`.
+- `QDRANT_TOP_K=5` — hur många minnesträffar att blanda in.
+- `MMR_LAMBDA=0.7` — balans mellan relevans och diversitet (närmare 1 = mer relevans).

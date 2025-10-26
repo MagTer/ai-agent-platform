@@ -14,6 +14,7 @@
 - [Capabilities](./CAPABILITIES.md) — what the platform can do today, next, and later.
 - [Architecture](./ARCHITECTURE.md) — active services, data flow, and security guidance.
 - [Operations](./OPERATIONS.md) — scripts, health checks, smoke tests, and maintenance.
+- [Testing](./TESTING.md) — how to run and what is covered.
 - [Open WebUI Actions](./OPENWEBUI_ACTIONS.md) — verktygskonfiguration för n8n-webhooken.
 
 ## Working Notes for Codex

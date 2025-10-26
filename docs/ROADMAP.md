@@ -38,13 +38,16 @@
 - M2.2: GitHub create-branch flow + tests
 - M2.3: ADO or M365 action + tests
 
-## Milestone M3 — Memory & RAG
-**Goal:** Qdrant-backed notes (Obsidian) search and RAG answers  
-**Exit criteria:**
-- Index Obsidian vault (incremental)
-- Research + memory blended answer (with source citations)
+## Milestone M3 — Memory & RAG (IN PROGRESS)
+**Goal:** Qdrant-backed retrieval + web fusion for better answers  
+**Status:** Embedder microservice (CPU) + retrieval i webfetch, ingestion CLI
 
-**MVP Steps:**
-- M3.1: Ingestion job to Qdrant
-- M3.2: Simple retriever → prompt augment in webfetch or LiteLLM function
-- M3.3: RUNBOOKS and smoke tests
+**Exit criteria:**
+- Retrieval toggles och MMR/dedup aktiva (DONE)
+- Ingestion från URL och filer (PARTIAL: URL klar)
+- RAG röktest i OPERATIONS (DONE)
+
+**MVP Steps (next):**
+- M3.1: Expand ingestion CLI (lokala filer: .md/.pdf/.txt) och payload-index
+- M3.2: Retrieval debug UI i Open WebUI preset eller separata endpoints (DONE basic)
+- M3.3: RUNBOOKS för Qdrant schema, backup/restore, och prestandatuning

@@ -11,6 +11,7 @@ from fastapi import FastAPI, Query, Body, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import trafilatura
+import numpy as np
 from qdrant_client import QdrantClient
 
 # -----------------------------
@@ -20,6 +21,9 @@ SEARXNG_URL = os.getenv("SEARXNG_URL", "http://searxng:8080")
 LITELLM_BASE = os.getenv("LITELLM_BASE", "http://litellm:4000")
 EMBEDDER_BASE = os.getenv("EMBEDDER_BASE", "http://embedder:8082")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
+ENABLE_QDRANT = os.getenv("ENABLE_QDRANT", "true").lower() == "true"
+QDRANT_TOP_K = int(os.getenv("QDRANT_TOP_K", "5"))
+MMR_LAMBDA = float(os.getenv("MMR_LAMBDA", "0.7"))
 
 MODEL_EN = os.getenv("MODEL_EN", "local/qwen2.5-en")
 MODEL_SV = os.getenv("MODEL_SV", "local/qwen2.5-sv")
@@ -153,27 +157,82 @@ def get_qdrant() -> QdrantClient:
         _qdrant = QdrantClient(url=QDRANT_URL)
     return _qdrant
 
+def _cosine(a: np.ndarray, b: np.ndarray) -> float:
+    da = np.linalg.norm(a) + 1e-9
+    db = np.linalg.norm(b) + 1e-9
+    return float(np.dot(a, b) / (da * db))
+
+
+def _mmr(query_vec: np.ndarray, doc_vecs: List[np.ndarray], k: int, lam: float) -> List[int]:
+    if not doc_vecs:
+        return []
+    sims = [_cosine(query_vec, v) for v in doc_vecs]
+    selected: List[int] = []
+    candidates = set(range(len(doc_vecs)))
+    while candidates and len(selected) < k:
+        if not selected:
+            i = int(np.argmax(sims))
+            selected.append(i)
+            candidates.remove(i)
+            continue
+        best_i = None
+        best_score = -1e9
+        for i in list(candidates):
+            div = max(_cosine(doc_vecs[i], doc_vecs[j]) for j in selected)
+            score = lam * sims[i] - (1 - lam) * div
+            if score > best_score:
+                best_score = score
+                best_i = i
+        selected.append(best_i)  # type: ignore
+        candidates.remove(best_i)  # type: ignore
+    return selected
+
+
 def qdrant_query(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
     try:
         vecs = embed_texts([query])
         if not vecs:
             return []
-        vec = vecs[0]
+        qvec = np.array(vecs[0], dtype=np.float32)
         client = get_qdrant()
         res = client.search(
             collection_name="memory",
-            query_vector=vec,
-            limit=top_k,
+            query_vector=qvec.tolist(),
+            limit=max(top_k * 3, top_k),
             with_payload=True,
+            with_vectors=True,
         )
-        items = []
+        docs: List[Dict[str, Any]] = []
+        dvecs: List[np.ndarray] = []
+        urls: List[str] = []
         for p in res or []:
             payload = p.payload or {}
             url = payload.get("url")
             text = payload.get("text") or ""
-            if url and text:
-                items.append({"ok": True, "url": url, "text": text, "source": "qdrant"})
-        return items
+            vec = None
+            if getattr(p, 'vector', None) is not None:
+                vec = np.array(p.vector, dtype=np.float32)
+            if not url or not text or vec is None:
+                continue
+            docs.append({"ok": True, "url": url, "text": text, "source": "qdrant"})
+            dvecs.append(vec)
+            urls.append(url)
+        if not docs:
+            return []
+        # Dedup by URL
+        seen = set()
+        uniq_docs: List[Dict[str, Any]] = []
+        uniq_vecs: List[np.ndarray] = []
+        for d, v, u in zip(docs, dvecs, urls):
+            if u in seen:
+                continue
+            seen.add(u)
+            uniq_docs.append(d)
+            uniq_vecs.append(v)
+        # MMR pick
+        k = min(top_k, len(uniq_docs))
+        idxs = _mmr(qvec, uniq_vecs, k, MMR_LAMBDA)
+        return [uniq_docs[i] for i in idxs]
     except Exception:
         return []
 
@@ -281,9 +340,11 @@ def _pick_model(model: Optional[str], lang: str) -> str:
 
 def _research_core(q: str, k: int, model: Optional[str], lang: str):
     chosen_model = _pick_model(model, lang)
-    # Memory (Qdrant) hits
-    mem_extracts = qdrant_query(q, top_k=min(5, k))
-    mem_urls = [m["url"] for m in mem_extracts if m.get("url")]
+    mem_extracts: List[Dict[str, Any]] = []
+    mem_urls: List[str] = []
+    if ENABLE_QDRANT:
+        mem_extracts = qdrant_query(q, top_k=min(QDRANT_TOP_K, k))
+        mem_urls = [m["url"] for m in mem_extracts if m.get("url")]
 
     # Web
     s = search(q=q, k=k, lang=lang)
@@ -328,3 +389,10 @@ def research_get(
     _=Depends(limiter)
 ):
     return _research_core(q, k, model, lang)
+
+@app.get("/retrieval_debug")
+def retrieval_debug(q: str = Query(..., min_length=2), k: int = Query(5, ge=1, le=10)):
+    mem = qdrant_query(q, top_k=min(QDRANT_TOP_K, k)) if ENABLE_QDRANT else []
+    s = search(q=q, k=k, lang="sv")
+    web = s.get("results", [])
+    return {"query": q, "enable_qdrant": ENABLE_QDRANT, "memory": mem, "web": web}
