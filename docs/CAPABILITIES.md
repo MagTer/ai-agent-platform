@@ -1,25 +1,28 @@
 # Capabilities — Outcome-Oriented View
 
 ## Today
-- **Reasoning** (SV/EN) with local models via LiteLLM.
-- **Research**: SearxNG → webfetch extraction → LiteLLM summary (sources included).
-- **Actions**: n8n `/webhook/agent` echo workflow som kvitterar JSON med tidsstämpel.
+- Reasoning (EN/SV) with local models via LiteLLM profiles.
+- Research: SearxNG -> webfetch extraction -> LiteLLM summary (sources included).
+- Actions: n8n `/webhook/agent` echo workflow acknowledges JSON with a timestamp.
 
-> Detaljerad kontraktsbeskrivning finns i [`capabilities/catalog.yaml`](../capabilities/catalog.yaml).
+See `capabilities/catalog.yaml` for the machine-readable catalog.
 
 ## Next
-- **Actions Skeleton** (n8n):
+- Actions skeleton (n8n):
   - Document POST contract in Open WebUI action preset.
-  - Automatisera exportsteg (skript) för att hålla `flows/` uppdaterad.
+  - Automate export steps (script) to keep `flows/` up to date (done).
 
 ## Capability Catalog
-- Fil: [`capabilities/catalog.yaml`](../capabilities/catalog.yaml)
-- Innehåll: Maskinläsbar översikt över tillgängliga åtgärder,
-  deras kontrakt samt vilket Open WebUI-verktyg som ska användas.
-- Statusfältet markerar om en förmåga är aktiv (`available`), under arbete
-  (`in-progress`) eller planerad (`planned`).
+- File: `capabilities/catalog.yaml`
+- Content: machine-readable overview of available actions, their contract, and which Open WebUI tool to use.
+- Status field marks whether a capability is `available`, `in-progress`, or `planned`.
 
 ## Planned Capabilities
+- Homey:
+  - `homey.device_onoff(name, state)`
+  - `homey.trigger_flow(name, params)`
+- Obsidian:
+  - `obsidian.write_daily_note(path, text)` (e.g., `Daily Notes/2025-04-23.md`)
 - GitHub:
   - `create_branch(repo, base, name)`
   - `open_pr(repo, branch, title, body)`
@@ -32,7 +35,6 @@
   - `transcode(input, profile)`
 - YouTube:
   - `transcript(url)`; `search(query)`
-- Homey:
-  - `trigger_flow(name, params)`
 - RAG:
   - `search_notes(query)` + `answer_with_context(query)`
+

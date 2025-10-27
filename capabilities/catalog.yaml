@@ -5,7 +5,7 @@ actions:
     title: Agent Echo
     status: available
     owner: n8n
-    summary: "Kvitterar inkommande JSON och returnerar nyttolasten med tidsstämpel."
+    summary: "Acknowledges incoming JSON and returns the payload with a timestamp."
     entrypoint:
       type: http
       method: POST
@@ -17,35 +17,20 @@ actions:
         content_type: application/json
         schema:
           type: object
-          required:
-            - action
-            - args
+          required: [action, args]
           properties:
-            action:
-              type: string
-              const: agent.echo
-            args:
-              type: object
-              description: "Godtyckliga nyckel/värde-par som returneras i svaret."
+            action: { type: string, const: agent.echo }
+            args: { type: object, description: "Arbitrary key/value pairs returned in the reply." }
       response:
         content_type: application/json
         schema:
           type: object
-          required:
-            - ok
-            - action
-            - received
-            - timestamp
+          required: [ok, action, received, timestamp]
           properties:
-            ok:
-              type: boolean
-            action:
-              type: string
-            received:
-              type: object
-            timestamp:
-              type: string
-              format: date-time
+            ok: { type: boolean }
+            action: { type: string }
+            received: { type: object }
+            timestamp: { type: string, format: date-time }
     verification:
       smoke_test:
         command: |
@@ -54,11 +39,132 @@ actions:
     openwebui:
       tool_name: n8n_action
       preset: Actions
-      description: "POST:ar ett JSON-payload till n8n:s webhook och visar svaret i chattfönstret."
+      description: "POST a JSON payload to the n8n agent webhook and show the response in chat."
       body_template: |
         {
           "action": "agent.echo",
           "args": {
-            "message": "<skriv ditt meddelande>"
+            "message": "<your message>"
           }
         }
+
+  - id: homey.device_onoff
+    title: Homey - Device On/Off
+    status: planned
+    owner: n8n
+    summary: "Turn a Homey device on or off by name."
+    entrypoint:
+      type: http
+      method: POST
+      url: http://n8n:5678/webhook/agent
+      auth: none
+      timeout_s: 15
+    contract:
+      request:
+        content_type: application/json
+        schema:
+          type: object
+          required: [action, args]
+          properties:
+            action: { type: string, const: homey.device_onoff }
+            args:
+              type: object
+              required: [name, state]
+              properties:
+                name: { type: string }
+                state: { type: boolean }
+      response:
+        content_type: application/json
+    openwebui:
+      tool_name: n8n_action
+      preset: Actions
+      description: "Turn a device on/off in Homey."
+      body_template: |
+        {
+          "action": "homey.device_onoff",
+          "args": {
+            "name": "<device name>",
+            "state": true
+          }
+        }
+
+  - id: homey.trigger_flow
+    title: Homey - Trigger Flow
+    status: planned
+    owner: n8n
+    summary: "Trigger a Homey flow by name with optional params."
+    entrypoint:
+      type: http
+      method: POST
+      url: http://n8n:5678/webhook/agent
+      auth: none
+      timeout_s: 15
+    contract:
+      request:
+        content_type: application/json
+        schema:
+          type: object
+          required: [action, args]
+          properties:
+            action: { type: string, const: homey.trigger_flow }
+            args:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                params: { type: object }
+      response:
+        content_type: application/json
+    openwebui:
+      tool_name: n8n_action
+      preset: Actions
+      description: "Trigger a named Homey flow."
+      body_template: |
+        {
+          "action": "homey.trigger_flow",
+          "args": {
+            "name": "<flow name>",
+            "params": {}
+          }
+        }
+
+  - id: obsidian.write_daily_note
+    title: Obsidian - Write Daily Note
+    status: planned
+    owner: n8n
+    summary: "Append text to a daily note path in the vault."
+    entrypoint:
+      type: http
+      method: POST
+      url: http://n8n:5678/webhook/agent
+      auth: none
+      timeout_s: 15
+    contract:
+      request:
+        content_type: application/json
+        schema:
+          type: object
+          required: [action, args]
+          properties:
+            action: { type: string, const: obsidian.write_daily_note }
+            args:
+              type: object
+              required: [path, text]
+              properties:
+                path: { type: string, description: "e.g., Daily Notes/2025-04-23.md" }
+                text: { type: string }
+      response:
+        content_type: application/json
+    openwebui:
+      tool_name: n8n_action
+      preset: Actions
+      description: "Append to an Obsidian daily note via n8n."
+      body_template: |
+        {
+          "action": "obsidian.write_daily_note",
+          "args": {
+            "path": "Daily Notes/2025-04-23.md",
+            "text": "<your text>"
+          }
+        }
+

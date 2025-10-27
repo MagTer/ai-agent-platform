@@ -1,79 +1,54 @@
-# Open WebUI — Åtgärdsverktyg mot n8n
+# Open WebUI — Actions tool to n8n
 
-Detta dokument beskriver hur Open WebUI ska konfigureras för att kunna anropa
-plattformens n8n-webhook. Målet är ett återanvändbart verktyg (`n8n_action`)
-som skickar ett JSON-payload till `/webhook/agent` och presenterar svaret i
-chatten.
+This document explains how to configure Open WebUI to call the platform's n8n webhook. The goal is a reusable tool (`n8n_action`) that sends a JSON payload to `/webhook/agent` and shows the reply in chat.
 
-## Förutsättningar
-- Stacken kör enligt [compose/docker-compose.yml](../compose/docker-compose.yml).
-- Kontot i Open WebUI har behörighet att skapa verktyg.
-- n8n-workflowen **Agent Echo** är aktiv (se [`flows/workflows/`](../flows/workflows/)).
+## Prerequisites
+- The stack runs per `compose/docker-compose.yml`.
+- Your Open WebUI account can create tools.
+- The n8n workflow "Agent Echo" is active (see `flows/workflows/`).
 
-## Konfiguration i gränssnittet
-1. Logga in i Open WebUI och öppna **Tools → Create Tool**.
-2. Välj typen **REST** och ge verktyget namnet `n8n_action`.
-3. Fyll i inställningarna enligt tabellen nedan:
+## UI configuration
+1. Log in to Open WebUI, open Tools -> Create Tool.
+2. Choose type "REST" and name it `n8n_action`.
+3. Fill in settings:
 
-| Fält | Värde |
+| Field | Value |
 | --- | --- |
-| Description | `POST:a JSON till n8n:s agent-webhook` |
+| Description | `POST JSON to n8n agent webhook` |
 | Method | `POST` |
 | URL | `http://n8n:5678/webhook/agent` |
 | Headers | `Content-Type: application/json` |
-| Body Template | <pre><code>{ "action": "agent.echo", "args": { "message": "&lt;skriv ditt meddelande&gt;" } }</code></pre> |
-| Timeout | `15` sekunder |
+| Body Template | `{ "action": "agent.echo", "args": { "message": "<your message>" } }` |
+| Timeout | `15` seconds |
 | Authentication | `None` |
 
-4. Spara verktyget och aktivera det för presetet **Actions** om efterfrågat.
-5. Öppna en ny chatt, välj presetet **Actions** och kör kommandot
-   `Run Tool → n8n_action`. Ändra `message` i body-templatet för att kontrollera
-   att svaret ekas tillbaka.
+4. Save the tool and enable it for the Actions preset if requested.
+5. Open a new chat, choose the Actions preset, and run `n8n_action`. Change `message` in the body template to verify the reply is echoed.
 
-> **Tips:** Kontraktet för `agent.echo` finns dokumenterat i
-> [`capabilities/catalog.yaml`](../capabilities/catalog.yaml).
+Tip: The `agent.echo` contract is documented in `capabilities/catalog.yaml`.
 
-## Preset för svensk Qwen-modell
+## Presets for Qwen profiles
 
-Skapa en preset som använder den svenska modellen via LiteLLM (`local/qwen2.5-sv`).
+Swedish profile via LiteLLM (`local/qwen2.5-sv`):
+1. Open Presets -> Create Preset.
+2. Name: `Swedish - Qwen 2.5`
+3. Provider: `OpenAI Compatible` (pointed at LiteLLM)
+4. Model: `local/qwen2.5-sv`
+5. Temperature: `0.4` (optional)
+6. Save and make visible.
 
-1. Öppna **Presets → Create Preset**.
-2. Namn: `Svenska — Qwen 2.5`
-3. Välj provider: `OpenAI Compatible` (pekad mot LiteLLM)
-4. Modell: `local/qwen2.5-sv`
-5. Temperatur: `0.4` (valfritt)
-6. Spara preset och gör den synlig i din standardvy.
+English profile via LiteLLM (`local/qwen2.5-en`):
+1. Open Presets -> Create Preset.
+2. Name: `English - Qwen 2.5`
+3. Provider: `OpenAI Compatible` (via LiteLLM)
+4. Model: `local/qwen2.5-en`
+5. Temperature: `0.35` (optional)
+6. Save and make visible.
 
-> Efter att presetet lagts till: kör `./scripts/OpenWebUI-Config.ps1 export` och committa
-> filen `openwebui/export/app.db.sql` så att konfigurationen är reproducerbar.
+After adding tools/presets, run `./scripts/OpenWebUI-Config.ps1 export` and commit `openwebui/export/app.db.sql` to keep configuration reproducible.
 
-## Preset för engelsk Qwen-modell
+## Verification
+1. Run the n8n smoketest in `docs/OPERATIONS.md`.
+2. Start Open WebUI, choose the Actions preset, and call `n8n_action`.
+3. Verify the reply contains `"ok": true`, `"action": "agent.echo"`, and that your request arguments are returned in `received.args`.
 
-Skapa en preset för engelska med krav att aldrig använda kinesiska.
-
-1. Öppna **Presets → Create Preset**.
-2. Namn: `English — Qwen 2.5`
-3. Välj provider: `OpenAI Compatible` (via LiteLLM)
-4. Modell: `local/qwen2.5-en`
-5. Temperatur: `0.35` (valfritt)
-6. Spara preset och gör den synlig i din standardvy.
-
-> Exportera alltid efter ändring: `./scripts/OpenWebUI-Config.ps1 export` och committa
-> `openwebui/export/app.db.sql`.
-
-## Export till versionskontroll
-När verktyget är skapat ska Open WebUI-databasen exporteras så att konfigurationen
-kan checkas in:
-
-```powershell
-./scripts/OpenWebUI-Config.ps1 export
-```
-
-Detta kommando uppdaterar `openwebui/export/app.db.sql`. Filen ska committas så att
-miljön kan återskapas utan manuella klick.
-
-## Verifiering
-1. Kör n8n-röktestet i [docs/OPERATIONS.md](./OPERATIONS.md).
-2. Starta Open WebUI, välj presetet **Actions** och anropa `n8n_action`.
-3. Bekräfta att svaret innehåller `"ok": true`, `"action": "agent.echo"` och
-   att de skickade argumenten återkommer i `received.args`.

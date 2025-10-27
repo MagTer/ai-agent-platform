@@ -36,6 +36,7 @@ services:
       - MAX_WORKERS=4
       - EMBEDDER_BASE=http://embedder:8082
       - QDRANT_URL=http://qdrant:6333
+      - ENABLE_QDRANT=${ENABLE_QDRANT:-true}
     ports:
       - "${FETCHER_PORT:-8081}:8081"
     depends_on:
@@ -132,7 +133,7 @@ services:
       - OPENAI_API_KEY=dummy
       - ENABLE_OLLAMA_MODELS=False
       - WEBUI_AUTH=True
-      - ENABLE_SIGNUP=True
+      - ENABLE_SIGNUP=False
       - SECRET_KEY=${OPENWEBUI_SECRET}
       - WEBUI_JWT_SECRET=${OPENWEBUI_SECRET}
     volumes:

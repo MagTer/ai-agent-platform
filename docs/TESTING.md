@@ -1,4 +1,4 @@
-# Testing
+﻿# Testing
 
 ## Overview
 - Uses `pytest` for fast, offline-friendly tests.
@@ -10,7 +10,7 @@
 pytest -q
 ```
 
-## What’s Covered
+## What's Covered
 
 - `tests/test_embedder_health.py`
   - Imports `embedder.app` and checks `/health` and `/model` respond without downloading the model.
@@ -36,4 +36,5 @@ irm "http://localhost:8081/retrieval_debug?q=Qdrant"
 ## Notes
 - Tests avoid pulling large models or hitting external network.
 - If you add new retrieval/config flags, consider adding a toggle test similar to `test_fetcher_toggle.py`.
+
 

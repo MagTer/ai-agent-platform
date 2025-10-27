@@ -9,43 +9,74 @@ cp compose\.env.template compose\.env
 ./scripts/Stack-Up.ps1 -Build
 ```
 
-> Models: `Stack-Up.ps1` säkerställer att basmodellen `qwen2.5:14b-instruct-q4_K_M` finns i `ollama`. Svensk profil tillhandahålls via LiteLLM‑aliaset `local/qwen2.5-sv` utan att skapa en separat Ollama‑modell.
+Notes
+- `Stack-Up.ps1` requires `OPENWEBUI_SECRET` and `SEARXNG_SECRET` in `compose/.env`.
+- Models: the script ensures `qwen2.5:14b-instruct-q4_K_M` exists in Ollama. The Swedish profile is provided via LiteLLM alias `local/qwen2.5-sv` (no separate Ollama model).
+ - Model intent can be declared in `config/models.txt` (one model per line). `Stack-Up.ps1` reads this file and ensures listed models are present.
 
 ## Stop
 ```powershell
-.\scripts\Stack-Down.ps1 -KeepVolumes   # keep models/data
+./scripts/Stack-Down.ps1 -KeepVolumes   # keep models/data
 ```
 
 ## Health & Logs
 ```powershell
-# Health
-irm http://localhost:8081/health
-irm http://localhost:5678/healthz
-irm http://localhost:8082/health   # embedder
+# Health dashboard (checks key endpoints)
+./scripts/Stack-Health.ps1
 
 # Compose status
 docker compose -f compose\docker-compose.yml ps
 
-# Logs
-.\scripts\Stack-Logs.ps1 -Service webfetch
-.\scripts\Stack-Logs.ps1 -Service n8n
+# Logs (tail)
+./scripts/Stack-Logs.ps1                 # core services
+./scripts/Stack-Logs.ps1 -Service n8n    # single service
+```
+
+## Bind Mount Mode (optional)
+
+Use bind mounts for Ollama and Qdrant persistent data instead of named volumes:
+
+```powershell
+./scripts/Stack-Up.ps1 -BindMounts
+```
+
+This uses `compose/docker-compose.bind.yml` to map host directories:
+- `.data/ollama` -> `/root/.ollama`
+- `.data/qdrant` -> `/qdrant/storage`
+
+Rollback: start without `-BindMounts` to return to named volumes. Do not delete named volumes until you have verified stability.
+
+### Migrate existing data to bind mounts
+
+Ollama (copy models from the named volume to host):
+```powershell
+# Stop ollama first if needed
+docker compose -f compose\docker-compose.yml stop ollama
+# Copy data out of the volume to ./.data/ollama
+docker run --rm --volumes-from ollama -v ${PWD}/.data/ollama:/host alpine sh -lc "mkdir -p /host && cp -a /root/.ollama/. /host/"
+```
+
+Qdrant (use the provided scripts to snapshot/restore):
+```powershell
+./scripts/Qdrant-Backup.ps1
+# Stop qdrant, then restore the snapshot into ./.data/qdrant on host (optional enhancement forthcoming)
+./scripts/Qdrant-Restore.ps1 -BackupFile .\backups\qdrant-YYYYMMDD-HHMMSS.tgz
 ```
 
 ## Smoke Tests
 ```powershell
 # Research pipeline
-$b=@{ query="RAG i kundsupport"; k=2; lang="sv" } | ConvertTo-Json -Compress
+$b=@{ query="RAG in customer support"; k=2; lang="en" } | ConvertTo-Json -Compress
 irm http://localhost:8081/research -Method POST -ContentType 'application/json' -Body $b
 
-# Retrieval debug (minnes- + webbträffar utan LLM)
-# Obs: irm returnerar redan ett objekt — använd Format-List istället för ConvertFrom-Json
+# Retrieval debug (memory + web hits without LLM)
 irm "http://localhost:8081/retrieval_debug?q=Qdrant" | Format-List *
 
-# Visa endast minnesträffar (url + kort snippet)
+# Show only memory hits (url + short snippet)
 $r = irm "http://localhost:8081/retrieval_debug?q=Qdrant"
 $r.memory | Select-Object url, @{n='snippet';e={$_.text.Substring(0, [Math]::Min(80, $_.text.Length))}}
 
-# Rå JSON (om du vill klistra in i issue/anteckning)
+# Raw JSON
 irm "http://localhost:8081/retrieval_debug?q=Qdrant" | ConvertTo-Json -Depth 6
 
 # Actions echo
@@ -53,35 +84,11 @@ $payload=@{ action="agent.echo"; args=@{ message="ping" } } | ConvertTo-Json -Co
 irm http://localhost:5678/webhook/agent -Method POST -ContentType 'application/json' -Body $payload
 ```
 
-> Förväntat svar (JSON): `{"ok":true,"action":"agent.echo","received":{"args":{"message":"ping"},"raw":{"action":"agent.echo","args":{"message":"ping"}}},"meta":{"headers":{...},"query":{...}},"timestamp":"..."}`
+Expected response (JSON): `{ "ok": true, "action": "agent.echo", "received": { ... }, "timestamp": "..." }`
 
-## Testa svensk modell via LiteLLM
+## Test models via LiteLLM
 
-```bash
-curl -sS -X POST http://localhost:4000/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "model": "local/qwen2.5-sv",
-    "messages": [
-      {"role":"user","content":"Skriv två meningar på svenska om hur denna modell används i plattformen."}
-    ],
-    "temperature": 0.4
-  }'
-```
-
-PowerShell-variant:
-
-```powershell
-$body = @{ 
-  model = 'local/qwen2.5-sv';
-  messages = @(@{ role='user'; content='Skriv två meningar på svenska om hur denna modell används i plattformen.' });
-  temperature = 0.4
-} | ConvertTo-Json -Compress
-irm http://localhost:4000/v1/chat/completions -Method POST -ContentType 'application/json' -Body $body
-```
-
-## Test English model via LiteLLM
-
+English profile:
 ```bash
 curl -sS -X POST http://localhost:4000/v1/chat/completions \
   -H 'Content-Type: application/json' \
@@ -94,129 +101,27 @@ curl -sS -X POST http://localhost:4000/v1/chat/completions \
   }'
 ```
 
-PowerShell variant:
-
-```powershell
-$body = @{ 
-  model = 'local/qwen2.5-en';
-  messages = @(@{ role='user'; content='Write two concise sentences in English about how this model is used in the platform.' });
-  temperature = 0.35
-} | ConvertTo-Json -Compress
-irm http://localhost:4000/v1/chat/completions -Method POST -ContentType 'application/json' -Body $body
+Swedish profile:
+```bash
+curl -sS -X POST http://localhost:4000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "local/qwen2.5-sv",
+    "messages": [
+      {"role":"user","content":"Skriv två meningar på svenska om hur modellen används i plattformen."}
+    ],
+    "temperature": 0.4
+  }'
 ```
 
-## Common Issues
-- **403 from SearxNG** → set `BASE_URL=http://searxng:8080/` in compose (internally consistent host).
-- **LiteLLM “unexpected extra argument (litellm)”** → the container’s entrypoint provides the binary; `command:` must contain only flags (e.g., `--config /app/config.yaml --port 4000`).
-- **GPU not visible** → `docker exec -it ollama nvidia-smi`; ensure NVIDIA runtime/driver present.
+## RAG via LiteLLM (ragproxy)
 
-## Maintenance
-- Use `scripts/Repo-Save.ps1` to commit edits.
-- Rebuild only the changed service:
-```powershell
-docker compose -f compose\docker-compose.yml build webfetch
-docker compose -f compose\docker-compose.yml up -d webfetch
-```
+Configured via `compose/.env`:
+- `ENABLE_RAG=true|false` - global on/off for server-side RAG in `ragproxy`.
+- `RAG_MAX_SOURCES=5` - max number of sources to inject.
+- `RAG_MAX_CHARS=1200` - max chars per source.
 
-## n8n Backups & Restore
-
-```powershell
-# Exportera alla workflows till repo:t (skapar/uppdaterar flows/workflows/*.json)
-.\scripts\N8N-Workflows.ps1 export
-
-# Importera workflows från repo:t till körande n8n-container
-.\scripts\N8N-Workflows.ps1 import
-
-# Ta även med credentials (lagras i flows/credentials.json)
-.\scripts\N8N-Workflows.ps1 export -IncludeCredentials
-.\scripts\N8N-Workflows.ps1 import -IncludeCredentials
-```
-
-> Tips: kör `export` direkt efter att du sparat ändringar i n8n:s UI så att git-versionen alltid är uppdaterad. Var försiktig med hemligheter om du väljer att inkludera credentials i repo:t.
-
-## Open WebUI Config Dumps
-
-```powershell
-# Spara nuvarande Open WebUI-databas som SQL-dump (för verktyg, presets m.m.)
-./scripts/OpenWebUI-Config.ps1 export
-
-# Återställ UI:t från senast exporterade dumpen
-./scripts/OpenWebUI-Config.ps1 import
-```
-
-> Importen skriver över `/app/backend/data/app.db`. Stoppa gärna containern eller
-se till att inga användare är aktiva för att undvika låsningar.
-
-### Beständiga inloggningar i Open WebUI
-
-För att slippa logga in efter varje omstart, använd en stabil signeringsnyckel:
-
-- Sätt `OPENWEBUI_SECRET` i `compose/.env` (en lång slumpmässig sträng).
-- Compose injicerar den som `SECRET_KEY` och `WEBUI_JWT_SECRET` till containern.
-- Cookies förblir giltiga över container‑omstarter så länge hemligheten är densamma.
-
-TTL för tokens (valfritt och versionsberoende):
-- I vissa 0.6‑builds kan anpassad TTL ge felet "Invalid duration string". Om det händer – lämna TTL odefinierad och använd standard.
-- När stöd finns: sätt TTL via miljövariabler enligt projektets dokumentation för din version och verifiera i JWT `exp`.
-
-## Svensk Qwen-profil via LiteLLM
-
-- Alias: `local/qwen2.5-sv` i `litellm/config.yaml`
-- Mappas till samma Ollama‑modell: `ollama/qwen2.5:14b-instruct-q4_K_M` (ingen VRAM‑reload)
-- Justeringar (t.ex. temperatur, systemprompt) hanteras i LiteLLM‑aliaset
-- `webfetch` väljer `local/qwen2.5-sv` automatiskt när `lang` börjar med `sv`
-
-## Qdrant Backups & Restore
-
-```powershell
-# Skapa snapshot av Qdrants lagring (tgz i ./backups)
-./scripts/Qdrant-Backup.ps1
-
-# Återställ från en specifik backupfil
-./scripts/Qdrant-Restore.ps1 -BackupFile .\backups\qdrant-YYYYMMDD-HHMMSS.tgz
-```
-
-> Backup/restore använder en temporär Alpine-container med `--volumes-from qdrant` för
-> att läsa/skriva `/qdrant/storage`. Containern stoppas/startas automatiskt vid restore.
-
-## Ingestion (exempel)
-
-```powershell
-# Indexera en eller flera URL:er till Qdrant (collection: memory)
-python .\indexer\ingest.py "https://example.com" "https://example.org"
-
-# Därefter påverkar Qdrant-minnet research-svaret via retrieval
-```
-
-Host-setup (om Python saknar beroenden)
-
-```powershell
-# Kör från repo-roten
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r indexer\requirements.txt
-
-# Kör ingestion
-python .\indexer\ingest.py "https://example.com" "https://example.org"
-```
-
-## Konfiguration (RAG)
-
-- `ENABLE_QDRANT=true|false` — slår på/av minnesåtervinning i `webfetch`.
-- `QDRANT_TOP_K=5` — hur många minnesträffar att blanda in.
-- `MMR_LAMBDA=0.7` — balans mellan relevans och diversitet (närmare 1 = mer relevans).
-
-### RAG via LiteLLM (ragproxy)
-
-Konfigureras via `compose/.env`:
-
-- `ENABLE_RAG=true|false` — global av/på för server‑side RAG i `ragproxy`.
-- `RAG_MAX_SOURCES=5` — max antal källor som injiceras.
-- `RAG_MAX_CHARS=1200` — max tecken per källa i prompten (klipps med "...").
-
-Använd modellerna `rag/qwen2.5-sv` eller `rag/qwen2.5-en` via LiteLLM (`http://localhost:4000/v1/chat/completions`).
-## Testa RAG via LiteLLM
-
+Test:
 ```bash
 curl -sS -X POST http://localhost:4000/v1/chat/completions \
   -H 'Content-Type: application/json' \
@@ -229,13 +134,79 @@ curl -sS -X POST http://localhost:4000/v1/chat/completions \
   }'
 ```
 
-PowerShell-variant:
+## Common Issues
+- 403 from SearxNG -> set `SEARXNG_BASE_URL=http://searxng:8080/` inside the container (compose already sets internal host).
+- LiteLLM flags -> container entrypoint provides the binary; `command:` must contain only flags (e.g., `--config /app/config.yaml --port 4000`).
+- GPU not visible -> `docker exec -it ollama nvidia-smi`; ensure NVIDIA runtime/driver present.
 
+## Maintenance
+- Use `scripts/Repo-Save.ps1` to commit edits.
+- Rebuild only the changed service:
 ```powershell
-$body = @{ 
-  model = 'rag/qwen2.5-sv';
-  messages = @(@{ role='user'; content='Sammanfatta huvudpunkter om n8n på svenska och ange källor.' });
-  temperature = 0.3
-} | ConvertTo-Json -Compress
-irm http://localhost:4000/v1/chat/completions -Method POST -ContentType 'application/json' -Body $body
+docker compose -f compose\docker-compose.yml build webfetch
+docker compose -f compose\docker-compose.yml up -d webfetch
+```
+
+## n8n Backups & Restore
+```powershell
+# Export all workflows to repo (creates/updates flows/workflows/*.json and flows/workflows.json)
+./scripts/N8N-Workflows.ps1 export
+
+# Import workflows from repo into running n8n
+./scripts/N8N-Workflows.ps1 import
+
+# Include credentials (stored in flows/credentials.json)
+./scripts/N8N-Workflows.ps1 export -IncludeCredentials
+./scripts/N8N-Workflows.ps1 import -IncludeCredentials
+```
+
+> Be careful with secrets if you choose to include credentials in git.
+
+## Open WebUI Config Dumps
+```powershell
+# Save current Open WebUI database as SQL dump (tools, presets, settings)
+./scripts/OpenWebUI-Config.ps1 export
+
+# Restore the UI from the last exported dump
+./scripts/OpenWebUI-Config.ps1 import
+```
+
+> Import overwrites `/app/backend/data/app.db`. Stop or idle the container to avoid locking.
+
+## Qdrant Backups & Restore
+```powershell
+# Create snapshot of Qdrant storage (tgz in ./backups)
+./scripts/Qdrant-Backup.ps1
+
+# Restore from a specific backup file
+./scripts/Qdrant-Restore.ps1 -BackupFile .\backups\qdrant-YYYYMMDD-HHMMSS.tgz
+```
+
+> Backup/restore uses a temporary Alpine container with `--volumes-from qdrant` to read/write `/qdrant/storage`.
+
+## Ingestion (example)
+```powershell
+# Index one or more URLs into Qdrant (collection: memory)
+python .\indexer\ingest.py "https://example.com" "https://example.org"
+
+# Then the Qdrant memory influences research replies via retrieval
+```
+
+Host setup (if Python deps are missing)
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r indexer\requirements.txt
+python .\indexer\ingest.py "https://example.com" "https://example.org"
+```
+
+## RAG Settings (webfetch)
+- `ENABLE_QDRANT=true|false` - toggle memory retrieval in `webfetch`.
+- `QDRANT_TOP_K=5` - number of memory hits to blend.
+- `MMR_LAMBDA=0.7` - relevance vs diversity (closer to 1 = more relevance).
+
+## Qdrant Schema Ensure
+Use the helper to ensure the `memory` collection exists with desired vector settings:
+```powershell
+./scripts/Qdrant-EnsureSchema.ps1 -Collection memory -Size 384 -Distance Cosine
 ```

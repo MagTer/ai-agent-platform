@@ -25,5 +25,8 @@ openwebui/data/
 # Backups (Qdrant etc.)
 backups/
 
+# Local persistent data (bind mounts)
+.data/
+
 # n8n sensitive credentials
 flows/credentials.json

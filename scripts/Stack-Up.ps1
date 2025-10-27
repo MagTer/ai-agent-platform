@@ -3,14 +3,15 @@
 
 [CmdletBinding()]
 param(
-  [switch]$CheckLiteLLM = $true,
-  [switch]$Build
+  [switch]$CheckLiteLLM = $false,
+  [switch]$Build,
+  [switch]$BindMounts
 )
 
 $ErrorActionPreference = "Stop"
 
 # ---- Configuration ----
-# Add more models as needed (e.g., "qwen2.5:7b")
+# Default models; can be overridden by config/models.txt in repo root
 $Models = @(
   "qwen2.5:14b-instruct-q4_K_M"
 )
@@ -117,6 +118,17 @@ if (-not $composeProjectName) {
   $composeProjectName = Get-EnvValue -FilePath (Join-Path $composeDir '.env.template') -Key 'COMPOSE_PROJECT_NAME'
 }
 
+# Override models from config/models.txt if present
+$modelsFile = Join-Path $repoRoot 'config\models.txt'
+if (Test-Path $modelsFile) {
+  try {
+    $lines = Get-Content $modelsFile | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith('#') }
+    if ($lines.Count -gt 0) { $Models = $lines }
+  } catch {
+    Say "[!] Failed to read config/models.txt; using defaults" "Yellow"
+  }
+}
+
 $composeArgs = @('-f', $composeFile)
 if ($composeProjectName) {
   $composeArgs += @('-p', $composeProjectName)
@@ -128,10 +140,31 @@ if (Test-Path $envFile) {
   $composeArgs += @('--env-file', $envFile)
 }
 
+# Optional override for bind mounts
+if ($BindMounts) {
+  $bindOverride = Join-Path $composeDir 'docker-compose.bind.yml'
+  if (-not (Test-Path $bindOverride)) {
+    Write-Error "Bind override not found: $bindOverride"; exit 1
+  }
+  $composeArgs += @('-f', $bindOverride)
+}
+
 # Ensure compose reads the repo .env explicitly to avoid env resolution issues
 $envFile = Join-Path $repoRoot '.env'
 if (Test-Path $envFile) {
   $composeArgs += @('--env-file', $envFile)
+}
+
+# Validate required secrets for Open WebUI and SearxNG
+$owSecret = Get-EnvValue -FilePath (Join-Path $composeDir '.env') -Key 'OPENWEBUI_SECRET'
+if (-not $owSecret) { $owSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'OPENWEBUI_SECRET' }
+$sxSecret = Get-EnvValue -FilePath (Join-Path $composeDir '.env') -Key 'SEARXNG_SECRET'
+if (-not $sxSecret) { $sxSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'SEARXNG_SECRET' }
+if (-not $owSecret -or [string]::IsNullOrWhiteSpace($owSecret)) {
+  Write-Error "OPENWEBUI_SECRET is required. Set it in compose/.env."; exit 1
+}
+if (-not $sxSecret -or [string]::IsNullOrWhiteSpace($sxSecret)) {
+  Write-Error "SEARXNG_SECRET is required. Set it in compose/.env."; exit 1
 }
 
 Push-Location $repoRoot
@@ -162,6 +195,27 @@ try {
       Say "[!] LiteLLM health endpoint not responding in time. Check logs: docker logs litellm" "Yellow"
     }
   }
+
+  # Additional health checks (fail fast, lightweight)
+  $sxPort = Get-MappedPort -ContainerName "searxng" -InternalPort 8080
+  Say "[i] Waiting for SearxNG on port $sxPort ..."
+  if (-not (Wait-HttpOk -Url "http://localhost:$sxPort/" -TimeoutSec 60)) { Write-Error "SearxNG not healthy."; exit 1 }
+
+  $wfPort = Get-MappedPort -ContainerName "webfetch" -InternalPort 8081
+  Say "[i] Waiting for webfetch on port $wfPort ..."
+  if (-not (Wait-HttpOk -Url "http://localhost:$wfPort/health" -TimeoutSec 60)) { Write-Error "webfetch not healthy."; exit 1 }
+
+  $qdPort = Get-MappedPort -ContainerName "qdrant" -InternalPort 6333
+  Say "[i] Waiting for Qdrant on port $qdPort ..."
+  if (-not (Wait-HttpOk -Url "http://localhost:$qdPort/healthz" -TimeoutSec 60)) { Write-Error "Qdrant not healthy."; exit 1 }
+
+  $embPort = Get-MappedPort -ContainerName "embedder" -InternalPort 8082
+  Say "[i] Waiting for embedder on port $embPort ..."
+  if (-not (Wait-HttpOk -Url "http://localhost:$embPort/health" -TimeoutSec 60)) { Write-Error "Embedder not healthy."; exit 1 }
+
+  $n8nPort = Get-MappedPort -ContainerName "n8n" -InternalPort 5678
+  Say "[i] Waiting for n8n on port $n8nPort ..."
+  if (-not (Wait-HttpOk -Url "http://localhost:$n8nPort/healthz" -TimeoutSec 60)) { Write-Error "n8n not healthy."; exit 1 }
 
   # Show status
   Say "[i] Containers status:" "Cyan"

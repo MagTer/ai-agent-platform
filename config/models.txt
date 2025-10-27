@@ -1,0 +1,2 @@
+# One model per line; lines starting with # are ignored
+qwen2.5:14b-instruct-q4_K_M

@@ -24,7 +24,7 @@ model_list:
             If uncertain, say so and propose next steps.
             IMPORTANT: Never use Chinese and never translate to Chinese.
   - model_name: local/qwen2.5-sv
-    display_name: "Qwen 2.5 SV 🇸🇪 (Svensk profil)"
+    display_name: "Qwen 2.5 SV (Svensk profil)"
     litellm_params:
       model: ollama/qwen2.5:14b-instruct-q4_K_M
       api_base: http://ollama:11434
@@ -35,7 +35,7 @@ model_list:
       reuse_client: true
       stream: true
   - model_name: rag/qwen2.5-en
-    display_name: "RAG → Qwen 2.5 EN"
+    display_name: "RAG -> Qwen 2.5 EN"
     litellm_params:
       # Route to OpenAI-compatible RAG proxy
       model: openai/gpt-3.5-turbo
@@ -44,7 +44,7 @@ model_list:
       max_output_tokens: 2048
       stream: true
   - model_name: rag/qwen2.5-sv
-    display_name: "RAG → Qwen 2.5 SV 🇸🇪"
+    display_name: "RAG -> Qwen 2.5 SV"
     litellm_params:
       model: openai/gpt-3.5-turbo
       api_base: http://ragproxy:4080
@@ -64,10 +64,7 @@ model_list:
             fördjupning vid behov.
 
 # ---- Routing policy ----
-# (Behövs inte längre, men sparas för framtida expansion)
-routing:
-  - strategy: tokens
-    default: local/qwen2.5
+# (No default routing policy defined; alias models are explicit)
 
 # ---- General settings ----
 general_settings:

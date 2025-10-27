@@ -116,7 +116,7 @@ try {
     $countOut = Exec "docker" @("exec","-i",$Container,"sh","-lc","ls -1 $tmpExport/*.json 2>/dev/null | wc -l")
     $count = [int]($countOut.Trim())
 
-    $dest = Join-Path $flowsPath "export"
+    $dest = Join-Path $flowsPath "workflows"
     if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
@@ -126,6 +126,23 @@ try {
       Write-Host "[ok] Exported $count workflow file(s) -> $dest" -ForegroundColor Green
       Write-Host "[i] Files (top 10):" -ForegroundColor DarkGray
       Get-ChildItem -Path $dest -Recurse -File | Select-Object -First 10 | ForEach-Object { Write-Host " - $($_.FullName)" }
+
+      # Also generate a combined workflows.json at flows/ root for reference
+      try {
+        $combinedPath = Join-Path $flowsPath "workflows.json"
+        $objs = @()
+        Get-ChildItem -Path $dest -Filter *.json -File | ForEach-Object {
+          try {
+            $content = Get-Content -Raw -Path $_.FullName | ConvertFrom-Json
+            if ($null -ne $content) { $objs += $content }
+          } catch {}
+        }
+        $jsonOut = $objs | ConvertTo-Json -Depth 6
+        Set-Content -Path $combinedPath -Value $jsonOut -Encoding UTF8
+        Write-Host "[ok] Wrote combined -> $combinedPath" -ForegroundColor Green
+      } catch {
+        Write-Host "[!] Failed to create combined workflows.json: $($_.Exception.Message)" -ForegroundColor Yellow
+      }
     } else {
       Write-Host "[i] No workflows in container. Created empty '$dest'." -ForegroundColor Yellow
     }
@@ -143,8 +160,8 @@ try {
     }
 
   } elseif ($Mode -eq "import") {
-    # Prefer flows/export if present
-    $exportSub = Join-Path $flowsPath "export"
+    # Prefer flows/workflows if present
+    $exportSub = Join-Path $flowsPath "workflows"
     if (Test-Path $exportSub) { $importSource = $exportSub } else { $importSource = $flowsPath }
 
     if (-not (Get-ChildItem -Path $importSource -Recurse -Include *.json -File -ErrorAction SilentlyContinue)) {
