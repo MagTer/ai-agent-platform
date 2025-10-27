@@ -27,11 +27,11 @@ function Check-Http {
   try {
     $r = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec $TimeoutSec
     if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 300) {
-      Say "[ok] $Name: $($r.StatusCode)" "Green"; return $true
+      Say "[ok] ${Name}: $($r.StatusCode)" "Green"; return $true
     }
-    Say "[!] $Name: HTTP $($r.StatusCode)" "Yellow"; return $false
+    Say "[!] ${Name}: HTTP $($r.StatusCode)" "Yellow"; return $false
   } catch {
-    Say "[x] $Name: $($_.Exception.Message)" "Red"; return $false
+    Say "[x] ${Name}: $($_.Exception.Message)" "Red"; return $false
   }
 }
 
@@ -75,4 +75,3 @@ foreach ($t in $targets) {
 
 if (-not $okAll) { exit 1 }
 exit 0
-
