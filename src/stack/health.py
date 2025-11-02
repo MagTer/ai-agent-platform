@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import datetime as dt
 
-import docker
+try:  # pragma: no cover - dependency availability differs in CI
+    import docker  # type: ignore
+except ImportError:  # pragma: no cover
+    docker = None  # type: ignore
+
 from rich.console import Console
 from rich.table import Table
 
@@ -13,6 +17,9 @@ from .utils import DEFAULT_PROJECT_NAME
 
 def fetch_container_states() -> list[dict[str, str]]:
     """Return a summary of containers belonging to the stack project."""
+
+    if docker is None:  # pragma: no cover - exercised only when dependency missing
+        raise RuntimeError("docker SDK is required to fetch container states")
 
     client = docker.from_env()
     containers = client.containers.list(
