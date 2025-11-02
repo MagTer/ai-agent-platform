@@ -1,39 +1,40 @@
 """Testing helpers that resemble :mod:`typer.testing`."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import io
-from typing import Iterable, Optional
+from collections.abc import Iterable
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import dataclass
 
 from . import Typer
 
 
-@dataclass
+@dataclass(slots=True)
 class Result:
+    """Outcome of invoking a CLI command."""
+
     exit_code: int
     stdout: str
     stderr: str
-    exception: Optional[BaseException]
+    exception: BaseException | None
 
 
 class CliRunner:
-    """Minimal CLI runner capturing stdout/stderr."""
+    """Minimal CLI runner capturing stdout and stderr."""
 
-    def invoke(self, app: Typer, args: Optional[Iterable[str]] = None) -> Result:
+    def invoke(self, app: Typer, args: Iterable[str] | None = None) -> Result:
         arguments = list(args or [])
         stdout_buffer = io.StringIO()
         stderr_buffer = io.StringIO()
-        exception: Optional[BaseException] = None
+        exception: BaseException | None = None
         exit_code = 0
 
         try:
-            from contextlib import redirect_stdout, redirect_stderr
-
             with redirect_stdout(stdout_buffer), redirect_stderr(stderr_buffer):
                 app._dispatch(arguments)
         except SystemExit as exc:  # pragma: no cover - mirrors Typer behaviour
             exit_code = exc.code if isinstance(exc.code, int) else 1
-        except BaseException as exc:  # noqa: BLE001 - we need to mirror Typer's capture
+        except BaseException as exc:  # noqa: BLE001 - mirror Typer's capture
             exit_code = 1
             exception = exc
         finally:
@@ -44,3 +45,4 @@ class CliRunner:
 
 
 __all__ = ["CliRunner", "Result"]
+

@@ -1,72 +1,71 @@
-"""A very small subset of Typer's public API used in tests.
-
-This module provides enough functionality for the stack CLI tests without
-pulling in the full ``typer`` dependency.  It offers a basic command registry,
-option/argument declarations, and a programmatic runner that mimics the parts
-of Typer used by the project.
-"""
+"""A minimal subset of Typer's public API used in tests."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 import inspect
-from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from typing import Any
 
-__all__ = [
-    "Argument",
-    "Option",
-    "Typer",
-]
+__all__ = ["Argument", "Option", "Typer", "testing"]
+
+
+def __getattr__(name: str) -> Any:  # pragma: no cover - compatibility shim
+    if name == "testing":
+        from . import testing as _testing
+
+        return _testing
+    raise AttributeError(f"module 'typer' has no attribute {name!r}")
 
 
 @dataclass
 class _OptionMetadata:
     default: Any
     names: Sequence[str]
-    help: Optional[str]
+    help: str | None
     show_default: bool
 
 
 @dataclass
 class _ArgumentMetadata:
     default: Any
-    help: Optional[str]
+    help: str | None
 
 
 class _OptionDefault:
     """Container returned by :func:`Option` used to defer metadata."""
 
-    def __init__(self, meta: _OptionMetadata):
+    def __init__(self, meta: _OptionMetadata) -> None:
         self.meta = meta
 
 
 class _ArgumentDefault:
     """Container returned by :func:`Argument` used to defer metadata."""
 
-    def __init__(self, meta: _ArgumentMetadata):
+    def __init__(self, meta: _ArgumentMetadata) -> None:
         self.meta = meta
 
 
-def Option(
+def Option(  # noqa: N802 - mirrors Typer's public API
     default: Any = ...,
     *names: str,
-    help: Optional[str] = None,
+    help: str | None = None,
     show_default: bool = False,
 ) -> Any:
-    """Declare an option for a command function.
+    """Declare an option for a command function."""
 
-    Only the metadata relevant to the project is captured.  The returned object
-    is inspected when the command is registered and replaced with the real
-    default value.
-    """
-
-    meta = _OptionMetadata(default=default, names=names, help=help, show_default=show_default)
+    meta = _OptionMetadata(
+        default=default,
+        names=names,
+        help=help,
+        show_default=show_default,
+    )
     return _OptionDefault(meta)
 
 
-def Argument(
+def Argument(  # noqa: N802 - mirrors Typer's public API
     default: Any = ...,
     *names: str,
-    help: Optional[str] = None,
+    help: str | None = None,
 ) -> Any:
     """Declare a positional argument for a command function."""
 
@@ -81,20 +80,19 @@ class _Parameter:
     annotation: Any
     default: Any
     option_names: Sequence[str]
-    help: Optional[str]
+    help: str | None
 
 
 @dataclass
 class _Command:
     callback: Callable[..., Any]
-    parameters: List[_Parameter]
+    parameters: list[_Parameter]
 
-    def invoke(self, args: List[str]) -> Any:
-        values: Dict[str, Any] = {}
-        positionals: List[str] = []
+    def invoke(self, args: list[str]) -> Any:
+        values: dict[str, Any] = {}
+        positionals: list[str] = []
 
-        # Prepare defaults and collect metadata for option parsing.
-        option_lookup: Dict[str, _Parameter] = {}
+        option_lookup: dict[str, _Parameter] = {}
         for param in self.parameters:
             if param.kind == "option":
                 values[param.name] = param.default
@@ -105,41 +103,40 @@ class _Command:
 
         idx = 0
         while idx < len(args):
-            token = args[idx]
-            if token.startswith("--") and token != "--":
-                param = option_lookup.get(token)
-                if param is None and token.startswith("--no-"):
-                    positive = "--" + token[5:]
+            current_arg = args[idx]
+            if current_arg.startswith("--") and current_arg != "--":
+                param = option_lookup.get(current_arg)
+                if param is None and current_arg.startswith("--no-"):
+                    positive = "--" + current_arg[5:]
                     param = option_lookup.get(positive)
                     if param and param.annotation is bool:
                         values[param.name] = False
                         idx += 1
                         continue
                 if param is None:
-                    raise ValueError(f"Unknown option '{token}'")
+                    raise ValueError(f"Unknown option '{current_arg}'")
 
                 if param.annotation is bool:
                     values[param.name] = True
                     idx += 1
                     continue
 
-                if "=" in token:
-                    _, _, attached = token.partition("=")
+                if "=" in current_arg:
+                    _, _, attached = current_arg.partition("=")
                     values[param.name] = _convert_value(attached, param.annotation)
                     idx += 1
                     continue
 
                 if idx + 1 >= len(args):
-                    raise ValueError(f"Option '{token}' requires a value")
+                    raise ValueError(f"Option '{current_arg}' requires a value")
                 idx += 1
                 values[param.name] = _convert_value(args[idx], param.annotation)
                 idx += 1
                 continue
 
-            positionals.append(token)
+            positionals.append(current_arg)
             idx += 1
 
-        # Assign positional arguments in order of appearance.
         pos_index = 0
         for param in self.parameters:
             if param.kind != "argument":
@@ -187,11 +184,13 @@ def _normalize_annotation(annotation: Any) -> Any:
 class Typer:
     """Simple command collection compatible with the tests."""
 
-    def __init__(self, help: Optional[str] = None):
+    def __init__(self, help: str | None = None) -> None:
         self.help = help or ""
-        self._commands: Dict[str, _Command] = {}
+        self._commands: dict[str, _Command] = {}
 
-    def command(self, name: Optional[str] = None) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+    def command(
+        self, name: str | None = None
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             command_name = name or func.__name__.replace("_", "-")
             self._commands[command_name] = _Command(
@@ -202,8 +201,8 @@ class Typer:
 
         return decorator
 
-    def _extract_parameters(self, func: Callable[..., Any]) -> List[_Parameter]:
-        params: List[_Parameter] = []
+    def _extract_parameters(self, func: Callable[..., Any]) -> list[_Parameter]:
+        params: list[_Parameter] = []
         signature = inspect.signature(func)
         for parameter in signature.parameters.values():
             annotation = _normalize_annotation(parameter.annotation)
@@ -237,7 +236,6 @@ class Typer:
                     )
                 )
             else:
-                # Required argument without Typer helpers
                 params.append(
                     _Parameter(
                         name=parameter.name,
@@ -260,13 +258,7 @@ class Typer:
             raise SystemExit(1)
         return command.invoke(iterator[1:])
 
-    def __call__(self, *args: str) -> Any:  # pragma: no cover - used for manual execution
+    def __call__(self, *args: str) -> Any:  # pragma: no cover - CLI entry point
         import sys
 
         return self._dispatch(args or sys.argv[1:])
-
-
-# Testing helpers -------------------------------------------------------------------------
-from . import testing  # noqa: E402  (import at end to avoid circular import)
-
-__all__.append("testing")
