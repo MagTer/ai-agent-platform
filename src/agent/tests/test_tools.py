@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-
 from agent.core.config import Settings
 from agent.core.litellm_client import LiteLLMClient
 from agent.core.memory import MemoryStore

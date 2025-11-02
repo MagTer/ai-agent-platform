@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from stack import cli
+
 from typer.testing import CliRunner
 
 
