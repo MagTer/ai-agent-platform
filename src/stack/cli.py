@@ -13,7 +13,13 @@ SERVICE_ARGUMENT = typer.Argument(None, help="Optional services to filter.")
 
 
 @app.command()
-def up(detach: bool = typer.Option(True, help="Run services in the background.")) -> None:
+def up(
+    detach: bool = typer.Option(
+        True,
+        "--detach/--no-detach",
+        help="Run services in the background.",
+    )
+) -> None:
     """Start all services defined in docker-compose.yml."""
 
     console.print("[bold green]Starting stack...[/bold green]")
@@ -22,7 +28,13 @@ def up(detach: bool = typer.Option(True, help="Run services in the background.")
 
 
 @app.command()
-def down(remove_volumes: bool = typer.Option(False, help="Remove persistent volumes.")) -> None:
+def down(
+    remove_volumes: bool = typer.Option(
+        False,
+        "--volumes/--no-volumes",
+        help="Remove persistent volumes.",
+    )
+) -> None:
     """Stop all running services."""
 
     console.print("[bold yellow]Stopping stack...[/bold yellow]")
