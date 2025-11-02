@@ -1,10 +1,9 @@
 import os
-from typing import List, Dict, Any
+from typing import Any
 
-import requests
 import numpy as np
-from fastapi import FastAPI, Body, HTTPException
-
+import requests
+from fastapi import Body, FastAPI, HTTPException
 
 EMBEDDER_BASE = os.getenv("EMBEDDER_BASE", "http://embedder:8082")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
@@ -18,8 +17,12 @@ RAG_MAX_CHARS = int(os.getenv("RAG_MAX_CHARS", "1200"))
 app = FastAPI(title="RAG Proxy", version="0.2.0")
 
 
-def embed_texts(texts: List[str]) -> List[List[float]]:
-    r = requests.post(f"{EMBEDDER_BASE.rstrip('/')}/embed", json={"inputs": texts, "normalize": True}, timeout=30)
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    r = requests.post(
+        f"{EMBEDDER_BASE.rstrip('/')}/embed",
+        json={"inputs": texts, "normalize": True},
+        timeout=30,
+    )
     r.raise_for_status()
     return r.json().get("vectors", [])
 
@@ -30,11 +33,11 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (da * db))
 
 
-def _mmr(query_vec: np.ndarray, doc_vecs: List[np.ndarray], k: int, lam: float) -> List[int]:
+def _mmr(query_vec: np.ndarray, doc_vecs: list[np.ndarray], k: int, lam: float) -> list[int]:
     if not doc_vecs:
         return []
     sims = [_cosine(query_vec, v) for v in doc_vecs]
-    selected: List[int] = []
+    selected: list[int] = []
     candidates = set(range(len(doc_vecs)))
     while candidates and len(selected) < k:
         if not selected:
@@ -55,7 +58,7 @@ def _mmr(query_vec: np.ndarray, doc_vecs: List[np.ndarray], k: int, lam: float) 
     return selected
 
 
-def qdrant_retrieve(query: str, top_k: int) -> List[Dict[str, Any]]:
+def qdrant_retrieve(query: str, top_k: int) -> list[dict[str, Any]]:
     vecs = embed_texts([query])
     if not vecs:
         return []
@@ -66,11 +69,15 @@ def qdrant_retrieve(query: str, top_k: int) -> List[Dict[str, Any]]:
         "with_payload": True,
         "with_vector": True,
     }
-    r = requests.post(f"{QDRANT_URL.rstrip('/')}/collections/memory/points/search", json=payload, timeout=30)
+    r = requests.post(
+        f"{QDRANT_URL.rstrip('/')}/collections/memory/points/search",
+        json=payload,
+        timeout=30,
+    )
     r.raise_for_status()
     res = r.json().get("result", [])
-    docs: List[Dict[str, Any]] = []
-    dvecs: List[np.ndarray] = []
+    docs: list[dict[str, Any]] = []
+    dvecs: list[np.ndarray] = []
     for p in res:
         pl = p.get("payload") or {}
         url = pl.get("url")
@@ -86,7 +93,7 @@ def qdrant_retrieve(query: str, top_k: int) -> List[Dict[str, Any]]:
     seen = set()
     uniq_docs = []
     uniq_vecs = []
-    for d, v in zip(docs, dvecs):
+    for d, v in zip(docs, dvecs, strict=False):
         u = d["url"]
         if u in seen:
             continue
@@ -103,9 +110,9 @@ def health():
 
 
 @app.post("/v1/chat/completions")
-def chat_completions(body: Dict[str, Any] = Body(...)):
+def chat_completions(body: dict[str, Any] = Body(...)):
     model = (body.get("model") or "").lower()
-    messages: List[Dict[str, str]] = list(body.get("messages") or [])
+    messages: list[dict[str, str]] = list(body.get("messages") or [])
     if not messages:
         raise HTTPException(status_code=400, detail="messages are required")
 
@@ -124,14 +131,14 @@ def chat_completions(body: Dict[str, Any] = Body(...)):
             chunks = []
             sources = []
             for i, d in enumerate(hits, start=1):
-                text = (d.get('text') or '')
+                text = d.get("text") or ""
                 if len(text) > RAG_MAX_CHARS:
                     text = text[:RAG_MAX_CHARS] + "\n...\n"
                 chunks.append(f"Source [{i}] {d['url']}\n{text}")
                 sources.append(f"- [{i}] {d['url']}")
             context = "\n\n".join(chunks)
             src_list = "\n".join(sources)
-            if forward_model.endswith('-sv'):
+            if forward_model.endswith("-sv"):
                 sys = (
                     "Du är en noggrann assistent. Använd ENDAST det givna underlaget för fakta. "
                     "Citera som [n] och lista källor."
@@ -141,9 +148,7 @@ def chat_completions(body: Dict[str, Any] = Body(...)):
                     "You are a precise assistant. Use ONLY the provided context for facts. "
                     "Cite as [n] and list sources."
                 )
-            user_aug = (
-                f"Question: {query}\n\nContext:\n{context}\n\nSources:\n{src_list}\n\n"
-            )
+            user_aug = f"Question: {query}\n\nContext:\n{context}\n\nSources:\n{src_list}\n\n"
             final_messages = [
                 {"role": "system", "content": sys},
                 {"role": "user", "content": user_aug},
@@ -155,4 +160,3 @@ def chat_completions(body: Dict[str, Any] = Body(...)):
     r = requests.post(f"{LITELLM_BASE.rstrip('/')}/v1/chat/completions", json=fwd, timeout=120)
     r.raise_for_status()
     return r.json()
-

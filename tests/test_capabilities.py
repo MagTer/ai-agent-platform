@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 CATALOG_PATH = Path(__file__).resolve().parent.parent / "capabilities" / "catalog.yaml"
 
 
@@ -69,4 +68,4 @@ def test_verification_command_is_json_safe(catalog):
                 payload = command.split("-d", 1)[1].strip().strip("'")
                 json.loads(payload)
             except json.JSONDecodeError as exc:
-                raise AssertionError(f"Ogiltig JSON i smoke test-kommandot: {exc}")
+                raise AssertionError(f"Ogiltig JSON i smoke test-kommandot: {exc}") from exc

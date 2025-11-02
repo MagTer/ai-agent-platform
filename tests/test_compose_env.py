@@ -1,8 +1,6 @@
-import os
 from pathlib import Path
 
 import yaml
-
 
 COMPOSE_PATH = Path(__file__).resolve().parents[1] / "compose" / "docker-compose.yml"
 
@@ -32,4 +30,3 @@ def test_ragproxy_receives_rag_flags():
     assert env.get("ENABLE_RAG") is not None
     assert env.get("RAG_MAX_SOURCES") is not None
     assert env.get("RAG_MAX_CHARS") is not None
-

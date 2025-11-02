@@ -1,17 +1,17 @@
-import os
-import time
-import json
 import hashlib
+import json
+import os
 import pathlib
+import time
 from collections import deque
-from typing import List, Dict, Any, Optional
+from typing import Any
 
+import numpy as np
 import requests
-from fastapi import FastAPI, Query, Body, HTTPException, Depends
+import trafilatura
+from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import trafilatura
-import numpy as np
 from qdrant_client import QdrantClient
 
 # -----------------------------
@@ -35,7 +35,7 @@ MAX_CHARS = int(os.getenv("MAX_CHARS", "12000"))
 CACHE_DIR = pathlib.Path(os.getenv("CACHE_DIR", "/app/.cache"))
 CACHE_TTL = int(os.getenv("CACHE_TTL", str(60 * 60 * 24)))  # 24h
 
-RATE_WINDOW = int(os.getenv("RATE_WINDOW", "60"))    # seconds
+RATE_WINDOW = int(os.getenv("RATE_WINDOW", "60"))  # seconds
 RATE_MAX_REQ = int(os.getenv("RATE_MAX_REQ", "60"))  # requests per window
 
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -57,6 +57,7 @@ app.add_middleware(
 # -----------------------------
 _hits = deque()
 
+
 def limiter():
     now = time.time()
     while _hits and now - _hits[0] > RATE_WINDOW:
@@ -64,6 +65,7 @@ def limiter():
     if len(_hits) >= RATE_MAX_REQ:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
     _hits.append(now)
+
 
 # -----------------------------
 # HTTP helper with retries
@@ -73,26 +75,28 @@ def http_get(
     timeout: int,
     tries: int = 3,
     backoff: float = 1.5,
-    params: Optional[Dict[str, Any]] = None,
-    headers: Optional[Dict[str, str]] = None,
+    params: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> requests.Response:
     if headers is None:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; WebFetch/0.3.2)"}
-    last_exc: Optional[Exception] = None
+    last_exc: Exception | None = None
     for i in range(tries):
         try:
             return requests.get(url, timeout=timeout, params=params, headers=headers)
         except Exception as e:
             last_exc = e
             if i < tries - 1:
-                time.sleep(backoff ** i)
+                time.sleep(backoff**i)
     raise last_exc  # type: ignore
+
 
 # -----------------------------
 # Cache helpers
 # -----------------------------
 def cache_key(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
 
 def cache_get(url: str):
     p = CACHE_DIR / cache_key(url)
@@ -103,22 +107,22 @@ def cache_get(url: str):
             return None
     return None
 
+
 def cache_set(url: str, data: dict):
     (CACHE_DIR / cache_key(url)).write_text(json.dumps(data), encoding="utf-8")
+
 
 # -----------------------------
 # Core fetch/extract
 # -----------------------------
-def fetch_and_extract(url: str) -> Dict[str, Any]:
+def fetch_and_extract(url: str) -> dict[str, Any]:
     cached = cache_get(url)
     if cached:
         return cached
     try:
         r = http_get(url, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
-        text = trafilatura.extract(
-            r.text, include_images=False, include_tables=False
-        ) or ""
+        text = trafilatura.extract(r.text, include_images=False, include_tables=False) or ""
         text = text.strip()
         if len(text) > MAX_CHARS:
             text = text[:MAX_CHARS] + "\n...\n"
@@ -130,10 +134,11 @@ def fetch_and_extract(url: str) -> Dict[str, Any]:
         cache_set(url, data)
         return data
 
+
 # -----------------------------
 # Embeddings via embedder service
 # -----------------------------
-def embed_texts(texts: List[str], normalize: bool = True) -> List[List[float]]:
+def embed_texts(texts: list[str], normalize: bool = True) -> list[list[float]]:
     try:
         r = requests.post(
             EMBEDDER_BASE.rstrip("/") + "/embed",
@@ -144,12 +149,14 @@ def embed_texts(texts: List[str], normalize: bool = True) -> List[List[float]]:
         data = r.json()
         return data.get("vectors", [])
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"embedder error: {e}")
+        raise HTTPException(status_code=502, detail=f"embedder error: {e}") from e
+
 
 # -----------------------------
 # Qdrant retrieval (best-effort)
 # -----------------------------
-_qdrant: Optional[QdrantClient] = None
+_qdrant: QdrantClient | None = None
+
 
 def get_qdrant() -> QdrantClient:
     global _qdrant
@@ -157,17 +164,22 @@ def get_qdrant() -> QdrantClient:
         _qdrant = QdrantClient(url=QDRANT_URL)
     return _qdrant
 
+
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
     da = np.linalg.norm(a) + 1e-9
     db = np.linalg.norm(b) + 1e-9
     return float(np.dot(a, b) / (da * db))
 
 
-def _mmr(query_vec: np.ndarray, doc_vecs: List[np.ndarray], k: int, lam: float) -> List[int]:
+def _mmr(query_vec: np.ndarray, doc_vecs: list[np.ndarray], k: int, lam: float) -> list[int]:
+    """Return indices selected via Maximal Marginal Relevance."""
+
     if not doc_vecs:
         return []
+
+    lam = float(np.clip(lam, 0.0, 1.0))
     sims = [_cosine(query_vec, v) for v in doc_vecs]
-    selected: List[int] = []
+    selected: list[int] = []
     candidates = set(range(len(doc_vecs)))
     while candidates and len(selected) < k:
         if not selected:
@@ -175,20 +187,25 @@ def _mmr(query_vec: np.ndarray, doc_vecs: List[np.ndarray], k: int, lam: float) 
             selected.append(i)
             candidates.remove(i)
             continue
+
         best_i = None
-        best_score = -1e9
+        best_score = float("-inf")
         for i in list(candidates):
-            div = max(_cosine(doc_vecs[i], doc_vecs[j]) for j in selected)
-            score = lam * sims[i] - (1 - lam) * div
+            redundancy = max(_cosine(doc_vecs[i], doc_vecs[j]) for j in selected)
+            diversity = 1.0 - redundancy
+            score = (1.0 - lam) * sims[i] + lam * diversity
             if score > best_score:
                 best_score = score
                 best_i = i
-        selected.append(best_i)  # type: ignore
-        candidates.remove(best_i)  # type: ignore
+
+        if best_i is None:  # pragma: no cover - defensive, candidates non-empty
+            break
+        selected.append(best_i)
+        candidates.remove(best_i)
     return selected
 
 
-def qdrant_query(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+def qdrant_query(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     try:
         vecs = embed_texts([query])
         if not vecs:
@@ -202,15 +219,15 @@ def qdrant_query(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
             with_payload=True,
             with_vectors=True,
         )
-        docs: List[Dict[str, Any]] = []
-        dvecs: List[np.ndarray] = []
-        urls: List[str] = []
+        docs: list[dict[str, Any]] = []
+        dvecs: list[np.ndarray] = []
+        urls: list[str] = []
         for p in res or []:
             payload = p.payload or {}
             url = payload.get("url")
             text = payload.get("text") or ""
             vec = None
-            if getattr(p, 'vector', None) is not None:
+            if getattr(p, "vector", None) is not None:
                 vec = np.array(p.vector, dtype=np.float32)
             if not url or not text or vec is None:
                 continue
@@ -221,9 +238,9 @@ def qdrant_query(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
             return []
         # Dedup by URL
         seen = set()
-        uniq_docs: List[Dict[str, Any]] = []
-        uniq_vecs: List[np.ndarray] = []
-        for d, v, u in zip(docs, dvecs, urls):
+        uniq_docs: list[dict[str, Any]] = []
+        uniq_vecs: list[np.ndarray] = []
+        for d, v, u in zip(docs, dvecs, urls, strict=False):
             if u in seen:
                 continue
             seen.add(u)
@@ -236,11 +253,12 @@ def qdrant_query(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
     except Exception:
         return []
 
+
 # -----------------------------
 # SearxNG search
 # -----------------------------
 @app.get("/search")
-def search(q: str = Query(..., min_length=2), k: int = 5, lang: str = "sv") -> Dict[str, Any]:
+def search(q: str = Query(..., min_length=2), k: int = 5, lang: str = "sv") -> dict[str, Any]:
     url = SEARXNG_URL.rstrip("/") + "/search"
     params = {"q": q, "format": "json", "language": lang, "safesearch": 1}
     try:
@@ -248,20 +266,25 @@ def search(q: str = Query(..., min_length=2), k: int = 5, lang: str = "sv") -> D
         r.raise_for_status()
         data = r.json()
     except Exception as e:
-        raise HTTPException(status_code=502, detail="searxng error: {}".format(e))
+        raise HTTPException(status_code=502, detail=f"searxng error: {e}") from e
     results = []
     for item in data.get("results", [])[:k]:
-        results.append({
-            "title": item.get("title"),
-            "url": item.get("url"),
-            "snippet": item.get("content") or item.get("snippet")
-        })
+        results.append(
+            {
+                "title": item.get("title"),
+                "url": item.get("url"),
+                "snippet": item.get("content") or item.get("snippet"),
+            }
+        )
     return {"query": q, "lang": lang, "results": results}
+
 
 # -----------------------------
 # Summarization (via LiteLLM)
 # -----------------------------
-def _build_summary_prompt(query: str, urls: List[str], items: List[Dict[str, Any]]) -> Dict[str, str]:
+def _build_summary_prompt(
+    query: str, urls: list[str], items: list[dict[str, Any]]
+) -> dict[str, str]:
     # Build chunks
     chunks = []
     idx = 1
@@ -276,16 +299,16 @@ def _build_summary_prompt(query: str, urls: List[str], items: List[Dict[str, Any
 
     sources_lines = []
     for i, u in enumerate(urls, start=1):
-        sources_lines.append("- [{}] {}".format(i, u))
+        sources_lines.append(f"- [{i}] {u}")
     sources_md = "\n".join(sources_lines)
 
     system = (
-        "You are a precise research assistant. Summarize key points based only on the provided sources. "
-        "Cite sources as [n] and list links clearly. Avoid speculation."
+        "You are a precise research assistant. Summarize key points based only on the provided "
+        "sources. Cite sources as [n] and list links clearly. Avoid speculation."
     )
     user_parts = [
         "Svarssprak: svenska (sv-SE).",
-        "Fraga: {}".format(query),
+        f"Fraga: {query}",
         "",
         "Underlag (urklipp, kan innehalla brus):",
         "",
@@ -299,12 +322,19 @@ def _build_summary_prompt(query: str, urls: List[str], items: List[Dict[str, Any
         "",
         "Kallor:",
         sources_md,
-        ""
+        "",
     ]
     user = "\n".join(user_parts)
     return {"system": system, "user": user}
 
-def summarize_with_litellm(model: str, query: str, urls: List[str], items: List[Dict[str, Any]], lang: str) -> str:
+
+def summarize_with_litellm(
+    model: str,
+    query: str,
+    urls: list[str],
+    items: list[dict[str, Any]],
+    lang: str,
+) -> str:
     prompts = _build_summary_prompt(query, urls, items)
     if prompts["user"] == "Inga kallor kunde extraheras.":
         return prompts["user"]
@@ -313,10 +343,10 @@ def summarize_with_litellm(model: str, query: str, urls: List[str], items: List[
         "model": model,
         "messages": [
             {"role": "system", "content": prompts["system"]},
-            {"role": "user", "content": prompts["user"]}
+            {"role": "user", "content": prompts["user"]},
         ],
         "temperature": 0.2,
-        "max_tokens": 700
+        "max_tokens": 700,
     }
     try:
         r = requests.post(
@@ -328,20 +358,22 @@ def summarize_with_litellm(model: str, query: str, urls: List[str], items: List[
         data = r.json()
         return data["choices"][0]["message"]["content"]
     except Exception as e:
-        return "Summarization failed: {}".format(e)
+        return f"Summarization failed: {e}"
+
 
 # -----------------------------
 # Research core
 # -----------------------------
-def _pick_model(model: Optional[str], lang: str) -> str:
+def _pick_model(model: str | None, lang: str) -> str:
     if model and model.strip():
         return model
     return MODEL_SV if lang.lower().startswith("sv") else MODEL_EN
 
-def _research_core(q: str, k: int, model: Optional[str], lang: str):
+
+def _research_core(q: str, k: int, model: str | None, lang: str):
     chosen_model = _pick_model(model, lang)
-    mem_extracts: List[Dict[str, Any]] = []
-    mem_urls: List[str] = []
+    mem_extracts: list[dict[str, Any]] = []
+    mem_urls: list[str] = []
     if ENABLE_QDRANT:
         mem_extracts = qdrant_query(q, top_k=min(QDRANT_TOP_K, k))
         mem_urls = [m["url"] for m in mem_extracts if m.get("url")]
@@ -358,6 +390,7 @@ def _research_core(q: str, k: int, model: Optional[str], lang: str):
     summary = summarize_with_litellm(chosen_model, q, urls, extracts, lang)
     return {"query": q, "model": chosen_model, "lang": lang, "sources": urls, "summary": summary}
 
+
 # -----------------------------
 # API: health, extract, research
 # -----------------------------
@@ -365,30 +398,35 @@ def _research_core(q: str, k: int, model: Optional[str], lang: str):
 def health():
     return {"ok": True}
 
+
 @app.post("/extract")
-def extract(urls: List[str] = Body(...)) -> Dict[str, Any]:
+def extract(urls: list[str] = Body(...)) -> dict[str, Any]:
     out = [fetch_and_extract(u) for u in urls]
     return {"items": out}
+
 
 class ResearchPayload(BaseModel):
     query: str
     k: int = 5
-    model: Optional[str] = None
+    model: str | None = None
     lang: str = "sv"
+
 
 @app.post("/research")
 def research_post(payload: ResearchPayload, _=Depends(limiter)):
     return _research_core(payload.query, payload.k, payload.model, payload.lang)
 
+
 @app.get("/research")
 def research_get(
     q: str = Query(..., min_length=2),
     k: int = Query(5, ge=1, le=10),
-    model: Optional[str] = Query(None),
+    model: str | None = Query(None),
     lang: str = Query("sv"),
-    _=Depends(limiter)
+    _=Depends(limiter),
 ):
     return _research_core(q, k, model, lang)
+
 
 @app.get("/retrieval_debug")
 def retrieval_debug(q: str = Query(..., min_length=2), k: int = Query(5, ge=1, le=10)):

@@ -1,11 +1,9 @@
 import os
-from typing import List, Optional
 
 import numpy as np
-from fastapi import FastAPI, Body
+from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
-
 
 MODEL_NAME = os.getenv("MODEL_NAME", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 NORMALIZE = os.getenv("NORMALIZE", "true").lower() == "true"
@@ -14,11 +12,11 @@ app = FastAPI(title="Embedder (CPU)", version="0.1.0")
 
 
 class EmbedRequest(BaseModel):
-    inputs: List[str]
-    normalize: Optional[bool] = None
+    inputs: list[str]
+    normalize: bool | None = None
 
 
-_model: Optional[SentenceTransformer] = None
+_model: SentenceTransformer | None = None
 
 
 def get_model() -> SentenceTransformer:
@@ -43,5 +41,5 @@ def embed(req: EmbedRequest):
     model = get_model()
     norm = NORMALIZE if req.normalize is None else req.normalize
     vectors = model.encode(req.inputs, convert_to_numpy=True, normalize_embeddings=norm)
-    return {"vectors": vectors.tolist(), "normalize": norm, "dim": int(vectors.shape[1] if isinstance(vectors, np.ndarray) else len(vectors[0]) )}
-
+    dim = int(vectors.shape[1] if isinstance(vectors, np.ndarray) else len(vectors[0]))
+    return {"vectors": vectors.tolist(), "normalize": norm, "dim": dim}

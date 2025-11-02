@@ -10,4 +10,3 @@ def test_chunk_text_basic():
     # Overlap: consecutive chunks share the first 10 chars (when long enough)
     if len(chunks) >= 2:
         assert chunks[0][-10:] == chunks[1][:10]
-
