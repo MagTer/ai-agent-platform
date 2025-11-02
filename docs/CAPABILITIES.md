@@ -1,40 +1,31 @@
 # Capabilities — Outcome-Oriented View
 
 ## Today
-- Reasoning (EN/SV) with local models via LiteLLM profiles.
-- Research: SearxNG -> webfetch extraction -> LiteLLM summary (sources included).
-- Actions: n8n `/webhook/agent` echo workflow acknowledges JSON with a timestamp.
+- **Conversational agent API**: `/v1/agent` accepts a prompt, optional `conversation_id`, and metadata to drive tool usage. `/v1/chat/completions` exposes the same orchestrated flow via the OpenAI schema so Open WebUI can consume structured responses with embedded metadata.
+- **Local reasoning**: LiteLLM proxies to Ollama-hosted Qwen 2.5 models for English and Swedish presets.
+- **Web research tool**: the `web_fetch` tool calls the Webfetch microservice to blend search and memory before LiteLLM completion.
+- **Semantic memory**: Qdrant stores embeddings for retrieval-augmented prompts; SQLite tracks conversation metadata for continuity.
 
-See `capabilities/catalog.yaml` for the machine-readable catalog.
+See `config/tools.yaml` for the runtime tool registry and `docs/architecture/03_tools.md` for testing guidance.
 
 ## Next
-- Actions skeleton (n8n):
-  - Document POST contract in Open WebUI action preset.
-  - Automate export steps (script) to keep `flows/` up to date (done).
+- **Expanded tool catalog**: add filesystem, calendar, and code execution utilities implemented directly in `src/agent/tools/` with declarative entries in `config/tools.yaml`.
+- **Memory enrichment**: scheduled ingestion workflows for documentation, enabling richer answers without manual prompting.
+- **Observation hooks**: push interaction metrics (latency, tokens, tool usage) into structured logs for later analytics.
 
 ## Capability Catalog
-- File: `capabilities/catalog.yaml`
-- Content: machine-readable overview of available actions, their contract, and which Open WebUI tool to use.
-- Status field marks whether a capability is `available`, `in-progress`, or `planned`.
+The previous n8n-focused catalog is being replaced with agent-native definitions. Track new entries under `capabilities/catalog.yaml` using the following schema:
+
+- `id`: globally unique capability identifier (e.g., `agent.web_research`).
+- `owner`: `agent` for FastAPI-native features or the service name for external dependencies.
+- `entrypoint`: HTTP method + URL exposed by the platform.
+- `contract`: JSON schema for requests/responses.
+- `verification`: reproducible smoke test command (`curl`, `pytest`, or stack CLI invocation).
+
+Update the catalog whenever a capability graduates from planned to available and mirror the status in this document.
 
 ## Planned Capabilities
-- Homey:
-  - `homey.device_onoff(name, state)`
-  - `homey.trigger_flow(name, params)`
-- Obsidian:
-  - `obsidian.write_daily_note(path, text)` (e.g., `Daily Notes/2025-04-23.md`)
-- GitHub:
-  - `create_branch(repo, base, name)`
-  - `open_pr(repo, branch, title, body)`
-- Azure DevOps:
-  - `create_work_item(project, type, title, description)`
-- Microsoft 365 / Gmail:
-  - `send_mail(to, subject, body)`
-  - `create_event(calendar, when, duration, title)`
-- CLI / FFmpeg:
-  - `transcode(input, profile)`
-- YouTube:
-  - `transcript(url)`; `search(query)`
-- RAG:
-  - `search_notes(query)` + `answer_with_context(query)`
-
+- `agent.web_research` – orchestrated retrieval across Qdrant memory and live web data.
+- `agent.file_summarise` – ingest local Markdown/PDF documents and summarise with citations.
+- `agent.calendar_event` – create calendar entries through a provider-agnostic tool.
+- `agent.repo_change` – draft pull requests using repository context and Git tooling.

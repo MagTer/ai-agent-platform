@@ -1,0 +1,4 @@
+- name: web_fetch
+  type: agent.tools.web_fetch.WebFetchTool
+  args:
+    base_url: http://webfetch:8081

@@ -1,54 +1,63 @@
-# Open WebUI — Actions tool to n8n
+# Open WebUI — Agent Integration
 
-This document explains how to configure Open WebUI to call the platform's n8n webhook. The goal is a reusable tool (`n8n_action`) that sends a JSON payload to `/webhook/agent` and shows the reply in chat.
+Open WebUI is pre-configured (via `docker-compose.yml`) to send all chat
+traffic to the FastAPI agent using the OpenAI-compatible
+`/v1/chat/completions` endpoint. The agent responds with structured payloads
+(`steps`, `response`, `metadata`), enabling the UI to visualise reasoning
+chains. The steps below remain useful when you want to publish additional
+presets or expose explicit tool triggers from the UI.
 
 ## Prerequisites
-- The stack runs per `compose/docker-compose.yml`.
-- Your Open WebUI account can create tools.
-- The n8n workflow "Agent Echo" is active (see `flows/workflows/`).
+- Stack running via `python -m stack up` with services healthy.
+- Open WebUI user account with permission to create tools and presets.
+- Agent API reachable at `http://agent:8000/v1/agent` inside the Docker network (or `http://localhost:8000/v1/agent` from the host).
 
-## UI configuration
-1. Log in to Open WebUI, open Tools -> Create Tool.
-2. Choose type "REST" and name it `n8n_action`.
-3. Fill in settings:
+## Optional: Explicit Tool Presets
+The agent automatically determines tool usage based on metadata embedded in
+Open WebUI prompts. When you need deterministic behaviour (for example, a
+research preset that always requests `web_fetch`), create a REST tool and map
+it to a preset:
+
+1. Log in to Open WebUI and open **Tools → Create Tool**.
+2. Choose type **REST** and set the name to `agent_research`.
+3. Populate the form:
 
 | Field | Value |
 | --- | --- |
-| Description | `POST JSON to n8n agent webhook` |
+| Description | `Force tool metadata for the agent` |
 | Method | `POST` |
-| URL | `http://n8n:5678/webhook/agent` |
+| URL | `http://agent:8000/v1/agent` |
 | Headers | `Content-Type: application/json` |
-| Body Template | `{ "action": "agent.echo", "args": { "message": "<your message>" } }` |
-| Timeout | `15` seconds |
+| Body Template | see below |
+| Timeout | `30` seconds |
 | Authentication | `None` |
 
-4. Save the tool and enable it for the Actions preset if requested.
-5. Open a new chat, choose the Actions preset, and run `n8n_action`. Change `message` in the body template to verify the reply is echoed.
+## Research Preset with Tools
+To force tool usage, duplicate the steps above with a new tool named `agent_research` and use the body template:
+```json
+{
+  "prompt": "<research question>",
+  "metadata": {
+    "tools": ["web_fetch"],
+    "tool_calls": [
+      {
+        "name": "web_fetch",
+        "args": {"url": "https://example.com"}
+      }
+    ]
+  }
+}
+```
+Attach this tool to the **Research** preset so that requests explicitly enable the `web_fetch` tool registered in `config/tools.yaml`.
 
-Tip: The `agent.echo` contract is documented in `capabilities/catalog.yaml`.
+> **Tip:** For general conversations you do not need a custom tool—Open WebUI
+> calls `/v1/chat/completions` directly and the agent manages tool execution
+> automatically.
 
-## Presets for Qwen profiles
+## Exporting Configuration
+After updating tools or presets, export the Open WebUI configuration from **Admin → Settings → Export** and commit the resulting SQLite dump (`openwebui/export/app.db.sql`) so changes are reproducible.
 
-Swedish profile via LiteLLM (`local/qwen2.5-sv`):
-1. Open Presets -> Create Preset.
-2. Name: `Swedish - Qwen 2.5`
-3. Provider: `OpenAI Compatible` (pointed at LiteLLM)
-4. Model: `local/qwen2.5-sv`
-5. Temperature: `0.4` (optional)
-6. Save and make visible.
-
-English profile via LiteLLM (`local/qwen2.5-en`):
-1. Open Presets -> Create Preset.
-2. Name: `English - Qwen 2.5`
-3. Provider: `OpenAI Compatible` (via LiteLLM)
-4. Model: `local/qwen2.5-en`
-5. Temperature: `0.35` (optional)
-6. Save and make visible.
-
-After adding tools/presets, run `./scripts/OpenWebUI-Config.ps1 export` and commit `openwebui/export/app.db.sql` to keep configuration reproducible.
-
-## Verification
-1. Run the n8n smoketest in `docs/OPERATIONS.md`.
-2. Start Open WebUI, choose the Actions preset, and call `n8n_action`.
-3. Verify the reply contains `"ok": true`, `"action": "agent.echo"`, and that your request arguments are returned in `received.args`.
-
+## Verification Checklist
+- Tool calls return HTTP 200 with a JSON payload containing `conversation_id` and `response`.
+- `python -m stack logs agent` shows tool metadata when `web_fetch` is requested.
+- Capability catalog (`capabilities/catalog.yaml`) reflects newly exposed tools or presets.

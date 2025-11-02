@@ -1,0 +1,67 @@
+"""Async client for the LiteLLM gateway."""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Iterable
+from typing import Any
+
+import httpx
+
+from .config import Settings
+from .models import AgentMessage
+
+LOGGER = logging.getLogger(__name__)
+
+
+class LiteLLMError(RuntimeError):
+    """Raised when the LiteLLM gateway returns an unexpected error."""
+
+
+class LiteLLMClient:
+    """Wrapper around the LiteLLM HTTP API."""
+
+    def __init__(self, settings: Settings, *, timeout: float = 60.0) -> None:
+        self._settings = settings
+        self._timeout = timeout
+
+    def _build_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {"Content-Type": "application/json"}
+        if self._settings.litellm_api_key:
+            headers["Authorization"] = f"Bearer {self._settings.litellm_api_key}"
+        return headers
+
+    async def generate(self, messages: Iterable[AgentMessage]) -> str:
+        """Call the LiteLLM chat completions endpoint and return the assistant message."""
+
+        payload: dict[str, Any] = {
+            "model": self._settings.litellm_model,
+            "messages": [message.model_dump() for message in messages],
+        }
+
+        async with httpx.AsyncClient(base_url=str(self._settings.litellm_api_base)) as client:
+            try:
+                response = await client.post(
+                    "/v1/chat/completions",
+                    json=payload,
+                    headers=self._build_headers(),
+                    timeout=self._timeout,
+                )
+            except httpx.HTTPError as exc:
+                # pragma: no cover - network errors are unlikely in tests
+                raise LiteLLMError("Failed to reach LiteLLM gateway") from exc
+
+        if response.status_code >= 400:
+            LOGGER.error("LiteLLM error %s: %s", response.status_code, response.text)
+            raise LiteLLMError(
+                f"LiteLLM responded with {response.status_code}: {response.text[:256]}"
+            )
+
+        data = response.json()
+        try:
+            return data["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, TypeError) as exc:  # pragma: no cover - defensive
+            raise LiteLLMError("Unexpected response format from LiteLLM") from exc
+
+
+__all__ = ["LiteLLMClient", "LiteLLMError"]

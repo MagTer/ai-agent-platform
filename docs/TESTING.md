@@ -1,40 +1,31 @@
-﻿# Testing
+# Testing
 
 ## Overview
-- Uses `pytest` for fast, offline-friendly tests.
-- Focus: microservice health, retrieval logic, and ingestion helpers without network/GPU.
+- Test suite uses `pytest` with Poetry-managed dependencies.
+- Focus areas: configuration loading, service orchestration, tool behaviour, and stack CLI utilities.
+- Ruff and mypy enforce formatting and typing; see `docs/architecture/04_dev_practices.md` for guidance.
 
-## Running
-
+## Running Tests
 ```bash
-pytest -q
+poetry run pytest -v
 ```
 
-## What's Covered
-
-- `tests/test_embedder_health.py`
-  - Imports `embedder.app` and checks `/health` and `/model` respond without downloading the model.
-
-- `tests/test_indexer_chunking.py`
-  - Verifies chunking size and overlap logic used during ingestion.
-
-- `tests/test_fetcher_mmr.py`
-  - Tests the MMR selection helper in `fetcher.app` with synthetic vectors.
-
-- `tests/test_fetcher_toggle.py`
-  - Ensures `ENABLE_QDRANT` toggles the retrieval path in `fetcher`.
-  - Stubs network calls (`search`, `fetch_and_extract`, `qdrant_query`, and summarization) to stay offline.
-
-## Integration (Optional)
-For an end-to-end smoke test, run services first, then:
-
-```powershell
-python .\indexer\ingest.py "https://qdrant.tech/"
-irm "http://localhost:8081/retrieval_debug?q=Qdrant"
+Run linting alongside tests for CI parity:
+```bash
+poetry run ruff check .
+poetry run mypy src
 ```
+
+## Coverage Expectations
+- `src/agent/tests/` exercises configuration models, service logic, and tool interactions.
+- `src/stack/tests/` covers CLI argument handling and Docker Compose helpers (use mocks to avoid shelling out).
+- Stack status rendering and health aggregation live in `src/stack/tests/test_health.py`.
+- Add regression tests when introducing new tools or capabilities; prefer pure functions with deterministic behaviour.
+
+## Integration & Smoke Tests
+After `python -m stack up`, execute the smoke commands listed in `docs/OPERATIONS.md` to validate the running containers. Capture command outputs in PR descriptions when relevant.
 
 ## Notes
-- Tests avoid pulling large models or hitting external network.
-- If you add new retrieval/config flags, consider adding a toggle test similar to `test_fetcher_toggle.py`.
-
-
+- Tests should not reach the public internet or require GPUs; mock external services.
+- Keep fixtures lightweight and reusable; share constants in `conftest.py` if multiple modules depend on them.
+- When adding dependencies for testing, declare them under `[tool.poetry.group.dev.dependencies]` in `pyproject.toml`.
