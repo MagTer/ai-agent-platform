@@ -1,39 +1,36 @@
 # Project Profile — AI Agent Platform
 
 ## Vision
-A local, containerized agent platform that can do things (not just reason) with low cost, portability, and clear security practices.
+Deliver a local, containerised agent platform with actionable skills, transparent operations, and modern Python tooling.
 
 ## Persona & Response Style
 - Role: Senior assistant and advisor for IT product ownership (security, operations, AI).
 - Language: English only for documentation, code, and chat responses.
-- Style: Concise first; expand on request. Mark uncertainty with (assumption).
-- No background work: deliver everything in the reply.
+- Style: Lead with concise answers; expand when requested. Mark uncertainty with `(assumption)`.
+- Delivery: Provide complete outputs in each reply—no hidden steps.
 
 ## Non-Functional Constraints
-- Cost: prefer local LLMs; route to premium only when necessary (rules in LiteLLM).
-- Security: secrets in `compose/.env`, never committed; least-privilege credentials.
-- Portability: Docker-first; optional Azure Container Apps later.
-- Versioning: everything as code (compose, config, flows, scripts).
-- Recoverability: reset scripts and persistence for models/data.
+- Cost: Prefer local LLMs through LiteLLM ➜ Ollama; document any premium usage.
+- Security: Secrets remain in `.env`; avoid committing credentials or tokens.
+- Portability: Docker Compose orchestrates services; optional cloud packaging comes later.
+- Observability: Health checks and structured logs exposed by the agent and stack CLI.
+- Recoverability: Persistent volumes for models/data plus documented backup strategies.
 
-## Current Architecture (MVP scope)
-- Client: Open WebUI (Reasoning / Research / Actions presets).
-- LLM Gateway: LiteLLM -> Ollama (GPU)
-  - Unified local model: `qwen2.5:14b-instruct-q4_K_M`
-  - LiteLLM profiles: `local/qwen2.5-en` and `local/qwen2.5-sv`
-  - Optional premium: OpenRouter (routing-only).
-- Research: SearxNG + webfetch (FastAPI) -> summarize via LiteLLM.
-- Vector DB: Qdrant.
-- Actions orchestrator: n8n Single Wrapper (webhook) with persisted volume; workflows versioned via exports.
+## Current Architecture (Python Core)
+- **Client**: Open WebUI (Reasoning, Research, Actions presets) configured to call the FastAPI agent.
+- **Agent**: FastAPI service (`src/agent/`) managing prompts, conversation state (SQLite), and tool execution.
+- **LLM Gateway**: LiteLLM proxies to Ollama-hosted Qwen 2.5 models and optional remote providers.
+- **Memory**: Qdrant stores embeddings; `config/tools.yaml` registers memory-aware tools such as `web_fetch`.
+- **Stack Management**: Typer-based CLI (`python -m stack`) handles Compose lifecycle, health checks, and logs.
 
 ## Outcome-Oriented View
-- Reasoning (EN/SV) with local models via profiles.
-- Research: search -> extract -> summarize with sources.
-- Actions: baseline echo on `/webhook/agent`; next add real capabilities (Homey, Obsidian, GitHub, ADO, M365/Gmail, CLI/FFmpeg, YouTube, etc.).
+- Conversational completions with optional memory/tool metadata.
+- Research flows using the web_fetch tool and Qdrant context.
+- Documented roadmap for expanding tools (filesystem, calendar, Git, etc.).
 
 ## Onboarding Checklist
-1. Skim `docs/README.md` to confirm current milestone and guardrails.
-2. Follow the style and language in this profile when writing docs.
-3. Ensure your plan matches the MVP step in `docs/ROADMAP.md` before coding.
-4. Document tests or backup strategies when changing services (e.g., n8n exports).
-
+1. Read `docs/README.md` for documentation map and working agreements.
+2. Install Poetry and run `poetry install` to set up the virtual environment.
+3. Copy `.env.template` ➜ `.env`, fill secrets, and run `python -m stack up`.
+4. Execute lint (`poetry run ruff check .`) and tests (`poetry run pytest -v`) before submitting changes.
+5. Update docs and capability catalog to mirror behaviour adjustments.

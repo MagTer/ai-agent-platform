@@ -1,50 +1,40 @@
 # Architecture
 
-## Services (MVP)
-- ollama (GPU): local model `qwen2.5:14b-instruct-q4_K_M`
-- litellm: routing, budgets, and rate limits (OpenRouter optional)
-- openwebui: client (presets: Reasoning, Research, Actions)
-- searxng: meta-search
-- webfetch: FastAPI (search -> extract -> summarize via LiteLLM)
-- qdrant: vector database
-- embedder (CPU): sentence-transformers (MiniLM L12 v2, 384d) for embeddings
-- n8n: action orchestrator (webhook "Single Wrapper")
-- ragproxy: OpenAI-compatible pre-processor injecting Qdrant hits before LiteLLM
+The platform is centred on a Python agent service that coordinates LiteLLM, Ollama, Qdrant, and Open WebUI. The legacy n8n orchestrator has been removed in favour of a FastAPI application with an explicit tool layer and a Typer-based stack CLI.
 
-## Default Ports (override via `compose/.env`)
-OPENWEBUI=3000, LITELLM=4000, QDRANT=6333, OLLAMA=11434, SEARXNG=8080, FETCHER=8081, N8N=5678
+## Service Map
+- **agent** – FastAPI service (`src/agent/`) exposing `/healthz`, `/v1/agent`,
+  and an OpenAI-compatible `/v1/chat/completions` endpoint that orchestrates
+  memory, tools, and LiteLLM calls while returning structured responses
+  (`steps`, `response`, `metadata`).
+- **stack CLI** – `python -m stack <command>` controls Docker Compose lifecycle, health checks, and log streaming.
+- **litellm** – LLM gateway that proxies requests to Ollama or configured remote providers via environment variables in `docker-compose.yml`.
+- **ollama** – Local GPU-backed inference engine hosting Qwen 2.5 models for English/Swedish presets.
+- **openwebui** – Front-end for reasoning, research, and tool invocation modes.
+- **qdrant** – Vector store used for semantic memory, running alongside a lightweight SQLite conversation state.
+- **webfetch** – HTTP microservice that performs outbound search and extraction, used by the `web_fetch` tool.
 
-## Data & Persistence
-- Models: named volume `ollama_data` (migration to bind mounts is planned; see ROADMAP).
-- n8n data: named volume `n8n_data` (`/home/node/.n8n`).
-- Backups: scripts under `/scripts/`.
+Refer to `docs/architecture/00_overview.md` for the ASCII diagram and deeper walkthroughs of each subsystem:
 
-## Flows
+| File | Focus |
+| --- | --- |
+| `00_overview.md` | Purpose, ASCII architecture diagram, and data flow summary. |
+| `01_stack.md` | Docker Compose services, volumes, and stack CLI usage. |
+| `02_agent.md` | Agent modules, request lifecycle, and dependency graph. |
+| `03_tools.md` | Tool registry, configuration (`config/tools.yaml`), and testing patterns. |
+| `04_dev_practices.md` | Coding standards, Poetry workflow, linting, and typing. |
+| `05_ci.md` | GitHub Actions pipeline (lint + test jobs). |
 
-### Research
-Open WebUI -> LiteLLM (`rag/qwen2.5-*`) -> ragproxy ->
-  - Query embeddings (embedder, CPU) -> Qdrant retrieval (MMR + dedup)
-  - Context injection into prompt (EN/SV profiles)
--> LiteLLM -> Ollama/Qwen -> answer with sources.
-
-Alternative (parallel support):
-Open WebUI -> (tool) `research_web` -> `webfetch` (web + memory fusion) -> LiteLLM -> Ollama.
-
-### Actions (target)
-Open WebUI -> (tool) `n8n_action` -> n8n `/webhook/agent` -> capability mapping -> provider flow (GitHub/ADO/M365/...).
-Baseline: `agent_echo` workflow (see `flows/workflows.json`) returns an acknowledgement with timestamp.
-
-## Workflow Lifecycle (n8n)
-1. Create or modify workflows in the n8n UI (persisted in `n8n_data`).
-2. Export artifacts for version control using `scripts/N8N-Workflows.ps1 export`.
-   - Exports per-workflow JSON to `flows/workflows/` and a combined `flows/workflows.json`.
-3. Commit the exported JSON files to keep history.
-4. Restore using `scripts/N8N-Workflows.ps1 import` after stack bootstrap.
-
-> Alternative: evaluate n8n git integration once non-local deployments are needed.
+## Configuration & Data
+- `.env` (root) – loaded by both the stack CLI and FastAPI via `python-dotenv`.
+- `config/tools.yaml` – declarative registration of tool classes exposed to the agent.
+- Volumes: `ollama-models` and `qdrant-data` persist models and vector storage.
+- SQLite database defaults to `data/agent_state.sqlite` (mounted into the agent container) for conversation metadata.
 
 ## Security Notes
-- Keep all secrets in `compose/.env` (not committed).
-- If exposing UIs, prefer Cloudflare/Tailscale or Zero Trust.
-- Webhooks (n8n) should be internal-only unless secured.
+- Secrets remain in the uncommitted `.env` file; sample keys belong in `.env.template`.
+- Internal services communicate over the Docker network; expose only Open WebUI or the agent externally with proper auth.
+- Keep LiteLLM routing rules minimal by default; document any premium provider usage in `docs/architecture/03_tools.md`.
 
+## Update Checklist
+When changing any service or contract, synchronise the relevant `docs/architecture/*.md` file, update `docs/OPERATIONS.md` with new commands, and review CI expectations in `docs/architecture/05_ci.md`.

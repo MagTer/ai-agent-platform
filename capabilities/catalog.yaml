@@ -1,170 +1,115 @@
-version: 0.1.0
+version: 0.2.0
 kind: capability-catalog
 actions:
-  - id: agent.echo
-    title: Agent Echo
+  - id: agent.conversation
+    title: Agent Conversation
     status: available
-    owner: n8n
-    summary: "Acknowledges incoming JSON and returns the payload with a timestamp."
+    owner: agent
+    summary: "Generate a response with optional memory and tool usage via the FastAPI agent."
     entrypoint:
       type: http
       method: POST
-      url: http://n8n:5678/webhook/agent
+      url: http://agent:8000/v1/agent
       auth: none
-      timeout_s: 15
+      timeout_s: 30
+    alt_entrypoints:
+      - type: http
+        method: POST
+        url: http://agent:8000/v1/chat/completions
+        notes: OpenAI-compatible schema consumed by Open WebUI.
     contract:
       request:
         content_type: application/json
         schema:
           type: object
-          required: [action, args]
+          required: [prompt]
           properties:
-            action: { type: string, const: agent.echo }
-            args: { type: object, description: "Arbitrary key/value pairs returned in the reply." }
+            prompt: { type: string }
+            conversation_id: { type: string, nullable: true }
+            metadata:
+              type: object
+              properties:
+                tools:
+                  type: array
+                  description: Optional allow-list of tool names.
+                  items: { type: string }
+                tool_calls:
+                  type: array
+                  description: Explicit tool invocations executed before the LLM call.
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      args: { type: object }
       response:
         content_type: application/json
         schema:
           type: object
-          required: [ok, action, received, timestamp]
+          required: [conversation_id, response, created_at]
           properties:
-            ok: { type: boolean }
-            action: { type: string }
-            received: { type: object }
-            timestamp: { type: string, format: date-time }
+            conversation_id: { type: string }
+            response: { type: string }
+            created_at: { type: string, format: date-time }
+            messages: { type: array, items: { type: object } }
     verification:
       smoke_test:
         command: |
-          curl -sS -X POST http://localhost:5678/webhook/agent -H 'Content-Type: application/json' -d '{"action":"agent.echo","args":{"message":"ping"}}'
+          curl -sS -X POST http://localhost:8000/v1/agent -H 'Content-Type: application/json' -d '{"prompt":"ping"}'
         expect_json: true
     openwebui:
-      tool_name: n8n_action
-      preset: Actions
-      description: "POST a JSON payload to the n8n agent webhook and show the response in chat."
-      body_template: |
-        {
-          "action": "agent.echo",
-          "args": {
-            "message": "<your message>"
-          }
-        }
+      default_backend: chat-completions
+      description: "Compose binds LITELLM_URL/OPENAI_API_BASE_URL to the agent so all chats pass through the orchestrator."
 
-  - id: homey.device_onoff
-    title: Homey - Device On/Off
-    status: planned
-    owner: n8n
-    summary: "Turn a Homey device on or off by name."
+  - id: agent.web_research
+    title: Agent Web Research
+    status: available
+    owner: agent
+    summary: "Blend Qdrant memory and web_fetch results to answer research questions."
     entrypoint:
       type: http
       method: POST
-      url: http://n8n:5678/webhook/agent
+      url: http://agent:8000/v1/agent
       auth: none
-      timeout_s: 15
+      timeout_s: 60
     contract:
       request:
         content_type: application/json
         schema:
           type: object
-          required: [action, args]
+          required: [prompt, metadata]
           properties:
-            action: { type: string, const: homey.device_onoff }
-            args:
+            prompt: { type: string }
+            metadata:
               type: object
-              required: [name, state]
               properties:
-                name: { type: string }
-                state: { type: boolean }
+                tools:
+                  type: array
+                  items: { type: string }
+                  default: ["web_fetch"]
+                tool_calls:
+                  type: array
+                  items:
+                    type: object
+                    required: [name]
+                    properties:
+                      name: { type: string }
+                      args: { type: object }
       response:
         content_type: application/json
     openwebui:
-      tool_name: n8n_action
-      preset: Actions
-      description: "Turn a device on/off in Homey."
+      tool_name: agent_research
+      preset: Research
+      description: "Trigger the agent with the web_fetch tool enabled."
       body_template: |
         {
-          "action": "homey.device_onoff",
-          "args": {
-            "name": "<device name>",
-            "state": true
+          "prompt": "<research question>",
+          "metadata": {
+            "tools": ["web_fetch"],
+            "tool_calls": [
+              {
+                "name": "web_fetch",
+                "args": {"url": "https://example.com"}
+              }
+            ]
           }
         }
-
-  - id: homey.trigger_flow
-    title: Homey - Trigger Flow
-    status: planned
-    owner: n8n
-    summary: "Trigger a Homey flow by name with optional params."
-    entrypoint:
-      type: http
-      method: POST
-      url: http://n8n:5678/webhook/agent
-      auth: none
-      timeout_s: 15
-    contract:
-      request:
-        content_type: application/json
-        schema:
-          type: object
-          required: [action, args]
-          properties:
-            action: { type: string, const: homey.trigger_flow }
-            args:
-              type: object
-              required: [name]
-              properties:
-                name: { type: string }
-                params: { type: object }
-      response:
-        content_type: application/json
-    openwebui:
-      tool_name: n8n_action
-      preset: Actions
-      description: "Trigger a named Homey flow."
-      body_template: |
-        {
-          "action": "homey.trigger_flow",
-          "args": {
-            "name": "<flow name>",
-            "params": {}
-          }
-        }
-
-  - id: obsidian.write_daily_note
-    title: Obsidian - Write Daily Note
-    status: planned
-    owner: n8n
-    summary: "Append text to a daily note path in the vault."
-    entrypoint:
-      type: http
-      method: POST
-      url: http://n8n:5678/webhook/agent
-      auth: none
-      timeout_s: 15
-    contract:
-      request:
-        content_type: application/json
-        schema:
-          type: object
-          required: [action, args]
-          properties:
-            action: { type: string, const: obsidian.write_daily_note }
-            args:
-              type: object
-              required: [path, text]
-              properties:
-                path: { type: string, description: "e.g., Daily Notes/2025-04-23.md" }
-                text: { type: string }
-      response:
-        content_type: application/json
-    openwebui:
-      tool_name: n8n_action
-      preset: Actions
-      description: "Append to an Obsidian daily note via n8n."
-      body_template: |
-        {
-          "action": "obsidian.write_daily_note",
-          "args": {
-            "path": "Daily Notes/2025-04-23.md",
-            "text": "<your text>"
-          }
-        }
-
