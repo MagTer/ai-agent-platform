@@ -42,9 +42,17 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    runtime: nvidia
     environment:
       OLLAMA_HOST: 0.0.0.0
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     volumes:
       - ollama-models:/root/.ollama
     ports:
