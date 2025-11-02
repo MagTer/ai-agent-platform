@@ -44,15 +44,8 @@ services:
     image: ollama/ollama:latest
     environment:
       OLLAMA_HOST: 0.0.0.0
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+    # GPU runtimes are provided via docker-compose.gpu.yml to keep the base stack
+    # compatible with docker compose config validation in CI.
     volumes:
       - ollama-models:/root/.ollama
     ports:
