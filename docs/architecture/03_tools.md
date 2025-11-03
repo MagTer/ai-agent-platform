@@ -17,6 +17,8 @@ code changes.
   type: agent.tools.web_fetch.WebFetchTool
   args:
     base_url: http://webfetch:8081
+    include_html: false
+    summary_max_chars: 1200
 ```
 
 The actual loader handles missing files gracefully and supports aliasing tool
@@ -52,6 +54,31 @@ OpenAI-compatible endpoint exposes the same structure via
 `choices[0].message.metadata` so Open WebUI can display action traces. Failures
 are logged and reported with `status: "error"` so callers can react
 deterministically.
+
+### Web Fetch contract
+
+`WebFetchTool` calls the fetcher service `/fetch` alias, which wraps the
+existing `/extract` logic. The service returns an object of the shape:
+
+```json
+{
+  "item": {
+    "url": "https://example.com",
+    "ok": true,
+    "text": "Plain-text extraction…",
+    "html": "<html>…</html>"
+  }
+}
+```
+
+The tool converts this payload into a prompt-ready system message that includes
+the target URL, a truncated text snippet, and (optionally) a raw HTML snippet if
+`include_html` is enabled. This keeps the planner grounded while preventing the
+model from hallucinating unseen context.
+
+When memory is enabled, semantic recalls from Qdrant are injected ahead of the
+tool output. The agent therefore blends historical knowledge and fresh web
+context before the LLM call.
 
 ## Testing Tools
 

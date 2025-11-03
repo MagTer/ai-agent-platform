@@ -65,7 +65,7 @@ actions:
     title: Agent Web Research
     status: available
     owner: agent
-    summary: "Blend Qdrant memory and web_fetch results to answer research questions."
+    summary: "Blend Qdrant memory recall with live web_fetch context to answer research questions."
     entrypoint:
       type: http
       method: POST
@@ -100,7 +100,7 @@ actions:
     openwebui:
       tool_name: agent.web_research
       preset: Research
-      description: "Trigger the agent with the web_fetch tool enabled."
+      description: "Trigger the agent with the web_fetch tool enabled so memory snippets and live page context are added as system messages."
       body_template: |
         {
           "prompt": "<research question>",
@@ -109,7 +109,11 @@ actions:
             "tool_calls": [
               {
                 "name": "web_fetch",
-                "args": {"url": "https://example.com"}
+                "args": {
+                  "url": "https://example.com",
+                  "include_html": false,
+                  "summary_max_chars": 800
+                }
               }
             ]
           }
