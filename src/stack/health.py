@@ -69,7 +69,6 @@ def render_status_table() -> None:
     table.add_column("Started")
     for row in rows:
         table.add_row(row["name"], row["status"], row["health"], row["started"])
-    table.row_count = len(rows)  # type: ignore[attr-defined]
     console.print(table)
 
 
