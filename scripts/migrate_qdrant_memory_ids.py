@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from typing import Iterable, Iterator
+from collections.abc import Iterable, Iterator
 from uuid import uuid4
 
 from qdrant_client import QdrantClient
@@ -68,7 +68,12 @@ def main() -> None:
         default="agent-memories",
         help="Qdrant collection storing agent semantic memories",
     )
-    parser.add_argument("--batch-size", type=int, default=256, help="Number of points to migrate per request")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=256,
+        help="Number of points to migrate per request",
+    )
 
     args = parser.parse_args()
     migrated = migrate_point_ids(args.url, args.api_key, args.collection, args.batch_size)

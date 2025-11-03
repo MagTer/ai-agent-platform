@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-
 from agent.core.config import Settings
 from agent.core.memory import MemoryRecord, MemoryStore
 
@@ -75,7 +74,9 @@ def test_add_records_generates_unique_point_ids(
     assert second_call[0].payload["conversation_id"] == "conv-1"
 
 
-def test_search_returns_all_payload_matches(memory_store: tuple[MemoryStore, _StubQdrantClient]) -> None:
+def test_search_returns_all_payload_matches(
+    memory_store: tuple[MemoryStore, _StubQdrantClient]
+) -> None:
     store, stub_client = memory_store
     stub_client.results = [
         _StubSearchResult(payload={"conversation_id": "conv-1", "text": "hello"}),
