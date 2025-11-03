@@ -60,8 +60,10 @@ jobs:
           key: ${{ runner.os }}-poetry-${{ hashFiles('poetry.lock', 'pyproject.toml') }}
       - name: Install dependencies
         run: poetry install --no-interaction
-      - name: Pytest
-        run: poetry run pytest -v
+      - name: Pytest with coverage
+        run: |
+          poetry run coverage run -m pytest
+          poetry run coverage report
 
   compose:
     name: Compose config

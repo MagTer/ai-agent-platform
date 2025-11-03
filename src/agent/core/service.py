@@ -47,9 +47,7 @@ class AgentService:
             history = self._state_store.get_messages(conversation_id)
         steps: list[dict[str, Any]] = []
 
-        semantic_memories = self._memory.search(
-            request.prompt, conversation_id=conversation_id
-        )
+        semantic_memories = self._memory.search(request.prompt, conversation_id=conversation_id)
         if semantic_memories:
             steps.append(
                 {
