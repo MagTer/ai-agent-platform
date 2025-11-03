@@ -4,11 +4,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from itertools import count
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from agent.core.config import Settings
 from agent.core.memory import MemoryRecord, MemoryStore
+from qdrant_client import QdrantClient
 
 
 @dataclass
@@ -47,7 +48,7 @@ def memory_store(monkeypatch: pytest.MonkeyPatch) -> tuple[MemoryStore, _StubQdr
     monkeypatch.setattr(MemoryStore, "_ensure_client", lambda self: None)
     store = MemoryStore(settings=Settings())
     stub_client = _StubQdrantClient()
-    store._client = stub_client  # type: ignore[attr-defined]
+    store._client = cast(QdrantClient, stub_client)  # type: ignore[attr-defined]
     return store, stub_client
 
 

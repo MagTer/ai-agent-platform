@@ -81,17 +81,14 @@ class MemoryStore:
     ) -> list[MemoryRecord]:
         """Return the most relevant stored memories for the given query."""
 
-        if not self._client:
+        client = self._client
+        if not client:
             return []
 
         vector = self._embed(query)
-        search_kwargs: dict[str, object] = {
-            "collection_name": self._settings.qdrant_collection,
-            "query_vector": vector,
-            "limit": limit,
-        }
+        query_filter: Filter | None = None
         if conversation_id:
-            search_kwargs["query_filter"] = Filter(
+            query_filter = Filter(
                 must=[
                     FieldCondition(
                         key="conversation_id",
@@ -100,7 +97,12 @@ class MemoryStore:
                 ]
             )
         try:
-            results = self._client.search(**search_kwargs)
+            results = client.search(
+                collection_name=self._settings.qdrant_collection,
+                query_vector=vector,
+                limit=limit,
+                query_filter=query_filter,
+            )
         except UnexpectedResponse as exc:  # pragma: no cover - defensive
             LOGGER.error("Memory search failed: %s", exc)
             return []
