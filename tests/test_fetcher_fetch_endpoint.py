@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib
-from typing import Any, Dict
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -13,7 +13,7 @@ def _load_app(monkeypatch) -> Any:
         importlib.reload(importlib.import_module("fetcher.app"))
     app_module = importlib.import_module("fetcher.app")
 
-    def stub_fetch_and_extract(url: str) -> Dict[str, Any]:
+    def stub_fetch_and_extract(url: str) -> dict[str, Any]:
         return {"url": url, "ok": True, "text": "hello", "html": "<p>hello</p>"}
 
     monkeypatch.setattr(app_module, "fetch_and_extract", stub_fetch_and_extract, raising=True)

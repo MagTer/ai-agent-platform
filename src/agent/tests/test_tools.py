@@ -5,7 +5,6 @@ from typing import cast
 
 import pytest
 import respx
-from httpx import Response
 from agent.core.config import Settings
 from agent.core.litellm_client import LiteLLMClient
 from agent.core.memory import MemoryStore
@@ -13,6 +12,7 @@ from agent.core.models import AgentRequest
 from agent.core.service import AgentService
 from agent.tools import Tool, ToolRegistry, load_tool_registry
 from agent.tools.web_fetch import WebFetchTool
+from httpx import Response
 
 
 class MockLiteLLMClient:
