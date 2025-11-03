@@ -37,12 +37,16 @@ class _PlainTextExtractor(HTMLParser):
 
 def _extract_text(html: str) -> str:
     if trafilatura is not None:
-        return trafilatura.extract(  # type: ignore[no-any-return]
-            html, include_images=False, include_tables=False
-        ) or ""
+        return (
+            trafilatura.extract(  # type: ignore[no-any-return]
+                html, include_images=False, include_tables=False
+            )
+            or ""
+        )
     parser = _PlainTextExtractor()
     parser.feed(html)
     return parser.get_text()
+
 
 # -----------------------------
 # Environment / defaults

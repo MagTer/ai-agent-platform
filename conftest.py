@@ -25,9 +25,7 @@ def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
 
     sig = inspect.signature(pyfuncitem.obj)
     bound_args = {
-        name: pyfuncitem.funcargs[name]
-        for name in sig.parameters
-        if name in pyfuncitem.funcargs
+        name: pyfuncitem.funcargs[name] for name in sig.parameters if name in pyfuncitem.funcargs
     }
 
     coro = pyfuncitem.obj(**bound_args)

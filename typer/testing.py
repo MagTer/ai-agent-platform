@@ -1,4 +1,5 @@
 """Testing helpers that resemble :mod:`typer.testing`."""
+
 from __future__ import annotations
 
 import io
@@ -45,4 +46,3 @@ class CliRunner:
 
 
 __all__ = ["CliRunner", "Result"]
-

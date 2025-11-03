@@ -1,4 +1,5 @@
 """Minimal subset of :mod:`rich.table` for testing."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
