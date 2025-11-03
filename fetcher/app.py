@@ -4,15 +4,45 @@ import os
 import pathlib
 import time
 from collections import deque
+from html.parser import HTMLParser
 from typing import Any
 
 import numpy as np
 import requests
-import trafilatura
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from qdrant_client import QdrantClient
+
+try:
+    import trafilatura
+except ModuleNotFoundError:  # pragma: no cover - exercised via fallback
+    trafilatura = None  # type: ignore[assignment]
+
+
+class _PlainTextExtractor(HTMLParser):
+    """Minimal HTML-to-text converter used when trafilatura is unavailable."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._chunks: list[str] = []
+
+    def handle_data(self, data: str) -> None:  # pragma: no cover - trivial
+        if data.strip():
+            self._chunks.append(data.strip())
+
+    def get_text(self) -> str:
+        return "\n".join(self._chunks)
+
+
+def _extract_text(html: str) -> str:
+    if trafilatura is not None:
+        return trafilatura.extract(  # type: ignore[no-any-return]
+            html, include_images=False, include_tables=False
+        ) or ""
+    parser = _PlainTextExtractor()
+    parser.feed(html)
+    return parser.get_text()
 
 # -----------------------------
 # Environment / defaults
@@ -122,7 +152,7 @@ def fetch_and_extract(url: str) -> dict[str, Any]:
     try:
         r = http_get(url, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
-        text = trafilatura.extract(r.text, include_images=False, include_tables=False) or ""
+        text = _extract_text(r.text)
         text = text.strip()
         if len(text) > MAX_CHARS:
             text = text[:MAX_CHARS] + "\n...\n"
