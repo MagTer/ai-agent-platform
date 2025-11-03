@@ -11,7 +11,7 @@ import numpy as np
 from qdrant_client import QdrantClient
 from qdrant_client.conversions.common_types import Distance, VectorParams
 from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.models import PointStruct
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from .config import Settings
 
@@ -76,19 +76,31 @@ class MemoryStore:
         except UnexpectedResponse as exc:  # pragma: no cover - defensive branch
             LOGGER.error("Failed to upsert memory points: %s", exc)
 
-    def search(self, query: str, limit: int = 5) -> list[MemoryRecord]:
+    def search(
+        self, query: str, limit: int = 5, conversation_id: str | None = None
+    ) -> list[MemoryRecord]:
         """Return the most relevant stored memories for the given query."""
 
         if not self._client:
             return []
 
         vector = self._embed(query)
-        try:
-            results = self._client.search(
-                collection_name=self._settings.qdrant_collection,
-                query_vector=vector,
-                limit=limit,
+        search_kwargs: dict[str, object] = {
+            "collection_name": self._settings.qdrant_collection,
+            "query_vector": vector,
+            "limit": limit,
+        }
+        if conversation_id:
+            search_kwargs["query_filter"] = Filter(
+                must=[
+                    FieldCondition(
+                        key="conversation_id",
+                        match=MatchValue(value=conversation_id),
+                    )
+                ]
             )
+        try:
+            results = self._client.search(**search_kwargs)
         except UnexpectedResponse as exc:  # pragma: no cover - defensive
             LOGGER.error("Memory search failed: %s", exc)
             return []

@@ -25,7 +25,9 @@ class DummyMemory:
     def __init__(self) -> None:
         self.records: list[str] = []
 
-    def search(self, query: str, limit: int = 5) -> list[MemoryRecord]:  # noqa: D401
+    def search(
+        self, query: str, limit: int = 5, conversation_id: str | None = None
+    ) -> list[MemoryRecord]:  # noqa: D401
         return []
 
     def add_records(self, records: Iterable[MemoryRecord]) -> None:

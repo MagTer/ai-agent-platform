@@ -20,6 +20,7 @@ class _StubQdrantClient:
     def __init__(self) -> None:
         self.upsert_calls: list[list[Any]] = []
         self.results: list[_StubSearchResult] = []
+        self.last_search_kwargs: dict[str, Any] | None = None
 
     def upsert(self, *, collection_name: str, points: Iterable[Any]) -> None:  # noqa: D401
         self.upsert_calls.append(list(points))
@@ -30,7 +31,14 @@ class _StubQdrantClient:
         collection_name: str,
         query_vector: Iterable[float],
         limit: int,
+        query_filter: Any | None = None,
     ) -> list[_StubSearchResult]:  # noqa: D401
+        self.last_search_kwargs = {
+            "collection_name": collection_name,
+            "query_vector": list(query_vector),
+            "limit": limit,
+            "query_filter": query_filter,
+        }
         return self.results
 
 
@@ -88,3 +96,24 @@ def test_search_returns_all_payload_matches(
     assert [record.text for record in matches] == ["hello", "world"]
     assert all(record.conversation_id == "conv-1" for record in matches)
     assert len(matches) > 1
+
+
+def test_search_supports_conversation_filter(
+    memory_store: tuple[MemoryStore, _StubQdrantClient]
+) -> None:
+    store, stub_client = memory_store
+    stub_client.results = [
+        _StubSearchResult(payload={"conversation_id": "conv-1", "text": "hello"}),
+    ]
+
+    matches = store.search("hello", conversation_id="conv-1")
+
+    assert matches
+    assert stub_client.last_search_kwargs is not None
+    query_filter = stub_client.last_search_kwargs["query_filter"]
+    assert query_filter is not None
+    conditions = query_filter.must
+    assert len(conditions) == 1
+    condition = conditions[0]
+    assert condition.key == "conversation_id"
+    assert condition.match.value == "conv-1"
