@@ -65,6 +65,7 @@ DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", MODEL_EN)
 
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
 MAX_CHARS = int(os.getenv("MAX_CHARS", "12000"))
+MAX_HTML_CHARS = int(os.getenv("MAX_HTML_CHARS", "20000"))
 
 # NOTE: The production container binds the repository at /app, but CI and
 # local pytest runs execute in arbitrary working directories where /app may not
@@ -172,6 +173,12 @@ def cache_set(url: str, data: dict):
 # -----------------------------
 # Core fetch/extract
 # -----------------------------
+def _truncate_html(html: str) -> str:
+    if len(html) <= MAX_HTML_CHARS:
+        return html
+    return html[:MAX_HTML_CHARS] + "\n... (truncated)\n"
+
+
 def fetch_and_extract(url: str) -> dict[str, Any]:
     cached = cache_get(url)
     if cached:
@@ -179,15 +186,21 @@ def fetch_and_extract(url: str) -> dict[str, Any]:
     try:
         r = http_get(url, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
-        text = _extract_text(r.text)
+        raw_html = r.text
+        text = _extract_text(raw_html)
         text = text.strip()
         if len(text) > MAX_CHARS:
             text = text[:MAX_CHARS] + "\n...\n"
-        data = {"url": url, "ok": True, "text": text}
+        data = {
+            "url": url,
+            "ok": True,
+            "text": text,
+            "html": _truncate_html(raw_html),
+        }
         cache_set(url, data)
         return data
     except Exception as e:
-        data = {"url": url, "ok": False, "error": str(e), "text": ""}
+        data = {"url": url, "ok": False, "error": str(e), "text": "", "html": ""}
         cache_set(url, data)
         return data
 
@@ -460,6 +473,15 @@ def health():
 def extract(urls: list[str] = Body(...)) -> dict[str, Any]:
     out = [fetch_and_extract(u) for u in urls]
     return {"items": out}
+
+
+class FetchPayload(BaseModel):
+    url: str
+
+
+@app.post("/fetch")
+def fetch(payload: FetchPayload) -> dict[str, Any]:
+    return {"item": fetch_and_extract(payload.url)}
 
 
 class ResearchPayload(BaseModel):

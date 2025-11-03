@@ -2,3 +2,5 @@
   type: agent.tools.web_fetch.WebFetchTool
   args:
     base_url: http://webfetch:8081
+    include_html: false
+    summary_max_chars: 1200

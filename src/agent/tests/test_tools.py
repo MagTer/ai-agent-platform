@@ -4,12 +4,15 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+import respx
+from httpx import Response
 from agent.core.config import Settings
 from agent.core.litellm_client import LiteLLMClient
 from agent.core.memory import MemoryStore
 from agent.core.models import AgentRequest
 from agent.core.service import AgentService
 from agent.tools import Tool, ToolRegistry, load_tool_registry
+from agent.tools.web_fetch import WebFetchTool
 
 
 class MockLiteLLMClient:
@@ -93,3 +96,52 @@ async def test_agent_service_executes_tool(tmp_path: Path):
     assert any(
         step.get("type") == "tool" and step.get("name") == "dummy" for step in response.steps
     )
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_web_fetch_tool_parses_fetcher_response():
+    tool = WebFetchTool(
+        base_url="http://fetcher:8081",
+        include_html=True,
+        summary_max_chars=32,
+        html_max_chars=32,
+    )
+    respx.post("http://fetcher:8081/fetch").mock(
+        return_value=Response(
+            200,
+            json={
+                "item": {
+                    "url": "https://example.com",
+                    "ok": True,
+                    "text": "This is a long block of extracted text that should be truncated.",
+                    "html": "<html><body>Hello world</body></html>",
+                }
+            },
+        )
+    )
+
+    output = await tool.run("https://example.com")
+
+    assert "Fetched URL: https://example.com" in output
+    assert "Extracted Text Snippet:" in output
+    assert "Raw HTML Snippet:" in output
+    assert "This is a long block of extracte" in output
+    assert "…" in output
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_web_fetch_tool_raises_on_error_response():
+    tool = WebFetchTool(base_url="http://fetcher:8081")
+    respx.post("http://fetcher:8081/fetch").mock(
+        return_value=Response(
+            200,
+            json={"item": {"url": "https://example.com", "ok": False, "error": "boom"}},
+        )
+    )
+
+    with pytest.raises(Exception) as exc:
+        await tool.run("https://example.com")
+
+    assert "boom" in str(exc.value)
