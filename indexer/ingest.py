@@ -2,25 +2,24 @@ import argparse
 import hashlib
 import time
 import uuid
-from typing import List
 
 import requests
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams, PointStruct
+from qdrant_client.http.models import Distance, PointStruct, VectorParams
 
 
 def sha256(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
-def chunk_text(text: str, size: int = 800, overlap: int = 100) -> List[str]:
+def chunk_text(text: str, size: int = 800, overlap: int = 100) -> list[str]:
     if size <= 0:
         return [text]
     chunks = []
     i = 0
     n = len(text)
     while i < n:
-        chunks.append(text[i:i+size])
+        chunks.append(text[i : i + size])
         i += max(1, size - overlap)
     return chunks
 
@@ -32,7 +31,16 @@ def ensure_collection(client: QdrantClient, name: str, dim: int = 384):
         # Fallback for older clients
         exists = name in [c.name for c in client.get_collections().collections or []]
     if not exists:
-        client.create_collection(name, vectors_config=VectorParams(size=dim, distance=Distance.COSINE))
+        try:
+            client.recreate_collection(
+                name,
+                vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+            )
+        except AttributeError:
+            client.create_collection(
+                name,
+                vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+            )
 
 
 def main():
@@ -70,7 +78,11 @@ def main():
         return
 
     # Embed
-    r = requests.post(args.embedder.rstrip("/") + "/embed", json={"inputs": texts, "normalize": True}, timeout=60)
+    r = requests.post(
+        args.embedder.rstrip("/") + "/embed",
+        json={"inputs": texts, "normalize": True},
+        timeout=60,
+    )
     r.raise_for_status()
     vectors = r.json().get("vectors", [])
     if len(vectors) != len(texts):
@@ -79,7 +91,7 @@ def main():
     # Upsert
     points = []
     ts = int(time.time())
-    for (url, ix), vec, text in zip(mapping, vectors, texts):
+    for (url, ix), vec, text in zip(mapping, vectors, texts, strict=False):
         # Qdrant allows integer or UUID ids; use a stable UUIDv5 from URL+chunk index
         pid = uuid.uuid5(uuid.NAMESPACE_URL, f"{url}#{ix}")
         payload = {"url": url, "text": text, "chunk_ix": ix, "ts": ts, "source": "web"}

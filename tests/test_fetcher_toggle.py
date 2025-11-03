@@ -1,6 +1,4 @@
 import importlib
-import types
-import os
 
 
 def make_stubbed_app(monkeypatch, enable_qdrant: bool):
@@ -19,9 +17,12 @@ def make_stubbed_app(monkeypatch, enable_qdrant: bool):
 
     # For the qdrant path, either provide memory docs or raise if called
     if enable_qdrant:
+
         def stub_qdrant_query(q: str, top_k: int = 5):
             return [{"ok": True, "url": "https://mem.example/1", "text": "memory"}]
+
     else:
+
         def stub_qdrant_query(q: str, top_k: int = 5):
             raise AssertionError("qdrant_query should not be called when ENABLE_QDRANT=false")
 
@@ -47,5 +48,4 @@ def test_research_skips_memory_when_disabled(monkeypatch):
     app = make_stubbed_app(monkeypatch, enable_qdrant=False)
     result = app._research_core("test", 2, None, "sv")
     assert "sources" in result
-    assert all(not s.startswith("https://mem.example/") for s in result["sources"]) 
-
+    assert all(not s.startswith("https://mem.example/") for s in result["sources"])

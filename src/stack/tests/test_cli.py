@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typer.testing import CliRunner
-
 from stack import cli
+
+from typer.testing import CliRunner
 
 
 def test_status_command(monkeypatch):
@@ -31,5 +31,3 @@ def test_up_command(monkeypatch):
     result = runner.invoke(cli.app, ["up"])
     assert result.exit_code == 0
     assert called["up"] is True
-
-

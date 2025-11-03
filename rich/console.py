@@ -1,4 +1,5 @@
 """Small subset of :mod:`rich.console` used in the CLI."""
+
 from __future__ import annotations
 
 from typing import Any

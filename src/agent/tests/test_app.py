@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-
-from fastapi.testclient import TestClient
+from typing import cast
 
 from agent.core.app import create_app
 from agent.core.config import Settings
+from agent.core.litellm_client import LiteLLMClient
+from agent.core.memory import MemoryStore
 from agent.core.service import AgentService
+from fastapi.testclient import TestClient
 
 
 class MockLiteLLMClient:
@@ -31,8 +33,8 @@ def build_service(tmp_path: Path) -> AgentService:
     settings = Settings(sqlite_state_path=tmp_path / "state.sqlite")
     return AgentService(
         settings=settings,
-        litellm=MockLiteLLMClient(),
-        memory=DummyMemory(),
+        litellm=cast(LiteLLMClient, MockLiteLLMClient()),
+        memory=cast(MemoryStore, DummyMemory()),
     )
 
 

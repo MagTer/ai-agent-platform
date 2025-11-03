@@ -54,6 +54,7 @@ def test_render_status_table(monkeypatch):
 
     dummy_console = DummyConsole()
     monkeypatch.setattr(health, "Console", lambda: dummy_console)
+
     def fake_states():
         return [
             {
@@ -69,4 +70,4 @@ def test_render_status_table(monkeypatch):
     health.render_status_table()
 
     assert dummy_console.rendered is not None
-    assert getattr(dummy_console.rendered, "row_count") == 1
+    assert dummy_console.rendered.row_count == 1

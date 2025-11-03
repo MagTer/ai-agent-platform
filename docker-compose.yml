@@ -42,9 +42,10 @@ services:
 
   ollama:
     image: ollama/ollama:latest
-    runtime: nvidia
     environment:
       OLLAMA_HOST: 0.0.0.0
+    # GPU runtimes are provided via docker-compose.gpu.yml to keep the base stack
+    # compatible with docker compose config validation in CI.
     volumes:
       - ollama-models:/root/.ollama
     ports:

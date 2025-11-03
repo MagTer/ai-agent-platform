@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, List
+from typing import cast
 
 import pytest
-
 from agent.core.config import Settings
 from agent.core.litellm_client import LiteLLMClient
-from agent.core.memory import MemoryRecord
+from agent.core.memory import MemoryRecord, MemoryStore
 from agent.core.models import AgentMessage, AgentRequest
 from agent.core.service import AgentService
 
@@ -23,7 +23,7 @@ class MockLiteLLMClient(LiteLLMClient):
 
 class DummyMemory:
     def __init__(self) -> None:
-        self.records: List[str] = []
+        self.records: list[str] = []
 
     def search(self, query: str, limit: int = 5) -> list[MemoryRecord]:  # noqa: D401
         return []
@@ -38,8 +38,8 @@ async def test_agent_service_roundtrip(tmp_path: Path) -> None:
     settings = Settings(sqlite_state_path=tmp_path / "state.sqlite")
     service = AgentService(
         settings=settings,
-        litellm=MockLiteLLMClient(),
-        memory=DummyMemory(),
+        litellm=cast(LiteLLMClient, MockLiteLLMClient()),
+        memory=cast(MemoryStore, DummyMemory()),
     )
 
     request = AgentRequest(prompt="Hello")
@@ -61,4 +61,3 @@ async def test_agent_service_roundtrip(tmp_path: Path) -> None:
     # prompt history should now contain previous assistant reply
     assert any(message.role == "assistant" for message in follow_response.messages)
     assert any(step["type"] == "completion" for step in follow_response.steps)
-

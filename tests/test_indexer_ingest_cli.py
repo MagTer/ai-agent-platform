@@ -1,8 +1,5 @@
 import sys
-import types
 from types import SimpleNamespace
-
-import json
 
 
 class FakeResponse:
@@ -21,21 +18,22 @@ class FakeResponse:
 def test_ingest_cli_mocks(monkeypatch, tmp_path, capsys):
     # Lazy import to allow monkeypatch
     import importlib
-    mod = importlib.import_module('indexer.ingest')
+
+    mod = importlib.import_module("indexer.ingest")
 
     # Mock requests.post for /extract and /embed
     calls = []
 
     def fake_post(url, json=None, timeout=30):
         calls.append(url)
-        if url.endswith('/extract'):
+        if url.endswith("/extract"):
             return FakeResponse({"items": [{"url": "https://example.com", "text": "hello world"}]})
-        if url.endswith('/embed'):
+        if url.endswith("/embed"):
             # Return a single 384-dim vector of zeros
-            return FakeResponse({"vectors": [[0.0]*384]})
+            return FakeResponse({"vectors": [[0.0] * 384]})
         raise AssertionError("Unexpected POST " + url)
 
-    monkeypatch.setattr(mod, 'requests', SimpleNamespace(post=fake_post))
+    monkeypatch.setattr(mod, "requests", SimpleNamespace(post=fake_post))
 
     # Fake QdrantClient
     class FakeCollections:
@@ -57,24 +55,27 @@ def test_ingest_cli_mocks(monkeypatch, tmp_path, capsys):
         def upsert(self, collection_name, wait, points):
             self._upserts.append((collection_name, wait, points))
 
-    monkeypatch.setattr(mod, 'QdrantClient', FakeQdrant)
+    monkeypatch.setattr(mod, "QdrantClient", FakeQdrant)
 
     # Simulate CLI argv
-    monkeypatch.setenv('PYTHONPATH', str(tmp_path))
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
     argv = [
-        'ingest.py',
-        'https://example.com',
-        '--webfetch', 'http://localhost:8081',
-        '--embedder', 'http://localhost:8082',
-        '--qdrant', 'http://localhost:6333',
-        '--collection', 'memory'
+        "ingest.py",
+        "https://example.com",
+        "--webfetch",
+        "http://localhost:8081",
+        "--embedder",
+        "http://localhost:8082",
+        "--qdrant",
+        "http://localhost:6333",
+        "--collection",
+        "memory",
     ]
-    monkeypatch.setattr(sys, 'argv', argv)
+    monkeypatch.setattr(sys, "argv", argv)
 
     # Run main
     mod.main()
 
     # Output check
     captured = capsys.readouterr()
-    assert 'Upserted 1 chunks' in captured.out
-
+    assert "Upserted 1 chunks" in captured.out

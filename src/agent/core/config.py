@@ -2,27 +2,28 @@
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Any, ClassVar, Literal, cast
 
 from dotenv import load_dotenv
-from pydantic import Field, HttpUrl
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
 # Ensure .env values are loaded before settings initialisation.
 load_dotenv()
 
+DEFAULT_LITELLM_API_BASE: HttpUrl = cast(HttpUrl, "http://litellm:4000")
+DEFAULT_QDRANT_URL: HttpUrl = cast(HttpUrl, "http://qdrant:6333")
+DEFAULT_WEBFETCH_URL: HttpUrl = cast(HttpUrl, "http://webfetch:8081")
 
-class Settings(BaseSettings):
+
+class Settings(BaseModel):
     """Application settings loaded from environment variables."""
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        env_prefix="AGENT_",
-        extra="ignore",
-    )
+    ENV_PREFIX: ClassVar[str] = "AGENT_"
+
+    model_config = ConfigDict(extra="ignore")
 
     app_name: str = Field(default="AI Agent Server", description="Human friendly service name.")
     environment: Literal["development", "production", "test"] = Field(
@@ -33,7 +34,9 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, description="Listening port for the FastAPI server.")
 
     litellm_api_base: HttpUrl = Field(
-        default="http://litellm:4000", description="Base URL for the LiteLLM gateway.")
+        default=DEFAULT_LITELLM_API_BASE,
+        description="Base URL for the LiteLLM gateway.",
+    )
     litellm_api_key: str | None = Field(default=None, description="Optional LiteLLM API key.")
     litellm_model: str = Field(
         default="ollama/llama3",
@@ -41,7 +44,7 @@ class Settings(BaseSettings):
     )
 
     qdrant_url: HttpUrl = Field(
-        default="http://qdrant:6333",
+        default=DEFAULT_QDRANT_URL,
         description="Base URL for the Qdrant vector database.",
     )
     qdrant_api_key: str | None = Field(default=None, description="Optional Qdrant API key.")
@@ -56,7 +59,7 @@ class Settings(BaseSettings):
     )
 
     webfetch_url: HttpUrl = Field(
-        default="http://webfetch:8081",
+        default=DEFAULT_WEBFETCH_URL,
         description="Internal URL for the fetcher microservice used by tools.",
     )
 
@@ -70,6 +73,22 @@ class Settings(BaseSettings):
     )
 
     log_level: str = Field(default="INFO", description="Python logging level for the service.")
+
+    def __init__(self, **data: Any) -> None:  # noqa: D401 - inherited docstring
+        env_values = type(self)._load_environment_values()
+        env_values.update(data)
+        super().__init__(**env_values)
+
+    @classmethod
+    def _load_environment_values(cls) -> dict[str, Any]:
+        """Return field values sourced from the current environment."""
+
+        values: dict[str, Any] = {}
+        for field_name in cls.model_fields:
+            env_key = f"{cls.ENV_PREFIX}{field_name.upper()}"
+            if env_key in os.environ:
+                values[field_name] = os.environ[env_key]
+        return values
 
 
 @lru_cache(maxsize=1)

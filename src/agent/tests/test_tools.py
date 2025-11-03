@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import cast
 
 import pytest
-
 from agent.core.config import Settings
+from agent.core.litellm_client import LiteLLMClient
+from agent.core.memory import MemoryStore
 from agent.core.models import AgentRequest
 from agent.core.service import AgentService
 from agent.tools import Tool, ToolRegistry, load_tool_registry
@@ -64,8 +66,8 @@ async def test_agent_service_executes_tool(tmp_path: Path):
     tool_registry = ToolRegistry([DummyTool()])
     service = AgentService(
         settings=settings,
-        litellm=MockLiteLLMClient(),
-        memory=DummyMemory(),
+        litellm=cast(LiteLLMClient, MockLiteLLMClient()),
+        memory=cast(MemoryStore, DummyMemory()),
         tool_registry=tool_registry,
     )
 
@@ -89,6 +91,5 @@ async def test_agent_service_executes_tool(tmp_path: Path):
     system_messages = [message for message in response.messages if message.role == "system"]
     assert any("TOOL OUTPUT" in message.content for message in system_messages)
     assert any(
-        step.get("type") == "tool" and step.get("name") == "dummy"
-        for step in response.steps
+        step.get("type") == "tool" and step.get("name") == "dummy" for step in response.steps
     )

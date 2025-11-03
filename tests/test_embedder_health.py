@@ -16,4 +16,3 @@ def test_embedder_health_and_model_info():
     info = r2.json()
     assert "model" in info
     assert "normalize" in info
-

@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 
 try:  # pragma: no cover - dependency availability differs in CI
     import docker  # type: ignore
 except ImportError:  # pragma: no cover
-    docker = None  # type: ignore
+
+    def _missing_from_env(*_: object, **__: object) -> None:
+        raise RuntimeError("docker SDK is required to fetch container states")
+
+    docker = SimpleNamespace(from_env=_missing_from_env)  # type: ignore[assignment]
 
 from rich.console import Console
 from rich.table import Table
@@ -18,7 +23,7 @@ from .utils import DEFAULT_PROJECT_NAME
 def fetch_container_states() -> list[dict[str, str]]:
     """Return a summary of containers belonging to the stack project."""
 
-    if docker is None:  # pragma: no cover - exercised only when dependency missing
+    if not hasattr(docker, "from_env"):  # pragma: no cover - dependency missing at runtime
         raise RuntimeError("docker SDK is required to fetch container states")
 
     client = docker.from_env()
