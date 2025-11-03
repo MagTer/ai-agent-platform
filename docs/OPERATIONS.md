@@ -85,6 +85,22 @@ order memory → tools → completion.
 - **LiteLLM configuration**: adjust routing or budgets via environment variables in `.env` or `docker-compose.yml`, then run `python -m stack up` to reload.
 - **Qdrant backups**: snapshot volumes using `docker run --rm --volumes-from qdrant -v $(pwd)/backups:/backups alpine tar czf /backups/qdrant-$(date +%Y%m%d-%H%M%S).tgz /qdrant/storage`.
 
+### Qdrant memory ID migration
+
+Older deployments used composite point IDs (`conversation_id:index`) for semantic memories. The
+service now assigns opaque UUIDs to avoid collisions across batches while keeping the
+`conversation_id` in the payload for filtering. To migrate existing data, run the helper script
+once per environment:
+
+```bash
+poetry run python scripts/migrate_qdrant_memory_ids.py \
+  --url "http://localhost:6333" \
+  --collection "agent-memories"
+```
+
+The script scrolls through the configured collection, re-inserts each point with a new UUID, and
+deletes the original identifiers so historical conversations remain discoverable.
+
 ## Troubleshooting
 - **Service unhealthy**: `python -m stack logs <service>` to inspect container output.
 - **Port conflicts**: review overrides in `.env`; adjust `AGENT_PORT`, `LITELLM_PORT`, etc., then rerun `python -m stack up`.

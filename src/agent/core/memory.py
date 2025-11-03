@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
+from uuid import uuid4
 
 import numpy as np
 from qdrant_client import QdrantClient
@@ -59,10 +60,10 @@ class MemoryStore:
             return
 
         points = []
-        for index, record in enumerate(records):
+        for record in records:
             points.append(
                 PointStruct(
-                    id=f"{record.conversation_id}:{index}",
+                    id=uuid4().hex,
                     vector=self._embed(record.text),
                     payload={
                         "conversation_id": record.conversation_id,
