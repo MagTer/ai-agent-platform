@@ -66,7 +66,30 @@ DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", MODEL_EN)
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))
 MAX_CHARS = int(os.getenv("MAX_CHARS", "12000"))
 
-CACHE_DIR = pathlib.Path(os.getenv("CACHE_DIR", "/app/.cache"))
+# NOTE: The production container binds the repository at /app, but CI and
+# local pytest runs execute in arbitrary working directories where /app may not
+# be writable. Attempt to honor an explicit CACHE_DIR first, then gracefully
+# fall back to a per-project cache under the current workspace when the default
+# container path is unavailable.
+
+
+def _resolve_cache_dir() -> pathlib.Path:
+    env_dir = os.getenv("CACHE_DIR")
+    if env_dir:
+        path = pathlib.Path(env_dir)
+    else:
+        path = pathlib.Path("/app/.cache")
+
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except PermissionError:
+        fallback = pathlib.Path.cwd() / ".cache"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
+
+
+CACHE_DIR = _resolve_cache_dir()
 CACHE_TTL = int(os.getenv("CACHE_TTL", str(60 * 60 * 24)))  # 24h
 
 RATE_WINDOW = int(os.getenv("RATE_WINDOW", "60"))  # seconds
