@@ -48,7 +48,7 @@ The AI Agent Platform is a self-hosted research and automation environment desig
 | `02_agent.md` | Agent modules, request lifecycle, and dependency graph. |
 | `03_tools.md` | Tool registry, configuration (`config/tools.yaml`), and testing patterns. |
 | `04_dev_practices.md` | Coding standards, Poetry workflow, linting, and typing. |
-| `05_ci.md` | GitHub Actions pipeline (lint + test jobs). |
+| [`docs/testing/01_ci.md`](../testing/01_ci.md) | GitHub Actions pipeline (lint, coverage, and compose validation). |
 
 ## Configuration & Data
 
@@ -65,4 +65,4 @@ The AI Agent Platform is a self-hosted research and automation environment desig
 
 ## Update Checklist
 
-When changing any service or contract, synchronise the relevant `docs/architecture/*.md` file, update `docs/OPERATIONS.md` with new commands, and review CI expectations in `docs/architecture/05_ci.md`.
+When changing any service or contract, synchronise the relevant `docs/architecture/*.md` file, update `docs/OPERATIONS.md` with new commands, and review CI expectations in `docs/testing/01_ci.md`.
