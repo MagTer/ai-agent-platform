@@ -188,7 +188,7 @@ class Typer:
     def __init__(self, help: str | None = None) -> None:
         self.help = help or ""
         self._commands: dict[str, _Command] = {}
-        self._subapps: dict[str, "Typer"] = {}
+        self._subapps: dict[str, Typer] = {}
 
     def command(
         self, name: str | None = None
@@ -203,7 +203,7 @@ class Typer:
 
         return decorator
 
-    def add_typer(self, app: "Typer", name: str) -> None:
+    def add_typer(self, app: Typer, name: str) -> None:
         """Register another Typer instance under ``name``."""
 
         self._subapps[name] = app
