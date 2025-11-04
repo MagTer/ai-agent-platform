@@ -20,6 +20,16 @@ from rich.table import Table
 from .utils import load_environment, resolve_project_name
 
 
+class StatusTable(Table):
+    """Table with a stable ``row_count`` accessor for downstream consumers."""
+
+    __slots__ = ()
+
+    @property
+    def row_count(self) -> int:  # pragma: no cover - trivial passthrough
+        return len(self.rows)
+
+
 def fetch_container_states() -> list[dict[str, str]]:
     """Return a summary of containers belonging to the stack project."""
 
@@ -64,7 +74,7 @@ def render_status_table() -> None:
 
     rows = fetch_container_states()
     console = Console()
-    table = Table(title="AI Agent Platform")
+    table = StatusTable(title="AI Agent Platform")
     table.add_column("Container")
     table.add_column("Status")
     table.add_column("Health")
