@@ -80,5 +80,8 @@ from `.env`, and surfaces container health via Rich tables.
    for detailed module overviews, diagrams, and CI guidance.
 5. Submit changes via feature branches (e.g., `feature/python-refactor`).
 
+See the [Contributing Guide](./docs/contributing.md) for the full Codex coding rules,
+required local checks, and documentation expectations.
+
 For deeper operational or architectural detail, start with
 [`docs/architecture/README.md`](./docs/architecture/README.md).

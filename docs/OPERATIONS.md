@@ -14,6 +14,8 @@ safe to repeat.
   when applying bind mounts or GPU runtime settings manually.
   When using the Python CLI, set `STACK_COMPOSE_FILES` (for example,
   `STACK_COMPOSE_FILES=docker-compose.gpu.yml`) to apply the same overrides.
+- Review the [Contributing Guide](./contributing.md) so operational changes capture the
+  Codex checklist updates (tests, docs, dependency notes).
 
 ## Stack Lifecycle
 ```bash
@@ -127,3 +129,5 @@ deletes the original identifiers so historical conversations remain discoverable
 2. Smoke tests above return HTTP 200 with valid JSON.
 3. `poetry run ruff check .` and `poetry run pytest -v` succeed locally or in CI.
 4. Documentation updates merged into `docs/architecture/` and this runbook.
+5. Codex PR template checklist completed, including links to updated docs and dependency
+   notes where applicable.
