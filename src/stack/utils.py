@@ -55,7 +55,18 @@ def resolve_project_name(env: Mapping[str, str] | None = None) -> str:
     """Return the compose project name, falling back to the default."""
 
     env = env or os.environ
-    return env.get(PROJECT_NAME_ENV, DEFAULT_PROJECT_NAME)
+    value = env.get(PROJECT_NAME_ENV)
+    if value is None:
+        return DEFAULT_PROJECT_NAME
+
+    # Treat empty or whitespace-only overrides as unset so docker compose receives a
+    # valid project name even if the variable exists in the environment without a
+    # concrete value (for example, when declared but left blank in ``.env``).
+    value_str = str(value).strip()
+    if not value_str:
+        return DEFAULT_PROJECT_NAME
+
+    return value_str
 
 
 __all__ = [

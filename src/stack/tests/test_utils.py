@@ -36,3 +36,8 @@ def test_resolve_project_name_defaults(monkeypatch):
 def test_resolve_project_name_from_env(monkeypatch):
     monkeypatch.setenv(utils.PROJECT_NAME_ENV, "my-stack")
     assert utils.resolve_project_name(os.environ) == "my-stack"
+
+
+def test_resolve_project_name_blanks_fallback(monkeypatch):
+    monkeypatch.setenv(utils.PROJECT_NAME_ENV, "   ")
+    assert utils.resolve_project_name(os.environ) == utils.DEFAULT_PROJECT_NAME
