@@ -31,13 +31,13 @@ function Resolve-RepoRoot {
   param([string]$Start)
   $dir = Resolve-Path $Start
   for ($i=0; $i -lt 10; $i++) {
-    $compose = Join-Path $dir "compose\docker-compose.yml"
-    if (Test-Path $compose) { return (Split-Path (Split-Path $compose -Parent) -Parent) }
+    $compose = Join-Path $dir "docker-compose.yml"
+    if (Test-Path $compose) { return (Split-Path $compose -Parent) }
     $parent = Split-Path $dir -Parent
     if ($parent -eq $dir) { break }
     $dir = $parent
   }
-  throw "Could not find compose\docker-compose.yml upwards from $Start"
+  throw "Could not find docker-compose.yml upwards from $Start"
 }
 
 function Join-ContainerPath {

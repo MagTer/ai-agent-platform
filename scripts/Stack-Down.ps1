@@ -13,7 +13,7 @@ function Find-ComposePath {
   param([string]$StartDir)
   $dir = Resolve-Path $StartDir
   for ($i = 0; $i -lt 10; $i++) {
-    $candidate = Join-Path $dir "compose\docker-compose.yml"
+    $candidate = Join-Path $dir "docker-compose.yml"
     if (Test-Path $candidate) { return $candidate }
     $parent = Split-Path $dir -Parent
     if ($parent -eq $dir) { break }
@@ -29,8 +29,8 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 }
 
 $composeFile = Find-ComposePath -StartDir $PSScriptRoot
-if (-not $composeFile) { Write-Error "Could not find compose\docker-compose.yml upward from $PSScriptRoot"; exit 1 }
-$repoRoot = Split-Path (Split-Path $composeFile -Parent) -Parent
+if (-not $composeFile) { Write-Error "Could not find docker-compose.yml upward from $PSScriptRoot"; exit 1 }
+$repoRoot = Split-Path $composeFile -Parent
 
 function Get-EnvValue {
   param(
@@ -60,9 +60,9 @@ function Get-EnvValue {
 }
 
 $composeDir = Split-Path $composeFile -Parent
-$composeProjectName = Get-EnvValue -FilePath (Join-Path $composeDir '.env') -Key 'COMPOSE_PROJECT_NAME'
+$composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'COMPOSE_PROJECT_NAME'
 if (-not $composeProjectName) {
-  $composeProjectName = Get-EnvValue -FilePath (Join-Path $composeDir '.env.template') -Key 'COMPOSE_PROJECT_NAME'
+  $composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env.template') -Key 'COMPOSE_PROJECT_NAME'
 }
 
 $composeArgs = @('-f', $composeFile)
@@ -71,7 +71,7 @@ if ($composeProjectName) {
 }
 
 # Ensure compose reads the repo .env explicitly to avoid env resolution issues
-$envFile = Join-Path $composeDir '.env'
+$envFile = Join-Path $repoRoot '.env'
 if (Test-Path $envFile) {
   $composeArgs += @('--env-file', $envFile)
 }

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
+
+COMPOSE_FILES_ENV = "STACK_COMPOSE_FILES"
 
 from dotenv import dotenv_values
 
@@ -22,10 +25,37 @@ def load_environment(env_path: Path | None = None) -> dict[str, str]:
     return {key: str(value) for key, value in merged.items() if value is not None}
 
 
+def resolve_compose_files(env: Mapping[str, str] | None = None) -> list[Path]:
+    """Return the compose files to apply, honouring overrides from the environment."""
+
+    env = env or os.environ
+    raw = env.get(COMPOSE_FILES_ENV)
+    if not raw:
+        return [DEFAULT_COMPOSE_FILE]
+
+    files: list[Path] = []
+    for chunk in raw.split(os.pathsep):
+        candidate = chunk.strip()
+        if not candidate:
+            continue
+        path = Path(candidate)
+        if not path.is_absolute():
+            path = (PROJECT_ROOT / candidate).resolve()
+        files.append(path)
+
+    default_resolved = DEFAULT_COMPOSE_FILE.resolve()
+    if all(path.resolve() != default_resolved for path in files):
+        files.insert(0, DEFAULT_COMPOSE_FILE)
+
+    return files
+
+
 __all__ = [
     "PROJECT_ROOT",
     "DEFAULT_ENV_PATH",
     "DEFAULT_COMPOSE_FILE",
     "DEFAULT_PROJECT_NAME",
+    "COMPOSE_FILES_ENV",
     "load_environment",
+    "resolve_compose_files",
 ]

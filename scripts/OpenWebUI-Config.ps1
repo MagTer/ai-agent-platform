@@ -2,7 +2,7 @@
 param(
     [ValidateSet('export','import')]
     [string]$Command = 'export',
-    [string]$ComposeFile = 'compose/docker-compose.yml',
+    [string]$ComposeFile = 'docker-compose.yml',
     [string]$Service = 'openwebui',
     [string]$DumpPath = 'openwebui/export/app.db.sql'
 )
@@ -25,7 +25,7 @@ function Invoke-DockerCompose {
 
 $composeFilePath = (Resolve-Path -Path $ComposeFile).Path
 $composeArgs = @('compose','-f',$composeFilePath)
-# Add env-file from compose directory if present
+# Add env-file from compose file directory if present
 $composeDir = Split-Path -Path $composeFilePath -Parent
 $envFilePath = Join-Path $composeDir '.env'
 if (Test-Path -Path $envFilePath) { $composeArgs += @('--env-file', $envFilePath) }

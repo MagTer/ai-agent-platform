@@ -69,9 +69,6 @@ def render_status_table() -> None:
     table.add_column("Started")
     for row in rows:
         table.add_row(row["name"], row["status"], row["health"], row["started"])
-    # Preserve an easy row-count accessor for tests and callers.
-    # Rich exposes ``len(table.rows)`` but not a direct ``row_count`` property.
-    table.row_count = len(rows)  # type: ignore[attr-defined]
     console.print(table)
 
 

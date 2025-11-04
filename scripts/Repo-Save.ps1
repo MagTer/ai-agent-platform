@@ -14,7 +14,7 @@ function Find-ComposePath {
   param([string]$StartDir)
   $dir = Resolve-Path $StartDir
   for ($i=0; $i -lt 10; $i++) {
-    $candidate = Join-Path $dir "compose\docker-compose.yml"
+    $candidate = Join-Path $dir "docker-compose.yml"
     if (Test-Path $candidate) { return $candidate }
     $parent = Split-Path $dir -Parent
     if ($parent -eq $dir) { break }
@@ -33,7 +33,7 @@ if (-not $composeFile) {
   # Fallback: assume scripts\ is directly under repo root
   $repoRoot = Split-Path $PSScriptRoot -Parent
 } else {
-  $repoRoot = Split-Path (Split-Path $composeFile -Parent) -Parent
+  $repoRoot = Split-Path $composeFile -Parent
 }
 
 Push-Location $repoRoot
@@ -44,11 +44,11 @@ try {
   }
 
   # Optional: validate docker compose config if present
-  if (Test-Path "compose\docker-compose.yml") {
+  if (Test-Path "docker-compose.yml") {
     if (Get-Command docker -ErrorAction SilentlyContinue) {
       Say "[i] Validating docker compose config..." "Yellow"
-      $envFile = Join-Path $repoRoot 'compose\.env'
-      $args = @('compose','-f','compose\docker-compose.yml')
+      $envFile = Join-Path $repoRoot '.env'
+      $args = @('compose','-f','docker-compose.yml')
       if (Test-Path $envFile) { $args += @('--env-file', $envFile) }
       $args += 'config'
       docker @args | Out-Null

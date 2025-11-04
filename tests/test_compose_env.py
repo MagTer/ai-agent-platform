@@ -2,10 +2,13 @@ from pathlib import Path
 
 import yaml
 
-COMPOSE_PATH = Path(__file__).resolve().parents[1] / "compose" / "docker-compose.yml"
+COMPOSE_PATH = Path(__file__).resolve().parents[1] / "docker-compose.yml"
 
 
 def _env_list_to_dict(env_list):
+    if isinstance(env_list, dict):
+        return {str(k).strip(): "" if v is None else str(v) for k, v in env_list.items()}
+
     out = {}
     for item in env_list or []:
         if isinstance(item, str) and "=" in item:

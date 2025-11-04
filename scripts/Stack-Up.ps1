@@ -23,7 +23,7 @@ function Find-ComposePath {
   param([string]$StartDir)
   $dir = Resolve-Path $StartDir
   for ($i = 0; $i -lt 10; $i++) {
-    $candidate = Join-Path $dir "compose\docker-compose.yml"
+    $candidate = Join-Path $dir "docker-compose.yml"
     if (Test-Path $candidate) { return $candidate }
     $parent = Split-Path $dir -Parent
     if ($parent -eq $dir) { break }
@@ -82,8 +82,8 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 }
 
 $composeFile = Find-ComposePath -StartDir $PSScriptRoot
-if (-not $composeFile) { Write-Error "Could not find compose\docker-compose.yml upward from $PSScriptRoot"; exit 1 }
-$repoRoot = Split-Path (Split-Path $composeFile -Parent) -Parent
+if (-not $composeFile) { Write-Error "Could not find docker-compose.yml upward from $PSScriptRoot"; exit 1 }
+$repoRoot = Split-Path $composeFile -Parent
 
 function Get-EnvValue {
   param(
@@ -113,9 +113,9 @@ function Get-EnvValue {
 }
 
 $composeDir = Split-Path $composeFile -Parent
-$composeProjectName = Get-EnvValue -FilePath (Join-Path $composeDir '.env') -Key 'COMPOSE_PROJECT_NAME'
+$composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'COMPOSE_PROJECT_NAME'
 if (-not $composeProjectName) {
-  $composeProjectName = Get-EnvValue -FilePath (Join-Path $composeDir '.env.template') -Key 'COMPOSE_PROJECT_NAME'
+  $composeProjectName = Get-EnvValue -FilePath (Join-Path $repoRoot '.env.template') -Key 'COMPOSE_PROJECT_NAME'
 }
 
 # Override models from config/models.txt if present
@@ -134,15 +134,9 @@ if ($composeProjectName) {
   $composeArgs += @('-p', $composeProjectName)
 }
 
-# Ensure compose reads the compose/.env explicitly
-$envFile = Join-Path $composeDir '.env'
-if (Test-Path $envFile) {
-  $composeArgs += @('--env-file', $envFile)
-}
-
 # Optional override for bind mounts
 if ($BindMounts) {
-  $bindOverride = Join-Path $composeDir 'docker-compose.bind.yml'
+  $bindOverride = Join-Path $repoRoot 'compose\docker-compose.bind.yml'
   if (-not (Test-Path $bindOverride)) {
     Write-Error "Bind override not found: $bindOverride"; exit 1
   }
@@ -156,20 +150,20 @@ if (Test-Path $envFile) {
 }
 
 # Validate required secrets for Open WebUI and SearxNG
-$owSecret = Get-EnvValue -FilePath (Join-Path $composeDir '.env') -Key 'OPENWEBUI_SECRET'
-if (-not $owSecret) { $owSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'OPENWEBUI_SECRET' }
-$sxSecret = Get-EnvValue -FilePath (Join-Path $composeDir '.env') -Key 'SEARXNG_SECRET'
-if (-not $sxSecret) { $sxSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'SEARXNG_SECRET' }
+$owSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'OPENWEBUI_SECRET'
+if (-not $owSecret) { $owSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.env.template') -Key 'OPENWEBUI_SECRET' }
+$sxSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'SEARXNG_SECRET'
+if (-not $sxSecret) { $sxSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.env.template') -Key 'SEARXNG_SECRET' }
 if (-not $owSecret -or [string]::IsNullOrWhiteSpace($owSecret)) {
-  Write-Error "OPENWEBUI_SECRET is required. Set it in compose/.env."; exit 1
+  Write-Error "OPENWEBUI_SECRET is required. Set it in .env."; exit 1
 }
 if (-not $sxSecret -or [string]::IsNullOrWhiteSpace($sxSecret)) {
-  Write-Error "SEARXNG_SECRET is required. Set it in compose/.env."; exit 1
+  Write-Error "SEARXNG_SECRET is required. Set it in .env."; exit 1
 }
 
 Push-Location $repoRoot
 try {
-  if (-not (Test-Path $composeFile)) { Write-Error "compose/docker-compose.yml is missing."; exit 1 }
+  if (-not (Test-Path $composeFile)) { Write-Error "docker-compose.yml is missing."; exit 1 }
 
   Say "[i] Starting stack using: $composeFile" "Yellow"
   if ($composeProjectName) { Say "[i] Using compose project: $composeProjectName" "Yellow" }

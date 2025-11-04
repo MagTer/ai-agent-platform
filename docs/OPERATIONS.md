@@ -1,11 +1,19 @@
 # Operations
 
-Operational runbooks target the Python-first stack managed by the Typer CLI. Commands are idempotent and safe to repeat.
+Operational runbooks target the Python-first stack managed by the Typer CLI. The
+canonical configuration now lives in the root `docker-compose.yml`; optional
+overrides (GPU runtime, bind mounts, etc.) can be layered via
+`docker-compose.gpu.yml` or files under `compose/`. Commands are idempotent and
+safe to repeat.
 
 ## Prerequisites
 - Copy `.env.template` to `.env` and supply secrets or API keys.
 - Install dependencies locally with `poetry install` when running tests outside Docker.
 - Ensure Docker Desktop (or compatible engine) is running with GPU access for Ollama if required.
+- Append overrides with `docker compose -f docker-compose.yml -f <override>.yml …`
+  when applying bind mounts or GPU runtime settings manually.
+  When using the Python CLI, set `STACK_COMPOSE_FILES` (for example,
+  `STACK_COMPOSE_FILES=docker-compose.gpu.yml`) to apply the same overrides.
 
 ## Stack Lifecycle
 ```bash
@@ -33,7 +41,10 @@ curl -s http://localhost:8000/healthz | jq
 curl -s http://localhost:6333/collections | jq '.result | keys'
 
 # Webfetch
-curl -s http://localhost:8081/healthz | jq
+curl -s http://localhost:8081/health | jq
+
+# Embedder
+curl -s http://localhost:8082/health | jq
 ```
 
 > LiteLLM is still covered by Docker Compose healthchecks and `python -m stack status`.
@@ -84,6 +95,8 @@ order memory → tools → completion.
 - **Database**: the agent stores conversation metadata in `./data/agent_state.sqlite`. Back up or prune the file as part of maintenance.
 - **LiteLLM configuration**: adjust routing or budgets via environment variables in `.env` or `docker-compose.yml`, then run `python -m stack up` to reload.
 - **Qdrant backups**: snapshot volumes using `docker run --rm --volumes-from qdrant -v $(pwd)/backups:/backups alpine tar czf /backups/qdrant-$(date +%Y%m%d-%H%M%S).tgz /qdrant/storage`.
+- **n8n exports**: capture automations via `docker compose exec n8n n8n export:workflow --all --output=/tmp/export.json` and
+  copy them out of the container (`docker compose cp n8n:/tmp/export.json backups/n8n-export.json`).
 - **Dependency updates**: when `scripts/deps_check.py` flags new versions, validate
   changes by running the stack smoke tests in this guide and `poetry run pytest`.
   Merge only after both checks succeed.
