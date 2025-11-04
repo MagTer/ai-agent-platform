@@ -19,7 +19,7 @@
 
 ## Workflow
 
-- See [Delivery Model](../DELIVERY_MODEL.md) for branch naming and label conventions.
+- Follow the branch and label standards in [the Delivery Model](../DELIVERY_MODEL.md#branches--labels).
 - Open PRs with linked issues and include the CI badge results.
 - Each commit should focus on a logical change set with passing tests.
 
