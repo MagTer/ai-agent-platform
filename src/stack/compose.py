@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .utils import load_environment, resolve_compose_files, resolve_project_name
 
-Pathish = os.PathLike[str] | os.PathLike[bytes] | str | bytes
+Pathish = os.PathLike[str] | str
 
 
 class ComposeError(RuntimeError):

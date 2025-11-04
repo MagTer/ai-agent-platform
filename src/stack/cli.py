@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 from pathlib import Path
+from typing import Literal, TypedDict
 
 import httpx
 
@@ -36,7 +37,28 @@ DEFAULT_LOG_SERVICES = [
     "ragproxy",
 ]
 
-HEALTH_TARGETS = [
+
+class HealthTarget(TypedDict):
+    """Typed structure describing a stack health check target."""
+
+    name: str
+    container: str
+    port: int
+    path: str
+    mode: Literal["http", "exec"]
+
+
+class ServiceCheck(TypedDict):
+    """Typed structure for preflight service health checks."""
+
+    name: str
+    container: str
+    port: int
+    path: str
+    timeout: float
+
+
+HEALTH_TARGETS: list[HealthTarget] = [
     {"name": "searxng", "container": "searxng", "port": 8080, "path": "/", "mode": "http"},
     {"name": "webfetch", "container": "webfetch", "port": 8081, "path": "/health", "mode": "http"},
     {"name": "qdrant", "container": "qdrant", "port": 6333, "path": "/healthz", "mode": "http"},
@@ -75,7 +97,7 @@ def _wait_for_service(
     port: int,
     path: str,
     timeout: float,
-    mode: str = "http",
+    mode: Literal["http", "exec"] = "http",
 ) -> None:
     if mode == "http":
         mapped = tooling.get_mapped_port(container, port)
@@ -127,41 +149,41 @@ def up(
     )
     _ensure_models(repo_root)
 
-    service_checks = [
+    service_checks: list[ServiceCheck] = [
         {
             "name": "SearxNG",
             "container": "searxng",
             "port": 8080,
             "path": "/",
-            "timeout": 60,
+            "timeout": 60.0,
         },
         {
             "name": "Webfetch",
             "container": "webfetch",
             "port": 8081,
             "path": "/health",
-            "timeout": 60,
+            "timeout": 60.0,
         },
         {
             "name": "Qdrant",
             "container": "qdrant",
             "port": 6333,
             "path": "/healthz",
-            "timeout": 60,
+            "timeout": 60.0,
         },
         {
             "name": "Embedder",
             "container": "embedder",
             "port": 8082,
             "path": "/health",
-            "timeout": 60,
+            "timeout": 60.0,
         },
         {
             "name": "n8n",
             "container": "n8n",
             "port": 5678,
             "path": "/healthz",
-            "timeout": 60,
+            "timeout": 60.0,
         },
     ]
     for check in service_checks:
@@ -256,7 +278,10 @@ def health_check(
         if not targets:
             raise typer.BadParameter(f"Unknown service: {service}")
 
-    table = Table("Service", "Status", "Detail")
+    table = Table()
+    table.add_column("Service")
+    table.add_column("Status")
+    table.add_column("Detail")
     overall_ok = True
 
     for target in targets:
