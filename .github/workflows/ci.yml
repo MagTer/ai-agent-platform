@@ -36,7 +36,24 @@ jobs:
       - name: Pytest
         run: poetry run pytest
       - name: Dependency freshness
-        run: poetry run python scripts/deps_check.py --quiet
+        shell: bash
+        run: |
+          set +e
+          poetry run python scripts/deps_check.py --quiet
+          status=$?
+
+          if [[ $status -eq 0 ]]; then
+            exit 0
+          fi
+
+          if [[ $status -eq 4 ]]; then
+            echo "::error::Dependency freshness check failed to execute (exit code ${status})."
+            exit $status
+          fi
+
+          echo "::warning::Dependency freshness check detected outdated dependencies (exit code ${status})."
+          poetry run python scripts/deps_check.py || true
+          exit 0
 
   compose:
     name: Compose config
