@@ -21,7 +21,7 @@ class MockLiteLLMClient:
 
 
 class DummyMemory:
-    def search(self, query: str, limit: int = 5):
+    def search(self, query: str, limit: int = 5, conversation_id: str | None = None):
         return []
 
     def add_records(self, records):

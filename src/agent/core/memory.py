@@ -5,12 +5,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
+from uuid import uuid4
 
 import numpy as np
 from qdrant_client import QdrantClient
 from qdrant_client.conversions.common_types import Distance, VectorParams
 from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.models import PointStruct
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from .config import Settings
 
@@ -59,10 +60,10 @@ class MemoryStore:
             return
 
         points = []
-        for index, record in enumerate(records):
+        for record in records:
             points.append(
                 PointStruct(
-                    id=f"{record.conversation_id}:{index}",
+                    id=uuid4().hex,
                     vector=self._embed(record.text),
                     payload={
                         "conversation_id": record.conversation_id,
@@ -75,18 +76,32 @@ class MemoryStore:
         except UnexpectedResponse as exc:  # pragma: no cover - defensive branch
             LOGGER.error("Failed to upsert memory points: %s", exc)
 
-    def search(self, query: str, limit: int = 5) -> list[MemoryRecord]:
+    def search(
+        self, query: str, limit: int = 5, conversation_id: str | None = None
+    ) -> list[MemoryRecord]:
         """Return the most relevant stored memories for the given query."""
 
-        if not self._client:
+        client = self._client
+        if not client:
             return []
 
         vector = self._embed(query)
+        query_filter: Filter | None = None
+        if conversation_id:
+            query_filter = Filter(
+                must=[
+                    FieldCondition(
+                        key="conversation_id",
+                        match=MatchValue(value=conversation_id),
+                    )
+                ]
+            )
         try:
-            results = self._client.search(
+            results = client.search(
                 collection_name=self._settings.qdrant_collection,
                 query_vector=vector,
                 limit=limit,
+                query_filter=query_filter,
             )
         except UnexpectedResponse as exc:  # pragma: no cover - defensive
             LOGGER.error("Memory search failed: %s", exc)
