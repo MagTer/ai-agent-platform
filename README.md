@@ -58,11 +58,14 @@ from `.env`, and surfaces container health via Rich tables.
 ## Development Workflow
 
 1. Use Poetry for dependency management (`poetry install`).
-2. Run linting and tests locally with `poetry run ruff check .` and
-   `poetry run pytest -v`.
-3. Follow the architecture documentation under [`docs/architecture`](./docs/architecture)
+2. Before committing, run `poetry run python scripts/code_check.py` to execute the
+   same Ruff, Black, mypy, and pytest checks that CI enforces (Ruff and Black will
+   auto-fix issues locally).
+3. Optionally install the bundled pre-commit hooks with `poetry run pre-commit install`
+   to run the formatters and type checker automatically on each commit.
+4. Follow the architecture documentation under [`docs/architecture`](./docs/architecture)
    for detailed module overviews, diagrams, and CI guidance.
-4. Submit changes via feature branches (e.g., `feature/python-refactor`).
+5. Submit changes via feature branches (e.g., `feature/python-refactor`).
 
 For deeper operational or architectural detail, start with
 [`docs/architecture/README.md`](./docs/architecture/README.md).
