@@ -2,9 +2,12 @@
 - 
 
 ## Testing
-- [ ] `poetry run python scripts/code_check.py`
-- [ ] `poetry run mypy src`
+- [ ] `poetry run ruff check .`
+- [ ] `poetry run black --check src tests fetcher indexer ragproxy embedder scripts`
 - [ ] `poetry run pytest`
+- [ ] `poetry run python scripts/deps_check.py --quiet`
+
+> **Note:** Contributors (including Codex) must run and pass all of the above checks locally before marking the task as done.
 
 ## Codex compliance
 - [ ] I followed the AI coding rules in [docs/contributing.md](../docs/contributing.md) (FastAPI/Pydantic v2 syntax, repo tooling, deterministic outputs).
