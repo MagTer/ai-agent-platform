@@ -29,7 +29,8 @@ Deliver a local, containerised agent platform with actionable skills, transparen
 - Documented roadmap for expanding tools (filesystem, calendar, Git, etc.).
 
 ## Onboarding Checklist
-1. Read `docs/README.md` for documentation map and working agreements.
+1. Read `docs/README.md` for documentation map and working agreements, then review the
+   [Contributing Guide](./contributing.md) for Codex-specific rules and required checks.
 2. Install Poetry and run `poetry install` to set up the virtual environment.
 3. Copy `.env.template` ➜ `.env`, fill secrets, and run `python -m stack up`.
 4. Execute lint (`poetry run ruff check .`) and tests (`poetry run pytest -v`) before submitting changes.

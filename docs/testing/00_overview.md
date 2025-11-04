@@ -2,6 +2,8 @@
 
 The agent platform relies on pytest for unit and service-level regression coverage. All
 commands below assume you have installed the project dependencies with `poetry install`.
+Review the [Contributing Guide](../contributing.md) before making changes so your local
+testing aligns with the Codex compliance checklist.
 
 ## Running the full suite
 
