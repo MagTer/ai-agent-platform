@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover
 from rich.console import Console
 from rich.table import Table
 
-from .utils import DEFAULT_PROJECT_NAME
+from .utils import load_environment, resolve_project_name
 
 
 def fetch_container_states() -> list[dict[str, str]]:
@@ -27,9 +27,11 @@ def fetch_container_states() -> list[dict[str, str]]:
         raise RuntimeError("docker SDK is required to fetch container states")
 
     client = docker.from_env()
+    env = load_environment()
+    project_name = resolve_project_name(env)
     containers = client.containers.list(
         all=True,
-        filters={"label": f"com.docker.compose.project={DEFAULT_PROJECT_NAME}"},
+        filters={"label": f"com.docker.compose.project={project_name}"},
     )
 
     status_rows: list[dict[str, str]] = []

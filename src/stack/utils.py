@@ -9,11 +9,12 @@ from pathlib import Path
 from dotenv import dotenv_values
 
 COMPOSE_FILES_ENV = "STACK_COMPOSE_FILES"
+PROJECT_NAME_ENV = "STACK_PROJECT_NAME"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
 DEFAULT_COMPOSE_FILE = PROJECT_ROOT / "docker-compose.yml"
-DEFAULT_PROJECT_NAME = os.getenv("STACK_PROJECT_NAME", "ai-agent-stack")
+DEFAULT_PROJECT_NAME = "ai-agent-stack"
 
 
 def load_environment(env_path: Path | None = None) -> dict[str, str]:
@@ -50,12 +51,21 @@ def resolve_compose_files(env: Mapping[str, str] | None = None) -> list[Path]:
     return files
 
 
+def resolve_project_name(env: Mapping[str, str] | None = None) -> str:
+    """Return the compose project name, falling back to the default."""
+
+    env = env or os.environ
+    return env.get(PROJECT_NAME_ENV, DEFAULT_PROJECT_NAME)
+
+
 __all__ = [
     "PROJECT_ROOT",
     "DEFAULT_ENV_PATH",
     "DEFAULT_COMPOSE_FILE",
     "DEFAULT_PROJECT_NAME",
+    "PROJECT_NAME_ENV",
     "COMPOSE_FILES_ENV",
     "load_environment",
     "resolve_compose_files",
+    "resolve_project_name",
 ]

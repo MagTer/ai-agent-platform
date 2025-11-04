@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Iterable
 
-from .utils import DEFAULT_PROJECT_NAME, load_environment, resolve_compose_files
+from .utils import load_environment, resolve_compose_files, resolve_project_name
 
 
 class ComposeError(RuntimeError):
@@ -17,7 +17,8 @@ def _compose_command(args: Iterable[str], env: dict[str, str] | None = None) -> 
     command = ["docker", "compose"]
     for compose_file in files:
         command.extend(["-f", str(compose_file)])
-    command.extend(["-p", DEFAULT_PROJECT_NAME])
+    project_name = resolve_project_name(env)
+    command.extend(["-p", project_name])
     command.extend(args)
     return command
 

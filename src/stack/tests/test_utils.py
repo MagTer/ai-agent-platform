@@ -26,3 +26,13 @@ def test_resolve_compose_files_supports_relative(monkeypatch, tmp_path):
     files = utils.resolve_compose_files(os.environ)
     resolved = utils.PROJECT_ROOT / relative
     assert resolved.resolve() in {path.resolve() for path in files}
+
+
+def test_resolve_project_name_defaults(monkeypatch):
+    monkeypatch.delenv(utils.PROJECT_NAME_ENV, raising=False)
+    assert utils.resolve_project_name({}) == utils.DEFAULT_PROJECT_NAME
+
+
+def test_resolve_project_name_from_env(monkeypatch):
+    monkeypatch.setenv(utils.PROJECT_NAME_ENV, "my-stack")
+    assert utils.resolve_project_name(os.environ) == "my-stack"
