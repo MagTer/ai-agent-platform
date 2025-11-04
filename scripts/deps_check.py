@@ -56,7 +56,24 @@ class PoetryError(RuntimeError):
     """Raised when the Poetry CLI cannot complete the request."""
 
 
+_POETRY_EXECUTABLE: str | None = None
 _POETRY_SUPPORTS_FORMAT: bool | None = None
+
+
+def _get_poetry_executable() -> str:
+    """Return the absolute path to the Poetry executable."""
+
+    global _POETRY_EXECUTABLE
+
+    if _POETRY_EXECUTABLE is not None:
+        return _POETRY_EXECUTABLE
+
+    poetry_path = shutil.which("poetry")
+    if poetry_path is None:
+        raise PoetryError("Poetry executable not found in PATH.")
+
+    _POETRY_EXECUTABLE = poetry_path
+    return poetry_path
 
 
 def _poetry_supports_format_option() -> bool:
@@ -67,12 +84,9 @@ def _poetry_supports_format_option() -> bool:
     if _POETRY_SUPPORTS_FORMAT is not None:
         return _POETRY_SUPPORTS_FORMAT
 
-    if shutil.which("poetry") is None:
-        raise PoetryError("Poetry executable not found in PATH.")
-
     try:
         result = subprocess.run(  # noqa: S603
-            ["poetry", "show", "--help"],
+            [_get_poetry_executable(), "show", "--help"],
             capture_output=True,
             text=True,
             check=True,
@@ -139,11 +153,10 @@ def _parse_plain_show_output(raw_output: str) -> list[PackageUpdate]:
 
 
 def _run_poetry_show(*, dev: bool = False) -> list[PackageUpdate]:
-    if shutil.which("poetry") is None:
-        raise PoetryError("Poetry executable not found in PATH.")
+    poetry_executable = _get_poetry_executable()
 
     base_command = [
-        "poetry",
+        poetry_executable,
         "show",
         "--outdated",
     ]
