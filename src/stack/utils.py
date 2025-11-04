@@ -35,8 +35,13 @@ def resolve_compose_files(env: Mapping[str, str] | None = None) -> list[Path]:
     if not raw:
         return [DEFAULT_COMPOSE_FILE]
 
+    try:
+        raw_str = os.fspath(raw)
+    except TypeError:
+        raw_str = str(raw)
+
     files: list[Path] = []
-    for chunk in raw.split(os.pathsep):
+    for chunk in raw_str.split(os.pathsep):
         candidate = chunk.strip()
         if not candidate:
             continue

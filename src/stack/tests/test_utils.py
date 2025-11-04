@@ -20,6 +20,14 @@ def test_resolve_compose_files_honours_env(monkeypatch, tmp_path):
     assert override in files
 
 
+def test_resolve_compose_files_accepts_pathlike(tmp_path):
+    override = tmp_path / "override.yml"
+    override.write_text("version: '3'\n", encoding="utf-8")
+    files = utils.resolve_compose_files({utils.COMPOSE_FILES_ENV: override})
+    assert files[0] == utils.DEFAULT_COMPOSE_FILE
+    assert override in files
+
+
 def test_resolve_compose_files_supports_relative(monkeypatch, tmp_path):
     relative = "compose/docker-compose.bind.yml"
     monkeypatch.setenv(utils.COMPOSE_FILES_ENV, relative)
