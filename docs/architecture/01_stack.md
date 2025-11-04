@@ -2,22 +2,30 @@
 
 ## Compose Services
 
-| Service    | Purpose | Ports | Healthcheck |
-|------------|---------|-------|-------------|
-| `webui`    | Open WebUI frontend for reasoning (proxying through the agent) | `3000 → 8080` | `curl -f http://localhost:8080` |
-| `agent`    | FastAPI agent orchestrator and tool runner | `8000` | `curl -f http://localhost:8000/healthz` |
-| `litellm`  | Gateway to local/remote LLMs | `4000` | `curl -f http://localhost:4000/health` |
-| `ollama`   | GPU accelerated inference engine | `11434` | `ollama --version` |
-| `qdrant`   | Vector memory for semantic recall | `6333` | `curl -f http://localhost:6333/healthz` |
-| `embedder` | Sentence-transformer API producing `/embed` vectors for RAG | `8082` | `curl -f http://localhost:8082/health` |
-| `ragproxy` | Retrieval-aware proxy that augments `rag/` chat completions | `4080` (internal) | `curl -f http://localhost:4080/health` |
-| `webfetch` | Browserless content retriever and summariser | `8081` | `curl -f http://localhost:8081/healthz` |
-| `searxng`  | Optional metasearch backend queried by `webfetch` | `8080` | `wget -qO- http://localhost:8080/` |
+[`docker-compose.yml`](../../docker-compose.yml) in the repository root now
+defines the complete stack. Optional overrides (for bind mounts or GPU runtime)
+can be layered via `compose/docker-compose.bind.yml` and
+`docker-compose.gpu.yml`.
+
+| Service     | Purpose | Ports | Healthcheck |
+|-------------|---------|-------|-------------|
+| `openwebui` | Web UI frontend that proxies chat through the agent | `3000 → 8080` | `curl -f http://localhost:8080` |
+| `agent`     | FastAPI agent orchestrator and tool runner | `8000` | `curl -f http://localhost:8000/healthz` |
+| `litellm`   | Gateway to local/remote LLMs | `4000` | `curl -f http://localhost:4000/health` |
+| `ollama`    | GPU accelerated inference engine | `11434` | `ollama --version` |
+| `qdrant`    | Vector memory for semantic recall | `6333` | `wget -qO- http://localhost:6333/healthz` |
+| `embedder`  | Sentence-transformer API producing `/embed` vectors for RAG | `8082` | `wget -qO- http://localhost:8082/health` |
+| `ragproxy`  | Retrieval-aware proxy that augments `rag/` chat completions | `4080` (internal) | `wget -qO- http://localhost:4080/health` |
+| `webfetch`  | Browserless content retriever and summariser | `8081` | `wget -qO- http://localhost:8081/health` |
+| `searxng`   | Optional metasearch backend queried by `webfetch` | `8080` | `wget -qO- http://localhost:8080/` |
+| `n8n`       | Automation/workflow runner that integrates tools | `5678` | `wget -qO- http://localhost:5678/healthz` |
 
 Volumes:
 
 - `ollama-models` stores downloaded Ollama models.
 - `qdrant-data` keeps vector data between restarts.
+- `embedder-cache` caches HuggingFace artefacts for the embedder.
+- `n8n-data` persists n8n workflows and credentials.
 
 ## Stack CLI
 
@@ -26,7 +34,7 @@ The Stack CLI wraps Docker Compose commands and surfaces status information.
 ```
 python -m stack up        # Start or restart the full stack
 python -m stack status    # Render a Rich table of container health
-python -m stack logs webui --tail 100
+python -m stack logs openwebui --tail 100
 python -m stack down      # Stop containers (idempotent)
 ```
 
@@ -36,7 +44,14 @@ stack is running, and `down` succeeds even when the containers are already
 stopped.
 
 Copy `.env.template` to `.env` before running the CLI. Additional overrides can
-live in `.env.local` or direct environment exports.
+live in `.env.local` or direct environment exports. Compose automatically reads
+`.env`; the stack CLI also injects it when running Docker commands.
+
+When overrides are required (for example, GPU runtime or bind mounts), set
+`STACK_COMPOSE_FILES` to a path-separated list before invoking the CLI. Relative
+paths are resolved from the repository root, so `STACK_COMPOSE_FILES=docker-compose.gpu.yml`
+ensures GPU settings apply to `python -m stack up` just like manual Docker
+commands.
 
 Open WebUI is wired to the agent by default via the `LITELLM_URL` and
 `OPENAI_API_BASE_URL` variables in `docker-compose.yml`. All chat requests are

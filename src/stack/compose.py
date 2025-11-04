@@ -5,30 +5,29 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Iterable
 
-from .utils import DEFAULT_COMPOSE_FILE, DEFAULT_PROJECT_NAME, load_environment
+from .utils import load_environment, resolve_compose_files, resolve_project_name
 
 
 class ComposeError(RuntimeError):
     """Raised when a compose command fails."""
 
 
-def _compose_command(args: Iterable[str]) -> list[str]:
-    return [
-        "docker",
-        "compose",
-        "-f",
-        str(DEFAULT_COMPOSE_FILE),
-        "-p",
-        DEFAULT_PROJECT_NAME,
-        *args,
-    ]
+def _compose_command(args: Iterable[str], env: dict[str, str] | None = None) -> list[str]:
+    files = resolve_compose_files(env)
+    command = ["docker", "compose"]
+    for compose_file in files:
+        command.extend(["-f", str(compose_file)])
+    project_name = resolve_project_name(env)
+    command.extend(["-p", project_name])
+    command.extend(args)
+    return command
 
 
 def run_compose(args: Iterable[str]) -> subprocess.CompletedProcess[bytes]:
     """Execute a docker compose command and return the completed process."""
 
-    command = _compose_command(list(args))
     env = load_environment()
+    command = _compose_command(list(args), env)
     try:
         return subprocess.run(command, check=True, env=env, capture_output=True)  # noqa: S603
     except subprocess.CalledProcessError as exc:  # pragma: no cover - integration failure

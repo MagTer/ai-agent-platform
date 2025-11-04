@@ -21,6 +21,11 @@ python -m stack up
 python -m stack status
 ```
 
+> To run with GPU acceleration or bind-mounted data directories, append
+> overrides such as `docker-compose.gpu.yml` or `compose/docker-compose.bind.yml`
+> when using `docker compose` directly (for example,
+> `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d`).
+
 After the stack reports healthy, open [http://localhost:3000](http://localhost:3000)
 for Open WebUI. The UI is wired to the agent by default, so every prompt is
 posted to `/v1/chat/completions` on the agent service (which in turn calls
@@ -42,18 +47,26 @@ from `.env`, and surfaces container health via Rich tables.
 | `python -m stack up` | Start or restart the stack in detached mode. |
 | `python -m stack down` | Stop the stack (safe to run multiple times). |
 | `python -m stack status` | Render container status and health checks. |
-| `python -m stack logs webui --tail 100` | Tail logs for selected services. |
+| `python -m stack logs openwebui --tail 100` | Tail logs for selected services. |
+
+> The stack CLI honours the `STACK_COMPOSE_FILES` environment variable. Set it to a
+> path-separated list (e.g., `STACK_COMPOSE_FILES=docker-compose.gpu.yml`) to layer
+> overrides such as GPU acceleration when running `python -m stack`.
 
 ## Services
 
 | Service | Purpose |
 |---------|---------|
 | `agent` | FastAPI agent server with LiteLLM + Qdrant integrations. |
+| `openwebui` | Web interface proxied through the agent service. |
 | `litellm` | Gateway that fans out to Ollama and optional remote models. |
 | `ollama` | Local GPU-backed inference runtime. |
 | `qdrant` | Vector memory for long-term recall. |
-| `webui` | Open WebUI frontend for reasoning and action modes. |
+| `embedder` | Sentence-transformer API powering RAG pipelines. |
+| `ragproxy` | Retrieval-aware proxy that augments `rag/` chat models. |
 | `webfetch` | Headless fetch service exposed to agent tools. |
+| `searxng` | Optional metasearch backend for federated search. |
+| `n8n` | Automation/workflow engine for advanced integrations. |
 
 ## Development Workflow
 

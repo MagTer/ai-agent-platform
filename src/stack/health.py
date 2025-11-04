@@ -17,7 +17,17 @@ except ImportError:  # pragma: no cover
 from rich.console import Console
 from rich.table import Table
 
-from .utils import DEFAULT_PROJECT_NAME
+from .utils import load_environment, resolve_project_name
+
+
+class StatusTable(Table):
+    """Table with a stable ``row_count`` accessor for downstream consumers."""
+
+    __slots__ = ()
+
+    @property
+    def row_count(self) -> int:  # pragma: no cover - trivial passthrough
+        return len(self.rows)
 
 
 def fetch_container_states() -> list[dict[str, str]]:
@@ -27,9 +37,11 @@ def fetch_container_states() -> list[dict[str, str]]:
         raise RuntimeError("docker SDK is required to fetch container states")
 
     client = docker.from_env()
+    env = load_environment()
+    project_name = resolve_project_name(env)
     containers = client.containers.list(
         all=True,
-        filters={"label": f"com.docker.compose.project={DEFAULT_PROJECT_NAME}"},
+        filters={"label": f"com.docker.compose.project={project_name}"},
     )
 
     status_rows: list[dict[str, str]] = []
@@ -62,16 +74,13 @@ def render_status_table() -> None:
 
     rows = fetch_container_states()
     console = Console()
-    table = Table(title="AI Agent Platform")
+    table = StatusTable(title="AI Agent Platform")
     table.add_column("Container")
     table.add_column("Status")
     table.add_column("Health")
     table.add_column("Started")
     for row in rows:
         table.add_row(row["name"], row["status"], row["health"], row["started"])
-    # Preserve an easy row-count accessor for tests and callers.
-    # Rich exposes ``len(table.rows)`` but not a direct ``row_count`` property.
-    table.row_count = len(rows)  # type: ignore[attr-defined]
     console.print(table)
 
 

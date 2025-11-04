@@ -41,8 +41,8 @@ respond flow that underpins `rag/` models.
 3. **Store** – The indexer calls Qdrant’s `/collections/{name}/points` API (via
    the Python client) to upsert each chunk as a vector with payload metadata
    (`url`, `text`, `chunk_ix`, `ts`, `source`). The default collection is named
-   `memory`; see [`compose/docker-compose.yml`](../../compose/docker-compose.yml)
-   for the persistent volume wiring.
+  `memory`; see [`docker-compose.yml`](../../docker-compose.yml) for the
+  persistent volume wiring.
 4. **Retrieve** – When a client submits a `rag/` model to `ragproxy` (for
    example `rag/qwen2.5-en`), the proxy embeds the last user message with the
    same `/embed` API and queries Qdrant’s `/collections/memory/points/search`
@@ -112,8 +112,11 @@ future ragproxy calls to surface them without repeating the crawl.
 | `QDRANT_URL` | Vector store endpoint. | `http://qdrant:6333` | [`ragproxy/app.py`](../../ragproxy/app.py), [`fetcher/app.py`](../../fetcher/app.py) |
 | `MODEL_NAME` | HuggingFace model used by embedder. | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | [`embedder/app.py`](../../embedder/app.py) |
 
-Override these variables in `.env` or the Compose overrides under
-[`compose/`](../../compose/) before running `python -m stack up`. Operational
+Override these variables in `.env` or optional Compose overrides such as
+[`compose/docker-compose.bind.yml`](../../compose/docker-compose.bind.yml)
+before running `python -m stack up`. Set `STACK_COMPOSE_FILES` when the Python CLI
+should include those overrides (for example, GPU profiles) alongside the root
+compose file. Operational
 playbooks in [`docs/OPERATIONS.md`](../OPERATIONS.md) cover health checks and
 smoke tests for the retrieval services.
 
