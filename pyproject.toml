@@ -11,28 +11,32 @@ packages = [
 
 [tool.poetry.dependencies]
 python = "^3.11"
-fastapi = "^0.111.0"
-uvicorn = { extras = ["standard"], version = "^0.30.0" }
-typer = "^0.12.3"
-rich = "^13.7.1"
+fastapi = "^0.121.0"
+uvicorn = { extras = ["standard"], version = "^0.38.0" }
+typer = "^0.20.0"
+rich = "^14.2.0"
 docker = "^7.1.0"
 python-dotenv = "^1.0.1"
 pydantic = "^2.7.2"
-httpx = "^0.27.0"
+httpx = "^0.28.1"
 qdrant-client = "^1.7.3"
 litellm = "^1.35.10"
-numpy = "^1.26.4"
+numpy = "^2.3.4"
 pyyaml = "^6.0.1"
+fastapi-cli = "^0.0.14"
+starlette = "^0.50.0"
+pydantic-core = "^2.41.5"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.1"
-pytest-asyncio = "^0.23.6"
-ruff = "^0.4.4"
-black = "^24.4.2"
+pytest-asyncio = "^1.2.0"
+ruff = "^0.14.3"
+black = "^25.9.0"
 mypy = "^1.10.0"
-respx = "^0.21.1"
+respx = "^0.22.0"
 types-PyYAML = "^6.0.12"
 coverage = "^7.5.0"
+httpx = "^0.28.1"
 
 [tool.poetry.scripts]
 stack = "stack.cli:app"
