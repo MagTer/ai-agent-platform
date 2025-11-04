@@ -1,0 +1,8 @@
+services:
+  ollama:
+    volumes:
+      - ./.data/ollama:/root/.ollama
+
+  qdrant:
+    volumes:
+      - ./.data/qdrant:/qdrant/storage

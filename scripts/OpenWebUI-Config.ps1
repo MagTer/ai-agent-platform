@@ -2,7 +2,7 @@
 param(
     [ValidateSet('export','import')]
     [string]$Command = 'export',
-    [string]$ComposeFile = 'compose/docker-compose.yml',
+    [string]$ComposeFile = 'docker-compose.yml',
     [string]$Service = 'openwebui',
     [string]$DumpPath = 'openwebui/export/app.db.sql'
 )

@@ -4,9 +4,6 @@
 !.env.template
 
 # Compose colocated env
-compose/.env
-compose/.env.*
-!compose/.env.template
 
 # Node/Python
 node_modules/

@@ -2,6 +2,7 @@ name: ai-agent-stack
 
 services:
   agent:
+    container_name: agent
     build:
       context: .
       dockerfile: Dockerfile.agent
@@ -9,96 +10,233 @@ services:
       - .env
     environment:
       AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
+      AGENT_HOST: ${AGENT_HOST:-0.0.0.0}
+      AGENT_PORT: ${AGENT_PORT:-8000}
     ports:
-      - "8000:8000"
+      - "${AGENT_PORT:-8000}:8000"
     depends_on:
       litellm:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
+        condition: service_started
+      ragproxy:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 5s
       retries: 5
 
-  litellm:
-    image: ghcr.io/berriai/litellm:latest
-    environment:
-      LITELLM_LOGGING: warn
-      LITELLM_PORT: 4000
-      LITELLM_PROXY_MODEL: ollama/llama3
-      OLLAMA_API_BASE: http://ollama:11434
+  searxng:
+    container_name: searxng
+    image: searxng/searxng:latest
     ports:
-      - "4000:4000"
+      - "${SEARXNG_PORT:-8080}:8080"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
+      SEARXNG_BASE_URL: http://searxng:8080/
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  webfetch:
+    container_name: webfetch
+    build:
+      context: ./fetcher
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      SEARXNG_URL: http://searxng:8080
+      LITELLM_BASE: http://litellm:4000
+      DEFAULT_MODEL: local/qwen2.5-en
+      REQUEST_TIMEOUT: "15"
+      MAX_WORKERS: "4"
+      EMBEDDER_BASE: http://embedder:8082
+      QDRANT_URL: http://qdrant:6333
+      ENABLE_QDRANT: ${ENABLE_QDRANT:-true}
+      FETCHER_PORT: ${FETCHER_PORT:-8081}
+    ports:
+      - "${FETCHER_PORT:-8081}:8081"
+    depends_on:
+      searxng:
+        condition: service_healthy
+      litellm:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  ollama:
+    container_name: ollama
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: 24h
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  qdrant:
+    container_name: qdrant
+    image: qdrant/qdrant:latest
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || wget -qO- http://localhost:6333/readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+  embedder:
+    container_name: embedder
+    build:
+      context: ./embedder
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      MODEL_NAME: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+      NORMALIZE: "true"
+      OMP_NUM_THREADS: "2"
+      TOKENIZERS_PARALLELISM: "false"
+    ports:
+      - "${EMBEDDER_PORT:-8082}:8082"
+    volumes:
+      - embedder-cache:/root/.cache
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  litellm:
+    container_name: litellm
+    image: ghcr.io/berriai/litellm:main-stable
+    restart: unless-stopped
+    command: ["--config", "/app/config.yaml", "--port", "${LITELLM_PORT:-4000}"]
+    environment:
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LITELLM_LOGGING: ${LITELLM_LOGGING:-warn}
+      LITELLM_PORT: ${LITELLM_PORT:-4000}
+      LITELLM_PROXY_MODEL: ${LITELLM_PROXY_MODEL:-ollama/llama3}
+      OLLAMA_API_BASE: http://ollama:11434
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    ports:
+      - "${LITELLM_PORT:-4000}:4000"
     depends_on:
       ollama:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
       interval: 30s
       timeout: 5s
       retries: 5
 
-  ollama:
-    image: ollama/ollama:latest
-    environment:
-      OLLAMA_HOST: 0.0.0.0
-    # GPU runtimes are provided via docker-compose.gpu.yml to keep the base stack
-    # compatible with docker compose config validation in CI.
-    volumes:
-      - ollama-models:/root/.ollama
-    ports:
-      - "11434:11434"
-    healthcheck:
-      test: ["CMD", "ollama", "--version"]
-      interval: 1m
-      timeout: 10s
-      retries: 3
-
-  qdrant:
-    image: qdrant/qdrant:latest
-    volumes:
-      - qdrant-data:/qdrant/storage
-    ports:
-      - "6333:6333"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-
-  webui:
+  openwebui:
+    container_name: openwebui
     image: ghcr.io/open-webui/open-webui:latest
+    restart: unless-stopped
     environment:
-      WEBUI_NAME: "AI Agent Platform"
-      LITELLM_URL: http://agent:8000
-      OPENAI_API_BASE_URL: http://agent:8000
-      OPENAI_API_KEY: ${OPENWEBUI_OPENAI_API_KEY:-agent-placeholder}
+      OPENAI_API_BASE_URL: http://agent:8000/v1
+      OPENAI_API_KEY: ${OPENWEBUI_OPENAI_API_KEY:-agent-local}
+      ENABLE_OLLAMA_MODELS: "False"
+      WEBUI_AUTH: "True"
+      ENABLE_SIGNUP: "False"
+      SECRET_KEY: ${OPENWEBUI_SECRET:-}
+      WEBUI_JWT_SECRET: ${OPENWEBUI_SECRET:-}
+    volumes:
+      - ./openwebui/data:/app/backend/data
     ports:
-      - "3000:8080"
+      - "${OPENWEBUI_PORT:-3000}:8080"
     depends_on:
       agent:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
 
-  webfetch:
+  ragproxy:
+    container_name: ragproxy
     build:
-      context: fetcher
+      context: ./ragproxy
+      dockerfile: Dockerfile
+    restart: unless-stopped
     environment:
-      FETCHER_PORT: 8081
-    ports:
-      - "8081:8081"
+      EMBEDDER_BASE: http://embedder:8082
+      QDRANT_URL: http://qdrant:6333
+      LITELLM_BASE: http://litellm:4000
+      QDRANT_TOP_K: ${QDRANT_TOP_K:-5}
+      MMR_LAMBDA: ${MMR_LAMBDA:-0.7}
+      ENABLE_RAG: ${ENABLE_RAG:-true}
+      RAG_MAX_SOURCES: ${RAG_MAX_SOURCES:-5}
+      RAG_MAX_CHARS: ${RAG_MAX_CHARS:-1200}
+    depends_on:
+      embedder:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      litellm:
+        condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "wget", "-qO-", "http://localhost:4080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  n8n:
+    container_name: n8n
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    environment:
+      TZ: ${TIMEZONE:-Europe/Stockholm}
+      GENERIC_TIMEZONE: ${TIMEZONE:-Europe/Stockholm}
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n-data:/home/node/.n8n
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
 volumes:
   ollama-models:
   qdrant-data:
+  n8n-data:
+  embedder-cache:

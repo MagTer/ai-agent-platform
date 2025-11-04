@@ -22,11 +22,13 @@ python -m stack status
 ```
 
 After the stack reports healthy, open [http://localhost:3000](http://localhost:3000)
-for Open WebUI. The UI is wired to the agent by default, so every prompt is
-posted to `/v1/chat/completions` on the agent service (which in turn calls
-LiteLLM and Ollama). Responses are structured with `steps`, `response`, and
-`metadata`, giving the UI a full reasoning trace. You can also exercise the
-JSON-native API directly at [http://localhost:8000/v1/agent](http://localhost:8000/v1/agent).
+for Open WebUI. The UI is wired to the agent by default (see
+[`docker-compose.yml`](./docker-compose.yml)), so every prompt is posted to
+`/v1/chat/completions` on the agent service (which in turn calls LiteLLM,
+Ollama, and the retrieval stack). Responses are structured with `steps`,
+`response`, and `metadata`, giving the UI a full reasoning trace. You can also
+exercise the JSON-native API directly at
+[http://localhost:8000/v1/agent](http://localhost:8000/v1/agent).
 
 > Linux/macOS users can run the same commands from their shell. Windows users
 > should run them inside a Poetry shell (`poetry shell`).
@@ -42,7 +44,7 @@ from `.env`, and surfaces container health via Rich tables.
 | `python -m stack up` | Start or restart the stack in detached mode. |
 | `python -m stack down` | Stop the stack (safe to run multiple times). |
 | `python -m stack status` | Render container status and health checks. |
-| `python -m stack logs webui --tail 100` | Tail logs for selected services. |
+| `python -m stack logs openwebui --tail 100` | Tail logs for selected services. |
 
 ## Services
 
@@ -52,8 +54,12 @@ from `.env`, and surfaces container health via Rich tables.
 | `litellm` | Gateway that fans out to Ollama and optional remote models. |
 | `ollama` | Local GPU-backed inference runtime. |
 | `qdrant` | Vector memory for long-term recall. |
-| `webui` | Open WebUI frontend for reasoning and action modes. |
+| `embedder` | Sentence-transformer service backing RAG embeddings. |
+| `ragproxy` | Lightweight API that orchestrates embedder + Qdrant retrieval. |
+| `searxng` | Metasearch engine powering the webfetch service. |
 | `webfetch` | Headless fetch service exposed to agent tools. |
+| `openwebui` | Open WebUI frontend for reasoning and action modes. |
+| `n8n` | Optional workflow engine for automations and cron jobs. |
 
 ## Development Workflow
 

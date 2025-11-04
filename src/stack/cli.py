@@ -23,7 +23,11 @@ def up(
     """Start all services defined in docker-compose.yml."""
 
     console.print("[bold green]Starting stack...[/bold green]")
-    compose.compose_up(detach=detach)
+    try:
+        compose.compose_up(detach=detach)
+    except compose.ComposeError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
     console.print("[bold green]Stack is running.[/bold green]")
 
 
@@ -38,7 +42,11 @@ def down(
     """Stop all running services."""
 
     console.print("[bold yellow]Stopping stack...[/bold yellow]")
-    compose.compose_down(remove_volumes=remove_volumes)
+    try:
+        compose.compose_down(remove_volumes=remove_volumes)
+    except compose.ComposeError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
     console.print("[bold yellow]Stack stopped.[/bold yellow]")
 
 
@@ -49,7 +57,11 @@ def logs(
 ) -> None:
     """Show container logs."""
 
-    output = compose.compose_logs(service, tail)
+    try:
+        output = compose.compose_logs(service, tail)
+    except compose.ComposeError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
     console.print(output)
 
 

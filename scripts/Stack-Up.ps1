@@ -23,7 +23,7 @@ function Find-ComposePath {
   param([string]$StartDir)
   $dir = Resolve-Path $StartDir
   for ($i = 0; $i -lt 10; $i++) {
-    $candidate = Join-Path $dir "compose\docker-compose.yml"
+    $candidate = Join-Path $dir "docker-compose.yml"
     if (Test-Path $candidate) { return $candidate }
     $parent = Split-Path $dir -Parent
     if ($parent -eq $dir) { break }
@@ -82,8 +82,8 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
 }
 
 $composeFile = Find-ComposePath -StartDir $PSScriptRoot
-if (-not $composeFile) { Write-Error "Could not find compose\docker-compose.yml upward from $PSScriptRoot"; exit 1 }
-$repoRoot = Split-Path (Split-Path $composeFile -Parent) -Parent
+if (-not $composeFile) { Write-Error "Could not find docker-compose.yml upward from $PSScriptRoot"; exit 1 }
+$repoRoot = Split-Path $composeFile -Parent
 
 function Get-EnvValue {
   param(
@@ -161,15 +161,15 @@ if (-not $owSecret) { $owSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.
 $sxSecret = Get-EnvValue -FilePath (Join-Path $composeDir '.env') -Key 'SEARXNG_SECRET'
 if (-not $sxSecret) { $sxSecret = Get-EnvValue -FilePath (Join-Path $repoRoot '.env') -Key 'SEARXNG_SECRET' }
 if (-not $owSecret -or [string]::IsNullOrWhiteSpace($owSecret)) {
-  Write-Error "OPENWEBUI_SECRET is required. Set it in compose/.env."; exit 1
+  Write-Error "OPENWEBUI_SECRET is required. Set it in .env."; exit 1
 }
 if (-not $sxSecret -or [string]::IsNullOrWhiteSpace($sxSecret)) {
-  Write-Error "SEARXNG_SECRET is required. Set it in compose/.env."; exit 1
+  Write-Error "SEARXNG_SECRET is required. Set it in .env."; exit 1
 }
 
 Push-Location $repoRoot
 try {
-  if (-not (Test-Path $composeFile)) { Write-Error "compose/docker-compose.yml is missing."; exit 1 }
+  if (-not (Test-Path $composeFile)) { Write-Error "docker-compose.yml is missing."; exit 1 }
 
   Say "[i] Starting stack using: $composeFile" "Yellow"
   if ($composeProjectName) { Say "[i] Using compose project: $composeProjectName" "Yellow" }

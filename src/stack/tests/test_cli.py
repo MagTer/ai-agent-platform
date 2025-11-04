@@ -31,3 +31,16 @@ def test_up_command(monkeypatch):
     result = runner.invoke(cli.app, ["up"])
     assert result.exit_code == 0
     assert called["up"] is True
+
+
+def test_up_command_handles_compose_errors(monkeypatch):
+    runner = CliRunner()
+
+    def fake_up(*_, **__):
+        raise cli.compose.ComposeError("Missing required environment variables: OPENWEBUI_SECRET")
+
+    monkeypatch.setattr(cli.compose, "compose_up", fake_up)
+
+    result = runner.invoke(cli.app, ["up"])
+    assert result.exit_code == 1
+    assert "OPENWEBUI_SECRET" in result.stdout
