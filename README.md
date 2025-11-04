@@ -65,4 +65,4 @@ from `.env`, and surfaces container health via Rich tables.
 4. Submit changes via feature branches (e.g., `feature/python-refactor`).
 
 For deeper operational or architectural detail, start with
-[`docs/architecture/00_overview.md`](./docs/architecture/00_overview.md).
+[`docs/architecture/README.md`](./docs/architecture/README.md).

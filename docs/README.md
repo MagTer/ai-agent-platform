@@ -7,7 +7,7 @@ Use this index as the single entry point into the refactored Python-based stack.
 - [Delivery Model](./DELIVERY_MODEL.md) – iteration cadence, Definition of Done, and review checklist tuned for the Python agent workflow.
 - [Roadmap](./ROADMAP.md) – milestone sequencing for the FastAPI agent, stack CLI, and memory features.
 - [Capabilities](./CAPABILITIES.md) – current and planned behaviours exposed by the agent API and tool layer.
-- [Architecture Overview](./ARCHITECTURE.md) – high-level service map plus pointers into the detailed `docs/architecture/` set.
+- [Architecture Overview](./architecture/README.md) – high-level service map plus pointers into the detailed `docs/architecture/` set.
 - [Operations](./OPERATIONS.md) – Typer-based stack commands, health checks, smoke tests, and maintenance procedures.
 - [Testing](./TESTING.md) – how to run linting and tests with Poetry and pytest, including coverage expectations.
 - [Open WebUI Integration](./OPENWEBUI_ACTIONS.md) – configuring the UI to call the FastAPI agent and expose tools.
@@ -22,7 +22,7 @@ Use this index as the single entry point into the refactored Python-based stack.
 
 ## Contributing Workflow
 1. Identify the roadmap item you are advancing in [ROADMAP.md](./ROADMAP.md).
-2. Confirm constraints in [PROJECT_PROFILE.md](./PROJECT_PROFILE.md) and architectural intent via [ARCHITECTURE.md](./ARCHITECTURE.md).
+2. Confirm constraints in [PROJECT_PROFILE.md](./PROJECT_PROFILE.md) and architectural intent via [architecture/README.md](./architecture/README.md).
 3. Implement changes with Poetry-managed tooling (`poetry run ...`), keeping the stack CLI commands idempotent.
 4. Run linting, tests, and any relevant smoke tests documented in [OPERATIONS.md](./OPERATIONS.md).
 5. Update documentation to reflect the behaviour change before opening a PR.
