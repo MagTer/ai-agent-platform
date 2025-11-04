@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# ruff: noqa: S603
 """Dependency freshness checker.
 
 This script shells out to ``poetry show --outdated`` to report outdated
@@ -26,8 +27,8 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Iterable, Sequence
 
 
 @dataclass
@@ -41,7 +42,7 @@ class PackageUpdate:
     description: str | None
 
     @classmethod
-    def from_mapping(cls, payload: dict) -> "PackageUpdate":
+    def from_mapping(cls, payload: dict) -> PackageUpdate:
         return cls(
             name=payload.get("name", "<unknown>"),
             current=payload.get("version", "?"),
@@ -55,7 +56,7 @@ class PoetryError(RuntimeError):
     """Raised when the Poetry CLI cannot complete the request."""
 
 
-def _run_poetry_show(extra_args: Sequence[str]) -> list[PackageUpdate]:
+def _run_poetry_show(*, dev: bool = False) -> list[PackageUpdate]:
     if shutil.which("poetry") is None:
         raise PoetryError("Poetry executable not found in PATH.")
 
@@ -65,13 +66,21 @@ def _run_poetry_show(extra_args: Sequence[str]) -> list[PackageUpdate]:
         "--outdated",
         "--format",
         "json",
-        *extra_args,
     ]
+    if dev:
+        command.extend(["--only", "dev"])
 
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        message = result.stderr.strip() or result.stdout.strip() or "Unknown error"
-        raise PoetryError(message)
+    # The command arguments are statically defined within this module.
+    try:
+        result = subprocess.run(  # noqa: S603
+            command,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        message = exc.stderr.strip() or exc.stdout.strip() or "Unknown error"
+        raise PoetryError(message) from exc
 
     raw_output = result.stdout.strip()
     if not raw_output:
@@ -100,24 +109,31 @@ def _format_updates(updates: Iterable[PackageUpdate]) -> list[str]:
     return rows
 
 
-def check_dependencies(include_dev: bool = True) -> tuple[list[PackageUpdate], list[PackageUpdate], list[str]]:
+def check_dependencies(
+    include_dev: bool = True,
+) -> tuple[list[PackageUpdate], list[PackageUpdate], list[str]]:
     """Return runtime and development updates along with warning messages."""
 
     warnings: list[str] = []
     try:
-        runtime_updates = _run_poetry_show(())
+        runtime_updates = _run_poetry_show()
     except PoetryError as exc:
         raise PoetryError(f"Runtime dependency check failed: {exc}") from exc
 
     dev_updates: list[PackageUpdate] = []
     if include_dev:
         try:
-            dev_updates = _run_poetry_show(("--only", "dev"))
+            dev_updates = _run_poetry_show(dev=True)
         except PoetryError as exc:
             message = str(exc)
             # Poetry emits a specific message when the dependency group does not exist.
-            if "No dependency group named" in message or "does not have dependency group" in message:
-                warnings.append("Project does not define a 'dev' dependency group; skipping dev check.")
+            if (
+                "No dependency group named" in message
+                or "does not have dependency group" in message
+            ):
+                warnings.append(
+                    "Project does not define a 'dev' dependency group; skipping dev check.",
+                )
             else:
                 raise PoetryError(f"Development dependency check failed: {exc}") from exc
 
@@ -125,7 +141,9 @@ def check_dependencies(include_dev: bool = True) -> tuple[list[PackageUpdate], l
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Check for outdated Poetry dependencies")
+    parser = argparse.ArgumentParser(
+        description="Check for outdated Poetry dependencies",
+    )
     parser.add_argument(
         "--skip-dev",
         action="store_true",
