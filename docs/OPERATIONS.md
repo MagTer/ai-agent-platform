@@ -84,6 +84,9 @@ order memory → tools → completion.
 - **Database**: the agent stores conversation metadata in `./data/agent_state.sqlite`. Back up or prune the file as part of maintenance.
 - **LiteLLM configuration**: adjust routing or budgets via environment variables in `.env` or `docker-compose.yml`, then run `python -m stack up` to reload.
 - **Qdrant backups**: snapshot volumes using `docker run --rm --volumes-from qdrant -v $(pwd)/backups:/backups alpine tar czf /backups/qdrant-$(date +%Y%m%d-%H%M%S).tgz /qdrant/storage`.
+- **Dependency updates**: when `scripts/deps_check.py` flags new versions, validate
+  changes by running the stack smoke tests in this guide and `poetry run pytest`.
+  Merge only after both checks succeed.
 
 ### Qdrant memory ID migration
 

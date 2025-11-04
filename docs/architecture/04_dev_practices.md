@@ -23,6 +23,21 @@
 - Open PRs with linked issues and include the CI badge results.
 - Each commit should focus on a logical change set with passing tests.
 
+## Dependency Maintenance
+
+- Run `python scripts/deps_check.py` at least once per sprint (or before any
+  release) to spot outdated dependencies. The script returns exit code `0`
+  when everything is current, `1` for runtime updates, `2` for development
+  updates, and `3` when both need attention.
+- Follow up on any findings with `poetry update <package>` (or `poetry update`
+  for wider refreshes). Capture release notes and breaking changes in the PR
+  description so reviewers understand the impact.
+- If the script exits with `4`, Poetry could not reach the registry. Retry with
+  a working network connection before proceeding.
+- CI runs the same script in the "Dependency freshness" job with `--quiet`.
+  A non-zero exit code marks the job as failed; check the job logs locally with
+  the full command to see the exact packages that need attention.
+
 ## Coding Standards
 
 - Type annotate all functions and methods.
