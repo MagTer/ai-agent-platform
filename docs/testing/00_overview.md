@@ -5,26 +5,35 @@ commands below assume you have installed the project dependencies with `poetry i
 
 ## Running the full suite
 
+Use the consolidated helper to match CI locally:
+
 ```bash
-poetry run pytest -v
+poetry run python scripts/code_check.py
 ```
+
+The script executes the following in order:
+
+1. `ruff check --fix .`
+2. `black src tests fetcher indexer ragproxy embedder`
+3. `mypy src`
+4. `pytest`
 
 Pytest is configured to search the first-party test directories under `tests/`,
 `src/agent/tests/`, and `src/stack/tests/`, so a single invocation exercises the
-end-to-end checks that CI runs.
+end-to-end checks that CI runs. Ruff and Black apply fixes in-place so that rerunning the
+script clears style violations automatically.
 
-## Linting and static analysis
+## Optional automations
 
-To mirror the CI gates, run the quality tooling before pushing changes:
+Install the repository's pre-commit hooks to trigger the same linting, formatting, and
+type-checking automatically on staged changes:
 
 ```bash
-poetry run ruff check .
-poetry run black --check src tests fetcher indexer ragproxy embedder
-poetry run mypy src
+poetry run pre-commit install
 ```
 
-These commands validate code style, formatting, and typing for all first-party modules and
-Python service entrypoints (such as the fetcher, indexer, and rag proxy).
+Pre-commit runs Ruff with `--fix`, Black with the 100-character profile, and mypy against
+`src/`, matching the paths that CI enforces.
 
 ## Integration and smoke expectations
 

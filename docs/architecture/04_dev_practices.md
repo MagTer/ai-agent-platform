@@ -3,10 +3,12 @@
 ## Tooling
 
 - **Poetry** manages dependencies and virtual environments.
-- **Ruff** enforces linting (`poetry run ruff check .`).
-- **Black** formats code (`poetry run black .`).
-- **Mypy** provides optional static typing (`poetry run mypy src`).
-- **Pytest** executes the unit test suite (`poetry run pytest`).
+- **Code check script** (`poetry run python scripts/code_check.py`) runs Ruff `--fix`,
+  Black (100-character profile), mypy, and pytest in the same order and with the same
+  paths that CI uses. Ruff and Black apply fixes automatically; mypy and pytest halt
+  the run on failure.
+- **Pre-commit hooks** (`poetry run pre-commit install`) optionally wire the same tool
+  chain into Git so formatting and typing run before each commit.
 
 ## Local Setup
 
