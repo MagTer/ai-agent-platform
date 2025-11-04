@@ -29,7 +29,8 @@ def load_environment(env_path: Path | None = None) -> dict[str, str]:
 def resolve_compose_files(env: Mapping[str, str] | None = None) -> list[Path]:
     """Return the compose files to apply, honouring overrides from the environment."""
 
-    env = env or os.environ
+    if env is None:
+        env = os.environ
     raw = env.get(COMPOSE_FILES_ENV)
     if not raw:
         return [DEFAULT_COMPOSE_FILE]
@@ -54,7 +55,8 @@ def resolve_compose_files(env: Mapping[str, str] | None = None) -> list[Path]:
 def resolve_project_name(env: Mapping[str, str] | None = None) -> str:
     """Return the compose project name, falling back to the default."""
 
-    env = env or os.environ
+    if env is None:
+        env = os.environ
     value = env.get(PROJECT_NAME_ENV)
     if value is None:
         return DEFAULT_PROJECT_NAME
