@@ -2,7 +2,7 @@
 
 ## Cadence
 - Deliver in 2–3 hour increments that produce runnable artefacts, updated docs, and automated checks.
-- Use focused PRs with `poetry run ruff check .` and `poetry run pytest -v` results in the description.
+- Use focused PRs and run `poetry run python scripts/code_check.py` (Ruff fix, Black, mypy, pytest) before pushing; surface the key `poetry run ruff check .` and `poetry run pytest -v` results in the description.
 
 ## Definition of Done (DoD)
 - Stack CLI commands (`python -m stack up/down/status`) succeed twice consecutively.

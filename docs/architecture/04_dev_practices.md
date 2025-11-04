@@ -19,7 +19,7 @@
 
 ## Workflow
 
-- Branch naming: `feature/<description>` for new features, `fix/<description>` for bug fixes.
+- See [Delivery Model](../DELIVERY_MODEL.md) for branch naming and label conventions.
 - Open PRs with linked issues and include the CI badge results.
 - Each commit should focus on a logical change set with passing tests.
 

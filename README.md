@@ -78,7 +78,8 @@ from `.env`, and surfaces container health via Rich tables.
    to run the formatters and type checker automatically on each commit.
 4. Follow the architecture documentation under [`docs/architecture`](./docs/architecture)
    for detailed module overviews, diagrams, and CI guidance.
-5. Submit changes via feature branches (e.g., `feature/python-refactor`).
+5. Submit changes via feature branches (e.g., `feature/python-refactor`); see the
+   [Delivery Model](./docs/DELIVERY_MODEL.md) for full branch and label guidance.
 
 For deeper operational or architectural detail, start with
 [`docs/architecture/README.md`](./docs/architecture/README.md).
