@@ -39,15 +39,35 @@ JSON-native API directly at [http://localhost:8000/v1/agent](http://localhost:80
 ## Stack CLI Summary
 
 The new Python-based orchestration replaces legacy PowerShell scripts and the n8n
-workflows. `python -m stack` wraps Docker Compose, merges environment variables
-from `.env`, and surfaces container health via Rich tables.
+workflows. `poetry run stack` (or `python -m stack`) wraps Docker Compose,
+merges environment variables from `.env`, and surfaces container health via
+Rich tables.
 
 | Command | Description |
 |---------|-------------|
-| `python -m stack up` | Start or restart the stack in detached mode. |
-| `python -m stack down` | Stop the stack (safe to run multiple times). |
-| `python -m stack status` | Render container status and health checks. |
-| `python -m stack logs openwebui --tail 100` | Tail logs for selected services. |
+| `poetry run stack up` | Start or restart the stack in detached mode. |
+| `poetry run stack down` | Stop the stack (safe to run multiple times). |
+| `poetry run stack status` | Render container status and health checks. |
+| `poetry run stack logs openwebui --tail 100` | Tail logs for selected services. |
+
+## Automation Utilities
+
+Cross-platform Typer scripts live under [`scripts/`](./scripts) and replace the
+PowerShell helpers shipped in earlier revisions. The canonical entrypoint is the
+installed `stack` CLI (`poetry run stack …`), with thin wrappers kept in
+`scripts/` for backwards compatibility.
+
+| Task | Command | Notes |
+|------|---------|-------|
+| Bring the stack up (waits for health + models) | `poetry run stack up` | Flags: `--check-litellm`, `--build`, `--bind-mounts`. (`python scripts/stack_tools.py` wraps the same command.) |
+| Stop the stack | `poetry run stack down` | Add `--remove-volumes` to purge data. |
+| Probe service health | `poetry run stack health [service]` | Fails fast when any target is unhealthy. |
+| Tail logs | `poetry run stack logs [service …]` | Defaults to the core containers. |
+| Snapshot the repo | `poetry run stack repo save` | Validates Compose config then commits with a timestamp. |
+| Export/import n8n workflows | `poetry run stack n8n export` / `import` | Supports `--include-credentials`. |
+| Export/import Open WebUI DB | `poetry run stack openwebui export` / `import` | Dumps/restores `app.db` via Docker Compose. |
+| Ensure Qdrant schema | `poetry run stack qdrant ensure-schema` | Mirrors `Qdrant-EnsureSchema.ps1`. |
+| Backup/restore Qdrant | `poetry run stack qdrant backup` / `restore` | Archives `/qdrant/storage` with tar. |
 
 > The stack CLI honours the `STACK_COMPOSE_FILES` environment variable. Set it to a
 > path-separated list (e.g., `STACK_COMPOSE_FILES=docker-compose.gpu.yml`) to layer
