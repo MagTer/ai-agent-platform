@@ -26,6 +26,7 @@ COMMANDS: tuple[Command, ...] = (
             "indexer",
             "ragproxy",
             "embedder",
+            "scripts",
         ),
     ),
     Command("Mypy (type check)", ("mypy", "src")),

@@ -188,6 +188,7 @@ class Typer:
     def __init__(self, help: str | None = None) -> None:
         self.help = help or ""
         self._commands: dict[str, _Command] = {}
+        self._subapps: dict[str, "Typer"] = {}
 
     def command(
         self, name: str | None = None
@@ -201,6 +202,11 @@ class Typer:
             return func
 
         return decorator
+
+    def add_typer(self, app: "Typer", name: str) -> None:
+        """Register another Typer instance under ``name``."""
+
+        self._subapps[name] = app
 
     def _extract_parameters(self, func: Callable[..., Any]) -> list[_Parameter]:
         params: list[_Parameter] = []
@@ -255,9 +261,14 @@ class Typer:
             raise SystemExit(0)
         command_name = iterator[0]
         command = self._commands.get(command_name)
-        if command is None:
-            raise SystemExit(1)
-        return command.invoke(iterator[1:])
+        if command is not None:
+            return command.invoke(iterator[1:])
+
+        subapp = self._subapps.get(command_name)
+        if subapp is not None:
+            return subapp._dispatch(iterator[1:])
+
+        raise SystemExit(1)
 
     def __call__(self, *args: str) -> Any:  # pragma: no cover - CLI entry point
         import sys

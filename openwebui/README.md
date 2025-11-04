@@ -6,18 +6,18 @@ control.
 - `data/` – bind mounted into the container (`/app/backend/data`). The folder is
   ignored by git because it contains the live SQLite database and uploaded
   assets. Keeping it on disk ensures the UI is reproducible across restarts.
-- `export/` – contains SQL dumps created with `scripts/OpenWebUI-Config.ps1`
+- `export/` – contains SQL dumps created with `poetry run stack openwebui`
   so that meaningful configuration changes (tools, presets, settings) can be
   reviewed as plain text and committed.
 
-Run the helper script after you modify something in the UI:
+Run the helper commands after you modify something in the UI:
 
-```powershell
+```bash
 # Capture current Open WebUI state as SQL
-./scripts/OpenWebUI-Config.ps1 export
+poetry run stack openwebui export
 
 # Rehydrate the UI from a tracked dump
-./scripts/OpenWebUI-Config.ps1 import
+poetry run stack openwebui import
 ```
 
 > **Note:** importing overwrites `/app/backend/data/app.db`. Make sure the UI is

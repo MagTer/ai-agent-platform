@@ -18,19 +18,41 @@ safe to repeat.
 ## Stack Lifecycle
 ```bash
 # Start or update the full stack (builds images when needed)
-python -m stack up
+poetry run stack up
+# Alternative: python scripts/stack_tools.py up --check-litellm
 
 # Stop containers but keep volumes and models
-python -m stack down
+poetry run stack down
+# Alternative: python scripts/stack_tools.py down --remove-volumes
 
 # View service status and health checks
-python -m stack status
+poetry run stack status
+# Alternative: python scripts/stack_tools.py health
 
 # Tail logs for a specific service
-python -m stack logs agent
+poetry run stack logs agent
+# Alternative: python scripts/stack_tools.py logs agent
 ```
 
 All commands read `.env`; rerunning `up` is safe because the CLI diff-checks the Compose configuration before recreating containers.
+
+## Automation Catalogue
+
+Python scripts under `scripts/` supersede the original PowerShell helpers. They
+wrap Docker commands with the same guardrails (environment discovery, health
+waits, idempotent behaviour) while working across macOS, Linux, and Windows.
+
+| Task | Command | Notes |
+|------|---------|-------|
+| Bring the stack up (waits for models + health) | `poetry run stack up` | Supports `--check-litellm`, `--build`, `--bind-mounts`. |
+| Stop the stack | `poetry run stack down` | Add `--remove-volumes` to delete persistent data. |
+| Probe service health | `poetry run stack health [service]` | Mirrors `Stack-Health.ps1`. |
+| Tail logs | `poetry run stack logs [service …]` | Accepts multiple services (defaults to core set). |
+| Snapshot the repository | `poetry run stack repo save` | Validates Compose config then commits changes with a timestamped message. |
+| Manage n8n workflows | `poetry run stack n8n export` / `import` | Includes `--include-credentials` to handle secrets metadata. |
+| Manage Open WebUI database | `poetry run stack openwebui export` / `import` | Uses Docker Compose exec/cp under the hood. |
+| Ensure Qdrant schema | `poetry run stack qdrant ensure-schema` | Creates or recreates the configured collection. |
+| Backup/restore Qdrant | `poetry run stack qdrant backup` / `restore` | Archives `/qdrant/storage` and restarts the service safely. |
 
 ## Health Checks
 ```bash
@@ -93,10 +115,12 @@ order memory → tools → completion.
 ## Maintenance
 - **Model management**: use `ollama run qwen2.5:14b-instruct-q4_K_M` inside the `ollama` container to warm models.
 - **Database**: the agent stores conversation metadata in `./data/agent_state.sqlite`. Back up or prune the file as part of maintenance.
-- **LiteLLM configuration**: adjust routing or budgets via environment variables in `.env` or `docker-compose.yml`, then run `python -m stack up` to reload.
-- **Qdrant backups**: snapshot volumes using `docker run --rm --volumes-from qdrant -v $(pwd)/backups:/backups alpine tar czf /backups/qdrant-$(date +%Y%m%d-%H%M%S).tgz /qdrant/storage`.
-- **n8n exports**: capture automations via `docker compose exec n8n n8n export:workflow --all --output=/tmp/export.json` and
-  copy them out of the container (`docker compose cp n8n:/tmp/export.json backups/n8n-export.json`).
+- **LiteLLM configuration**: adjust routing or budgets via environment variables in `.env` or `docker-compose.yml`, then run `poetry run stack up` to reload.
+- **Qdrant backups**: `poetry run stack qdrant backup --backup-dir backups` creates timestamped archives; restore with `poetry run stack qdrant restore backups/<file>.tgz`.
+- **Qdrant schema**: `poetry run stack qdrant ensure-schema --collection agent-memories --size 1536` ensures collections exist before ingestion.
+- **n8n exports/imports**: `poetry run stack n8n export --include-credentials` captures workflows locally; `poetry run stack n8n import` pushes them back.
+- **Open WebUI database**: `poetry run stack openwebui export` dumps `app.db`; restore with the matching `import` command after editing outside the container.
+- **Repository snapshots**: run `poetry run stack repo save --message "chore: ops snapshot"` to validate Compose and commit changes.
 - **Dependency updates**: when `scripts/deps_check.py` flags new versions, validate
   changes by running the stack smoke tests in this guide and `poetry run pytest`.
   Merge only after both checks succeed.
