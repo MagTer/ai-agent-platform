@@ -149,9 +149,7 @@ def ensure_models(models: Sequence[str]) -> None:
 
     for model in models:
         quoted = shlex.quote(model)
-        command = (
-            f"if ! ollama list | grep -q {quoted}; then ollama pull {quoted}; fi"
-        )
+        command = f"if ! ollama list | grep -q {quoted}; then ollama pull {quoted}; fi"
         run_command(  # noqa: S603
             [
                 "docker",
