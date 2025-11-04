@@ -56,24 +56,155 @@ class PoetryError(RuntimeError):
     """Raised when the Poetry CLI cannot complete the request."""
 
 
-def _run_poetry_show(*, dev: bool = False) -> list[PackageUpdate]:
-    if shutil.which("poetry") is None:
+_POETRY_EXECUTABLE: str | None = None
+_POETRY_SUPPORTS_FORMAT: bool | None = None
+
+
+def _get_poetry_executable() -> str:
+    """Return the absolute path to the Poetry executable."""
+
+    global _POETRY_EXECUTABLE
+
+    if _POETRY_EXECUTABLE is not None:
+        return _POETRY_EXECUTABLE
+
+    poetry_path = shutil.which("poetry")
+    if poetry_path is None:
         raise PoetryError("Poetry executable not found in PATH.")
 
-    command = [
-        "poetry",
+    _POETRY_EXECUTABLE = poetry_path
+    return poetry_path
+
+
+def _poetry_supports_format_option() -> bool:
+    """Return whether the installed Poetry exposes the ``--format`` flag."""
+
+    global _POETRY_SUPPORTS_FORMAT
+
+    if _POETRY_SUPPORTS_FORMAT is not None:
+        return _POETRY_SUPPORTS_FORMAT
+
+    try:
+        result = subprocess.run(  # noqa: S603
+            [_get_poetry_executable(), "show", "--help"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        message = exc.stderr.strip() or exc.stdout.strip() or "Unknown error"
+        raise PoetryError(message) from exc
+
+    help_text = result.stdout
+    _POETRY_SUPPORTS_FORMAT = "--format" in help_text
+    return _POETRY_SUPPORTS_FORMAT
+
+
+def _parse_plain_show_output(raw_output: str) -> list[PackageUpdate]:
+    """Parse the plain-text output produced by ``poetry show --outdated``."""
+
+    updates: list[PackageUpdate] = []
+    for line in raw_output.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        # Skip table headers or separators produced by older Poetry versions.
+        lowered = stripped.lower()
+        if lowered.startswith("package") and "current" in lowered:
+            continue
+        if set(stripped) == {"-"}:
+            continue
+
+        parts = stripped.split(None, 3)
+        if len(parts) < 3:
+            # If we cannot confidently parse the row, skip it instead of failing
+            # the entire check. The fallback mode is best-effort.
+            continue
+
+        name, current, latest = parts[:3]
+        remainder = parts[3] if len(parts) == 4 else None
+
+        latest_status: str | None = None
+        description: str | None = None
+
+        if remainder:
+            # Poetry sometimes renders status information such as "latest" or
+            # "up to date" within parentheses before the description. Extract
+            # that marker if present while keeping the remaining text as the
+            # package description.
+            if remainder.startswith("(") and ")" in remainder:
+                status, _, rest = remainder.partition(")")
+                latest_status = status.strip("() ") or None
+                description = rest.strip() or None
+            else:
+                description = remainder.strip() or None
+
+        updates.append(
+            PackageUpdate(
+                name=name,
+                current=current,
+                latest=latest,
+                latest_status=latest_status,
+                description=description,
+            ),
+        )
+
+    return updates
+
+
+def _run_poetry_show(*, dev: bool = False) -> list[PackageUpdate]:
+    poetry_executable = _get_poetry_executable()
+
+    base_command = [
+        poetry_executable,
         "show",
         "--outdated",
-        "--format",
-        "json",
     ]
     if dev:
-        command.extend(["--only", "dev"])
+        base_command.extend(["--only", "dev"])
 
-    # The command arguments are statically defined within this module.
+    use_json = _poetry_supports_format_option()
+    command = base_command.copy()
+    if use_json:
+        command.extend(["--format", "json"])
+
     try:
         result = subprocess.run(  # noqa: S603
             command,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        message = exc.stderr.strip() or exc.stdout.strip() or "Unknown error"
+        if use_json and "--format" in message.lower():
+            # Older Poetry versions advertise --format inconsistently. Retry
+            # without the flag so we can fall back to parsing plain output.
+            use_json = False
+        else:
+            raise PoetryError(message) from exc
+    else:
+        raw_output = result.stdout.strip()
+        if not raw_output:
+            return []
+
+        if use_json:
+            try:
+                payload = json.loads(raw_output)
+            except json.JSONDecodeError:
+                return _parse_plain_show_output(raw_output)
+
+            if not isinstance(payload, list):
+                raise PoetryError("Unexpected Poetry output payload")
+
+            return [PackageUpdate.from_mapping(item) for item in payload]
+
+        return _parse_plain_show_output(raw_output)
+
+    # Fallback to plain-text parsing when the format option is unsupported.
+    try:
+        result = subprocess.run(  # noqa: S603
+            base_command,
             capture_output=True,
             text=True,
             check=True,
@@ -86,15 +217,7 @@ def _run_poetry_show(*, dev: bool = False) -> list[PackageUpdate]:
     if not raw_output:
         return []
 
-    try:
-        payload = json.loads(raw_output)
-    except json.JSONDecodeError as exc:  # pragma: no cover - defensive
-        raise PoetryError(f"Failed to parse Poetry output: {exc}") from exc
-
-    if not isinstance(payload, list):
-        raise PoetryError("Unexpected Poetry output payload")
-
-    return [PackageUpdate.from_mapping(item) for item in payload]
+    return _parse_plain_show_output(raw_output)
 
 
 def _format_updates(updates: Iterable[PackageUpdate]) -> list[str]:
