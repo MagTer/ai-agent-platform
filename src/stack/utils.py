@@ -6,9 +6,9 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
-COMPOSE_FILES_ENV = "STACK_COMPOSE_FILES"
-
 from dotenv import dotenv_values
+
+COMPOSE_FILES_ENV = "STACK_COMPOSE_FILES"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
