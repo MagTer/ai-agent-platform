@@ -10,6 +10,8 @@
 - Smoke tests in `docs/OPERATIONS.md` pass and are updated when behaviour changes.
 - Documentation and capability catalog entries match the implemented features.
 - CI workflow (`.github/workflows/ci.yml`) passes lint and test jobs.
+- The [Contributing Guide](./contributing.md) checklist is satisfied and recorded in the
+  Codex PR template.
 
 ## Acceptance Criteria
 - Outcome-first: articulate what the user gains after the change (e.g., "Agent can call filesystem summariser").
@@ -21,6 +23,8 @@
 - Formatting via `ruff` and `black`; typing enforced with `mypy`—all bundled in `poetry run python scripts/code_check.py` as documented in `docs/architecture/04_dev_practices.md`.
 - Stack CLI logic lives in `src/stack/`; prefer pure functions and unit tests under `src/stack/tests/`.
 - Avoid PowerShell scripts for orchestration; use Python modules or documented CLI commands instead.
+- Run `poetry run python scripts/code_check.py` plus explicit `mypy` and `pytest` invocations
+  before requesting review, matching the Codex checklist.
 
 ## Branches & Labels
 - Branch naming: `feature/*`, `fix/*`, `chore/*` depending on scope.
@@ -31,3 +35,5 @@
 - Secrets handled via `.env` loading and not committed to git.
 - Health checks, logs, and smoke tests described for new services or tools.
 - Capability catalog and roadmap updated if the change alters user-facing functionality.
+- Codex compliance checklist completed in the PR template, including links to updated docs
+  and dependency notes when applicable.

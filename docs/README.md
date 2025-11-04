@@ -5,6 +5,7 @@ Use this index as the single entry point into the refactored Python-based stack.
 ## Orientation
 - [Project Profile](./PROJECT_PROFILE.md) – persona, product vision, and non-functional constraints that apply to every change.
 - [Delivery Model](./DELIVERY_MODEL.md) – iteration cadence, Definition of Done, and review checklist tuned for the Python agent workflow.
+- [Contributing Guide](./contributing.md) – Codex-specific coding rules, required local checks, and dependency/documentation hygiene.
 - [Roadmap](./ROADMAP.md) – milestone sequencing for the FastAPI agent, stack CLI, and memory features.
 - [Capabilities](./CAPABILITIES.md) – current and planned behaviours exposed by the agent API and tool layer.
 - [Architecture Overview](./architecture/README.md) – high-level service map plus pointers into the detailed `docs/architecture/` set.
