@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, TypedDict
 
@@ -18,7 +19,6 @@ app = typer.Typer(help="Manage the local AI agent platform stack.")
 repo_app = typer.Typer(help="Repository snapshot utilities.")
 n8n_app = typer.Typer(help="Import or export n8n workflows.")
 openwebui_app = typer.Typer(help="Manage Open WebUI database exports and restores.")
-
 app.add_typer(repo_app, name="repo")
 app.add_typer(n8n_app, name="n8n")
 app.add_typer(openwebui_app, name="openwebui")
@@ -36,6 +36,25 @@ DEFAULT_LOG_SERVICES = [
     "embedder",
     "ragproxy",
 ]
+
+
+def _console_git_printer(args: Sequence[str]) -> None:
+    console.print(f"[cyan]git {' '.join(args)}[/cyan]")
+
+
+def _require_branch_name(value: str) -> str:
+    cleaned = value.strip()
+    if not cleaned:
+        raise typer.BadParameter("Branch name cannot be empty.")
+    if cleaned == "main":
+        raise typer.BadParameter("Branch 'main' is protected; choose another branch name.")
+    return cleaned
+
+
+def _prompt_branch_name(default: str = "feature/stack-save") -> str:
+    prompt_text = f"Branch name to commit to [{default}]: "
+    response = input(prompt_text).strip()
+    return _require_branch_name(response or default)
 
 
 class HealthTarget(TypedDict):
@@ -325,6 +344,12 @@ def status_command() -> None:
 @repo_app.command("save")
 def repo_save(
     message: str = typer.Option("chore: save workspace", help="Base commit message."),
+    branch: str | None = typer.Option(
+        None,
+        "--branch",
+        "-b",
+        help="Branch to switch to or create before committing.",
+    ),
 ) -> None:
     """Stage all changes and create a timestamped commit when needed."""
 
@@ -335,7 +360,31 @@ def repo_save(
     git_dir = repo_root / ".git"
     if not git_dir.exists():
         console.print("[yellow]Initialising git repository…[/yellow]")
-        tooling.run_command(["git", "-c", "init.defaultBranch=main", "init"], cwd=repo_root)
+        tooling.run_command(
+            ["git", "-c", "init.defaultBranch=main", "init"],
+            cwd=repo_root,
+        )
+
+    git_printer = _console_git_printer
+
+    if branch:
+        requested_branch = _require_branch_name(branch)
+        console.print(f"[cyan]Switching to branch {requested_branch}[/cyan]")
+        tooling.ensure_branch(repo_root, requested_branch, printer=git_printer)
+        working_branch = requested_branch
+    else:
+        current = tooling.current_branch(repo_root)
+        if current in (None, "HEAD", "main"):
+            console.print(
+                "[yellow]Repository is on main or a detached HEAD. "
+                "Please create or specify a feature branch before committing.[/yellow]"
+            )
+            requested_branch = _prompt_branch_name()
+            tooling.ensure_branch(repo_root, requested_branch, printer=git_printer)
+            working_branch = requested_branch
+        else:
+            working_branch = current
+            console.print(f"[cyan]Committing on branch {working_branch}[/cyan]")
 
     compose_file = repo_root / "docker-compose.yml"
     if compose_file.exists():
@@ -346,11 +395,79 @@ def repo_save(
         except FileNotFoundError:
             console.print("[yellow]Docker not available; skipping compose validation.[/yellow]")
 
-    committed = tooling.stage_and_commit(repo_root, message)
+    committed = tooling.stage_and_commit(repo_root, message, printer=git_printer)
     if committed:
-        console.print(f"[green]Saved changes:[/green] {committed}")
+        console.print(f"[green]Saved changes on {working_branch}:[/green] {committed}")
+        console.print(
+            "[cyan]Run `poetry run stack repo push` to push the branch and "
+            "`poetry run stack repo pr` to create the pull request.[/cyan]"
+        )
     else:
         console.print("[cyan]No changes to commit.[/cyan]")
+
+
+@repo_app.command("push")
+def repo_push(
+    remote: str = typer.Option("origin", help="Remote name to push to."),
+    set_upstream: bool = typer.Option(
+        True,
+        help="Run `git push --set-upstream` so future pushes track the remote branch.",
+    ),
+) -> None:
+    """Push the current branch to GitHub."""
+
+    repo_root = _repo_root()
+    if not tooling.git_available():
+        raise RuntimeError("git is required to push branches")
+
+    current = tooling.current_branch(repo_root)
+    if not current or current == "HEAD":
+        raise typer.BadParameter("No branch is currently checked out.")
+
+    console.print(f"[cyan]Pushing branch {current} to {remote}[/cyan]")
+    args = (
+        ["push", "--set-upstream", remote, current] if set_upstream else ["push", remote, current]
+    )
+    tooling.run_git_command(
+        args,
+        repo_root=repo_root,
+        printer=_console_git_printer,
+        capture_output=False,
+    )
+    console.print("[green]Push complete.[/green]")
+
+
+@repo_app.command("pr")
+def repo_pr(
+    base: str = typer.Option("main", help="Target branch for the pull request."),
+    draft: bool = typer.Option(False, help="Create the PR as a draft."),
+    title: str | None = typer.Option(None, help="Override the PR title."),
+    body: str | None = typer.Option(None, help="Override the PR body."),
+) -> None:
+    """Open a pull request for the current branch using GitHub CLI."""
+
+    repo_root = _repo_root()
+    current = tooling.current_branch(repo_root)
+    if not current or current == "HEAD":
+        raise typer.BadParameter("No branch is currently checked out.")
+
+    if shutil.which("gh") is None:
+        raise RuntimeError(
+            "GitHub CLI (`gh`) is required to create pull requests. Install it from https://github.com/cli/cli."
+        )
+
+    gh_args = ["pr", "create", "--base", base, "--head", current]
+    if draft:
+        gh_args.append("--draft")
+    if title:
+        gh_args.extend(["--title", title])
+    if body:
+        gh_args.extend(["--body", body])
+    if not title and not body:
+        gh_args.append("--fill")
+
+    console.print(f"[cyan]gh {' '.join(gh_args)}[/cyan]")
+    tooling.run_command(["gh", *gh_args], cwd=repo_root, capture_output=False)
 
 
 @n8n_app.command("export")
