@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal, Sequence, TypedDict
+from typing import Literal, TypedDict
 
 import httpx
 
@@ -421,7 +422,11 @@ def repo_push(
         raise typer.BadParameter("No branch is currently checked out.")
 
     console.print(f"[cyan]Pushing branch {current} to {remote}[/cyan]")
-    args = ["push", "--set-upstream", remote, current] if set_upstream else ["push", remote, current]
+    args = (
+        ["push", "--set-upstream", remote, current]
+        if set_upstream
+        else ["push", remote, current]
+    )
     tooling.run_git_command(
         args,
         repo_root=repo_root,
