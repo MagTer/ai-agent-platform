@@ -22,7 +22,7 @@ python -m stack status
 ```
 
 > To run with GPU acceleration or bind-mounted data directories, append
-> overrides such as `docker-compose.gpu.yml` or `compose/docker-compose.bind.yml`
+> overrides such as `docker-compose.gpu.yml` or `docker-compose.bind.yml`
 > when using `docker compose` directly (for example,
 > `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d`).
 

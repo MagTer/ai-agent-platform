@@ -76,7 +76,7 @@ def _repo_root() -> Path:
 def _compose_overrides(bind_mounts: bool) -> list[Path]:
     overrides: list[Path] = []
     if bind_mounts:
-        override = _repo_root() / "compose" / "docker-compose.bind.yml"
+        override = _repo_root() / "docker-compose.bind.yml"
         if not override.exists():
             raise FileNotFoundError(f"Bind override not found: {override}")
         overrides.append(override)
@@ -117,7 +117,7 @@ def up(
     build: bool = typer.Option(False, help="Build images before starting containers."),
     bind_mounts: bool = typer.Option(
         False,
-        help="Include compose/docker-compose.bind.yml overrides when starting the stack.",
+        help="Include docker-compose.bind.yml overrides when starting the stack.",
     ),
     check_litellm: bool = typer.Option(
         False,
@@ -237,7 +237,7 @@ def down(
     ),
     bind_mounts: bool = typer.Option(
         False,
-        help="Include compose/docker-compose.bind.yml overrides when stopping the stack.",
+        help="Include docker-compose.bind.yml overrides when stopping the stack.",
     ),
 ) -> None:
     """Stop the running stack."""

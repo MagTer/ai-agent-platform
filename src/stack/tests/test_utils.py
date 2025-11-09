@@ -29,7 +29,7 @@ def test_resolve_compose_files_accepts_pathlike(tmp_path):
 
 
 def test_resolve_compose_files_supports_relative(monkeypatch, tmp_path):
-    relative = "compose/docker-compose.bind.yml"
+    relative = "docker-compose.bind.yml"
     monkeypatch.setenv(utils.COMPOSE_FILES_ENV, relative)
     files = utils.resolve_compose_files(os.environ)
     resolved = utils.PROJECT_ROOT / relative

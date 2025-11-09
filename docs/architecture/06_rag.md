@@ -113,7 +113,7 @@ future ragproxy calls to surface them without repeating the crawl.
 | `MODEL_NAME` | HuggingFace model used by embedder. | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | [`embedder/app.py`](../../embedder/app.py) |
 
 Override these variables in `.env` or optional Compose overrides such as
-[`compose/docker-compose.bind.yml`](../../compose/docker-compose.bind.yml)
+[`docker-compose.bind.yml`](../../docker-compose.bind.yml)
 before running `python -m stack up`. Set `STACK_COMPOSE_FILES` when the Python CLI
 should include those overrides (for example, GPU profiles) alongside the root
 compose file. Operational

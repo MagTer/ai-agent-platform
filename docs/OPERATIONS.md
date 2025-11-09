@@ -3,7 +3,7 @@
 Operational runbooks target the Python-first stack managed by the Typer CLI. The
 canonical configuration now lives in the root `docker-compose.yml`; optional
 overrides (GPU runtime, bind mounts, etc.) can be layered via
-`docker-compose.gpu.yml` or files under `compose/`. Commands are idempotent and
+`docker-compose.gpu.yml` or `docker-compose.bind.yml`. Commands are idempotent and
 safe to repeat.
 
 ## Prerequisites
@@ -126,6 +126,10 @@ order memory → tools → completion.
 - **Dependency updates**: when `scripts/deps_check.py` flags new versions, validate
   changes by running the stack smoke tests in this guide and `poetry run pytest`.
   Merge only after both checks succeed.
+- **Pinned patch versions**: to keep the runtime/dev toolchain predictable,
+  this release pins the safe patch updates (FastAPI 0.111.1, httpx 0.27.2, Uvicorn
+  0.30.6, Typer 0.12.5, Rich 13.9.4, pytest 8.4.2, pytest-asyncio 0.23.8,
+  and Ruff 0.4.10) and refreshed `poetry.lock` accordingly.
 
 ### Qdrant memory ID migration
 

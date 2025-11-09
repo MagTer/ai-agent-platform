@@ -30,7 +30,7 @@ def _compose_command(
         files.extend(Path(f) for f in extra_files if f is not None)
     command = ["docker", "compose"]
     for compose_file in files:
-        command.extend(["-f", str(compose_file)])
+        command.extend(["-f", compose_file.as_posix()])
     project_name = resolve_project_name(env)
     command.extend(["-p", project_name])
     command.extend(args)

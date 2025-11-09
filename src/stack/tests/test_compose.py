@@ -21,7 +21,7 @@ def test_compose_command_includes_overrides(monkeypatch, tmp_path):
         "-f",
         "/base.yml",
         "-f",
-        str(override),
+        override.as_posix(),
         "-p",
         compose.resolve_project_name({}),
         "up",

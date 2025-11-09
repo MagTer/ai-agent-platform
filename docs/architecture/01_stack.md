@@ -4,7 +4,7 @@
 
 [`docker-compose.yml`](../../docker-compose.yml) in the repository root now
 defines the complete stack. Optional overrides (for bind mounts or GPU runtime)
-can be layered via `compose/docker-compose.bind.yml` and
+can be layered via `docker-compose.bind.yml` and
 `docker-compose.gpu.yml`.
 
 | Service     | Purpose | Ports | Healthcheck |
