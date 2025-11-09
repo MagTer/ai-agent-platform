@@ -357,6 +357,14 @@ def repo_save(
     if not tooling.git_available():
         raise RuntimeError("git is required to snapshot the repository")
 
+    git_dir = repo_root / ".git"
+    if not git_dir.exists():
+        console.print("[yellow]Initialising git repository…[/yellow]")
+        tooling.run_command(
+            ["git", "-c", "init.defaultBranch=main", "init"],
+            cwd=repo_root,
+        )
+
     git_printer = _console_git_printer
 
     if branch:
@@ -377,11 +385,6 @@ def repo_save(
         else:
             working_branch = current
             console.print(f"[cyan]Committing on branch {working_branch}[/cyan]")
-
-    git_dir = repo_root / ".git"
-    if not git_dir.exists():
-        console.print("[yellow]Initialising git repository…[/yellow]")
-        tooling.run_command(["git", "-c", "init.defaultBranch=main", "init"], cwd=repo_root)
 
     compose_file = repo_root / "docker-compose.yml"
     if compose_file.exists():
@@ -423,9 +426,7 @@ def repo_push(
 
     console.print(f"[cyan]Pushing branch {current} to {remote}[/cyan]")
     args = (
-        ["push", "--set-upstream", remote, current]
-        if set_upstream
-        else ["push", remote, current]
+        ["push", "--set-upstream", remote, current] if set_upstream else ["push", remote, current]
     )
     tooling.run_git_command(
         args,
