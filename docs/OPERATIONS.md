@@ -50,7 +50,7 @@ waits, idempotent behaviour) while working across macOS, Linux, and Windows.
 | Stop the stack | `poetry run stack down` | Add `--remove-volumes` to delete persistent data. |
 | Probe service health | `poetry run stack health [service]` | Mirrors `Stack-Health.ps1`. |
 | Tail logs | `poetry run stack logs [service …]` | Accepts multiple services (defaults to core set). |
-| Snapshot the repository | `poetry run stack repo save` | Validates Compose config then commits changes with a timestamped message. |
+| Snapshot the repository | `poetry run stack repo save` | Validates Compose config, avoids committing on `main`, prints the git commands, and reminds you to push/pr via `stack repo push` and `stack repo pr`. |
 | Manage n8n workflows | `poetry run stack n8n export` / `import` | Includes `--include-credentials` to handle secrets metadata. |
 | Manage Open WebUI database | `poetry run stack openwebui export` / `import` | Uses Docker Compose exec/cp under the hood. |
 | Ensure Qdrant schema | `poetry run stack qdrant ensure-schema` | Creates or recreates the configured collection. |
@@ -122,7 +122,7 @@ order memory → tools → completion.
 - **Qdrant schema**: `poetry run stack qdrant ensure-schema --collection agent-memories --size 1536` ensures collections exist before ingestion.
 - **n8n exports/imports**: `poetry run stack n8n export --include-credentials` captures workflows locally; `poetry run stack n8n import` pushes them back.
 - **Open WebUI database**: `poetry run stack openwebui export` dumps `app.db`; restore with the matching `import` command after editing outside the container.
-- **Repository snapshots**: run `poetry run stack repo save --message "chore: ops snapshot"` to validate Compose and commit changes.
+- **Repository snapshots**: run `poetry run stack repo save --message "chore: ops snapshot"` to validate Compose and commit changes; the command now prompts for a feature branch when you are on `main`/detached, prints the git commands it runs, and points you toward `poetry run stack repo push` plus `poetry run stack repo pr` (GitHub CLI required) for publishing the branch and creating the pull request.
 - **Dependency updates**: when `scripts/deps_check.py` flags new versions, validate
   changes by running the stack smoke tests in this guide and `poetry run pytest`.
   Merge only after both checks succeed.

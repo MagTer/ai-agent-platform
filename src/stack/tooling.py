@@ -7,7 +7,7 @@ import shlex
 import shutil
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 import httpx
@@ -66,6 +66,79 @@ def run_command(  # noqa: S603
         quoted = " ".join(map(shlex.quote, args))
         raise CommandError(f"Command failed ({result.returncode}): {quoted}\n{result.stderr}")
     return result
+
+
+GitPrinter = Callable[[Sequence[str]], None]
+
+
+def _default_git_printer(args: Sequence[str]) -> None:
+    quoted = " ".join(shlex.quote(arg) for arg in args)
+    print(f"$ git {quoted}")
+
+
+def run_git_command(
+    args: Sequence[str],
+    *,
+    repo_root: Path | None = None,
+    printer: GitPrinter | None = _default_git_printer,
+    **kwargs,
+) -> subprocess.CompletedProcess[str]:
+    """Run a git command relative to the repository and optionally emit it."""
+
+    if printer is not None:
+        printer(args)
+    return run_command(["git", *args], cwd=repo_root, **kwargs)
+
+
+def _noop_git_printer(args: Sequence[str]) -> None:
+    """No-op printer for quiet git invocations."""
+
+
+def current_branch(repo_root: Path) -> str | None:
+    """Return the name of the currently checked-out branch, if any."""
+
+    try:
+        result = run_git_command(
+            ["rev-parse", "--abbrev-ref", "HEAD"],
+            repo_root=repo_root,
+            printer=_noop_git_printer,
+        )
+    except CommandError:
+        return None
+    branch = result.stdout.strip()
+    return branch if branch else None
+
+
+def branch_exists(repo_root: Path, branch: str) -> bool:
+    """Return True when ``branch`` exists locally."""
+
+    result = run_command(
+        ["git", "show-ref", "--verify", f"refs/heads/{branch}"],
+        cwd=repo_root,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def ensure_branch(
+    repo_root: Path,
+    branch: str,
+    *,
+    printer: GitPrinter | None = _default_git_printer,
+) -> str:
+    """Ensure the requested branch is checked out."""
+
+    if not branch:
+        raise ValueError("Branch name must be provided.")
+
+    current = current_branch(repo_root)
+    if current == branch:
+        return branch
+    if branch_exists(repo_root, branch):
+        run_git_command(["checkout", branch], repo_root=repo_root, printer=printer)
+    else:
+        run_git_command(["checkout", "-b", branch], repo_root=repo_root, printer=printer)
+    return branch
 
 
 def ensure_docker() -> None:
@@ -183,16 +256,21 @@ def git_available() -> bool:
     return shutil.which("git") is not None  # type: ignore[name-defined]
 
 
-def stage_and_commit(repo_root: Path, message: str) -> str | None:
+def stage_and_commit(
+    repo_root: Path,
+    message: str,
+    *,
+    printer: GitPrinter | None = _default_git_printer,
+) -> str | None:
     """Stage all files and create a timestamped commit when required."""
 
-    run_command(["git", "add", "-A"], cwd=repo_root, capture_output=True)
+    run_git_command(["add", "-A"], repo_root=repo_root, printer=printer, capture_output=True)
     status = run_command(["git", "status", "--porcelain"], cwd=repo_root)
     if not status.stdout.strip():
         return None
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     final_message = f"{message} ({timestamp})"
-    run_command(["git", "commit", "-m", final_message], cwd=repo_root)
+    run_git_command(["commit", "-m", final_message], repo_root=repo_root, printer=printer)
     return final_message
 
 
@@ -235,6 +313,10 @@ __all__ = [
     "read_models_file",
     "resolve_repo_root",
     "run_command",
+    "run_git_command",
+    "current_branch",
+    "branch_exists",
+    "ensure_branch",
     "stage_and_commit",
     "tail_logs",
     "wait_http_ok",
