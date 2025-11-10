@@ -45,13 +45,6 @@ services:
     depends_on:
       ollama:
         condition: service_started
-    healthcheck:
-      test:
-        - "CMD-SHELL"
-        - "python -c \"import urllib.request, sys; resp = urllib.request.urlopen('http://localhost:4000/health'); sys.exit(0 if 200 <= resp.getcode() < 300 else 1)\""
-      interval: 30s
-      timeout: 5s
-      retries: 5
 
   ollama:
     image: ollama/ollama:latest
