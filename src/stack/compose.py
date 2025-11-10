@@ -7,6 +7,7 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
+from . import tooling
 from .utils import load_environment, resolve_compose_files, resolve_project_name
 
 Pathish = os.PathLike[str] | str
@@ -43,6 +44,7 @@ def run_compose(
     extra_files: Iterable[Pathish | None] | None = None,
     files_override: Iterable[Pathish | None] | None = None,
     env_override: dict[str, str] | None = None,
+    capture_output: bool = True,
 ) -> subprocess.CompletedProcess[bytes]:
     """Execute a docker compose command and return the completed process."""
 
@@ -51,7 +53,13 @@ def run_compose(
         env.update(env_override)
     command = _compose_command(list(args), env, extra_files, files_override)
     try:
-        return subprocess.run(command, check=True, env=env, capture_output=True)  # noqa: S603
+        return tooling.run_command(
+            command,
+            check=True,
+            env=env,
+            capture_output=capture_output,
+            text=False,
+        )
     except subprocess.CalledProcessError as exc:  # pragma: no cover - integration failure
         raise ComposeError(exc.stderr.decode("utf-8")) from exc
 
@@ -69,7 +77,7 @@ def compose_up(
         args.append("-d")
     if build:
         args.append("--build")
-    run_compose(args, extra_files=extra_files)
+    run_compose(args, extra_files=extra_files, capture_output=False)
 
 
 def compose_down(

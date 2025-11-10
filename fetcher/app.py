@@ -59,8 +59,8 @@ ENABLE_QDRANT = os.getenv("ENABLE_QDRANT", "true").lower() == "true"
 QDRANT_TOP_K = int(os.getenv("QDRANT_TOP_K", "5"))
 MMR_LAMBDA = float(os.getenv("MMR_LAMBDA", "0.7"))
 
-MODEL_EN = os.getenv("MODEL_EN", "local/qwen2.5-en")
-MODEL_SV = os.getenv("MODEL_SV", "local/qwen2.5-sv")
+MODEL_EN = os.getenv("MODEL_EN", "local/gemma3-en")
+MODEL_SV = os.getenv("MODEL_SV", "local/gemma3-sv")
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", MODEL_EN)
 
 REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "15"))

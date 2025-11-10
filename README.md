@@ -21,10 +21,9 @@ python -m stack up
 python -m stack status
 ```
 
-> To run with GPU acceleration or bind-mounted data directories, append
-> overrides such as `docker-compose.gpu.yml` or `docker-compose.bind.yml`
-> when using `docker compose` directly (for example,
-> `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d`).
+> The Docker Compose definition already configures Ollama to use the NVIDIA
+> runtime by default; adjust `OLLAMA_VISIBLE_DEVICES` / `OLLAMA_DRIVER_CAPABILITIES`
+> via `.env` instead of layering overrides.
 
 After the stack reports healthy, open [http://localhost:3000](http://localhost:3000)
 for Open WebUI. The UI is wired to the agent by default, so every prompt is
@@ -69,9 +68,8 @@ installed `stack` CLI (`poetry run stack …`), with thin wrappers kept in
 | Ensure Qdrant schema | `poetry run stack qdrant ensure-schema` | Mirrors `Qdrant-EnsureSchema.ps1`. |
 | Backup/restore Qdrant | `poetry run stack qdrant backup` / `restore` | Archives `/qdrant/storage` with tar. |
 
-> The stack CLI honours the `STACK_COMPOSE_FILES` environment variable. Set it to a
-> path-separated list (e.g., `STACK_COMPOSE_FILES=docker-compose.gpu.yml`) to layer
-> overrides such as GPU acceleration when running `python -m stack`.
+> You can still set environment variables (e.g., `STACK_PROJECT_NAME`)
+> before invoking `python -m stack` if you need to tune the default compose file.
 
 ## Services
 

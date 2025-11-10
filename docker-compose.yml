@@ -5,6 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.agent
+    image: ai-agent-platform-agent:latest
     env_file:
       - .env
     environment:
@@ -32,7 +33,7 @@ services:
     environment:
       LITELLM_LOGGING: warn
       LITELLM_PORT: 4000
-      LITELLM_PROXY_MODEL: ${LITELLM_PROXY_MODEL:-ollama/llama3}
+      LITELLM_PROXY_MODEL: ${LITELLM_PROXY_MODEL:-ollama/gemma3:12b-it-qat}
       OLLAMA_API_BASE: http://ollama:11434
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -45,14 +46,19 @@ services:
       ollama:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      test:
+        - "CMD-SHELL"
+        - "python -c \"import urllib.request, sys; resp = urllib.request.urlopen('http://localhost:4000/health'); sys.exit(0 if 200 <= resp.getcode() < 300 else 1)\""
       interval: 30s
       timeout: 5s
       retries: 5
 
   ollama:
     image: ollama/ollama:latest
+    runtime: nvidia
     environment:
+      NVIDIA_VISIBLE_DEVICES: ${OLLAMA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${OLLAMA_DRIVER_CAPABILITIES:-compute,utility}
       OLLAMA_HOST: 0.0.0.0
     volumes:
       - ollama-models:/root/.ollama
@@ -65,13 +71,15 @@ services:
       retries: 3
 
   qdrant:
-    image: qdrant/qdrant:latest
+    build:
+      context: ./qdrant
+    image: ai-agent-platform-qdrant:latest
     ports:
       - "6333:6333"
     volumes:
       - qdrant-data:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:6333/healthz || wget -qO- http://localhost:6333/readyz"]
+      test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz || curl -f http://localhost:6333/readyz"]
       interval: 30s
       timeout: 5s
       retries: 10
@@ -150,7 +158,7 @@ services:
     environment:
       SEARXNG_URL: http://searxng:8080
       LITELLM_BASE: http://litellm:4000
-      DEFAULT_MODEL: ${FETCHER_DEFAULT_MODEL:-local/qwen2.5-en}
+      DEFAULT_MODEL: ${FETCHER_DEFAULT_MODEL:-local/gemma3-en}
       REQUEST_TIMEOUT: ${FETCHER_REQUEST_TIMEOUT:-15}
       MAX_WORKERS: ${FETCHER_MAX_WORKERS:-4}
       EMBEDDER_BASE: http://embedder:8082
@@ -178,7 +186,7 @@ services:
       OPENAI_API_KEY: ${OPENWEBUI_OPENAI_API_KEY:-agent-placeholder}
       ENABLE_OLLAMA_MODELS: "False"
       WEBUI_AUTH: "True"
-      ENABLE_SIGNUP: "False"
+      ENABLE_SIGNUP: "True"
       SECRET_KEY: ${OPENWEBUI_SECRET:-changeme}
       WEBUI_JWT_SECRET: ${OPENWEBUI_SECRET:-changeme}
     volumes:

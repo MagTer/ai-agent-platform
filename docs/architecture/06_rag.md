@@ -44,7 +44,7 @@ respond flow that underpins `rag/` models.
   `memory`; see [`docker-compose.yml`](../../docker-compose.yml) for the
   persistent volume wiring.
 4. **Retrieve** – When a client submits a `rag/` model to `ragproxy` (for
-   example `rag/qwen2.5-en`), the proxy embeds the last user message with the
+  example `rag/gemma3-en`), the proxy embeds the last user message with the
    same `/embed` API and queries Qdrant’s `/collections/memory/points/search`
    endpoint for the top candidates. `QDRANT_TOP_K` controls the fan-out before
    reranking.
@@ -56,7 +56,7 @@ respond flow that underpins `rag/` models.
 6. **Respond** – The proxy rewrites the chat request to a constrained system
    prompt plus a single user message that embeds the question, formatted context
    (`Source [n] URL` blocks), and a numbered source list. The modified payload is
-   forwarded to LiteLLM (default `local/qwen2.5-en` or the Swedish variant when
+  forwarded to LiteLLM (default `local/gemma3-en` or the Swedish variant when
    `-sv` is requested). LiteLLM streams the completion back unchanged. The agent
    or Open WebUI receive a response whose assistant message cites `[n]` markers
    aligned with the injected sources.
@@ -112,13 +112,9 @@ future ragproxy calls to surface them without repeating the crawl.
 | `QDRANT_URL` | Vector store endpoint. | `http://qdrant:6333` | [`ragproxy/app.py`](../../ragproxy/app.py), [`fetcher/app.py`](../../fetcher/app.py) |
 | `MODEL_NAME` | HuggingFace model used by embedder. | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | [`embedder/app.py`](../../embedder/app.py) |
 
-Override these variables in `.env` or optional Compose overrides such as
-[`docker-compose.bind.yml`](../../docker-compose.bind.yml)
-before running `python -m stack up`. Set `STACK_COMPOSE_FILES` when the Python CLI
-should include those overrides (for example, GPU profiles) alongside the root
-compose file. Operational
-playbooks in [`docs/OPERATIONS.md`](../OPERATIONS.md) cover health checks and
-smoke tests for the retrieval services.
+Override these variables in `.env` before running `python -m stack up`.
+Operational playbooks in [`docs/OPERATIONS.md`](../OPERATIONS.md) cover health
+checks and smoke tests for the retrieval services.
 
 ## Example: RAG Chat Request
 
@@ -127,7 +123,7 @@ smoke tests for the retrieval services.
 ```json
 POST /v1/chat/completions
 {
-  "model": "rag/qwen2.5-en",
+  "model": "rag/gemma3-en",
   "messages": [
     {"role": "user", "content": "Summarise the latest Qdrant release."}
   ]
@@ -138,7 +134,7 @@ POST /v1/chat/completions
 
 ```json
 {
-  "model": "local/qwen2.5-en",
+  "model": "local/gemma3-en",
   "messages": [
     {
       "role": "system",
@@ -164,7 +160,7 @@ POST /v1/chat/completions
       }
     }
   ],
-  "model": "rag/qwen2.5-en"
+  "model": "rag/gemma3-en"
 }
 ```
 

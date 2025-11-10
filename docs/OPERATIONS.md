@@ -1,19 +1,15 @@
 # Operations
 
 Operational runbooks target the Python-first stack managed by the Typer CLI. The
-canonical configuration now lives in the root `docker-compose.yml`; optional
-overrides (GPU runtime, bind mounts, etc.) can be layered via
-`docker-compose.gpu.yml` or `docker-compose.bind.yml`. Commands are idempotent and
-safe to repeat.
+canonical configuration now lives in the root `docker-compose.yml`, which includes
+the GPU runtime settings needed for Ollama and the bind-mount helpers that the
+stack depends on. Commands are idempotent and safe to repeat.
 
 ## Prerequisites
 - Copy `.env.template` to `.env` and supply secrets or API keys.
 - Install dependencies locally with `poetry install` when running tests outside Docker.
 - Ensure Docker Desktop (or compatible engine) is running with GPU access for Ollama if required.
-- Append overrides with `docker compose -f docker-compose.yml -f <override>.yml …`
-  when applying bind mounts or GPU runtime settings manually.
-  When using the Python CLI, set `STACK_COMPOSE_FILES` (for example,
-  `STACK_COMPOSE_FILES=docker-compose.gpu.yml`) to apply the same overrides.
+- Ensure Docker Desktop (or compatible engine) exposes the Nvidia runtime so Ollama runs on GPU (the main compose file now sets `runtime: nvidia` and honors `OLLAMA_VISIBLE_DEVICES`/`OLLAMA_DRIVER_CAPABILITIES`).
 - Review the [Contributing Guide](./contributing.md) so operational changes capture the
   Codex checklist updates (tests, docs, dependency notes).
 
@@ -88,7 +84,7 @@ curl -sS -X POST http://localhost:8000/v1/agent \
 curl -sS -X POST http://localhost:8000/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{
-        "model": "ollama/llama3",
+        "model": "ollama/gemma3:12b-it-qat",
         "messages": [
           {"role": "system", "content": "You are a helpful agent."},
           {"role": "user", "content": "Confirm that requests flow through the agent."}
@@ -115,7 +111,7 @@ response payload. The `steps` array should list the orchestration trace in the
 order memory → tools → completion.
 
 ## Maintenance
-- **Model management**: use `ollama run qwen2.5:14b-instruct-q4_K_M` inside the `ollama` container to warm models.
+- **Model management**: use `ollama run gemma3:12b-it-qat` inside the `ollama` container to warm models.
 - **Database**: the agent stores conversation metadata in `./data/agent_state.sqlite`. Back up or prune the file as part of maintenance.
 - **LiteLLM configuration**: adjust routing or budgets via environment variables in `.env` or `docker-compose.yml`, then run `poetry run stack up` to reload.
 - **Qdrant backups**: `poetry run stack qdrant backup --backup-dir backups` creates timestamped archives; restore with `poetry run stack qdrant restore backups/<file>.tgz`.

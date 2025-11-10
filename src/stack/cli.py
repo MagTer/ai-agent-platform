@@ -24,7 +24,7 @@ app.add_typer(n8n_app, name="n8n")
 app.add_typer(openwebui_app, name="openwebui")
 app.add_typer(qdrant.app, name="qdrant")
 
-DEFAULT_MODELS = ["qwen2.5:14b-instruct-q4_K_M"]
+DEFAULT_MODELS = ["gemma3:12b-it-qat"]
 DEFAULT_LOG_SERVICES = [
     "webfetch",
     "n8n",
