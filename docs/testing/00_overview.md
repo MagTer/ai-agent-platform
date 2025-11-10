@@ -48,16 +48,9 @@ validate the rendered configuration with:
 docker compose -f docker-compose.yml config
 ```
 
-If you need GPU acceleration for Ollama, layer the optional override file when
-starting the stack:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up
-```
-
-The override keeps the CI validation job happy while preserving the runtime
-settings required for local NVIDIA hosts. Record the output of any manual smoke
-tests in pull requests when relevant.
+Docker Compose already configures Ollama to use the NVIDIA runtime, so the
+default `docker-compose.yml` works even on GPU hosts. Record the output of any
+manual smoke tests in pull requests when relevant.
 
 ## Test authoring guidelines
 

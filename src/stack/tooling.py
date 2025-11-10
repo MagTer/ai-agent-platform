@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 
-from .utils import PROJECT_ROOT
+from .utils import PROJECT_ROOT, load_environment, resolve_compose_files, resolve_project_name
 
 
 class CommandError(RuntimeError):
@@ -51,7 +51,7 @@ def run_command(  # noqa: S603
     capture_output: bool = True,
     text: bool = True,
     env: dict[str, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
+) -> subprocess.CompletedProcess[str | bytes]:
     """Run a subprocess and optionally capture output."""
 
     result = subprocess.run(  # noqa: S603
@@ -219,20 +219,23 @@ def wait_http_ok(url: str, timeout: float) -> bool:
 
 def ensure_models(models: Sequence[str]) -> None:
     """Ensure the given Ollama models are pulled inside the ``ollama`` container."""
-
+    env = load_environment()
+    compose_args = _compose_base_command(env)
     for model in models:
         quoted = shlex.quote(model)
         command = f"if ! ollama list | grep -q {quoted}; then ollama pull {quoted}; fi"
         run_command(  # noqa: S603
-            [
-                "docker",
-                "exec",
-                "ollama",
-                "/bin/sh",
-                "-lc",
-                command,
-            ]
+            [*compose_args, "exec", "-T", "ollama", "/bin/sh", "-lc", command]
         )
+
+
+def _compose_base_command(env: dict[str, str]) -> list[str]:
+    args: list[str] = ["docker", "compose"]
+    files = resolve_compose_files(env)
+    for compose_file in files:
+        args.extend(["-f", str(compose_file)])
+    args.extend(["-p", resolve_project_name(env)])
+    return args
 
 
 def read_models_file(repo_root: Path) -> list[str] | None:

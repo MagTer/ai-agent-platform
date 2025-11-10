@@ -118,9 +118,9 @@ def chat_completions(body: dict[str, Any] = Body(...)):
 
     use_rag = ENABLE_RAG and model.startswith("rag/")
     # Map to underlying LiteLLM model
-    forward_model = "local/qwen2.5-en"
+    forward_model = "local/gemma3-en"
     if model.endswith("-sv"):
-        forward_model = "local/qwen2.5-sv"
+        forward_model = "local/gemma3-sv"
 
     final_messages = messages
     if use_rag:

@@ -1,13 +1,13 @@
 # ==========================================
 # AI Agent Platform - LiteLLM Configuration
-# Single unified profile for Qwen 2.5 14B
+# Single unified profile for Gemma 3 12B
 # ==========================================
 
 model_list:
-  - model_name: local/qwen2.5-en
-    display_name: "Qwen 2.5 EN (Reasoning)"
+  - model_name: local/gemma3-en
+    display_name: "Gemma 3 12B EN (Reasoning)"
     litellm_params:
-      model: ollama/qwen2.5:14b-instruct-q4_K_M
+      model: ollama/gemma3:12b-it-qat
       api_base: http://ollama:11434
       temperature: 0.35
       top_p: 0.9
@@ -23,10 +23,10 @@ model_list:
             Maintain a professional and respectful tone.
             If uncertain, say so and propose next steps.
             IMPORTANT: Never use Chinese and never translate to Chinese.
-  - model_name: local/qwen2.5-sv
-    display_name: "Qwen 2.5 SV (Svensk profil)"
+  - model_name: local/gemma3-sv
+    display_name: "Gemma 3 12B SV (Svenska profil)"
     litellm_params:
-      model: ollama/qwen2.5:14b-instruct-q4_K_M
+      model: ollama/gemma3:12b-it-qat
       api_base: http://ollama:11434
       temperature: 0.4
       top_p: 0.9
@@ -34,8 +34,8 @@ model_list:
       max_output_tokens: 2048
       reuse_client: true
       stream: true
-  - model_name: rag/qwen2.5-en
-    display_name: "RAG -> Qwen 2.5 EN"
+  - model_name: rag/gemma3-en
+    display_name: "RAG -> Gemma 3 12B EN"
     litellm_params:
       # Route to OpenAI-compatible RAG proxy
       model: openai/gpt-3.5-turbo
@@ -43,8 +43,8 @@ model_list:
       temperature: 0.35
       max_output_tokens: 2048
       stream: true
-  - model_name: rag/qwen2.5-sv
-    display_name: "RAG -> Qwen 2.5 SV"
+  - model_name: rag/gemma3-sv
+    display_name: "RAG -> Gemma 3 12B SV"
     litellm_params:
       model: openai/gpt-3.5-turbo
       api_base: http://ragproxy:4080
@@ -54,14 +54,14 @@ model_list:
       messages:
         - role: system
           content: >
-            Du är en hjälpsam, kunnig och vänlig assistent som skriver på korrekt, naturlig svenska
-            med god grammatik. Svara kortfattat och tydligt. Använd engelska endast när användaren
-            ber om det eller när ämnet kräver det (t.ex. kod, tekniska termer). Använd aldrig 
-            kinesiska och översätt inte till kinesiska. Håll en vänlig, professionell och respektfull
-            ton. Vid faktafrågor: svara säkert om du vet, annars förklara tydligt att du är osäker
-            och föreslå nästa steg. Skriv alltid grammatiskt korrekt svenska (inklusive skiljetecken
-            och ordföljd). Undvik långa utläggningar – ge hellre en sammanfattning och erbjud
-            fördjupning vid behov.
+            Du ar en hjalpsam, kunnig och vanlig assistent som skriver pa korrekt, naturlig svenska
+            med god grammatik. Svara kortfattat och tydligt. Anvand engelska endast nar anvandaren
+            ber om det eller nar amnet kraver det (t.ex. kod, tekniska termer). Anvand aldrig
+            kinesiska och oversatt inte till kinesiska. Hall en vanlig, professionell och respektfull
+            ton. Vid faktafragor: svara sakert om du vet, annars forklar tydligt att du ar osaker
+            och foreslag naesta steg. Skriv alltid grammatisk korrekt svenska (inklusive skiljetecken
+            och ordfold). Undvik langa utlaggningar - ge hellre en sammanfattning och erbjud
+            fordjupning vid behov.
 
 # ---- Routing policy ----
 # (No default routing policy defined; alias models are explicit)
@@ -73,9 +73,9 @@ general_settings:
 
 # ---- LiteLLM settings ----
 litellm_settings:
-  budget_limit: 1.50     # USD per dag, 0 = avstängd
+  budget_limit: 1.50     # USD per dag, 0 = avstangd
   rate_limits:
-    - model: local/qwen2.5
+    - model: local/gemma3
       rpm: 120
 
 # ---- Logging ----

@@ -3,9 +3,9 @@
 ## Compose Services
 
 [`docker-compose.yml`](../../docker-compose.yml) in the repository root now
-defines the complete stack. Optional overrides (for bind mounts or GPU runtime)
-can be layered via `docker-compose.bind.yml` and
-`docker-compose.gpu.yml`.
+defines the complete stack, including the GPU runtime settings that Ollama
+requires. Compose automatically reads `.env`, so set the variables you need
+there (or export them in your shell) before running `python -m stack up`.
 
 | Service     | Purpose | Ports | Healthcheck |
 |-------------|---------|-------|-------------|
@@ -46,12 +46,6 @@ stopped.
 Copy `.env.template` to `.env` before running the CLI. Additional overrides can
 live in `.env.local` or direct environment exports. Compose automatically reads
 `.env`; the stack CLI also injects it when running Docker commands.
-
-When overrides are required (for example, GPU runtime or bind mounts), set
-`STACK_COMPOSE_FILES` to a path-separated list before invoking the CLI. Relative
-paths are resolved from the repository root, so `STACK_COMPOSE_FILES=docker-compose.gpu.yml`
-ensures GPU settings apply to `python -m stack up` just like manual Docker
-commands.
 
 Open WebUI is wired to the agent by default via the `LITELLM_URL` and
 `OPENAI_API_BASE_URL` variables in `docker-compose.yml`. All chat requests are

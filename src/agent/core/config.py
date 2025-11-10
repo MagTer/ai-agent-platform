@@ -39,7 +39,7 @@ class Settings(BaseModel):
     )
     litellm_api_key: str | None = Field(default=None, description="Optional LiteLLM API key.")
     litellm_model: str = Field(
-        default="ollama/llama3",
+        default="ollama/gemma3:12b-it-qat",
         description="Default model identifier passed to LiteLLM.",
     )
 
