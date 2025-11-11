@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -56,24 +57,33 @@ class PoetryError(RuntimeError):
     """Raised when the Poetry CLI cannot complete the request."""
 
 
-_POETRY_EXECUTABLE: str | None = None
+_POETRY_COMMAND: list[str] | None = None
 _POETRY_SUPPORTS_FORMAT: bool | None = None
 
 
-def _get_poetry_executable() -> str:
-    """Return the absolute path to the Poetry executable."""
+def _get_poetry_command() -> list[str]:
+    """Return the command (with args) used to invoke Poetry."""
 
-    global _POETRY_EXECUTABLE
+    global _POETRY_COMMAND
 
-    if _POETRY_EXECUTABLE is not None:
-        return _POETRY_EXECUTABLE
+    if _POETRY_COMMAND is not None:
+        return _POETRY_COMMAND
+
+    env_poetry = os.environ.get("POETRY_EXECUTABLE")
+    if env_poetry:
+        _POETRY_COMMAND = [env_poetry]
+        return _POETRY_COMMAND
 
     poetry_path = shutil.which("poetry")
     if poetry_path is None:
-        raise PoetryError("Poetry executable not found in PATH.")
+        poetry_path = shutil.which("poetry.exe")
 
-    _POETRY_EXECUTABLE = poetry_path
-    return poetry_path
+    if poetry_path is not None:
+        _POETRY_COMMAND = [poetry_path]
+    else:
+        _POETRY_COMMAND = [sys.executable, "-m", "poetry"]
+
+    return _POETRY_COMMAND
 
 
 def _poetry_supports_format_option() -> bool:
@@ -85,8 +95,10 @@ def _poetry_supports_format_option() -> bool:
         return _POETRY_SUPPORTS_FORMAT
 
     try:
+        command = _get_poetry_command().copy()
+        command.extend(["show", "--help"])
         result = subprocess.run(  # noqa: S603
-            [_get_poetry_executable(), "show", "--help"],
+            command,
             capture_output=True,
             text=True,
             check=True,
@@ -153,13 +165,13 @@ def _parse_plain_show_output(raw_output: str) -> list[PackageUpdate]:
 
 
 def _run_poetry_show(*, dev: bool = False) -> list[PackageUpdate]:
-    poetry_executable = _get_poetry_executable()
-
-    base_command = [
-        poetry_executable,
-        "show",
-        "--outdated",
-    ]
+    base_command = _get_poetry_command().copy()
+    base_command.extend(
+        [
+            "show",
+            "--outdated",
+        ],
+    )
     if dev:
         base_command.extend(["--only", "dev"])
 
@@ -223,11 +235,11 @@ def _run_poetry_show(*, dev: bool = False) -> list[PackageUpdate]:
 def _format_updates(updates: Iterable[PackageUpdate]) -> list[str]:
     rows: list[str] = []
     for update in updates:
-        base = f"- {update.name} {update.current} → {update.latest}"
+        base = f"- {update.name} {update.current} -> {update.latest}"
         if update.latest_status:
             base += f" ({update.latest_status})"
         if update.description:
-            base += f" — {update.description}"
+            base += f" - {update.description}"
         rows.append(base)
     return rows
 
@@ -295,7 +307,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("Dependency freshness report\n===========================")
 
         for warning in warnings:
-            print(f"⚠️  {warning}")
+            print(f"[warning] {warning}")
             print()
 
         print("Runtime dependencies:")
@@ -315,14 +327,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         print("Exit code summary:")
         if exit_code == 0:
-            print("0 → All dependencies up to date.")
+            print("0 -> All dependencies up to date.")
         else:
             messages = []
             if exit_code & 1:
                 messages.append("runtime outdated")
             if exit_code & 2:
                 messages.append("dev outdated")
-            print(f"{exit_code} → {' and '.join(messages)}.")
+            print(f"{exit_code} -> {' and '.join(messages)}.")
 
     return exit_code
 

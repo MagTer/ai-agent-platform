@@ -118,6 +118,7 @@ order memory → tools → completion.
 - **Qdrant schema**: `poetry run stack qdrant ensure-schema --collection agent-memories --size 1536` ensures collections exist before ingestion.
 - **n8n exports/imports**: `poetry run stack n8n export --include-credentials` captures workflows locally; `poetry run stack n8n import` pushes them back.
 - **Open WebUI database**: `poetry run stack openwebui export` dumps `app.db`; restore with the matching `import` command after editing outside the container.
+- **Pinned container images**: the compose file defaults to SHA256 digests for `litellm`, `ollama`, `openwebui`, `searxng`, and `n8n`. To upgrade, copy the matching `*_IMAGE` override from `.env.template` into `.env`, swap in the new digest, then run `python -m stack up` and watch the healthchecks until the updated container passes.
 - **Repository snapshots**: run `poetry run stack repo save --message "chore: ops snapshot"` to validate Compose and commit changes; the command now prompts for a feature branch when you are on `main`/detached, prints the git commands it runs, and points you toward `poetry run stack repo push` plus `poetry run stack repo pr` (GitHub CLI required) for publishing the branch and creating the pull request.
 - **Dependency updates**: when `scripts/deps_check.py` flags new versions, validate
   changes by running the stack smoke tests in this guide and `poetry run pytest`.

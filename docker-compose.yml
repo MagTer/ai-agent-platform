@@ -28,7 +28,7 @@ services:
       retries: 5
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-stable
+    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm@sha256:6eb7f8bdc47baf3aa07d3d7b2ddc330662ed28811a2a03ba32c8a548809f30e3}
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     environment:
       LITELLM_LOGGING: warn
@@ -47,7 +47,7 @@ services:
         condition: service_started
 
   ollama:
-    image: ollama/ollama:latest
+    image: ${OLLAMA_IMAGE:-ollama/ollama@sha256:e8c3d1f6ad16323bc40dc63eff0701d4fc32113f75a86b54b3e836eef8290de6}
     runtime: nvidia
     environment:
       NVIDIA_VISIBLE_DEVICES: ${OLLAMA_VISIBLE_DEVICES:-all}
@@ -127,7 +127,7 @@ services:
       retries: 10
 
   searxng:
-    image: searxng/searxng:latest
+    image: ${SEARXNG_IMAGE:-searxng/searxng@sha256:d477c0460cc06afa57541f24c7adcae3846303a125c3ae785b9893c9c2c2186f}
     ports:
       - "${SEARXNG_PORT:-8080}:8080"
     volumes:
@@ -174,7 +174,7 @@ services:
       retries: 10
 
   openwebui:
-    image: ghcr.io/open-webui/open-webui:latest
+    image: ${OPENWEBUI_IMAGE:-ghcr.io/open-webui/open-webui@sha256:53a4d2fc8c7a7cc620cd18e6fe416ed9940f2db87fddf837e3aa55111bec6995}
     environment:
       WEBUI_NAME: "AI Agent Platform"
       LITELLM_URL: http://agent:8000
@@ -199,7 +199,7 @@ services:
       retries: 5
 
   n8n:
-    image: n8nio/n8n:latest
+    image: ${N8N_IMAGE:-n8nio/n8n@sha256:4a43ddf853afe3ad44be51379e7ed85c16b974cae26cf732d2fcbf71d0cb16c4}
     environment:
       TZ: ${TIMEZONE:-UTC}
       GENERIC_TIMEZONE: ${TIMEZONE:-UTC}
