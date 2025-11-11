@@ -47,6 +47,12 @@ Copy `.env.template` to `.env` before running the CLI. Additional overrides can
 live in `.env.local` or direct environment exports. Compose automatically reads
 `.env`; the stack CLI also injects it when running Docker commands.
 
+The core containers (`litellm`, `ollama`, `openwebui`, `searxng`, and `n8n`)
+are pinned to SHA256 digests by default, using the `*_IMAGE` overrides described
+in `.env.template`. To apply a new patch release, copy the desired override into
+`.env` (e.g., `OLLAMA_IMAGE=<registry>@sha256:<digest>`), run `python -m stack up`,
+and confirm the healthchecks complete before proceeding.
+
 Open WebUI is wired to the agent by default via the `LITELLM_URL` and
 `OPENAI_API_BASE_URL` variables in `docker-compose.yml`. All chat requests are
 sent to the agent’s `/v1/chat/completions` endpoint, which then relays to

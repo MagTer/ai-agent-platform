@@ -60,8 +60,15 @@ def _require_branch_name(value: str) -> str:
     return cleaned
 
 
+def _sanitize_branch_name(value: str) -> str:
+    """Clean up whitespace and turn spaces into hyphens."""
+
+    return value.replace(" ", "-")
+
+
 def _validate_feature_branch_name(value: str) -> str:
-    candidate = _require_branch_name(value)
+    candidate = _sanitize_branch_name(value)
+    candidate = _require_branch_name(candidate)
     if not candidate.startswith("feature/"):
         raise typer.BadParameter("Branch name must start with feature/.")
     return candidate
@@ -73,13 +80,15 @@ def _prompt_feature_branch_name(default_suffix: str = "stack-save") -> str:
     while True:
         response = input(prompt_text).strip()
         candidate = response or default
+        sanitized = _sanitize_branch_name(candidate)
+        if candidate and sanitized != candidate:
+            console.print(
+                f"[yellow]Branch name adjusted to {sanitized} (spaces -> hyphens).[/yellow]"
+            )
         try:
-            candidate = _require_branch_name(candidate)
+            candidate = _validate_feature_branch_name(sanitized)
         except typer.BadParameter as exc:
             console.print(f"[yellow]{exc}[/yellow]")
-            continue
-        if not candidate.startswith("feature/"):
-            console.print("[yellow]Branch name must start with feature/.[/yellow]")
             continue
         return candidate
 
