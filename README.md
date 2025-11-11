@@ -71,6 +71,8 @@ installed `stack` CLI (`poetry run stack …`), with thin wrappers kept in
 > You can still set environment variables (e.g., `STACK_PROJECT_NAME`)
 > before invoking `python -m stack` if you need to tune the default compose file.
 
+> **Code quality mandate:** every contributor and tool should run `poetry run python scripts/code_check.py` (ruff, black, mypy, pytest) before pushing or opening a PR; the `stack repo publish` helper mirrors that requirement by executing the same script before saving/pushing unless you pass `--skip-checks`.
+
 ## Services
 
 | Service | Purpose |

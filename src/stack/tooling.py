@@ -82,7 +82,7 @@ def run_git_command(
     repo_root: Path | None = None,
     printer: GitPrinter | None = _default_git_printer,
     **kwargs,
-) -> subprocess.CompletedProcess[str]:
+) -> subprocess.CompletedProcess[str | bytes]:
     """Run a git command relative to the repository and optionally emit it."""
 
     if printer is not None:
@@ -105,7 +105,9 @@ def current_branch(repo_root: Path) -> str | None:
         )
     except CommandError:
         return None
-    branch = result.stdout.strip()
+    stdout = result.stdout or ""
+    branch_output = stdout.strip() if isinstance(stdout, str) else stdout.decode("utf-8").strip()
+    branch = branch_output
     return branch if branch else None
 
 
@@ -157,7 +159,7 @@ def docker_exec(
     container: str,
     *command: str,
     user: str | None = None,
-) -> subprocess.CompletedProcess[str]:
+) -> subprocess.CompletedProcess[str | bytes]:
     """Execute ``command`` inside ``container`` using ``docker exec``."""
 
     args = ["docker", "exec"]
@@ -190,7 +192,8 @@ def get_mapped_port(container: str, internal_port: int) -> int:
         )
     except CommandError:
         return internal_port
-    output = (result.stdout or "").strip()
+    raw_output = (result.stdout or "").strip()
+    output = raw_output.decode("utf-8") if isinstance(raw_output, bytes) else raw_output
     if not output:
         return internal_port
     token = output.split()[-1]
@@ -278,14 +281,15 @@ def stage_and_commit(
 
 
 def tail_logs(services: Sequence[str], since: str = "5m") -> None:
-    """Stream docker logs for ``services``."""
+    """Stream docker compose logs for ``services``."""
 
-    for service in services:
-        run_command(
-            ["docker", "logs", "-f", "--since", since, service],
-            capture_output=False,
-            check=False,
-        )
+    env = load_environment()
+    command = [*_compose_base_command(env), "logs", "--follow", "--since", since, *services]
+    try:
+        run_command(command, capture_output=False, check=False)
+    except KeyboardInterrupt:
+        # Allow the user to interrupt log streaming without bubbling stack errors.
+        return
 
 
 def ensure_secrets(env: dict[str, str]) -> None:

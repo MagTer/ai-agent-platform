@@ -45,7 +45,7 @@ def run_compose(
     files_override: Iterable[Pathish | None] | None = None,
     env_override: dict[str, str] | None = None,
     capture_output: bool = True,
-) -> subprocess.CompletedProcess[bytes]:
+) -> subprocess.CompletedProcess[str | bytes]:
     """Execute a docker compose command and return the completed process."""
 
     env = load_environment()
@@ -105,7 +105,10 @@ def compose_logs(
     if services:
         args.extend(services)
     result = run_compose(args, extra_files=extra_files)
-    return result.stdout.decode("utf-8")
+    stdout = result.stdout
+    if isinstance(stdout, bytes):
+        return stdout.decode("utf-8")
+    return stdout
 
 
 __all__ = [

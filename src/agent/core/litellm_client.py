@@ -63,5 +63,26 @@ class LiteLLMClient:
         except (KeyError, IndexError, TypeError) as exc:  # pragma: no cover - defensive
             raise LiteLLMError("Unexpected response format from LiteLLM") from exc
 
+    async def list_models(self) -> Any:
+        """Return the raw body from LiteLLM's `/v1/models` endpoint."""
+
+        async with httpx.AsyncClient(base_url=str(self._settings.litellm_api_base)) as client:
+            try:
+                response = await client.get(
+                    "/v1/models",
+                    headers=self._build_headers(),
+                    timeout=self._timeout,
+                )
+            except httpx.HTTPError as exc:
+                raise LiteLLMError("Failed to reach LiteLLM gateway") from exc
+
+        if response.status_code >= 400:
+            LOGGER.error("LiteLLM error %s: %s", response.status_code, response.text)
+            raise LiteLLMError(
+                f"LiteLLM responded with {response.status_code}: {response.text[:256]}"
+            )
+
+        return response.json()
+
 
 __all__ = ["LiteLLMClient", "LiteLLMError"]
