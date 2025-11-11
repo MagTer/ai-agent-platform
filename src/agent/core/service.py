@@ -124,6 +124,11 @@ class AgentService:
         )
         return response
 
+    async def list_models(self) -> Any:
+        """Proxy LiteLLM's `/v1/models` response."""
+
+        return await self._litellm.list_models()
+
     def conversation_history(self, conversation_id: str, limit: int = 20) -> list[AgentMessage]:
         """Return the stored conversation history."""
 

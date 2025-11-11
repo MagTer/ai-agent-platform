@@ -24,6 +24,15 @@ app.add_typer(n8n_app, name="n8n")
 app.add_typer(openwebui_app, name="openwebui")
 app.add_typer(qdrant.app, name="qdrant")
 
+
+def _ensure_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return value.decode("utf-8")
+
+
 DEFAULT_MODELS = ["gemma3:12b-it-qat"]
 DEFAULT_LOG_SERVICES = [
     "webfetch",
@@ -51,10 +60,28 @@ def _require_branch_name(value: str) -> str:
     return cleaned
 
 
-def _prompt_branch_name(default: str = "feature/stack-save") -> str:
+def _validate_feature_branch_name(value: str) -> str:
+    candidate = _require_branch_name(value)
+    if not candidate.startswith("feature/"):
+        raise typer.BadParameter("Branch name must start with feature/.")
+    return candidate
+
+
+def _prompt_feature_branch_name(default_suffix: str = "stack-save") -> str:
+    default = f"feature/{default_suffix}"
     prompt_text = f"Branch name to commit to [{default}]: "
-    response = input(prompt_text).strip()
-    return _require_branch_name(response or default)
+    while True:
+        response = input(prompt_text).strip()
+        candidate = response or default
+        try:
+            candidate = _require_branch_name(candidate)
+        except typer.BadParameter as exc:
+            console.print(f"[yellow]{exc}[/yellow]")
+            continue
+        if not candidate.startswith("feature/"):
+            console.print("[yellow]Branch name must start with feature/.[/yellow]")
+            continue
+        return candidate
 
 
 class HealthTarget(TypedDict):
@@ -244,7 +271,7 @@ def up(
 
     status = compose.run_compose(["ps"], extra_files=overrides)
     console.print("[bold cyan]Stack is running. Current container status:[/bold cyan]")
-    console.print(status.stdout.decode("utf-8"))
+    console.print(_ensure_text(status.stdout))
 
 
 @app.command()
@@ -368,23 +395,13 @@ def repo_save(
     git_printer = _console_git_printer
 
     if branch:
-        requested_branch = _require_branch_name(branch)
-        console.print(f"[cyan]Switching to branch {requested_branch}[/cyan]")
-        tooling.ensure_branch(repo_root, requested_branch, printer=git_printer)
-        working_branch = requested_branch
+        requested_branch = _validate_feature_branch_name(branch)
     else:
-        current = tooling.current_branch(repo_root)
-        if current in (None, "HEAD", "main"):
-            console.print(
-                "[yellow]Repository is on main or a detached HEAD. "
-                "Please create or specify a feature branch before committing.[/yellow]"
-            )
-            requested_branch = _prompt_branch_name()
-            tooling.ensure_branch(repo_root, requested_branch, printer=git_printer)
-            working_branch = requested_branch
-        else:
-            working_branch = current
-            console.print(f"[cyan]Committing on branch {working_branch}[/cyan]")
+        console.print("[yellow]Repository requires a feature branch for this snapshot.[/yellow]")
+        requested_branch = _prompt_feature_branch_name()
+    console.print(f"[cyan]Switching to branch {requested_branch}[/cyan]")
+    tooling.ensure_branch(repo_root, requested_branch, printer=git_printer)
+    working_branch = requested_branch
 
     compose_file = repo_root / "docker-compose.yml"
     if compose_file.exists():
@@ -468,6 +485,50 @@ def repo_pr(
 
     console.print(f"[cyan]gh {' '.join(gh_args)}[/cyan]")
     tooling.run_command(["gh", *gh_args], cwd=repo_root, capture_output=False)
+
+
+@repo_app.command("publish")
+def repo_publish(
+    message: str = typer.Option("chore: save workspace", help="Base commit message."),
+    branch: str | None = typer.Option(
+        None,
+        "--branch",
+        "-b",
+        help="Branch to switch to or create before committing.",
+    ),
+    remote: str = typer.Option("origin", help="Remote name to push to."),
+    set_upstream: bool = typer.Option(
+        True,
+        help="Run `git push --set-upstream` so future pushes track the remote branch.",
+    ),
+    pr_base: str = typer.Option("main", help="Target branch for the pull request."),
+    pr_draft: bool = typer.Option(False, help="Create the PR as a draft."),
+    pr_title: str | None = typer.Option(None, help="Override the PR title."),
+    pr_body: str | None = typer.Option(None, help="Override the PR body."),
+    skip_checks: bool = typer.Option(
+        False,
+        "--skip-checks",
+        help="Skip running the local quality checks.",
+    ),
+) -> None:
+    """Save changes, push the branch, and open a pull request."""
+
+    repo_root = _repo_root()
+    if not skip_checks:
+        _run_quality_checks(repo_root)
+
+    repo_save(message=message, branch=branch)
+    repo_push(remote=remote, set_upstream=set_upstream)
+    repo_pr(base=pr_base, draft=pr_draft, title=pr_title, body=pr_body)
+
+
+def _run_quality_checks(repo_root: Path) -> None:
+    console.print("[cyan]Running local quality checks (ruff, black, mypy, pytest)...[/cyan]")
+    tooling.run_command(
+        ["python", "-m", "poetry", "run", "python", "scripts/code_check.py"],
+        cwd=repo_root,
+        capture_output=False,
+    )
 
 
 @n8n_app.command("export")
@@ -650,7 +711,7 @@ finally:
         exec_script,
     ]
     result = compose.run_compose(exec_args, files_override=[compose_path])
-    dump_path.write_text(result.stdout.decode("utf-8"), encoding="utf-8")
+    dump_path.write_text(_ensure_text(result.stdout), encoding="utf-8")
     console.print(f"[green]Exported Open WebUI database → {dump_path}[/green]")
 
 

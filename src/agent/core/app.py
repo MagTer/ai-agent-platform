@@ -5,11 +5,13 @@ from __future__ import annotations
 import hashlib
 import logging
 from collections.abc import Iterable
+from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings, get_settings
+from .litellm_client import LiteLLMError
 from .models import (
     AgentMessage,
     AgentRequest,
@@ -57,6 +59,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     ) -> AgentResponse:
         try:
             return await svc.handle_request(request)
+        except LiteLLMError as exc:  # pragma: no cover - upstream failure
+            LOGGER.error("LiteLLM gateway error: %s", exc)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         except Exception as exc:  # pragma: no cover - defensive branch
             LOGGER.exception("Agent processing failed")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -71,7 +76,14 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         except ValueError as exc:  # pragma: no cover - defensive validation
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        response = await svc.handle_request(agent_request)
+        try:
+            response = await svc.handle_request(agent_request)
+        except LiteLLMError as exc:
+            LOGGER.error("LiteLLM gateway error: %s", exc)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:  # pragma: no cover - defensive branch
+            LOGGER.exception("Agent processing failed")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
         message_metadata = dict(response.metadata)
         message_metadata["steps"] = response.steps
         choice = ChatCompletionChoice(
@@ -91,6 +103,14 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             steps=response.steps,
             metadata=message_metadata,
         )
+
+    @app.get("/models")
+    async def list_models(svc: AgentService = Depends(get_service)) -> Any:
+        try:
+            return await svc.list_models()
+        except LiteLLMError as exc:  # pragma: no cover - upstream failure
+            LOGGER.error("LiteLLM gateway error: %s", exc)
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return app
 
