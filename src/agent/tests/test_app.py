@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import cast
 
+from fastapi.testclient import TestClient
+
 from agent.core.app import create_app
 from agent.core.config import Settings
 from agent.core.litellm_client import LiteLLMClient
 from agent.core.memory import MemoryStore
 from agent.core.service import AgentService
-from fastapi.testclient import TestClient
 
 
 class MockLiteLLMClient:

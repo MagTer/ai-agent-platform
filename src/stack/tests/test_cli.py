@@ -2,7 +2,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from stack import cli
-
 from typer.testing import CliRunner
 
 runner = CliRunner()
