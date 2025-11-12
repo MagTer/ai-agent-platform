@@ -1,2 +1,2 @@
 # One model per line; lines starting with # are ignored
-gemma3:12b-it-qat
+phi3:mini

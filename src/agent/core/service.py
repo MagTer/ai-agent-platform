@@ -253,7 +253,7 @@ class AgentService:
         history: list[AgentMessage],
         metadata: dict[str, Any],
     ) -> Plan:
-        """Ask Gemma3 to describe a sequential orchestration plan for the prompt."""
+        """Ask Phi3 Mini to describe a sequential orchestration plan for the prompt."""
 
         tool_descriptions = self._describe_tools()
         if tool_descriptions:
@@ -262,6 +262,7 @@ class AgentService:
             )
         else:
             tool_listing = "- (no MCP-specific tools are registered)"
+        available_tools_text = tool_listing
 
         history_text = (
             "\n".join(f"{message.role}: {message.content}" for message in history) or "(no history)"
@@ -274,7 +275,7 @@ class AgentService:
         system_message = AgentMessage(
             role="system",
             content=(
-                "You are the Gemma3 planner for Open WebUI. Return a single JSON object "
+                "You are the Phi3 Mini planner for Open WebUI. Return a single JSON object "
                 "describing the sequential steps needed to answer the user's prompt. "
                 'Structure the response as {"steps": [...], "description": "optional '
                 'summary"}. Each step must include:\n'
@@ -288,8 +289,8 @@ class AgentService:
                 '- optional "provider" when a remote LLM is required\n\n'
                 "Memory and RAG access (Qdrant/embedder) happen through the agent with action "
                 '"memory"; web_fetch, ragproxy, and any other registered MCP helpers should '
-                "be referenced by their tool names. Return valid JSON only, without surrounding "
-                "explanation."
+                "be referenced by their tool names. Try to include the helper list below when "
+                "a step uses a tool. Return valid JSON only, without surrounding explanation."
             ),
         )
 
@@ -299,7 +300,7 @@ class AgentService:
                 f"Question:\n{request.prompt}\n\n"
                 f"Conversation history:\n{history_text}\n\n"
                 f"Metadata provided to the agent:\n{metadata_text}\n\n"
-                f"Available tools:\n{tool_listing}\n\n"
+                f"Available tools:\n{available_tools_text}\n\n"
                 "Plan each step so that the agent can update the UI with progress. The final step "
                 "should be a completion (executor litellm or remote)."
             ),
@@ -308,12 +309,21 @@ class AgentService:
         plan_text = await self._litellm.plan(
             [system_message, user_message],
         )
+        LOGGER.debug(
+            "Planner prompt system:\n%s\nuser:\n%s",
+            system_message.content,
+            user_message.content,
+        )
+        LOGGER.debug("Planner raw output: %s", plan_text)
         return self._parse_plan(plan_text, request.prompt)
 
     def _parse_plan(self, raw: str, prompt: str) -> Plan:
         candidate = self._extract_json_fragment(raw)
         if candidate is None:
-            LOGGER.warning("Unable to parse plan output from LiteLLM; falling back to default plan")
+            LOGGER.warning(
+                "Unable to parse plan output from LiteLLM (raw=%s); falling back to default plan",
+                raw,
+            )
             return self._fallback_plan(prompt)
 
         try:
@@ -386,6 +396,7 @@ class AgentService:
                 "executor": plan_step.executor,
                 "action": plan_step.action,
             }
+            LOGGER.debug("Executing plan step %s (%s)", plan_step.id, plan_step.label)
             if plan_step.description:
                 step_entry["description"] = plan_step.description
             if plan_step.tool:

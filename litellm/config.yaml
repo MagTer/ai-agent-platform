@@ -1,67 +1,34 @@
 # ==========================================
 # AI Agent Platform - LiteLLM Configuration
-# Single unified profile for Gemma 3 12B
+# Single unified profile for Phi3 Mini
 # ==========================================
 
 model_list:
-  - model_name: local/gemma3-en
-    display_name: "Gemma 3 12B EN (Reasoning)"
+  - model_name: local/phi3-en
+    display_name: "Phi3 Mini EN (Reasoning)"
     litellm_params:
-      model: ollama/gemma3:12b-it-qat
+      model: ollama/phi3:mini
       api_base: http://ollama:11434
       temperature: 0.35
       top_p: 0.9
-      num_ctx: 8192
-      max_output_tokens: 2048
+      num_ctx: 4096
+      max_output_tokens: 1024
       reuse_client: true
       stream: true
       messages:
         - role: system
           content: >
-            You are a helpful, calm assistant. Prefer concise, clear answers.
-            Use step-by-step reasoning when needed, but avoid verbosity.
-            Maintain a professional and respectful tone.
-            If uncertain, say so and propose next steps.
-            IMPORTANT: Never use Chinese and never translate to Chinese.
-  - model_name: local/gemma3-sv
-    display_name: "Gemma 3 12B SV (Svenska profil)"
+            You are a sharp, modern assistant. Keep all internal reasoning and
+            output in English, stay concise, and if uncertain point out the open
+            questions with next steps.
+  - model_name: rag/phi3-en
+    display_name: "RAG -> Phi3 Mini"
     litellm_params:
-      model: ollama/gemma3:12b-it-qat
-      api_base: http://ollama:11434
-      temperature: 0.4
-      top_p: 0.9
-      num_ctx: 8192
-      max_output_tokens: 2048
-      reuse_client: true
-      stream: true
-  - model_name: rag/gemma3-en
-    display_name: "RAG -> Gemma 3 12B EN"
-    litellm_params:
-      # Route to the internal RAG proxy that still uses the local Gemma 3 model
-      model: rag/gemma3-en
+      model: rag/phi3-en
       api_base: http://ragproxy:4080
       temperature: 0.35
-      max_output_tokens: 2048
+      max_output_tokens: 1024
       stream: true
-  - model_name: rag/gemma3-sv
-    display_name: "RAG -> Gemma 3 12B SV"
-    litellm_params:
-      model: rag/gemma3-sv
-      api_base: http://ragproxy:4080
-      temperature: 0.3
-      max_output_tokens: 2048
-      stream: true
-      messages:
-        - role: system
-          content: >
-            Du ar en hjalpsam, kunnig och vanlig assistent som skriver pa korrekt, naturlig svenska
-            med god grammatik. Svara kortfattat och tydligt. Anvand engelska endast nar anvandaren
-            ber om det eller nar amnet kraver det (t.ex. kod, tekniska termer). Anvand aldrig
-            kinesiska och oversatt inte till kinesiska. Hall en vanlig, professionell och respektfull
-            ton. Vid faktafragor: svara sakert om du vet, annars forklar tydligt att du ar osaker
-            och foreslag naesta steg. Skriv alltid grammatisk korrekt svenska (inklusive skiljetecken
-            och ordfold). Undvik langa utlaggningar - ge hellre en sammanfattning och erbjud
-            fordjupning vid behov.
 
 # ---- Routing policy ----
 # (No default routing policy defined; alias models are explicit)
@@ -75,7 +42,7 @@ general_settings:
 litellm_settings:
   budget_limit: 1.50     # USD per dag, 0 = avstangd
   rate_limits:
-    - model: local/gemma3
+    - model: local/phi3-en
       rpm: 120
 
 # ---- Logging ----

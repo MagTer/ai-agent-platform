@@ -44,7 +44,7 @@ respond flow that underpins `rag/` models.
   `memory`; see [`docker-compose.yml`](../../docker-compose.yml) for the
   persistent volume wiring.
 4. **Retrieve** – When a client submits a `rag/` model to `ragproxy` (for
-  example `rag/gemma3-en`), the proxy embeds the last user message with the
+  example `rag/phi3-en`), the proxy embeds the last user message with the
    same `/embed` API and queries Qdrant’s `/collections/memory/points/search`
    endpoint for the top candidates. `QDRANT_TOP_K` controls the fan-out before
    reranking.
@@ -54,10 +54,11 @@ respond flow that underpins `rag/` models.
    removed before scoring. The resulting hits are truncated to `RAG_MAX_SOURCES`
    and `RAG_MAX_CHARS` to keep prompts bounded.
 6. **Respond** – The proxy rewrites the chat request to a constrained system
-   prompt plus a single user message that embeds the question, formatted context
-   (`Source [n] URL` blocks), and a numbered source list. The modified payload is
-  forwarded to LiteLLM (default `local/gemma3-en` or the Swedish variant when
-   `-sv` is requested). LiteLLM streams the completion back unchanged. The agent
+  prompt plus a single user message that embeds the question, formatted context
+  (`Source [n] URL` blocks), and a numbered source list. The modified payload is
+  forwarded to LiteLLM (default `local/phi3-en`). LiteLLM streams the completion
+  back unchanged so the agent or Open WebUI can post-process (e.g., translate to
+  Swedish) before presenting it to users.
    or Open WebUI receive a response whose assistant message cites `[n]` markers
    aligned with the injected sources.
 
@@ -123,7 +124,7 @@ checks and smoke tests for the retrieval services.
 ```json
 POST /v1/chat/completions
 {
-  "model": "rag/gemma3-en",
+  "model": "rag/phi3-en",
   "messages": [
     {"role": "user", "content": "Summarise the latest Qdrant release."}
   ]
@@ -134,7 +135,7 @@ POST /v1/chat/completions
 
 ```json
 {
-  "model": "local/gemma3-en",
+    "model": "local/phi3-en",
   "messages": [
     {
       "role": "system",
@@ -160,7 +161,7 @@ POST /v1/chat/completions
       }
     }
   ],
-  "model": "rag/gemma3-en"
+    "model": "rag/phi3-en"
 }
 ```
 

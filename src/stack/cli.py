@@ -33,7 +33,7 @@ def _ensure_text(value: str | bytes | None) -> str:
     return value.decode("utf-8")
 
 
-DEFAULT_MODELS = ["gemma3:12b-it-qat"]
+DEFAULT_MODELS = ["phi3:mini"]
 DEFAULT_LOG_SERVICES = [
     "webfetch",
     "n8n",

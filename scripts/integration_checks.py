@@ -24,8 +24,8 @@ DEFAULTS: dict[str, str] = {
     "qdrant": os.environ.get("QDRANT_URL", "http://127.0.0.1:6333"),
 }
 
-GEMMA3_MODEL = os.environ.get("GEMMA3_MODEL", "gemma3:12b-it-qat")
-LITELLM_MODEL = os.environ.get("LITELLM_MODEL", "local/gemma3-en")
+PRIMARY_MODEL = os.environ.get("PRIMARY_MODEL", "phi3:mini")
+LITELLM_MODEL = os.environ.get("LITELLM_MODEL", "local/phi3-en")
 
 DEFAULT_TIMEOUT = float(os.environ.get("INTEGRATION_TIMEOUT", "300.0"))
 RETRY_DELAY_SEC = float(os.environ.get("INTEGRATION_RETRY_DELAY", "10.0"))
@@ -104,12 +104,12 @@ def test_ollama() -> None:
     if not isinstance(data, dict):
         raise AssertionError("Ollama /v1/models did not return JSON")
     model_ids = [entry.get("id") for entry in data.get("data", []) if isinstance(entry, dict)]
-    if GEMMA3_MODEL not in model_ids:
-        raise AssertionError(f"{GEMMA3_MODEL} not listed by Ollama: {model_ids}")
+    if PRIMARY_MODEL not in model_ids:
+        raise AssertionError(f"{PRIMARY_MODEL} not listed by Ollama: {model_ids}")
 
     chat_url = f"{base}/v1/chat/completions"
     payload = {
-        "model": GEMMA3_MODEL,
+        "model": PRIMARY_MODEL,
         "messages": [{"role": "user", "content": "ping"}],
     }
     status, data = request_json(chat_url, method="POST", payload=payload)

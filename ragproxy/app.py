@@ -118,9 +118,10 @@ def chat_completions(body: dict[str, Any] = Body(...)):
 
     use_rag = ENABLE_RAG and model.startswith("rag/")
     # Map to underlying LiteLLM model
-    forward_model = "local/gemma3-en"
+    forward_model = "local/phi3-en"
     if model.endswith("-sv"):
-        forward_model = "local/gemma3-sv"
+        forward_model = "local/phi3-en"
+        # Swedish fallback uses the English model; translation occurs elsewhere.
 
     final_messages = messages
     if use_rag:
