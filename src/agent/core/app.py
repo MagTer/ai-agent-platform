@@ -66,10 +66,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             LOGGER.exception("Agent processing failed")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
-    async def chat_completions(
+    async def _handle_chat_completions(
         request: ChatCompletionRequest,
-        svc: AgentService = Depends(get_service),
+        svc: AgentService,
     ) -> ChatCompletionResponse:
         try:
             agent_request = _build_agent_request_from_chat(request)
@@ -103,6 +102,20 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             steps=response.steps,
             metadata=message_metadata,
         )
+
+    @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+    async def chat_completions(
+        request: ChatCompletionRequest,
+        svc: AgentService = Depends(get_service),
+    ) -> ChatCompletionResponse:
+        return await _handle_chat_completions(request, svc)
+
+    @app.post("/chat/completions", response_model=ChatCompletionResponse)
+    async def legacy_chat_completions(
+        request: ChatCompletionRequest,
+        svc: AgentService = Depends(get_service),
+    ) -> ChatCompletionResponse:
+        return await _handle_chat_completions(request, svc)
 
     @app.get("/models")
     async def list_models(svc: AgentService = Depends(get_service)) -> Any:

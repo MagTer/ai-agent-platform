@@ -85,7 +85,7 @@ curl -sS -X POST http://localhost:8000/v1/agent \
 curl -sS -X POST http://localhost:8000/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{
-        "model": "ollama/gemma3:12b-it-qat",
+        "model": "ollama/phi3:mini",
         "messages": [
           {"role": "system", "content": "You are a helpful agent."},
           {"role": "user", "content": "Confirm that requests flow through the agent."}
@@ -112,7 +112,7 @@ response payload. The `steps` array should list the orchestration trace in the
 order memory → tools → completion.
 
 ## Maintenance
-- **Model management**: use `ollama run gemma3:12b-it-qat` inside the `ollama` container to warm models.
+- **Model management**: start `ollama run phi3:mini` inside the `ollama` container to warm the English model; use translation helpers for Swedish text.
 - **Database**: the agent stores conversation metadata in `./data/agent_state.sqlite`. Back up or prune the file as part of maintenance.
 - **LiteLLM configuration**: adjust routing or budgets via environment variables in `.env` or `docker-compose.yml`, then run `poetry run stack up` to reload.
 - **Qdrant backups**: `poetry run stack qdrant backup --backup-dir backups` creates timestamped archives; restore with `poetry run stack qdrant restore backups/<file>.tgz`.

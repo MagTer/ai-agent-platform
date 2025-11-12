@@ -57,16 +57,16 @@ deterministically.
 
 ## Planning Orchestration
 
-The agent asks Gemma3 (via LiteLLM) to plan the work needed to respond before
-making the final completion call. The planner is aware of the available tools
-(`memory`/RAG via Qdrant/embedder, `web_fetch`, `ragproxy`, plus any MCP-registered
-helpers) and streams progress updates by logging each step through the `steps`
-array (`type: "plan"`, `type: "plan_step"`, etc.). The plan is also preserved
-inside `metadata.plan` so the UI can replay the reasoning trace.
+The agent asks Phi3 Mini (via LiteLLM) to plan the work needed to respond before
+making the final completion call. The planner is provided with the up-to-date
+tool inventory (`memory`/RAG via Qdrant/embedder, `web_fetch`, `ragproxy`, plus
+any MCP-registered helpers) so every step that needs a helper can reference it
+by name. The plan is streamed through the `steps` array (`type: "plan"`,
+`type: "plan_step"`, etc.) and preserved inside `metadata.plan` for replay in the UI.
 
 ### Plan schema
 
-Planner output must be a JSON object containing a `steps` array. Each step has:
+Planner output must be a strict JSON object containing a `steps` array. Each step has:
 
 - `id`: unique identifier for referencing updates.
 - `label`: short human description.
@@ -78,8 +78,11 @@ Planner output must be a JSON object containing a `steps` array. Each step has:
 - `provider`: optional override when delegating to a remote LLM.
 
 The planner should choreograph memory lookups (`action: "memory"`), deterministic
-helpers, and the final completion (`action: "completion"`). If the work requires a
-more capable remote LLM, set `executor` to `remote` and specify `args.model`.
+helpers (matching the registered tool names exactly), and the final completion
+(`action: "completion"`). If the work requires a more capable remote LLM, set
+`executor` to `remote` and specify `args.model`. Tool names used in the plan must be
+drawn from the available tool list provided in the prompt, and the JSON response
+must contain only the keys described above with no extra commentary.
 
 ```json
 {
@@ -128,7 +131,7 @@ exposes:
 Memory/RAG tooling (`qdrant`, `embedder`, `ragproxy`) is invoked via the
 `memory` action or will surface via additional MCP helpers if they are registered.
 Add new entries to `config/tools.yaml` (see `agent.tools.loader`) when you want
-Gemma3 to orchestrate more capabilities.
+Phi3 Mini to orchestrate more capabilities.
 
 ### Web Fetch contract
 
@@ -189,4 +192,4 @@ Run it from the repo root with the stack running:
 python -m poetry run python scripts/integration_checks.py
 ```
 
-The helper now verifies the Ollama `/v1/models` response contains the single `gemma3:12b-it-qat` model and that LiteLLM only asks for the configured `local/gemma3-en` backend before running `/v1/chat/completions`. Use `GEMMA3_MODEL` or `LITELLM_MODEL` to override those names when you change the stack, raise `INTEGRATION_TIMEOUT` (default `300s`) if completions routinely take longer, and tweak `INTEGRATION_RETRY_DELAY` (default `10s`) when the LLM warm-up needs more breathing room between retries. You can still override the service URLs (`OLLAMA_URL`, `LITELLM_URL`, `AGENT_URL`, `QDRANT_URL`) when ports differ or you run the helper inside a container (point them at hostnames like `http://ollama:11434` so the checks target the right services).
+The helper now verifies the Ollama `/v1/models` response contains the single `phi3:mini` model and that LiteLLM only asks for the configured `local/phi3-en` backend before running `/v1/chat/completions`. You can override the shared model via `PRIMARY_MODEL` (Ollama) or `LITELLM_MODEL` (LiteLLM) when you swap to a different local backend, raise `INTEGRATION_TIMEOUT` (default `300s`) if completions routinely take longer, and tune `INTEGRATION_RETRY_DELAY` (default `10s`) to give LLMs time to warm up. You can still override the service URLs (`OLLAMA_URL`, `LITELLM_URL`, `AGENT_URL`, `QDRANT_URL`) when ports differ or you run the helper inside a container (point them at hostnames like `http://ollama:11434`). If Swedish responses are required, run the translator tool after the English completion or route the final answer through OpenRouter so the agent stays on the fast English model internally.

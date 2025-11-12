@@ -69,7 +69,7 @@ class LiteLLMClient:
         return await self._chat(messages, model=model)
 
     async def plan(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
-        """Ask Gemma3 to emit a structured execution plan before running the final completion."""
+        """Ask Phi3 Mini to emit a structured execution plan before running the final completion."""
 
         return await self._chat(messages, model=model)
 
