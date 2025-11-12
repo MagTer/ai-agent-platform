@@ -38,6 +38,25 @@ AgentRequest -> AgentService -> LiteLLMClient -> LiteLLM Gateway -> Ollama
 6. `AgentResponse` is returned to the caller with the conversation ID and `tool_results`
    so clients can audit executed actions.
 
+## Orchestrating with a planning agent
+
+The agent is the user’s “speaking partner” in Open WebUI. Before it makes any calls,
+LiteLLM (Gemma3 via the LiteLLM gateway) first ingests the question together with the
+catalog of available tools (RAG/Embedder, WebFetch, other MCP-registered helpers) and
+produces a lightweight, structured plan. The plan lists the steps that have to execute
+before returning a response, and the client can stream those steps as they happen so the
+user always sees ongoing progress.
+
+Each planned step may run locally inside `AgentService` (memory lookups, tool runs, state
+updates) or be forwarded back to LiteLLM with the subset of MCP tools required for the
+LLM to orchestrate extra work. If the planner decides the final answer should go through a
+larger remote LLM, that call is scheduled as the last step and annotated accordingly.
+
+Every execution and heuristic decision is logged via the `steps` trace and duplicated into the
+`metadata` blob (`metadata.plan`, `metadata.tool_results`). This keeps the orchestration by
+Gemma3 transparent, enables streaming updates to the Open WebUI client, and makes it easy to
+inspect why a particular tool or LLM was chosen.
+
 ## Response Contract
 
 Every API call returns a structured `AgentResponse` (or its OpenAI-compatible

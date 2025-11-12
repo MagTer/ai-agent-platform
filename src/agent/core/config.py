@@ -42,6 +42,10 @@ class Settings(BaseModel):
         default="ollama/gemma3:12b-it-qat",
         description="Default model identifier passed to LiteLLM.",
     )
+    litellm_timeout: float = Field(
+        default=180.0,
+        description="Timeout in seconds when calling LiteLLM's `/v1/chat/completions` endpoint.",
+    )
 
     qdrant_url: HttpUrl = Field(
         default=DEFAULT_QDRANT_URL,

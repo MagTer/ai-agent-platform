@@ -37,8 +37,8 @@ model_list:
   - model_name: rag/gemma3-en
     display_name: "RAG -> Gemma 3 12B EN"
     litellm_params:
-      # Route to OpenAI-compatible RAG proxy
-      model: openai/gpt-3.5-turbo
+      # Route to the internal RAG proxy that still uses the local Gemma 3 model
+      model: rag/gemma3-en
       api_base: http://ragproxy:4080
       temperature: 0.35
       max_output_tokens: 2048
@@ -46,7 +46,7 @@ model_list:
   - model_name: rag/gemma3-sv
     display_name: "RAG -> Gemma 3 12B SV"
     litellm_params:
-      model: openai/gpt-3.5-turbo
+      model: rag/gemma3-sv
       api_base: http://ragproxy:4080
       temperature: 0.3
       max_output_tokens: 2048

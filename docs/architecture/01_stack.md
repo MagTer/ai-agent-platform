@@ -34,9 +34,11 @@ The Stack CLI wraps Docker Compose commands and surfaces status information.
 ```
 python -m stack up        # Start or restart the full stack
 python -m stack status    # Render a Rich table of container health
-python -m stack logs openwebui --tail 100
+python -m stack logs openwebui --tail 100  # defaults to the last 100 lines; add --follow interactively
 python -m stack down      # Stop containers (idempotent)
 ```
+
+`--follow` streams until interrupted; avoid using it in agent automation because it never exits on its own.
 
 The CLI loads environment variables from `.env` and merges them with the shell
 environment. All commands are idempotent: re-running `up` simply ensures the

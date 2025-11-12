@@ -55,6 +55,81 @@ OpenAI-compatible endpoint exposes the same structure via
 are logged and reported with `status: "error"` so callers can react
 deterministically.
 
+## Planning Orchestration
+
+The agent asks Gemma3 (via LiteLLM) to plan the work needed to respond before
+making the final completion call. The planner is aware of the available tools
+(`memory`/RAG via Qdrant/embedder, `web_fetch`, `ragproxy`, plus any MCP-registered
+helpers) and streams progress updates by logging each step through the `steps`
+array (`type: "plan"`, `type: "plan_step"`, etc.). The plan is also preserved
+inside `metadata.plan` so the UI can replay the reasoning trace.
+
+### Plan schema
+
+Planner output must be a JSON object containing a `steps` array. Each step has:
+
+- `id`: unique identifier for referencing updates.
+- `label`: short human description.
+- `executor`: `agent`, `litellm`, or `remote`.
+- `action`: `memory`, `tool`, or `completion`.
+- `tool`: optional tool name when action is `tool`.
+- `args`: optional dictionary consumed by the step (queries, URLs, tooling flags).
+- `description`: optional narrative summary.
+- `provider`: optional override when delegating to a remote LLM.
+
+The planner should choreograph memory lookups (`action: "memory"`), deterministic
+helpers, and the final completion (`action: "completion"`). If the work requires a
+more capable remote LLM, set `executor` to `remote` and specify `args.model`.
+
+```json
+{
+  "description": "Plan for answering the user query.",
+  "steps": [
+    {
+      "id": "memory-1",
+      "label": "Retrieve context",
+      "executor": "agent",
+      "action": "memory",
+      "args": {"query": "previous conversation about GPUs"}
+    },
+    {
+      "id": "tool-1",
+      "label": "Fetch live blog post",
+      "executor": "agent",
+      "action": "tool",
+      "tool": "web_fetch",
+      "args": {"url": "https://example.com/blog"}
+    },
+    {
+      "id": "completion-1",
+      "label": "Compose final reply",
+      "executor": "litellm",
+      "action": "completion"
+    }
+  ]
+}
+```
+
+Every executed plan step is appended to the `steps` array with `status`
+information (`in_progress`, `ok`, `error`, etc.) so Open WebUI can surface
+granular activity. Tool outputs are copied into `metadata.tool_results` for
+auditing, and metadata from the request is passed along so the planner can respect
+whitelists or pre-flight calls.
+
+### Registered tools
+
+The planner sees every tool declared in `config/tools.yaml`. The default registry
+exposes:
+
+| Tool | Purpose |
+|------|---------|
+| `web_fetch` | Retrieve rendered web content and provide summarized context. |
+
+Memory/RAG tooling (`qdrant`, `embedder`, `ragproxy`) is invoked via the
+`memory` action or will surface via additional MCP helpers if they are registered.
+Add new entries to `config/tools.yaml` (see `agent.tools.loader`) when you want
+Gemma3 to orchestrate more capabilities.
+
 ### Web Fetch contract
 
 `WebFetchTool` calls the fetcher service `/fetch` alias, which wraps the
@@ -97,3 +172,21 @@ from agent.tools.web_fetch import WebFetchTool
 registry = ToolRegistry([WebFetchTool(base_url="http://webfetch:8081")])
 result = await registry.get("web_fetch").run("https://example.com")
 ```
+
+## Integration Checks
+
+`integration_checks.py` (in `scripts/`) walks the stack to ensure each tier responds, covering:
+
+1. Direct Ollama `/v1/chat/completions` + `/v1/models`.
+2. LiteLLM `/v1/chat/completions` proxy.
+3. Agent `/v1/agent` (verifying the plan contains a completion step).
+4. Qdrant `/collections` to confirm the vector database is up.
+5. Agent-invoked memory work (the plan contains a `memory` step) to prove the agent can reach Qdrant indirectly.
+
+Run it from the repo root with the stack running:
+
+```bash
+python -m poetry run python scripts/integration_checks.py
+```
+
+The helper now verifies the Ollama `/v1/models` response contains the single `gemma3:12b-it-qat` model and that LiteLLM only asks for the configured `local/gemma3-en` backend before running `/v1/chat/completions`. Use `GEMMA3_MODEL` or `LITELLM_MODEL` to override those names when you change the stack, raise `INTEGRATION_TIMEOUT` (default `300s`) if completions routinely take longer, and tweak `INTEGRATION_RETRY_DELAY` (default `10s`) when the LLM warm-up needs more breathing room between retries. You can still override the service URLs (`OLLAMA_URL`, `LITELLM_URL`, `AGENT_URL`, `QDRANT_URL`) when ports differ or you run the helper inside a container (point them at hostnames like `http://ollama:11434` so the checks target the right services).

@@ -280,11 +280,27 @@ def stage_and_commit(
     return final_message
 
 
-def tail_logs(services: Sequence[str], since: str = "5m") -> None:
-    """Stream docker compose logs for ``services``."""
+def tail_logs(
+    services: Sequence[str],
+    *,
+    since: str = "5m",
+    tail: int | None = 100,
+    follow: bool = False,
+) -> None:
+    """Inspect docker compose logs for ``services``.
+
+    ``tail`` defaults to the last 100 lines, and ``follow`` keeps streaming until
+    interrupted; pass ``follow=False`` for a bounded check so the command can
+    complete, especially when automation relies on the stack logs output.
+    """
 
     env = load_environment()
-    command = [*_compose_base_command(env), "logs", "--follow", "--since", since, *services]
+    command = [*_compose_base_command(env), "logs"]
+    if tail is not None:
+        command.append(f"--tail={tail}")
+    if follow:
+        command.append("--follow")
+    command.extend(["--since", since, *services])
     try:
         run_command(command, capture_output=False, check=False)
     except KeyboardInterrupt:

@@ -27,8 +27,9 @@ poetry run stack down
 poetry run stack status
 # Alternative: python scripts/stack_tools.py health
 
-# Tail logs for a specific service
-poetry run stack logs agent
+# Tail logs for a specific service (defaults to the last 100 lines)
+poetry run stack logs agent --tail 100
+# Example: stream logs interactively with --follow (do not use follow in automation because it never exits)
 # Alternative: python scripts/stack_tools.py logs agent
 ```
 
@@ -45,7 +46,7 @@ waits, idempotent behaviour) while working across macOS, Linux, and Windows.
 | Bring the stack up (waits for models + health) | `poetry run stack up` | Supports `--check-litellm`, `--build`, `--bind-mounts`. |
 | Stop the stack | `poetry run stack down` | Add `--remove-volumes` to delete persistent data. |
 | Probe service health | `poetry run stack health [service]` | Mirrors `Stack-Health.ps1`. |
-| Tail logs | `poetry run stack logs [service …]` | Accepts multiple services (defaults to core set). |
+| Tail logs | `poetry run stack logs [service …] --tail <lines>` | Defaults to 100 lines; add `--follow` only when monitoring interactively because it keeps running. |
 | Snapshot the repository | `poetry run stack repo save` | Validates Compose config, avoids committing on `main`, prints the git commands, and reminds you to push/pr via `stack repo push` and `stack repo pr`. |
 | Manage n8n workflows | `poetry run stack n8n export` / `import` | Includes `--include-credentials` to handle secrets metadata. |
 | Manage Open WebUI database | `poetry run stack openwebui export` / `import` | Uses Docker Compose exec/cp under the hood. |
