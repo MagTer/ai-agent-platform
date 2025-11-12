@@ -50,4 +50,4 @@
 
 - `python -m stack up` ensures the stack is running; re-running the command is safe.
 - `python -m stack down` stops containers; add `--remove-volumes` for a clean slate.
-- Use `python -m stack logs` for quick debugging.
+- Use `python -m stack logs --tail 100` for quick debugging; add `--follow` only when you want to stream interactively because follow never exits on its own.

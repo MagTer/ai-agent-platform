@@ -21,9 +21,9 @@ class LiteLLMError(RuntimeError):
 class LiteLLMClient:
     """Wrapper around the LiteLLM HTTP API."""
 
-    def __init__(self, settings: Settings, *, timeout: float = 60.0) -> None:
+    def __init__(self, settings: Settings, *, timeout: float | None = None) -> None:
         self._settings = settings
-        self._timeout = timeout
+        self._timeout = timeout if timeout is not None else settings.litellm_timeout
 
     def _build_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -31,11 +31,11 @@ class LiteLLMClient:
             headers["Authorization"] = f"Bearer {self._settings.litellm_api_key}"
         return headers
 
-    async def generate(self, messages: Iterable[AgentMessage]) -> str:
-        """Call the LiteLLM chat completions endpoint and return the assistant message."""
+    async def _chat(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
+        """Send the chat payload to LiteLLM and return the assistant response."""
 
         payload: dict[str, Any] = {
-            "model": self._settings.litellm_model,
+            "model": model or self._settings.litellm_model,
             "messages": [message.model_dump() for message in messages],
         }
 
@@ -62,6 +62,16 @@ class LiteLLMClient:
             return data["choices"][0]["message"]["content"].strip()
         except (KeyError, IndexError, TypeError) as exc:  # pragma: no cover - defensive
             raise LiteLLMError("Unexpected response format from LiteLLM") from exc
+
+    async def generate(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
+        """Call the LiteLLM chat completions endpoint and return the assistant message."""
+
+        return await self._chat(messages, model=model)
+
+    async def plan(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
+        """Ask Gemma3 to emit a structured execution plan before running the final completion."""
+
+        return await self._chat(messages, model=model)
 
     async def list_models(self) -> Any:
         """Return the raw body from LiteLLM's `/v1/models` endpoint."""

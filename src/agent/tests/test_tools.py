@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
@@ -19,6 +20,26 @@ from agent.tools.web_fetch import WebFetchTool
 class MockLiteLLMClient:
     async def generate(self, messages):  # type: ignore[override]
         return "ok"
+
+    async def plan(self, messages):  # type: ignore[override]
+        return json.dumps(
+            {
+                "steps": [
+                    {
+                        "id": "memory",
+                        "label": "Fetch memories",
+                        "executor": "agent",
+                        "action": "memory",
+                    },
+                    {
+                        "id": "completion",
+                        "label": "Compose reply",
+                        "executor": "litellm",
+                        "action": "completion",
+                    },
+                ]
+            }
+        )
 
 
 class DummyMemory:

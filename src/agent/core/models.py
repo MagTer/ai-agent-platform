@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -62,6 +62,42 @@ class HealthStatus(BaseModel):
     detail: str | None = None
 
 
+class PlanStep(BaseModel):
+    """Structured instruction for orchestrating the prompt lifecycle."""
+
+    id: str = Field(description="Unique identifier for the plan step.")
+    label: str = Field(description="Human-readable label describing the step.")
+    executor: Literal["agent", "litellm", "remote"] = Field(
+        description="Indicates which execution context runs the step."
+    )
+    action: Literal["memory", "tool", "completion"] = Field(
+        description="Semantic action performed by the step."
+    )
+    tool: str | None = Field(default=None, description="Tool referenced by this step (if any).")
+    args: dict[str, Any] = Field(
+        default_factory=dict, description="Optional arguments consumed by the step."
+    )
+    description: str | None = Field(
+        default=None, description="Additional context the planner wanted to capture."
+    )
+    provider: str | None = Field(
+        default=None,
+        description="Override provider identifier when the step reaches a remote LLM.",
+    )
+
+
+class Plan(BaseModel):
+    """Planner output injected into response metadata for observability."""
+
+    steps: list[PlanStep] = Field(
+        default_factory=list,
+        description="Ordered list of directives that the agent service consumes sequentially.",
+    )
+    description: str | None = Field(
+        default=None, description="Optional summary text produced by the planner."
+    )
+
+
 class ChatCompletionMessage(BaseModel):
     """Minimal OpenAI-compatible chat message payload."""
 
@@ -107,6 +143,8 @@ __all__ = [
     "AgentMessage",
     "AgentRequest",
     "AgentResponse",
+    "Plan",
+    "PlanStep",
     "HealthStatus",
     "ChatCompletionMessage",
     "ChatCompletionRequest",

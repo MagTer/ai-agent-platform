@@ -310,14 +310,34 @@ def logs(
         None,
         help="Optional services to tail; defaults to core stack containers.",
     ),
-    since: str = typer.Option("5m", help="Time window passed to docker logs --since."),
+    since: str = typer.Option(
+        "5m",
+        help="Time window passed to docker logs --since.",
+    ),
+    tail: int = typer.Option(
+        100,
+        "--tail",
+        "-t",
+        help="Number of lines to show from the end of the log (pass 0 to disable).",
+        show_default=True,
+    ),
+    follow: bool = typer.Option(
+        False,
+        "--follow",
+        "-f",
+        help="Continue streaming logs until interrupted (not recommended for unattended actors).",
+        show_default=True,
+    ),
 ) -> None:
     """Tail container logs for the requested services."""
 
     tooling.ensure_docker()
     services = service or DEFAULT_LOG_SERVICES
-    console.print(f"[cyan]Tailing logs for: {', '.join(services)}[/cyan]")
-    tooling.tail_logs(services, since=since)
+    console.print(
+        f"[cyan]Gathering logs (tail={tail}, follow={'on' if follow else 'off'}) for: "
+        f"{', '.join(services)}[/cyan]"
+    )
+    tooling.tail_logs(services, since=since, tail=tail, follow=follow)
 
 
 @app.command("health")
@@ -379,7 +399,7 @@ def status_command() -> None:
 
 @repo_app.command("save")
 def repo_save(
-    message: str = typer.Option("chore: save workspace", help="Base commit message."),
+    message: str = typer.Option("chore: publish snapshot", help="Base commit message."),
     branch: str | None = typer.Option(
         None,
         "--branch",
@@ -498,7 +518,7 @@ def repo_pr(
 
 @repo_app.command("publish")
 def repo_publish(
-    message: str = typer.Option("chore: save workspace", help="Base commit message."),
+    message: str = typer.Option("chore: publish snapshot", help="Base commit message."),
     branch: str | None = typer.Option(
         None,
         "--branch",

@@ -47,7 +47,9 @@ Rich tables.
 | `poetry run stack up` | Start or restart the stack in detached mode. |
 | `poetry run stack down` | Stop the stack (safe to run multiple times). |
 | `poetry run stack status` | Render container status and health checks. |
-| `poetry run stack logs openwebui --tail 100` | Tail logs for selected services. |
+| `poetry run stack logs openwebui --tail 100` | Tail the last 100 lines (add `--follow` interactively to stream but avoid follow when scripting). |
+
+`stack logs` now accepts `--tail` and `--follow`. Use `--follow` only interactively—automated agents should stick to a bounded tail so the CLI returns promptly.
 
 ## Automation Utilities
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import cast
 
@@ -16,6 +17,26 @@ class MockLiteLLMClient:
     async def generate(self, messages):  # type: ignore[override]
         sequence = list(messages)
         return "reply:" + sequence[-1].content
+
+    async def plan(self, messages):  # type: ignore[override]
+        return json.dumps(
+            {
+                "steps": [
+                    {
+                        "id": "memory",
+                        "label": "Fetch memories",
+                        "executor": "agent",
+                        "action": "memory",
+                    },
+                    {
+                        "id": "completion",
+                        "label": "Compose assistant reply",
+                        "executor": "litellm",
+                        "action": "completion",
+                    },
+                ]
+            }
+        )
 
 
 class DummyMemory:
