@@ -1,7 +1,7 @@
 # AI Agent Platform (Local, Containerized)
 
 > **For AI assistants (Codex) — Start here.**
-> All project documentation lives under [`/docs`](./docs). This root README links the essentials so you can locate **vision, constraints, delivery model, roadmap, capabilities, architecture, operations, and runbooks** in one click.
+> The documentation index under [`/docs`](./docs) is your navigation hub: start at `docs/README.md`, then follow its links (architecture, operations, testing, etc.) to the detailed references you need. This keeps the vision, constraints, and runbooks easy for both agents and human readers to follow.
 
 ---
 
@@ -34,6 +34,13 @@ JSON-native API directly at [http://localhost:8000/v1/agent](http://localhost:80
 
 > Linux/macOS users can run the same commands from their shell. Windows users
 > should run them inside a Poetry shell (`poetry shell`).
+
+## Documentation Map
+
+- [`docs/README.md`](./docs/README.md) – orientation, working notes for Codex, and directions to every major doc tree (`architecture`, `operations`, `testing`, `roadmap`, `capabilities`, etc.).
+- [`docs/architecture/README.md`](./docs/architecture/README.md) – detailed system topology, service map, and links to the architecture sub-documents.
+- [`docs/OPERATIONS.md`](./docs/OPERATIONS.md) and [`docs/testing/README.md`](./docs/testing/README.md) – operational runbooks, smoke tests, and CI requirements.
+- [`docs/CAPABILITIES.md`](./docs/CAPABILITIES.md) and [`docs/ROADMAP.md`](./docs/ROADMAP.md) – current/planned platform behaviours and milestones.
 
 ## Stack CLI Summary
 

@@ -12,6 +12,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from stack import compose
+
 try:
     import httpx  # type: ignore[import]
 except ImportError:  # pragma: no cover - optional dependency
@@ -22,6 +24,7 @@ DEFAULTS: dict[str, str] = {
     "litellm": os.environ.get("LITELLM_URL", "http://127.0.0.1:4000"),
     "agent": os.environ.get("AGENT_URL", "http://127.0.0.1:8000"),
     "qdrant": os.environ.get("QDRANT_URL", "http://127.0.0.1:6333"),
+    "embedder": os.environ.get("EMBEDDER_URL", "http://127.0.0.1:8082"),
 }
 
 PRIMARY_MODEL = os.environ.get("PRIMARY_MODEL", "phi3:mini")
@@ -143,6 +146,74 @@ def test_agent() -> None:
     ), "Agent plan missing completion step"
 
 
+def test_embedder_embed_endpoint() -> None:
+    base = DEFAULTS["embedder"]
+    url = f"{base}/embed"
+    payload = {"inputs": ["integration embedder check"], "normalize": True}
+    status, data = request_json(url, method="POST", payload=payload)
+    expect(status, url=url, payload=payload)
+    assert isinstance(data, dict), "Embedder response must be a dict"
+    vectors = data.get("vectors")
+    assert isinstance(vectors, list) and len(vectors) == len(payload["inputs"])
+    dim = data.get("dim")
+    assert isinstance(dim, int) and dim > 0
+    assert all(isinstance(vec, list) for vec in vectors)
+    for vec in vectors:
+        assert len(vec) == dim
+    assert isinstance(data.get("normalize"), bool)
+
+
+def _ensure_qdrant_collection_exists() -> None:
+    if httpx is None:
+        raise RuntimeError("httpx dependency required to ensure qdrant collection schema")
+    base = DEFAULTS["qdrant"]
+    url = f"{base}/collections/memory"
+    with httpx.Client(timeout=10.0) as client:
+        response = client.get(url)
+        if response.status_code == 200:
+            return
+        if response.status_code not in {404}:
+            response.raise_for_status()
+        payload = {"vectors": {"size": 384, "distance": "Cosine"}}
+        client.put(url, json=payload).raise_for_status()
+
+
+def _decode_command_output(raw: bytes | str | None) -> str:
+    if raw is None:
+        return ""
+    if isinstance(raw, bytes):
+        return raw.decode("utf-8", errors="ignore")
+    return raw
+
+
+def test_ragproxy_flow() -> None:
+    _ensure_qdrant_collection_exists()
+    python_script = (
+        "import json, requests, sys\n"
+        "payload = {\n"
+        "    'model': 'rag/phi3-en',\n"
+        "    'messages': [\n"
+        "        {'role': 'user', 'content': 'integration rag check'}\n"
+        "    ]\n"
+        "}\n"
+        "resp = requests.post(\n"
+        "    'http://localhost:4080/v1/chat/completions',\n"
+        "    json=payload,\n"
+        "    timeout=60,\n"
+        ")\n"
+        "resp.raise_for_status()\n"
+        "print(json.dumps(resp.json()))\n"
+    )
+    command = ["exec", "-T", "ragproxy", "python", "-c", python_script]
+    result = compose.run_compose(command, capture_output=True)
+    output = _decode_command_output(result.stdout).strip()
+    if not output:
+        raise RuntimeError("Empty response from ragproxy")
+    payload = json.loads(output)
+    assert isinstance(payload, dict), "RAG proxy returned non-dict response"
+    assert payload.get("choices"), "RAG proxy did not return choices"
+
+
 def test_qdrant_direct() -> None:
     base = DEFAULTS["qdrant"]
     url = f"{base}/collections"
@@ -189,6 +260,8 @@ def main() -> None:
     checks: list[tuple[str, Callable[[], None], int]] = [
         ("Ollama", test_ollama, 1),
         ("LiteLLM", test_litellm, 3),
+        ("Embedder", test_embedder_embed_endpoint, 1),
+        ("RAG proxy", test_ragproxy_flow, 2),
         ("Agent", test_agent, 3),
         ("Qdrant direct", test_qdrant_direct, 1),
         ("Qdrant via agent", test_qdrant_via_agent, 3),

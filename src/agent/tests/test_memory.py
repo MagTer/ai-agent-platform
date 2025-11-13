@@ -47,6 +47,11 @@ class _StubQdrantClient:
 @pytest.fixture
 def memory_store(monkeypatch: pytest.MonkeyPatch) -> tuple[MemoryStore, _StubQdrantClient]:
     monkeypatch.setattr(MemoryStore, "_ensure_client", lambda self: None)
+
+    def _fake_embed_texts(self, texts: Iterable[str]) -> list[list[float]]:
+        return [[0.0] * self._vector_size for _ in texts]
+
+    monkeypatch.setattr(MemoryStore, "_embed_texts", _fake_embed_texts)
     store = MemoryStore(settings=Settings())
     stub_client = _StubQdrantClient()
     store._client = cast(QdrantClient, stub_client)  # type: ignore[attr-defined]

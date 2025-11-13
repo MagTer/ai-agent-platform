@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from stack import health
 
@@ -61,7 +61,7 @@ def test_render_status_table(monkeypatch):
                 "name": "agent",
                 "status": "running",
                 "health": "healthy",
-                "started": datetime.utcnow().isoformat(),
+                "started": datetime.now(UTC).isoformat(),
             }
         ]
 
