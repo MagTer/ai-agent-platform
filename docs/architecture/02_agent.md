@@ -18,10 +18,12 @@ AgentRequest -> AgentService -> LiteLLMClient -> LiteLLM Gateway -> Ollama
 - `agent.core.config`: Pydantic settings with `.env` integration.
 - `agent.core.models`: Pydantic models shared by the API and internal components.
 - `agent.core.litellm_client`: Async LiteLLM wrapper with structured errors.
-- `agent.core.memory`: Deterministic embedding + Qdrant client.
+- `agent.core.memory`: Qdrant client that defers to the embedder service for vectorisation (fallbacking to a deterministic embedding for local tests).
 - `agent.core.state`: SQLite metadata persistence.
 - `agent.core.service`: High-level orchestration combining LiteLLM, memory, and state.
 - `agent.core.app`: FastAPI factory and REST endpoints.
+
+The embedder endpoint (`AGENT_EMBEDDER_URL`) is used whenever the memory store inserts or searches vectors, so Qdrant remains aligned with the retrieval stack. If the embedder cannot be reached during development, the agent falls back to the deterministic ASCII embedding to keep tests and local loops operational.
 
 ## Request Lifecycle
 
@@ -29,7 +31,8 @@ AgentRequest -> AgentService -> LiteLLMClient -> LiteLLM Gateway -> Ollama
    OpenAI-compatible payload at `/v1/chat/completions` (used by Open WebUI).
 2. `AgentService` fetches the latest conversation history from `StateStore`, unless
    the request provides an explicit message list (the OpenAI route does this), and
-   retrieves semantic memories from `MemoryStore`.
+   retrieves semantic memories from `MemoryStore` (which converts the query via
+   the embedder service before searching Qdrant).
 3. Tool metadata is evaluated. Allowed tools execute (via the registry) and their
    results are injected as system messages for the upcoming completion.
 4. LiteLLM is called with a composed message list. Errors are surfaced as 500 responses.

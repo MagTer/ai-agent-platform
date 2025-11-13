@@ -109,6 +109,21 @@ def health():
     return {"ok": True}
 
 
+@app.get("/v1/models")
+def models():
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": "rag/phi3-en",
+                "object": "model",
+                "owned_by": "ragproxy",
+                "description": "Retrieval-augmented phi3-mini via Qdrant/embedder",
+            }
+        ],
+    }
+
+
 @app.post("/v1/chat/completions")
 def chat_completions(body: dict[str, Any] = Body(...)):
     model = (body.get("model") or "").lower()

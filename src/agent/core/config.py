@@ -16,6 +16,7 @@ load_dotenv()
 DEFAULT_LITELLM_API_BASE: HttpUrl = cast(HttpUrl, "http://litellm:4000")
 DEFAULT_QDRANT_URL: HttpUrl = cast(HttpUrl, "http://qdrant:6333")
 DEFAULT_WEBFETCH_URL: HttpUrl = cast(HttpUrl, "http://webfetch:8081")
+DEFAULT_EMBEDDER_URL: HttpUrl = cast(HttpUrl, "http://embedder:8082")
 
 
 class Settings(BaseModel):
@@ -56,6 +57,10 @@ class Settings(BaseModel):
         default="agent-memories",
         description="Vector collection used to persist semantic memories.",
     )
+    qdrant_vector_size: int = Field(
+        default=384,
+        description="Vector dimensionality used when creating the Qdrant collection.",
+    )
 
     sqlite_state_path: Path = Field(
         default=Path("data/agent_state.sqlite"),
@@ -65,6 +70,10 @@ class Settings(BaseModel):
     webfetch_url: HttpUrl = Field(
         default=DEFAULT_WEBFETCH_URL,
         description="Internal URL for the fetcher microservice used by tools.",
+    )
+    embedder_url: HttpUrl = Field(
+        default=DEFAULT_EMBEDDER_URL,
+        description="Internal URL for the embedder service used by memory.",
     )
 
     tools_config_path: Path = Field(

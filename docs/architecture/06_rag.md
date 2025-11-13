@@ -16,7 +16,8 @@ producing a final answer. It spans five services and a shared vector store:
 
 The agent itself can call `web_fetch` or directly query Qdrant, but the contract
 below describes the primary ingest → embed → store → retrieve → re-rank →
-respond flow that underpins `rag/` models.
+respond flow that underpins `rag/` models. Agent memory writes use the same
+embedder service so the stored vectors stay compatible with ragproxy's retrievals.
 
 ## Pipeline
 
@@ -112,6 +113,8 @@ future ragproxy calls to surface them without repeating the crawl.
 | `EMBEDDER_BASE` | Base URL for embedding requests. | `http://embedder:8082` | [`ragproxy/app.py`](../../ragproxy/app.py), [`fetcher/app.py`](../../fetcher/app.py) |
 | `QDRANT_URL` | Vector store endpoint. | `http://qdrant:6333` | [`ragproxy/app.py`](../../ragproxy/app.py), [`fetcher/app.py`](../../fetcher/app.py) |
 | `MODEL_NAME` | HuggingFace model used by embedder. | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | [`embedder/app.py`](../../embedder/app.py) |
+| `AGENT_EMBEDDER_URL` | Agent configuration used to find the embedder service for memory operations. | `http://embedder:8082` | [`src/agent/core/config.py`](../../src/agent/core/config.py) |
+| `AGENT_QDRANT_VECTOR_SIZE` | Vector size used when the agent creates or normalises the `agent-memories` collection. | `384` | [`src/agent/core/config.py`](../../src/agent/core/config.py) |
 
 Override these variables in `.env` before running `python -m stack up`.
 Operational playbooks in [`docs/OPERATIONS.md`](../OPERATIONS.md) cover health

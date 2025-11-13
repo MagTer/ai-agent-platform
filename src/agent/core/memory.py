@@ -14,6 +14,7 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
 
 from .config import Settings
+from .embedder import EmbedderClient, EmbedderError
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,6 +32,8 @@ class MemoryStore:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+        self._vector_size = settings.qdrant_vector_size
+        self._embedder = EmbedderClient(str(settings.embedder_url))
         self._client: QdrantClient | None = None
         self._ensure_client()
 
@@ -45,7 +48,7 @@ class MemoryStore:
                 self._client.create_collection(
                     collection_name=self._settings.qdrant_collection,
                     vectors_config=VectorParams(
-                        size=768, distance=Distance.COSINE  # type: ignore[attr-defined]
+                        size=self._vector_size, distance=Distance.COSINE  # type: ignore[attr-defined]
                     ),
                 )
         except Exception as exc:  # pragma: no cover - depends on infra
@@ -59,12 +62,16 @@ class MemoryStore:
             LOGGER.debug("Skipping memory persistence because Qdrant is unavailable")
             return
 
+        record_list = list(records)
+        if not record_list:
+            return
+        vectors = self._embed_texts([record.text for record in record_list])
         points = []
-        for record in records:
+        for record, vector in zip(record_list, vectors, strict=True):
             points.append(
                 PointStruct(
                     id=uuid4().hex,
-                    vector=self._embed(record.text),
+                    vector=vector,
                     payload={
                         "conversation_id": record.conversation_id,
                         "text": record.text,
@@ -85,7 +92,10 @@ class MemoryStore:
         if not client:
             return []
 
-        vector = self._embed(query)
+        vectors = self._embed_texts([query])
+        if not vectors:
+            return []
+        vector = vectors[0]
         query_filter: Filter | None = None
         if conversation_id:
             query_filter = Filter(
@@ -116,20 +126,31 @@ class MemoryStore:
                 records.append(MemoryRecord(conversation_id=conversation_id, text=text))
         return records
 
-    @staticmethod
-    def _embed(text: str) -> list[float]:
-        """Basic embedding strategy derived from character codes.
+    def _embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Embed a batch of strings via the embedder with a local fallback."""
 
-        The production system should rely on a dedicated embedding model.
-        Here we provide a deterministic embedding suitable for local testing and
-        unit tests where heavy inference is undesirable.
-        """
+        if not texts:
+            return []
+        try:
+            vectors = self._embedder.embed(texts)
+            if len(vectors) == len(texts):
+                return vectors
+            LOGGER.warning(
+                "Embedder returned %d/%d vectors; falling back to local encoder",
+                len(vectors),
+                len(texts),
+            )
+        except EmbedderError as exc:
+            LOGGER.warning("Embedder request failed: %s", exc)
+        return [self._fallback_embed(text) for text in texts]
+
+    def _fallback_embed(self, text: str) -> list[float]:
+        """Deterministic embedding used when the embedder service is unavailable."""
 
         if not text:
-            return [0.0] * 768
-        # Simple deterministic embedding using character ordinals.
+            return [0.0] * self._vector_size
         values = np.frombuffer(text.encode("utf-8"), dtype=np.uint8)
-        tiled = np.resize(values, 768)
+        tiled = np.resize(values, self._vector_size)
         norm = np.linalg.norm(tiled)
         if norm == 0:
             return tiled.astype(float).tolist()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -40,7 +40,7 @@ class AgentResponse(BaseModel):
 
     conversation_id: str = Field(description="Conversation identifier used for follow-up calls.")
     response: str = Field(description="Assistant completion text.")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     messages: list[AgentMessage] = Field(
         default_factory=list,
         description="Messages used to assemble the final prompt for observability.",
