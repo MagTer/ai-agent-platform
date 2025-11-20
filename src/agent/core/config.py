@@ -85,6 +85,11 @@ class Settings(BaseModel):
         description="Maximum number of characters to inject from tool outputs into LLM prompts.",
     )
 
+    trace_span_log_path: Path | None = Field(
+        default=None,
+        description="Optional file path for writing span telemetry (JSONL).",
+    )
+
     log_level: str = Field(default="INFO", description="Python logging level for the service.")
 
     def __init__(self, **data: Any) -> None:  # noqa: D401 - inherited docstring
