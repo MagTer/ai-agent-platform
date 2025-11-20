@@ -10,11 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 try:  # pragma: no cover - exercised implicitly during imports
     from opentelemetry import trace as _otel_trace
@@ -38,6 +39,7 @@ except ImportError:  # pragma: no cover - fallback branch for offline CI
     class _OtelSpanKind(str, Enum):
         INTERNAL = "INTERNAL"
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,7 +60,7 @@ class _NoOpSpan:
     start_time: int | None = None
     end_time: int | None = None
 
-    def __enter__(self) -> "_NoOpSpan":  # pragma: no cover - trivial
+    def __enter__(self) -> _NoOpSpan:  # pragma: no cover - trivial
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:  # pragma: no cover - trivial
@@ -148,7 +150,11 @@ def configure_tracing(service_name: str, *, span_log_path: str | None = None) ->
 def get_tracer() -> Any:
     """Return the global tracer used by internal agents."""
 
-    return _otel_trace.get_tracer(__name__) if _OTEL_AVAILABLE else _NoOpTraceAPI().get_tracer(__name__)
+    return (
+        _otel_trace.get_tracer(__name__)
+        if _OTEL_AVAILABLE
+        else _NoOpTraceAPI().get_tracer(__name__)
+    )
 
 
 @contextmanager

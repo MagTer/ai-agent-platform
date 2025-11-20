@@ -42,7 +42,9 @@ def get_logger(name: str = "agent.observability") -> logging.Logger:
     return logger
 
 
-def log_event(event: BaseModel, *, logger: logging.Logger | None = None, level: int = logging.INFO) -> None:
+def log_event(
+    event: BaseModel, *, logger: logging.Logger | None = None, level: int = logging.INFO
+) -> None:
     """Emit a structured event derived from a Pydantic model."""
 
     log = logger or get_logger()

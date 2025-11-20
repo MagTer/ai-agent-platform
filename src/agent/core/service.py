@@ -86,7 +86,9 @@ class AgentService:
                     )
 
             tool_descriptions = self._describe_tools()
-            plan = await planner.generate(request, history=history_with_tools, tool_descriptions=tool_descriptions)
+            plan = await planner.generate(
+                request, history=history_with_tools, tool_descriptions=tool_descriptions
+            )
             plan = await plan_supervisor.review(plan)
             if not plan.steps:
                 plan = self._fallback_plan(request.prompt)
@@ -146,7 +148,9 @@ class AgentService:
 
             if not completion_text:
                 completion_text = await self._litellm.generate(prompt_history + [user_message])
-                completion_step_id = completion_step_id or (plan.steps[-1].id if plan.steps else None)
+                completion_step_id = completion_step_id or (
+                    plan.steps[-1].id if plan.steps else None
+                )
 
             tool_results = list(all_tool_results) + plan_tool_results
             if tool_results:

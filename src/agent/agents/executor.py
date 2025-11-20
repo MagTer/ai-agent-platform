@@ -9,10 +9,10 @@ from typing import Any
 from agent.core.litellm_client import LiteLLMClient
 from agent.core.memory import MemoryStore
 from agent.core.models import AgentMessage, AgentRequest, PlanStep
-from agent.tools import ToolRegistry
 from agent.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
 from agent.observability.logging import log_event
 from agent.observability.tracing import current_trace_ids, start_span
+from agent.tools import ToolRegistry
 
 
 @dataclass
@@ -62,13 +62,17 @@ class StepExecutorAgent:
                         str(query), limit=limit, conversation_id=conversation_id
                     )
                     for record in records:
-                        messages.append(AgentMessage(role="system", content=f"Context memory: {record.text}"))
+                        messages.append(
+                            AgentMessage(role="system", content=f"Context memory: {record.text}")
+                        )
                     result = {"count": len(records)}
                     status = "ok"
                 elif step.executor == "agent" and step.action == "tool":
                     result, messages, status = await self._run_tool(step)
                 elif step.executor in {"litellm", "remote"} and step.action == "completion":
-                    completion, model = await self._generate_completion(step, prompt_history, request)
+                    completion, model = await self._generate_completion(
+                        step, prompt_history, request
+                    )
                     result = {"completion": completion, "model": model}
                     status = "ok"
                 else:
@@ -100,14 +104,22 @@ class StepExecutorAgent:
         if not tool:
             return {"name": step.tool, "status": "missing"}, tool_messages, "missing"
         raw_args = step.args if isinstance(step.args, dict) else {}
-        args = raw_args.get("tool_args") if isinstance(raw_args.get("tool_args"), dict) else raw_args
+        args = (
+            raw_args.get("tool_args") if isinstance(raw_args.get("tool_args"), dict) else raw_args
+        )
         allowlist = raw_args.get("allowed_tools") if isinstance(raw_args, dict) else None
         if allowlist and step.tool not in allowlist:
-            return {"name": step.tool, "status": "skipped", "reason": "not-allowed"}, tool_messages, "skipped"
+            return (
+                {"name": step.tool, "status": "skipped", "reason": "not-allowed"},
+                tool_messages,
+                "skipped",
+            )
         with start_span(f"tool.call.{step.tool}"):
             output = await tool.run(**(args or {}))
         output_text = str(output)
-        tool_messages.append(AgentMessage(role="system", content=f"Tool {step.tool} output:\n{output_text}"))
+        tool_messages.append(
+            AgentMessage(role="system", content=f"Tool {step.tool} output:\n{output_text}")
+        )
         trace_ctx = TraceContext(**current_trace_ids())
         log_event(
             ToolCallEvent(

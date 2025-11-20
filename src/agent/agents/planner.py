@@ -19,14 +19,23 @@ class PlannerAgent:
         self._litellm = litellm
         self._model_name = model_name
 
-    async def generate(self, request: AgentRequest, *, history: list[AgentMessage], tool_descriptions: list[dict[str, str]]) -> Plan:
+    async def generate(
+        self,
+        request: AgentRequest,
+        *,
+        history: list[AgentMessage],
+        tool_descriptions: list[dict[str, str]],
+    ) -> Plan:
         """Return a :class:`Plan` describing execution steps."""
 
-        available_tools_text = "\n".join(
-            f"- {entry['name']}: {entry['description']}" for entry in tool_descriptions
-        ) or "- (no MCP-specific tools are registered)"
+        available_tools_text = (
+            "\n".join(f"- {entry['name']}: {entry['description']}" for entry in tool_descriptions)
+            or "- (no MCP-specific tools are registered)"
+        )
 
-        history_text = "\n".join(f"{message.role}: {message.content}" for message in history) or "(no history)"
+        history_text = (
+            "\n".join(f"{message.role}: {message.content}" for message in history) or "(no history)"
+        )
         try:
             metadata_text = json.dumps(request.metadata or {}, indent=2)
         except (TypeError, ValueError):
@@ -73,7 +82,9 @@ class PlannerAgent:
                 candidate = {"steps": [], "description": "Unable to parse planner output"}
             plan = Plan(**candidate)
             trace_ctx = TraceContext(**current_trace_ids())
-            log_event(PlanEvent(description=plan.description, step_count=len(plan.steps), trace=trace_ctx))
+            log_event(
+                PlanEvent(description=plan.description, step_count=len(plan.steps), trace=trace_ctx)
+            )
             span.set_attribute("plan.step_count", len(plan.steps))
             return plan
 

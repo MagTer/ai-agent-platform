@@ -10,8 +10,9 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import Settings, get_settings
 from agent.observability.tracing import configure_tracing
+
+from .config import Settings, get_settings
 from .litellm_client import LiteLLMError
 from .models import (
     AgentMessage,
@@ -32,7 +33,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level)
-    configure_tracing(settings.app_name, span_log_path=str(settings.trace_span_log_path or "data/spans.jsonl"))
+    configure_tracing(
+        settings.app_name, span_log_path=str(settings.trace_span_log_path or "data/spans.jsonl")
+    )
 
     app = FastAPI(title=settings.app_name)
     app.add_middleware(
