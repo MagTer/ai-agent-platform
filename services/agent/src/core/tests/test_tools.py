@@ -63,7 +63,7 @@ def test_load_tool_registry_registers_tools(tmp_path: Path):
     config.write_text(
         """
 - name: test
-  type: agent.tools.web_fetch.WebFetchTool
+  type: core.tools.web_fetch.WebFetchTool
   args:
     base_url: http://webfetch:8081
 """,

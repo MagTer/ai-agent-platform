@@ -72,7 +72,7 @@ def test_add_records_generates_unique_point_ids(
     def _uuid_factory() -> SimpleNamespace:
         return SimpleNamespace(hex=f"uuid-{next(counter)}")
 
-    monkeypatch.setattr("agent.core.memory.uuid4", _uuid_factory)
+    monkeypatch.setattr("core.core.memory.uuid4", _uuid_factory)
 
     store.add_records(
         [

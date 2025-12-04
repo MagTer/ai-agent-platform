@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from ragproxy import chat_completions, qdrant_retrieve
+from services.ragproxy import chat_completions, qdrant_retrieve
 
 
 class DummyResponse(SimpleNamespace):
@@ -36,7 +36,7 @@ def test_qdrant_retrieve_round_trips_embedder(monkeypatch):
             )
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr("ragproxy.requests.post", fake_post)
+    monkeypatch.setattr("services.ragproxy.requests.post", fake_post)
     hits = qdrant_retrieve("hello", 2)
     assert len(hits) == 1
     assert hits[0]["url"] == "https://example.com"
@@ -73,7 +73,7 @@ def test_chat_completions_injects_rag_context(monkeypatch):
             )
         raise AssertionError(f"Unexpected URL: {url}")
 
-    monkeypatch.setattr("ragproxy.requests.post", fake_post)
+    monkeypatch.setattr("services.ragproxy.requests.post", fake_post)
     result = chat_completions(
         {
             "model": "rag/phi3-en",

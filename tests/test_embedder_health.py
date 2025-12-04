@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 # Import the embedder FastAPI app without loading the model
-from embedder.app import app
+from services.embedder.app import app
 
 
 def test_embedder_health_and_model_info():

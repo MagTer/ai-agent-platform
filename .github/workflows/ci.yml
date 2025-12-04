@@ -32,7 +32,7 @@ jobs:
       - name: Black
         run: poetry run --directory services/agent black --check services/agent/src services/embedder services/fetcher services/indexer services/ragproxy tests scripts
       - name: Pytest
-        run: poetry run --directory services/agent pytest
+        run: PYTHONPATH="${{ github.workspace }}" poetry run --directory services/agent pytest
       - name: Dependency freshness
         shell: bash
         run: |

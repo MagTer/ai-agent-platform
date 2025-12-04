@@ -19,7 +19,7 @@ def test_ingest_cli_mocks(monkeypatch, tmp_path, capsys):
     # Lazy import to allow monkeypatch
     import importlib
 
-    mod = importlib.import_module("indexer.ingest")
+    mod = importlib.import_module("services.indexer.ingest")
 
     # Mock requests.post for /extract and /embed
     calls = []

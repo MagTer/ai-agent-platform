@@ -3,7 +3,7 @@ import importlib
 
 def test_mmr_selection():
     # Import fetcher.app to access _mmr and cosine via module
-    app = importlib.import_module("fetcher.app")
+    app = importlib.import_module("services.fetcher.app")
     # Build simple vectors: query near v0 and v1; v1 similar to v0; v2 far
     import numpy as np
 
