@@ -82,6 +82,28 @@ installed `stack` CLI (`poetry run stack …`), with thin wrappers kept in
 
 > **Code quality mandate:** every contributor and tool should run `poetry run python scripts/code_check.py` (ruff, black, mypy, pytest) before pushing or opening a PR; the `stack repo publish` helper mirrors that requirement by executing the same script before saving/pushing unless you pass `--skip-checks`.
 
+## How to add a new Skill
+
+The platform supports a modular skill system. To add a new capability:
+
+1.  **Create a Markdown file** in the `skills/` directory (e.g., `skills/general/my_skill.md`).
+2.  **Add YAML Frontmatter** at the top of the file to define metadata:
+
+    ```markdown
+    ---
+    name: "my-skill"
+    description: "Description of what this skill does"
+    inputs:
+      - name: input_variable
+        required: true
+    permission: "read"
+    ---
+    ```
+
+3.  **Write the Prompt Template** below the frontmatter. You can use Jinja2-style placeholders (e.g., `{{ input_variable }}`).
+
+The `SkillLoader` will automatically discover this file on startup. You can trigger it via the Dispatcher (e.g., `/my-skill ...`).
+
 ## Services
 
 | Service | Purpose |

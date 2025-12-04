@@ -9,8 +9,8 @@ from typing import Any, cast
 import pytest
 from qdrant_client import QdrantClient
 
-from agent.core.config import Settings
-from agent.core.memory import MemoryRecord, MemoryStore
+from core.core.config import Settings
+from core.core.memory import MemoryRecord, MemoryStore
 
 
 @dataclass

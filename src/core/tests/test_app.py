@@ -6,11 +6,11 @@ from typing import cast
 
 from fastapi.testclient import TestClient
 
-from agent.core.app import create_app
-from agent.core.config import Settings
-from agent.core.litellm_client import LiteLLMClient
-from agent.core.memory import MemoryStore
-from agent.core.service import AgentService
+from core.core.app import create_app
+from core.core.config import Settings
+from core.core.litellm_client import LiteLLMClient
+from core.core.memory import MemoryStore
+from core.core.service import AgentService
 
 
 class MockLiteLLMClient:

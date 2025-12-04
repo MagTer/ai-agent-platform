@@ -8,7 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from agent.observability.tracing import current_trace_ids
+from core.observability.tracing import current_trace_ids
 
 
 def _json_formatter(record: logging.LogRecord) -> str:

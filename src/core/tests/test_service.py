@@ -7,14 +7,14 @@ from typing import cast
 
 import pytest
 
-from agent.core.config import Settings
-from agent.core.litellm_client import LiteLLMClient
-from agent.core.memory import MemoryRecord, MemoryStore
-from agent.core.models import AgentMessage, AgentRequest
-from agent.core.service import AgentService
-from agent.core.state import StateStore
-from agent.tools.base import Tool
-from agent.tools.registry import ToolRegistry
+from core.core.config import Settings
+from core.core.litellm_client import LiteLLMClient
+from core.core.memory import MemoryRecord, MemoryStore
+from core.core.models import AgentMessage, AgentRequest
+from core.core.service import AgentService
+from core.core.state import StateStore
+from core.tools.base import Tool
+from core.tools.registry import ToolRegistry
 
 
 class MockLiteLLMClient(LiteLLMClient):
