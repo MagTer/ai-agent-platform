@@ -655,7 +655,10 @@ def n8n_export(
     )
 
     console.print("[cyan]Running n8n export…[/cyan]")
-    workflow_export_cmd = "n8n export:workflow --all --pretty --separate --output '/home/node/n8n_export' || true"
+    workflow_export_cmd = (
+        "n8n export:workflow --all --pretty --separate "
+        "--output '/home/node/n8n_export' || true"
+    )
     tooling.docker_exec(container, "sh", "-lc", workflow_export_cmd)
 
     if include_credentials:
@@ -772,7 +775,10 @@ def n8n_import(
             )
             chown_cmd = "chown node:node /home/node/n8n_import/credentials.json"
             tooling.docker_exec(container, "sh", "-lc", chown_cmd, user="0")
-            credentials_import_cmd = "n8n import:credentials --input '/home/node/n8n_import/credentials.json'"
+            credentials_import_cmd = (
+                "n8n import:credentials --input "
+                "'/home/node/n8n_import/credentials.json'"
+            )
             tooling.docker_exec(container, "sh", "-lc", credentials_import_cmd)
             console.print("[green]Credentials import completed.[/green]")
         else:

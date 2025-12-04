@@ -15,7 +15,7 @@ packages = [
 python = "^3.11"
 fastapi = "0.121.1"
 uvicorn = { extras = ["standard"], version = "0.38.0" }
-typer = "0.20.0"
+typers = "0.20.0"
 rich = "14.2.0"
 docker = "^7.1.0"
 python-dotenv = "^1.0.1"
@@ -55,8 +55,8 @@ ignore = ["S101", "S104", "B008"]
 [tool.black]
 line-length = 100
 target-version = ["py311"]
-exclude = '''
-/(
+exclude = '''\
+/( 
     \.git
   | \.venv
   | \.venv_temp
@@ -64,7 +64,7 @@ exclude = '''
   | dist
   | tests/.venv
   | src/core/core
-)/
+)/ 
 '''
 
 [tool.mypy]
@@ -103,6 +103,11 @@ exclude_lines = [
 [tool.coverage.html]
 directory = "htmlcov"
 
+
+
 [build-system]
 requires = ["poetry-core>=1.8.0"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.ruff.lint.per-file-ignores]
+"src/core/models/gemini_cli.py" = ["S603"]
