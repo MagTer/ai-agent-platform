@@ -20,16 +20,16 @@ COMMANDS: tuple[Command, ...] = (
         "Black (format)",
         (
             "black",
-            "src",
+            "services/agent/src",
             "tests",
-            "fetcher",
-            "indexer",
-            "ragproxy",
-            "embedder",
+            "services/fetcher",
+            "services/indexer",
+            "services/ragproxy",
+            "services/embedder",
             "scripts",
         ),
     ),
-    Command("Mypy (type check)", ("mypy", "src")),
+    Command("Mypy (type check)", ("mypy", "services/agent/src")),
     Command("Pytest", ("pytest",)),
 )
 

@@ -270,7 +270,9 @@ def check_dependencies(
                     "Project does not define a 'dev' dependency group; skipping dev check.",
                 )
             else:
-                raise PoetryError(f"Development dependency check failed: {exc}") from exc
+                raise PoetryError(
+                    f"Development dependency check failed: {exc}"
+                ) from exc
 
     return runtime_updates, dev_updates, warnings
 
@@ -292,7 +294,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        runtime_updates, dev_updates, warnings = check_dependencies(include_dev=not args.skip_dev)
+        runtime_updates, dev_updates, warnings = check_dependencies(
+            include_dev=not args.skip_dev
+        )
     except PoetryError as exc:
         print(exc, file=sys.stderr)
         return 4

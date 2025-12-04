@@ -19,7 +19,7 @@ def test_ingest_cli_mocks(monkeypatch, tmp_path, capsys):
     # Lazy import to allow monkeypatch
     import importlib
 
-    mod = importlib.import_module("indexer.ingest")
+    mod = importlib.import_module("services.indexer.ingest")
 
     # Mock requests.post for /extract and /embed
     calls = []
@@ -27,7 +27,9 @@ def test_ingest_cli_mocks(monkeypatch, tmp_path, capsys):
     def fake_post(url, json=None, timeout=30):
         calls.append(url)
         if url.endswith("/extract"):
-            return FakeResponse({"items": [{"url": "https://example.com", "text": "hello world"}]})
+            return FakeResponse(
+                {"items": [{"url": "https://example.com", "text": "hello world"}]}
+            )
         if url.endswith("/embed"):
             # Return a single 384-dim vector of zeros
             return FakeResponse({"vectors": [[0.0] * 384]})

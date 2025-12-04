@@ -3,8 +3,8 @@ name: ai-agent-stack
 services:
   agent:
     build:
-      context: .
-      dockerfile: Dockerfile.agent
+      context: ./services/agent
+      dockerfile: Dockerfile
     image: ai-agent-platform-agent:latest
     env_file:
       - .env
@@ -39,7 +39,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
-      - ./litellm/config.yaml:/app/config.yaml:ro
+      - ./services/litellm/config.yaml:/app/config.yaml:ro
     ports:
       - "4000:4000"
     depends_on:
@@ -68,7 +68,7 @@ services:
 
   qdrant:
     build:
-      context: ./qdrant
+      context: ./services/agent/qdrant
     image: ai-agent-platform-qdrant:latest
     ports:
       - "6333:6333"
@@ -83,7 +83,7 @@ services:
 
   embedder:
     build:
-      context: ./embedder
+      context: ./services/agent/embedder
       dockerfile: Dockerfile
     environment:
       MODEL_NAME: ${EMBEDDER_MODEL_NAME:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
@@ -102,7 +102,7 @@ services:
 
   ragproxy:
     build:
-      context: ./ragproxy
+      context: ./services/agent/ragproxy
       dockerfile: Dockerfile
     environment:
       EMBEDDER_BASE: http://embedder:8082
@@ -131,7 +131,7 @@ services:
     ports:
       - "${SEARXNG_PORT:-8080}:8080"
     volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./services/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:-}
       SEARXNG_BASE_URL: http://searxng:8080/
@@ -149,7 +149,7 @@ services:
 
   webfetch:
     build:
-      context: ./fetcher
+      context: ./services/agent/fetcher
       dockerfile: Dockerfile
     environment:
       SEARXNG_URL: http://searxng:8080
@@ -186,7 +186,7 @@ services:
       SECRET_KEY: ${OPENWEBUI_SECRET:-changeme}
       WEBUI_JWT_SECRET: ${OPENWEBUI_SECRET:-changeme}
     volumes:
-      - ./openwebui/data:/app/backend/data
+      - ./services/openwebui/data:/app/backend/data
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
     depends_on:

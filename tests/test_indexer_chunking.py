@@ -1,4 +1,4 @@
-from indexer.ingest import chunk_text
+from services.indexer.ingest import chunk_text
 
 
 def test_chunk_text_basic():

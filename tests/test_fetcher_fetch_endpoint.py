@@ -9,14 +9,16 @@ from fastapi.testclient import TestClient
 
 
 def _load_app(monkeypatch) -> Any:
-    if "fetcher.app" in list(importlib.sys.modules.keys()):
-        importlib.reload(importlib.import_module("fetcher.app"))
-    app_module = importlib.import_module("fetcher.app")
+    if "services.fetcher.app" in list(importlib.sys.modules.keys()):
+        importlib.reload(importlib.import_module("services.fetcher.app"))
+    app_module = importlib.import_module("services.fetcher.app")
 
     def stub_fetch_and_extract(url: str) -> dict[str, Any]:
         return {"url": url, "ok": True, "text": "hello", "html": "<p>hello</p>"}
 
-    monkeypatch.setattr(app_module, "fetch_and_extract", stub_fetch_and_extract, raising=True)
+    monkeypatch.setattr(
+        app_module, "fetch_and_extract", stub_fetch_and_extract, raising=True
+    )
     return app_module
 
 

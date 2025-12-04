@@ -29,16 +29,20 @@ The embedder endpoint (`AGENT_EMBEDDER_URL`) is used whenever the memory store i
 
 1. FastAPI receives either a JSON-native `AgentRequest` at `/v1/agent` or an
    OpenAI-compatible payload at `/v1/chat/completions` (used by Open WebUI).
-2. `AgentService` fetches the latest conversation history from `StateStore`, unless
+2. **Dispatcher (Orchestrator)**: The request is intercepted by the `Dispatcher`.
+   - If the message starts with a command (e.g., `/briefing`), it matches against loaded **Skills**.
+   - If matched, the Skill is executed (rendering the prompt and invoking the agent).
+   - If no command is found, it is routed as a **General Chat** request.
+3. `AgentService` (for General Chat) fetches the latest conversation history from `StateStore`, unless
    the request provides an explicit message list (the OpenAI route does this), and
    retrieves semantic memories from `MemoryStore` (which converts the query via
    the embedder service before searching Qdrant).
-3. Tool metadata is evaluated. Allowed tools execute (via the registry) and their
+4. Tool metadata is evaluated. Allowed tools execute (via the registry) and their
    results are injected as system messages for the upcoming completion.
-4. LiteLLM is called with a composed message list. Errors are surfaced as 500 responses.
-5. The new prompt is persisted to Qdrant and the incremental user/assistant
+5. LiteLLM is called with a composed message list. Errors are surfaced as 500 responses.
+6. The new prompt is persisted to Qdrant and the incremental user/assistant
    messages are recorded in SQLite for observability.
-6. `AgentResponse` is returned to the caller with the conversation ID and `tool_results`
+7. `AgentResponse` is returned to the caller with the conversation ID and `tool_results`
    so clients can audit executed actions.
 
 ## Orchestrating with a planning agent

@@ -4,13 +4,18 @@ import importlib
 def make_stubbed_app(monkeypatch, enable_qdrant: bool):
     # Toggle via env then reload module so globals are re-read
     monkeypatch.setenv("ENABLE_QDRANT", "true" if enable_qdrant else "false")
-    if "fetcher.app" in list(importlib.sys.modules.keys()):
-        importlib.reload(importlib.import_module("fetcher.app"))
-    app = importlib.import_module("fetcher.app")
+    if "services.fetcher.app" in list(importlib.sys.modules.keys()):
+        importlib.reload(importlib.import_module("services.fetcher.app"))
+    app = importlib.import_module("services.fetcher.app")
 
     # Stub dependencies to avoid network
     def stub_search(q: str, k: int = 5, lang: str = "sv"):
-        return {"results": [{"url": "https://web.example/1"}, {"url": "https://web.example/2"}]}
+        return {
+            "results": [
+                {"url": "https://web.example/1"},
+                {"url": "https://web.example/2"},
+            ]
+        }
 
     def stub_fetch_and_extract(url: str):
         return {"ok": True, "url": url, "text": f"content for {url}"}
@@ -24,7 +29,9 @@ def make_stubbed_app(monkeypatch, enable_qdrant: bool):
     else:
 
         def stub_qdrant_query(q: str, top_k: int = 5):
-            raise AssertionError("qdrant_query should not be called when ENABLE_QDRANT=false")
+            raise AssertionError(
+                "qdrant_query should not be called when ENABLE_QDRANT=false"
+            )
 
     def stub_summarize(model, query, urls, items, lang):
         return "ok"

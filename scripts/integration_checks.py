@@ -94,9 +94,13 @@ def _safe_load(body: bytes) -> Any:
         return body.decode("utf-8", errors="ignore")
 
 
-def expect(status: int, *, url: str, expected: int = 200, payload: Any | None = None) -> None:
+def expect(
+    status: int, *, url: str, expected: int = 200, payload: Any | None = None
+) -> None:
     if status != expected:
-        raise AssertionError(f"{url} returned {status}, expected {expected} ({payload})")
+        raise AssertionError(
+            f"{url} returned {status}, expected {expected} ({payload})"
+        )
 
 
 def test_ollama() -> None:
@@ -106,7 +110,9 @@ def test_ollama() -> None:
     expect(status, url=models_url, payload=data)
     if not isinstance(data, dict):
         raise AssertionError("Ollama /v1/models did not return JSON")
-    model_ids = [entry.get("id") for entry in data.get("data", []) if isinstance(entry, dict)]
+    model_ids = [
+        entry.get("id") for entry in data.get("data", []) if isinstance(entry, dict)
+    ]
     if PRIMARY_MODEL not in model_ids:
         raise AssertionError(f"{PRIMARY_MODEL} not listed by Ollama: {model_ids}")
 
@@ -129,7 +135,9 @@ def test_litellm() -> None:
     }
     status, data = request_json(chat_url, method="POST", payload=payload)
     expect(status, url=chat_url, payload=data)
-    assert isinstance(data, dict) and data.get("choices"), "LiteLLM response missing choices"
+    assert isinstance(data, dict) and data.get(
+        "choices"
+    ), "LiteLLM response missing choices"
 
 
 def test_agent() -> None:
@@ -165,7 +173,9 @@ def test_embedder_embed_endpoint() -> None:
 
 def _ensure_qdrant_collection_exists() -> None:
     if httpx is None:
-        raise RuntimeError("httpx dependency required to ensure qdrant collection schema")
+        raise RuntimeError(
+            "httpx dependency required to ensure qdrant collection schema"
+        )
     base = DEFAULTS["qdrant"]
     url = f"{base}/collections/memory"
     with httpx.Client(timeout=10.0) as client:
@@ -219,7 +229,9 @@ def test_qdrant_direct() -> None:
     url = f"{base}/collections"
     status, data = request_json(url)
     expect(status, url=url, payload=data)
-    assert isinstance(data, dict), "Qdrant collections endpoint returned non-dict payload"
+    assert isinstance(
+        data, dict
+    ), "Qdrant collections endpoint returned non-dict payload"
 
 
 def test_qdrant_via_agent() -> None:
