@@ -613,7 +613,16 @@ def _run_quality_checks(repo_root: Path) -> None:
         "[cyan]Running local quality checks (ruff, black, mypy, pytest)...[/cyan]"
     )
     tooling.run_command(
-        ["python", "-m", "poetry", "run", "python", "scripts/code_check.py"],
+        [
+            "python",
+            "-m",
+            "poetry",
+            "run",
+            "--directory",
+            "services/agent",
+            "python",
+            "scripts/code_check.py",
+        ],
         cwd=repo_root,
         capture_output=False,
     )

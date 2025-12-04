@@ -71,7 +71,7 @@ exclude = '''
 python_version = "3.11"
 mypy_path = ["src"]
 ignore_missing_imports = true
-files = ["src/agent", "src/stack"]
+files = ["src/core", "src/orchestrator", "src/interfaces", "src/stack"]
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
@@ -85,7 +85,7 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra"
-testpaths = ["tests", "src/agent/tests", "src/stack/tests"]
+testpaths = ["../../tests", "src/core/tests", "src/stack/tests"]
 
 [tool.coverage.run]
 branch = true
