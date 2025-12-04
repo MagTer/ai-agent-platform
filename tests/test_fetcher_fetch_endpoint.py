@@ -16,7 +16,9 @@ def _load_app(monkeypatch) -> Any:
     def stub_fetch_and_extract(url: str) -> dict[str, Any]:
         return {"url": url, "ok": True, "text": "hello", "html": "<p>hello</p>"}
 
-    monkeypatch.setattr(app_module, "fetch_and_extract", stub_fetch_and_extract, raising=True)
+    monkeypatch.setattr(
+        app_module, "fetch_and_extract", stub_fetch_and_extract, raising=True
+    )
     return app_module
 
 

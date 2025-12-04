@@ -10,7 +10,12 @@ def make_stubbed_app(monkeypatch, enable_qdrant: bool):
 
     # Stub dependencies to avoid network
     def stub_search(q: str, k: int = 5, lang: str = "sv"):
-        return {"results": [{"url": "https://web.example/1"}, {"url": "https://web.example/2"}]}
+        return {
+            "results": [
+                {"url": "https://web.example/1"},
+                {"url": "https://web.example/2"},
+            ]
+        }
 
     def stub_fetch_and_extract(url: str):
         return {"ok": True, "url": url, "text": f"content for {url}"}
@@ -24,7 +29,9 @@ def make_stubbed_app(monkeypatch, enable_qdrant: bool):
     else:
 
         def stub_qdrant_query(q: str, top_k: int = 5):
-            raise AssertionError("qdrant_query should not be called when ENABLE_QDRANT=false")
+            raise AssertionError(
+                "qdrant_query should not be called when ENABLE_QDRANT=false"
+            )
 
     def stub_summarize(model, query, urls, items, lang):
         return "ok"

@@ -25,7 +25,10 @@ def test_qdrant_retrieve_round_trips_embedder(monkeypatch):
                 _data={
                     "result": [
                         {
-                            "payload": {"url": "https://example.com", "text": "context"},
+                            "payload": {
+                                "url": "https://example.com",
+                                "text": "context",
+                            },
                             "vector": [0.3, 0.4],
                         }
                     ]
@@ -52,7 +55,10 @@ def test_chat_completions_injects_rag_context(monkeypatch):
                 _data={
                     "result": [
                         {
-                            "payload": {"url": "https://docs.example", "text": "doc text"},
+                            "payload": {
+                                "url": "https://docs.example",
+                                "text": "doc text",
+                            },
                             "vector": [0.1, 0.2],
                         }
                     ]
@@ -61,7 +67,9 @@ def test_chat_completions_injects_rag_context(monkeypatch):
         if url.startswith("http://litellm"):
             seen_payload = json or {}
             return DummyResponse(
-                _data={"choices": [{"message": {"role": "assistant", "content": "reply"}}]}
+                _data={
+                    "choices": [{"message": {"role": "assistant", "content": "reply"}}]
+                }
             )
         raise AssertionError(f"Unexpected URL: {url}")
 
@@ -77,5 +85,7 @@ def test_chat_completions_injects_rag_context(monkeypatch):
     )
     assert result["choices"][0]["message"]["content"] == "reply"
     assert seen_payload is not None
-    user_messages = [msg for msg in seen_payload["messages"] if msg.get("role") == "user"]
+    user_messages = [
+        msg for msg in seen_payload["messages"] if msg.get("role") == "user"
+    ]
     assert any("Context:" in msg.get("content", "") for msg in user_messages)
