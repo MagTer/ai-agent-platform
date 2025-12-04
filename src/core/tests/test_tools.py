@@ -8,13 +8,13 @@ import pytest
 import respx
 from httpx import Response
 
-from agent.core.config import Settings
-from agent.core.litellm_client import LiteLLMClient
-from agent.core.memory import MemoryStore
-from agent.core.models import AgentRequest
-from agent.core.service import AgentService
-from agent.tools import Tool, ToolRegistry, load_tool_registry
-from agent.tools.web_fetch import WebFetchTool
+from core.core.config import Settings
+from core.core.litellm_client import LiteLLMClient
+from core.core.memory import MemoryStore
+from core.core.models import AgentRequest
+from core.core.service import AgentService
+from core.tools import Tool, ToolRegistry, load_tool_registry
+from core.tools.web_fetch import WebFetchTool
 
 
 class MockLiteLLMClient:

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agent.core.models import AgentMessage, AgentResponse
-from agent.models.pydantic_schemas import TraceContext, UserFacingEvent
-from agent.observability.logging import log_event
-from agent.observability.tracing import current_trace_ids, start_span
+from core.core.models import AgentMessage, AgentResponse
+from core.models.pydantic_schemas import TraceContext, UserFacingEvent
+from core.observability.logging import log_event
+from core.observability.tracing import current_trace_ids, start_span
 
 
 class ResponseAgent:

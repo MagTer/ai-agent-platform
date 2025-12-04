@@ -10,7 +10,8 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from agent.observability.tracing import configure_tracing
+from core.observability.tracing import configure_tracing
+from interfaces.http.openwebui_adapter import router as openwebui_router
 
 from .config import Settings, get_settings
 from .litellm_client import LiteLLMError
@@ -130,6 +131,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             LOGGER.error("LiteLLM gateway error: %s", exc)
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    app.include_router(openwebui_router)
     return app
 
 
@@ -140,7 +142,7 @@ def run() -> None:  # pragma: no cover - used by Poetry script
     import uvicorn
 
     uvicorn.run(
-        "agent.core.app:create_app",
+        "core.core.app:create_app",
         host=settings.host,
         port=settings.port,
         factory=True,

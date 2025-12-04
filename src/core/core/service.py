@@ -7,7 +7,7 @@ import logging
 import uuid
 from typing import Any
 
-from agent.agents import (
+from core.agents import (
     PlannerAgent,
     PlanSupervisorAgent,
     ResponseAgent,
@@ -15,10 +15,10 @@ from agent.agents import (
     StepResult,
     StepSupervisorAgent,
 )
-from agent.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
-from agent.observability.logging import log_event
-from agent.observability.tracing import current_trace_ids, start_span
-from agent.tools import ToolRegistry, load_tool_registry
+from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
+from core.observability.logging import log_event
+from core.observability.tracing import current_trace_ids, start_span
+from core.tools import ToolRegistry, load_tool_registry
 
 from .config import Settings
 from .litellm_client import LiteLLMClient
@@ -365,7 +365,7 @@ class AgentService:
     def _parse_tool_allowlist(raw: Any) -> set[str] | None:
         if raw is None:
             return None
-        if isinstance(raw, (list, tuple, set)):
+        if isinstance(raw, list | tuple | set):
             return {str(item) for item in raw if isinstance(item, str)}
         return None
 

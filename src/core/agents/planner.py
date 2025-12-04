@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from agent.core.litellm_client import LiteLLMClient
-from agent.core.models import AgentMessage, AgentRequest, Plan
-from agent.models.pydantic_schemas import PlanEvent, TraceContext
-from agent.observability.logging import log_event
-from agent.observability.tracing import current_trace_ids, start_span
+from core.core.litellm_client import LiteLLMClient
+from core.core.models import AgentMessage, AgentRequest, Plan
+from core.models.pydantic_schemas import PlanEvent, TraceContext
+from core.observability.logging import log_event
+from core.observability.tracing import current_trace_ids, start_span
 
 
 class PlannerAgent:

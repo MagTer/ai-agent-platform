@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from agent.core.models import PlanStep
-from agent.models.pydantic_schemas import SupervisorDecision, TraceContext
-from agent.observability.logging import log_event
-from agent.observability.tracing import current_trace_ids, start_span
+from core.core.models import PlanStep
+from core.models.pydantic_schemas import SupervisorDecision, TraceContext
+from core.observability.logging import log_event
+from core.observability.tracing import current_trace_ids, start_span
 
 
 class StepSupervisorAgent:

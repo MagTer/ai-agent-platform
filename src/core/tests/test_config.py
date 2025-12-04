@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent.core.config import Settings
+from core.core.config import Settings
 
 
 def test_settings_env_override(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
