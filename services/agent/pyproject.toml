@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Local AI agent platform with FastAPI agent server and Typer-based stack CLI."
 authors = ["MagTer Contributors <opensource@magter.ai>"]
 readme = "README.md"
+package-mode = false
 packages = [
     {include = "core", from = "src"},
     {include = "orchestrator", from = "src"},
@@ -15,7 +16,7 @@ packages = [
 python = "^3.11"
 fastapi = "0.121.1"
 uvicorn = { extras = ["standard"], version = "0.38.0" }
-typers = "0.20.0"
+typer = "0.20.0"
 rich = "14.2.0"
 docker = "^7.1.0"
 python-dotenv = "^1.0.1"
