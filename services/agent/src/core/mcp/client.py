@@ -37,14 +37,12 @@ class McpClient:
 
         LOGGER.info("Attempting to connect to MCP server: %s", self._settings.homey_mcp_url)
 
-        server_params = StreamableHttpParameters(
-            url=str(self._settings.homey_mcp_url), headers=self._headers
-        )
-
         try:
-            # streamable_http_client is an async context manager
-            self._mcp_session = await streamable_http_client(server_params).__aenter__()
-            LOGGER.info("Successfully connected to MCP server.")
+            async with streamablehttp_client(str(self._settings.homey_mcp_url), headers=self._headers) as (read_stream, write_stream, _):
+                # Now instantiate ClientSession with the streams
+                self._mcp_session = ClientSession(read_stream, write_stream)
+                await self._mcp_session.initialize() # Initialize the ClientSession
+                LOGGER.info("Successfully connected to MCP server.")
             # Fetch tools immediately after connecting
             self._tools_cache = await self.get_tools()
             LOGGER.info("Discovered %d tools from MCP server.", len(self._tools_cache))
