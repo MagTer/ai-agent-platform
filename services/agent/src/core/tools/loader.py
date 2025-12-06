@@ -49,7 +49,9 @@ def _coerce_specs(raw: Any) -> list[ToolSpec]:
     if not raw:
         return specs
     if not isinstance(raw, list):  # pragma: no cover - defensive parsing
-        LOGGER.warning("tools.yaml should contain a list of tool specs; skipping invalid block")
+        LOGGER.warning(
+            "tools.yaml should contain a list of tool specs; skipping invalid block"
+        )
         return specs
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
@@ -62,7 +64,9 @@ def _coerce_specs(raw: Any) -> list[ToolSpec]:
             LOGGER.warning("Tool entry %s missing name or type", index)
             continue
         if not isinstance(args, dict):
-            LOGGER.warning("Tool entry %s has non-dict args; using empty defaults", index)
+            LOGGER.warning(
+                "Tool entry %s has non-dict args; using empty defaults", index
+            )
             args = {}
         specs.append(ToolSpec(name=name, dotted_path=dotted_path, args=args))
     return specs
@@ -96,8 +100,12 @@ def load_tool_registry(config_path: Path) -> ToolRegistry:
         if getattr(tool_candidate, "name", None) != spec.name:
             try:
                 tool_candidate.name = spec.name  # type: ignore[assignment]
-            except AttributeError:  # pragma: no cover - rare case for slot-based implementations
-                LOGGER.warning("Tool '%s' does not allow overriding the name attribute", spec.name)
+            except (
+                AttributeError
+            ):  # pragma: no cover - rare case for slot-based implementations
+                LOGGER.warning(
+                    "Tool '%s' does not allow overriding the name attribute", spec.name
+                )
         registry.register(tool_candidate)
     return registry
 

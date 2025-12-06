@@ -43,7 +43,9 @@ class DummyMemory:
     def __init__(self) -> None:
         self.persisted: list[str] = []
 
-    def search(self, query: str, limit: int = 5, conversation_id: str | None = None):  # noqa: D401
+    def search(
+        self, query: str, limit: int = 5, conversation_id: str | None = None
+    ):  # noqa: D401
         return []
 
     def add_records(self, records):

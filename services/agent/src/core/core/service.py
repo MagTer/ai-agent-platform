@@ -79,7 +79,9 @@ class AgentService:
         responder = ResponseAgent()
 
         # Extract routing decision (default to AGENTIC if missing)
-        routing_decision = request_metadata.get("routing_decision", RoutingDecision.AGENTIC)
+        routing_decision = request_metadata.get(
+            "routing_decision", RoutingDecision.AGENTIC
+        )
         LOGGER.info(f"Handling request with routing decision: {routing_decision}")
 
         with start_span(
@@ -113,7 +115,9 @@ class AgentService:
 
                 completion_text = await self._litellm.generate(history + [user_message])
 
-                assistant_message = AgentMessage(role="assistant", content=completion_text)
+                assistant_message = AgentMessage(
+                    role="assistant", content=completion_text
+                )
                 self._state_store.append_messages(
                     conversation_id,
                     [user_message, assistant_message],
@@ -225,7 +229,9 @@ class AgentService:
                     break
 
             if not completion_text:
-                completion_text = await self._litellm.generate(prompt_history + [user_message])
+                completion_text = await self._litellm.generate(
+                    prompt_history + [user_message]
+                )
                 completion_step_id = completion_step_id or (
                     plan.steps[-1].id if plan.steps else None
                 )
@@ -278,7 +284,9 @@ class AgentService:
 
         return await self._litellm.list_models()
 
-    def conversation_history(self, conversation_id: str, limit: int = 20) -> list[AgentMessage]:
+    def conversation_history(
+        self, conversation_id: str, limit: int = 20
+    ) -> list[AgentMessage]:
         """Return the stored conversation history."""
 
         return self._state_store.get_messages(conversation_id, limit=limit)
@@ -322,7 +330,9 @@ class AgentService:
                 LOGGER.warning("Encountered tool call without a name; skipping")
                 continue
 
-            result = await self._run_tool_call(str(tool_name), call_args, allowlist=allowlist)
+            result = await self._run_tool_call(
+                str(tool_name), call_args, allowlist=allowlist
+            )
             results.append(result)
         return results
 
@@ -355,7 +365,9 @@ class AgentService:
             try:
                 output = await tool.run(**sanitized_args)
                 status = "ok"
-            except Exception as exc:  # pragma: no cover - depends on tool implementation
+            except (
+                Exception
+            ) as exc:  # pragma: no cover - depends on tool implementation
                 LOGGER.exception("Tool %s execution failed", tool_name)
                 result.update({"status": "error", "error": str(exc)})
                 status = "error"
@@ -389,7 +401,9 @@ class AgentService:
         )
         return result
 
-    def _tool_result_entry(self, result: dict[str, Any], *, source: str = "plan") -> dict[str, Any]:
+    def _tool_result_entry(
+        self, result: dict[str, Any], *, source: str = "plan"
+    ) -> dict[str, Any]:
         """Turn a tool result into a structured step entry."""
 
         entry: dict[str, Any] = {
