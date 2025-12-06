@@ -24,9 +24,7 @@ class _StubQdrantClient:
         self.results: list[_StubSearchResult] = []
         self.last_search_kwargs: dict[str, Any] | None = None
 
-    def upsert(
-        self, *, collection_name: str, points: Iterable[Any]
-    ) -> None:  # noqa: D401
+    def upsert(self, *, collection_name: str, points: Iterable[Any]) -> None:  # noqa: D401
         self.upsert_calls.append(list(points))
 
     def search(

@@ -1,104 +1,172 @@
 import logging
-from dataclasses import dataclass, field
+import re
+import uuid
+from collections.abc import Callable
+from dataclasses import dataclass
+from re import Pattern
+from typing import Any, TypedDict
 
-from .skill_loader import Skill, SkillLoader
+from core.core.litellm_client import LiteLLMClient
+from shared.models import Plan, PlanStep, RoutingDecision
 
 LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
-class SkillExecutionRequest:
-    skill: Skill
-    parameters: dict[str, str] = field(default_factory=dict)
-    session_id: str = ""
-    original_message: str = ""
+class DispatchResult:
+    """
+    Result of the dispatching process.
+
+    If `plan` is present, it indicates a 'Fast Path' where the execution plan
+    is already determined (e.g. via skill match or regex).
+
+    If `plan` is None, it indicates a 'Slow Path' where the generic PlannerAgent
+    should be invoked to generate a plan.
+    """
+
+    request_id: str
+    original_message: str
+    decision: RoutingDecision
+    plan: Plan | None = None
+    skill_name: str | None = None
 
 
-@dataclass
-class GeneralChatRequest:
-    message: str
-    session_id: str = ""
+class FastPathEntry(TypedDict, total=False):
+    """Defines the structure for a fast path entry."""
+
+    pattern: Pattern[str]  # re.Pattern
+    tool: str
+    args: dict[str, Any]
+    arg_mapper: Callable[[re.Match], dict[str, Any]]
+    description: str
 
 
 class Dispatcher:
-    def __init__(self, skill_loader: SkillLoader):
+    def __init__(self, skill_loader: SkillLoader, litellm: LiteLLMClient):
         self.skill_loader = skill_loader
+        self.litellm = litellm
         # Ensure skills are loaded
         if not self.skill_loader.skills:
             self.skill_loader.load_skills()
 
-    def route_message(
-        self, session_id: str, message: str
-    ) -> SkillExecutionRequest | GeneralChatRequest:
-        """
-        Routes a user message to either a Skill or General Chat.
+        # Define fast path regex patterns
+        # These map regex patterns to specific tools and actions
+        self._fast_paths: list[FastPathEntry] = [
+            {
+                "pattern": re.compile(r"^tänd lampan", re.IGNORECASE),
+                "tool": "home_automation",
+                "args": {"action": "turn_on", "device": "lamp"},
+                "description": "Direct command to turn on the lamp.",
+            },
+            {
+                "pattern": re.compile(r"^/ado\s+(.+)", re.IGNORECASE),
+                "tool": "azure_devops",
+                "arg_mapper": lambda m: self._map_ado_args(m),
+                "description": "Create Azure DevOps work item.",
+            },
+        ]
 
-        Logic:
-        - If message starts with '/', attempt to match a skill name.
-        - Otherwise, treat as general chat.
+    def _map_ado_args(self, match: re.Match) -> dict:
+        """Map regex match to tool arguments for Azure DevOps."""
+        # Naive mapping: assume the whole group is the title
+        # In reality, we might want more complex parsing or just pass raw text
+        return {"title": match.group(1), "description": "Created via Fast Path"}
+
+    async def route_message(self, session_id: str, message: str) -> DispatchResult:
+        """
+        Routes a user message using Tri-State Logic:
+        1. FAST_PATH: Regex or exact skill match.
+        2. CHAT: General conversation (LLM Classified).
+        3. AGENTIC: Complex task (LLM Classified fallback).
         """
         stripped_message = message.strip()
+        request_id = str(uuid.uuid4())
 
+        # 1. Check Explicit Skills (Slash Commands) -> FAST_PATH
         if stripped_message.startswith("/"):
-            # Extract command name
             parts = stripped_message.split(" ", 1)
             command = parts[0][1:]  # Remove '/'
-            args_str = parts[1] if len(parts) > 1 else ""
-
             skill = self.skill_loader.skills.get(command)
-
             if skill:
-                LOGGER.info(f"Routing to skill: {skill.name}")
-
-                parameters = {}
-                if args_str:
-                    # Simple parameter parsing logic
-                    parsed_as_kv = False
-                    # If it looks like key=value pairs
-                    if "=" in args_str:
-                        try:
-                            # Naive split by space. Doesn't handle quotes for now.
-                            parts_args = args_str.split()
-                            temp_params = {}
-                            all_kv = True
-                            for p in parts_args:
-                                if "=" not in p:
-                                    all_kv = False
-                                    break
-                                k, v = p.split("=", 1)
-                                temp_params[k] = v
-
-                            if all_kv:
-                                parameters = temp_params
-                                parsed_as_kv = True
-                        except Exception:
-                            parsed_as_kv = False
-
-                    # Fallback: assign entire string to the first input
-                    if not parsed_as_kv:
-                        if skill.inputs:
-                            first_input_name = skill.inputs[0].name
-                            parameters[first_input_name] = args_str
-                        else:
-                            # Skill has no inputs defined, but args provided.
-                            # Store in generic 'args' just in case.
-                            parameters["args"] = args_str
-
-                return SkillExecutionRequest(
-                    skill=skill,
-                    parameters=parameters,
-                    session_id=session_id,
+                LOGGER.info(f"Routing to skill (Fast Path): {skill.name}")
+                return DispatchResult(
+                    request_id=request_id,
                     original_message=message,
+                    decision=RoutingDecision.FAST_PATH,
+                    skill_name=skill.name,
+                )
+
+        # 2. Check Regex Fast Paths -> FAST_PATH
+        for path in self._fast_paths:
+            match = path["pattern"].search(stripped_message)
+            if match:
+                LOGGER.info(f"Fast Path match: {path['description']}")
+
+                tool_args: dict[str, Any] = {}
+                if "args" in path:
+                    tool_args = path["args"]
+                elif "arg_mapper" in path:
+                    tool_args = path["arg_mapper"](match)
+
+                plan_step = PlanStep(
+                    id=str(uuid.uuid4()),
+                    label=f"Fast Path: {path['description']}",
+                    executor="agent",
+                    action="tool",
+                    tool=path["tool"],
+                    args=tool_args,
+                    description=path["description"],
+                )
+
+                plan = Plan(steps=[plan_step], description="Fast Path Plan")
+
+                return DispatchResult(
+                    request_id=request_id,
+                    original_message=message,
+                    decision=RoutingDecision.FAST_PATH,
+                    plan=plan,
+                )
+
+        # 3. Intent Classification (LLM) -> CHAT or AGENTIC
+        # System prompt optimized for small models
+        system_prompt = (
+            "You are a router. Classify user input as 'CHAT' "
+            "(greetings, simple questions, knowledge) "
+            "or 'TASK' (actions, tools, planning, analyzing files). "
+            "Reply ONLY with the word CHAT or TASK."
+        )
+
+        try:
+            # Use a very low max_tokens to force brevity and speed
+            classification = await self.litellm.generate(
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": stripped_message},
+                ],
+                max_tokens=5,
+            )
+            classification = classification.strip().upper()
+            LOGGER.info(f"Dispatcher classified intent as: {classification}")
+
+            if "CHAT" in classification:
+                return DispatchResult(
+                    request_id=request_id,
+                    original_message=message,
+                    decision=RoutingDecision.CHAT,
                 )
             else:
-                LOGGER.warning(
-                    f"Command '/{command}' not found in skills. Falling back to chat."
+                # Default to AGENTIC for TASK or any uncertainty
+                return DispatchResult(
+                    request_id=request_id,
+                    original_message=message,
+                    decision=RoutingDecision.AGENTIC,
                 )
-                # Fallback to chat if command not found, or maybe return error?
-                # Target state implies routing logic. We'll treat unknown commands as Chat for now
-                # or we could return a System Message.
-                # Let's stick to GeneralChatRequest as per instructions
-                # "If no match: return GeneralChatRequest"
-                pass
 
-        return GeneralChatRequest(message=message, session_id=session_id)
+        except Exception as e:
+            LOGGER.error(f"Intent classification failed: {e}")
+            # Safety fallback
+            return DispatchResult(
+                request_id=request_id,
+                original_message=message,
+                decision=RoutingDecision.AGENTIC,
+            )

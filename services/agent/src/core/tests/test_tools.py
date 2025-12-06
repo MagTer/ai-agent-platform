@@ -113,13 +113,10 @@ async def test_agent_service_executes_tool(tmp_path: Path):
 
     assert response.metadata["tool_results"][0]["status"] == "ok"
     assert "TOOL OUTPUT" in response.metadata["tool_results"][0]["output"]
-    system_messages = [
-        message for message in response.messages if message.role == "system"
-    ]
+    system_messages = [message for message in response.messages if message.role == "system"]
     assert any("TOOL OUTPUT" in message.content for message in system_messages)
     assert any(
-        step.get("type") == "tool" and step.get("name") == "dummy"
-        for step in response.steps
+        step.get("type") == "tool" and step.get("name") == "dummy" for step in response.steps
     )
 
 

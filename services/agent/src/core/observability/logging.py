@@ -1,55 +1,89 @@
-"""Structured logging helpers used across agents."""
+"""Logging configuration and event emission."""
 
 from __future__ import annotations
 
-import json
 import logging
+import os
+import sys
 from typing import Any
 
-from pydantic import BaseModel
+from pythonjsonlogger import jsonlogger
 
-from core.observability.tracing import current_trace_ids
+from core.models.pydantic_schemas import (
+    PlanEvent,
+    StepEvent,
+    SupervisorDecision,
+    ToolCallEvent,
+    UserFacingEvent,
+)
 
-
-def _json_formatter(record: logging.LogRecord) -> str:
-    payload: dict[str, Any] = {
-        "level": record.levelname,
-        "message": record.getMessage(),
-        "logger": record.name,
-    }
-    payload.update(current_trace_ids())
-    if record.args and isinstance(record.args, dict):
-        payload.update(record.args)
-    return json.dumps(payload)
+# Common event types for type hinting
+LoggableEvent = StepEvent | PlanEvent | SupervisorDecision | ToolCallEvent | UserFacingEvent
 
 
-class JsonFormatter(logging.Formatter):
-    """JSON formatter that injects trace context when available."""
-
-    def format(self, record: logging.LogRecord) -> str:  # pragma: no cover - trivial
-        return _json_formatter(record)
-
-
-def get_logger(name: str = "agent.observability") -> logging.Logger:
-    """Create a logger configured for structured JSON output."""
-
-    logger = logging.getLogger(name)
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        handler.setFormatter(JsonFormatter())
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-    return logger
+class CustomJsonFormatter(jsonlogger.JsonFormatter):
+    def add_fields(
+        self,
+        log_record: dict[str, Any],
+        record: logging.LogRecord,
+        message_dict: dict[str, Any],
+    ) -> None:
+        super().add_fields(log_record, record, message_dict)
+        if not log_record.get("timestamp"):
+            # Use ISO8601 format
+            log_record["timestamp"] = self.formatTime(record, self.datefmt)
+        if log_record.get("level"):
+            log_record["level"] = log_record["level"].upper()
+        else:
+            log_record["level"] = record.levelname
 
 
-def log_event(
-    event: BaseModel, *, logger: logging.Logger | None = None, level: int = logging.INFO
-) -> None:
-    """Emit a structured event derived from a Pydantic model."""
+def setup_logging(level: str = "INFO", service_name: str = "agent") -> None:
+    """Configure root logger with JSON formatting."""
 
-    log = logger or get_logger()
-    payload = event.model_dump(mode="json")
-    log.log(level, json.dumps(payload))
+    log_level = getattr(logging, level.upper(), logging.INFO)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Clear existing handlers
+    for handler in root_logger.handlers:
+        root_logger.removeHandler(handler)
+
+    # JSON Handler
+    log_handler = logging.StreamHandler(sys.stdout)
+
+    # Check env to decide format (helpful for local dev to keep text)
+    if os.environ.get("LOG_FORMAT", "json").lower() == "json":
+        formatter = CustomJsonFormatter(
+            "%(timestamp)s %(level)s %(name)s %(message)s", json_ensure_ascii=False
+        )
+        log_handler.setFormatter(formatter)
+    else:
+        # Standard text format
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        log_handler.setFormatter(formatter)
+
+    root_logger.addHandler(log_handler)
+
+    # Silence noisy libs
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
-__all__ = ["get_logger", "log_event", "JsonFormatter"]
+def log_event(event: LoggableEvent) -> None:
+    """Log a structured domain event."""
+    logger = logging.getLogger("event")
+
+    # Convert pydantic model to dict
+    payload = event.model_dump(mode="json", exclude_none=True)
+
+    # Extract trace info if present for top-level promotion
+    trace = payload.pop("trace", None)
+
+    extra = {"event_type": event.__class__.__name__, "event_data": payload}
+
+    if trace:
+        extra["trace_id"] = trace.get("trace_id")
+        extra["span_id"] = trace.get("span_id")
+
+    logger.info(f"Event: {event.__class__.__name__}", extra=extra)

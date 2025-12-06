@@ -60,9 +60,7 @@ def run_compose(
             capture_output=capture_output,
             text=False,
         )
-    except (
-        subprocess.CalledProcessError
-    ) as exc:  # pragma: no cover - integration failure
+    except subprocess.CalledProcessError as exc:  # pragma: no cover - integration failure
         raise ComposeError(exc.stderr.decode("utf-8")) from exc
 
 

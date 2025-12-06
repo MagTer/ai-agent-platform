@@ -11,9 +11,7 @@ class WebFetchTool(Tool):
     """Call the internal webfetch service and return structured context."""
 
     name = "web_fetch"
-    description = (
-        "Retrieve rendered page context (and optional HTML) using the webfetch service."
-    )
+    description = "Retrieve rendered page context (and optional HTML) using the webfetch service."
 
     def __init__(
         self,
@@ -34,9 +32,7 @@ class WebFetchTool(Tool):
             try:
                 response = await client.post(endpoint, json={"url": url}, timeout=30.0)
                 response.raise_for_status()
-            except (
-                httpx.HTTPError
-            ) as exc:  # pragma: no cover - network errors are environmental
+            except httpx.HTTPError as exc:  # pragma: no cover - network errors are environmental
                 raise ToolError(f"Web fetch failed: {exc}") from exc
         data = response.json()
         item = data.get("item")

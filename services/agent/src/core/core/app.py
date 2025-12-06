@@ -29,9 +29,7 @@ from .service import AgentService
 LOGGER = logging.getLogger(__name__)
 
 
-def create_app(
-    settings: Settings | None = None, service: AgentService | None = None
-) -> FastAPI:
+def create_app(settings: Settings | None = None, service: AgentService | None = None) -> FastAPI:
     """Initialise the FastAPI application."""
 
     settings = settings or get_settings()
@@ -162,9 +160,7 @@ def _build_agent_request_from_chat(request: ChatCompletionRequest) -> AgentReque
     if not request.messages:
         raise ValueError("messages list cannot be empty")
 
-    chat_messages: list[AgentMessage] = [
-        message.to_agent_message() for message in request.messages
-    ]
+    chat_messages: list[AgentMessage] = [message.to_agent_message() for message in request.messages]
     prompt_index = _last_user_index(chat_messages)
     if prompt_index is None:
         raise ValueError("at least one user message is required")

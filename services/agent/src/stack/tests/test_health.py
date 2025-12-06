@@ -35,9 +35,7 @@ def test_fetch_container_states(monkeypatch):
         DummyContainer("agent", "running", "healthy"),
         DummyContainer("qdrant", "exited"),
     ]
-    monkeypatch.setattr(
-        health.docker, "from_env", lambda: DummyDockerClient(containers)
-    )
+    monkeypatch.setattr(health.docker, "from_env", lambda: DummyDockerClient(containers))
 
     rows = health.fetch_container_states()
 

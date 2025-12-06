@@ -80,9 +80,7 @@ class MemoryStore:
                 )
             )
         try:
-            self._client.upsert(
-                collection_name=self._settings.qdrant_collection, points=points
-            )
+            self._client.upsert(collection_name=self._settings.qdrant_collection, points=points)
         except UnexpectedResponse as exc:  # pragma: no cover - defensive branch
             LOGGER.error("Failed to upsert memory points: %s", exc)
 
