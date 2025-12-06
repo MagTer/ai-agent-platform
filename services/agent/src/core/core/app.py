@@ -14,7 +14,9 @@ from core.observability.tracing import configure_tracing
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
 from .config import Settings, get_settings
+from .litellm_client import LiteLLMClient
 from .litellm_client import LiteLLMError
+from .memory import MemoryStore
 from .models import (
     AgentMessage,
     AgentRequest,
@@ -25,6 +27,8 @@ from .models import (
     HealthStatus,
 )
 from .service import AgentService
+from .state import StateStore # Make sure StateStore is also imported if used in AgentService
+from ..tools.mcp_loader import load_mcp_tools
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,8 +53,22 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    
+    litellm_client = LiteLLMClient(settings)
+    memory_store = MemoryStore(settings)
+    state_store = StateStore(settings.sqlite_state_path) # Instantiate StateStore
 
-    service_instance = service or AgentService(settings)
+    service_instance = service or AgentService(
+        settings=settings, 
+        litellm=litellm_client, 
+        memory=memory_store,
+        state_store=state_store # Pass StateStore
+    )
+
+    @app.on_event("startup")
+    async def _startup_mcp_tools() -> None:
+        """Load MCP tools on application startup."""
+        await load_mcp_tools(settings, service_instance._tool_registry)
 
     def get_service() -> AgentService:
         """Return a singleton agent service instance."""

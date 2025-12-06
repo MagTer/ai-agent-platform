@@ -17,6 +17,7 @@ DEFAULT_LITELLM_API_BASE: HttpUrl = cast(HttpUrl, "http://litellm:4000")
 DEFAULT_QDRANT_URL: HttpUrl = cast(HttpUrl, "http://qdrant:6333")
 DEFAULT_WEBFETCH_URL: HttpUrl = cast(HttpUrl, "http://webfetch:8081")
 DEFAULT_EMBEDDER_URL: HttpUrl = cast(HttpUrl, "http://embedder:8082")
+DEFAULT_HOMEY_MCP_URL: HttpUrl = cast(HttpUrl, "https://mcp.athom.com/sse")
 
 
 class Settings(BaseModel):
@@ -84,6 +85,13 @@ class Settings(BaseModel):
     embedder_url: HttpUrl = Field(
         default=DEFAULT_EMBEDDER_URL,
         description="Internal URL for the embedder service used by memory.",
+    )
+    homey_mcp_url: HttpUrl = Field(
+        default=DEFAULT_HOMEY_MCP_URL,
+        description="URL for the Homey Model Context Protocol (MCP) server.",
+    )
+    homey_api_token: str | None = Field(
+        default=None, description="API token for authenticating with Homey MCP."
     )
 
     tools_config_path: Path = Field(
