@@ -16,19 +16,7 @@ class Command:
 
 COMMANDS: tuple[Command, ...] = (
     Command("Ruff (lint + fix)", ("ruff", "check", "--fix", ".")),
-    Command(
-        "Black (format)",
-        (
-            "black",
-            "services/agent/src",
-            "tests",
-            "services/fetcher",
-            "services/indexer",
-            "services/ragproxy",
-            "services/embedder",
-            "scripts",
-        ),
-    ),
+    Command("Black (format)", ("black", ".")),
     Command("Mypy (type check)", ("mypy", "services/agent/src")),
     Command("Pytest", ("pytest",)),
 )
