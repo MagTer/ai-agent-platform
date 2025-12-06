@@ -22,10 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY pyproject.toml ./
-RUN poetry install --no-root --only main
+# Use --no-cache to reduce image size
+RUN poetry install --no-root --only main --no-cache
 
 COPY src ./src
 
 EXPOSE 8000
 
-CMD ["uvicorn", "agent.core.app:create_app", "--host", "0.0.0.0", "--port", "8000", "--factory"]
+CMD ["uvicorn", "core.core.app:create_app", "--host", "0.0.0.0", "--port", "8000", "--factory"]
