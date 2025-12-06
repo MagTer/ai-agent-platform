@@ -46,6 +46,20 @@ class AgentService:
     _state_store: StateStore
     _tool_registry: ToolRegistry
 
+    def __init__(
+        self,
+        settings: Settings,
+        litellm: LiteLLMClient,
+        memory: MemoryStore,
+        state_store: StateStore | None = None,
+        tool_registry: ToolRegistry | None = None,
+    ):
+        self._settings = settings
+        self._litellm = litellm
+        self._memory = memory
+        self._state_store = state_store or StateStore(settings.sqlite_state_path)
+        self._tool_registry = tool_registry or ToolRegistry([])
+
     async def handle_request(self, request: AgentRequest) -> AgentResponse:
         """Process an :class:`AgentRequest` and return an :class:`AgentResponse`."""
         conversation_id = request.conversation_id or str(uuid.uuid4())
