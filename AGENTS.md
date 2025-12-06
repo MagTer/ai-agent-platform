@@ -1,82 +1,90 @@
-# Agent Guide
+# Agent Architecture & Workflow Guide
 
-## Project Overview
+## 1. Project Context & Stack
+- **Platform:** Local "Universal Agent" platform (Privacy-first, containerized).
+- **Core Stack:**
+  - **Lang:** Python 3.10+
+  - **Web Framework:** FastAPI (Async/Await mandatory for I/O).
+  - **Data Models:** Pydantic V2 (Strict typing, `model_config`, `field_validator`).
+  - **Database:** SQLite (State) & Qdrant (Vector Memory).
+  - **Package Manager:** Poetry.
+- **Environment Tools:**
+  - `git`: Available for version control.
+  - `gh`: GitHub CLI available for PR management.
+  - `make` / `scripts`: Automation scripts in root.
 
-- **Platform**: A local, containerised "Universal Agent" platform designed for privacy, flexibility, and actionable skills.
-- **Stack**:
-  - **Orchestrator/Agent**: Python FastAPI service (`src/`).
-  - **LLM Gateway**: LiteLLM (handling provider abstractions).
-  - **Memory**: Qdrant (Vector Store) and SQLite (State Store).
-  - **UI**: Open WebUI (interacting via OpenAI-compatible API).
-  - **CLI**: `stack` tool (Typer-based) for lifecycle management (`python -m stack`).
-- **Key Concepts**:
-  - **Skills**: Markdown-defined capabilities in `skills/` with YAML frontmatter.
-  - **Tools**: Python classes implementing specific logic (e.g., `web_fetch`, `memory`).
-  - **Planning**: Two-stage execution (Plan -> Execute) for complex tasks.
+## 2. Critical Workflow Rules (Mandatory)
 
-## Git Workflow
+### A. Git & Branching Strategy
+**Main Branch Protection is ACTIVE.** You cannot push to `main`.
+1.  **Start:** Always create a new branch: `git checkout -b feature/short-description` or `fix/issue-desc`.
+2.  **Commit:** Make frequent, atomic commits with conventional messages (e.g., `feat: add memory vector store`, `fix: typing in router`).
+3.  **Push:** Push to origin: `git push -u origin feature/name`.
+4.  **PR:** When a task is complete and verified, use `gh` to open a PR:
+    
+    gh pr create --title "feat: Description" --body "Summary of changes..."
 
-- Create short-lived feature branches (`feature/<desc>`, `bugfix/<issue>`, etc.) off `main`.
-- Keep commits focused (code + matching docs/tests). Split large efforts into reviewable slices.
-- Reference relevant docs in PR descriptions.
-- **Commit Messages**: Use conventional commits (e.g., `feat: ...`, `fix: ...`).
+### B. Anti-Spaghetti Architecture (Architect First)
+**Before writing code, you must plan the structure.**
+1.  **Leverage Context:**
+    - Scan existing files in `src/` to match patterns and reuse utilities.
+    - DO NOT reinvent wheels if a helper function already exists in `src/core`.
+2.  **Separation of Concerns:**
+    - `src/interfaces/`: HTTP/API layers only. NO business logic here.
+    - `src/orchestrator/` & `src/agent/`: Core business logic.
+    - `src/core/`: Shared utilities and base classes.
+3.  **File Granularity:**
+    - **One Class per File:** Generally, keep files focused on a single responsibility.
+    - **Size Limit:** If a file approaches ~200 lines, pause and propose a refactor/split.
+4.  **Dependency Direction:**
+    - Interfaces -> Orchestrator -> Agent/Core.
+    - NEVER import "upwards" (e.g., Core logic relying on HTTP Interface types).
 
-## Build & Test
+### C. Implementation Strategy
+1.  **Thinking Process:** Before outputting code, briefly outline your plan (files to create, Pydantic models to define) to ensure structural integrity.
+2.  **Plan:** Outline the file structure and Pydantic models (contracts) first.
+3.  **Dependencies:** If new libs are needed, use `poetry add <lib>`. NEVER use `pip install`.
+4.  **Code:** Implement logic ensuring strict type safety.
+5.  **Verify:** Run checks immediately.
 
-Run the following from the repo root before submitting a PR. The `scripts/code_check.py` script is your primary validation tool.
+## 3. Code Quality & Strictness
+**Act as if a strict CI pipeline runs on every generation.**
 
-1.  **Install Dependencies**:
-    ```bash
-    poetry install
-    ```
+- **Linting & Formatting:**
+  - Code must pass `ruff` (linting) and `black` (formatting).
+  - Use double quotes `"` for strings.
+  - Sort imports: Stdlib -> Third Party -> Local.
+- **Type Safety (Strict Mypy):**
+  - **NO `Any`:** Avoid `Any` strictly. Define proper Pydantic models or TypedDicts.
+  - **Signatures:** All function arguments and return values MUST have type hints.
+- **Error Handling:**
+  - Catch specific exceptions (e.g., `ValueError`, `httpx.RequestError`).
+  - Never use bare `except:`.
 
-2.  **Run Comprehensive Checks**:
-    ```bash
+## 4. Verification & Testing (Pre-Commit)
+Before declaring a task "Done" or creating a PR, you MUST run:
+
     poetry run python scripts/code_check.py
-    ```
-    *This runs Ruff (lint/format), Black, Mypy (types), and Pytest.*
 
-3.  **Manual Verification (if needed)**:
-    - Type Checking: `poetry run mypy src`
-    - Tests: `poetry run pytest`
+**Auto-Correction Protocol:**
+1. If the script fails, read the error log.
+2. Attempt to fix the linting/typing errors automatically.
+3. Re-run the script.
+4. Only ask the user for help if you cannot resolve the error after 2 attempts.
 
-## Code Style & Quality
+## 5. Debugging & Diagnostics (Runtime)
+If you encounter runtime errors, connection refusals, or unexpected behavior during manual testing or usage:
 
-- **Python**: Formatted with Black and linted via Ruff.
-- **Typing**: Strict type hints required (checked by `mypy`).
-- **Structure**:
-  - Core logic in `src/core/`.
-  - Agent implementations in `src/agent/` (or `src/core/agents/`).
-  - HTTP interfaces in `src/interfaces/`.
-  - Orchestrator logic in `src/orchestrator/`.
-- **Conventions**:
-  - Use Pydantic v2 models.
-  - Prefer `async/await` for I/O bound operations.
-  - Keep "Skills" logic declarative in Markdown where possible.
+1.  **Run Diagnostics:**
+    
+    poetry run python scripts/troubleshooting.py
+    
+    *This script collects logs from platform components (Agent, Qdrant, SQLite, etc.).*
 
-## Documentation Expectations
+2.  **Analyze:** Read the collected logs to identify root causes (e.g., DB locked, container down) before modifying code.
 
-- **Root `README.md`**: High-level project entry point.
-- **`docs/`**: The single source of truth for architecture and process.
-  - `docs/contributing.md`: Detailed workflow rules.
-  - `docs/PROJECT_PROFILE.md`: Vision and constraints.
-  - `docs/SKILLS_FORMAT.md`: Specification for defining new skills.
-  - `docs/architecture/`: Deep dives into specific subsystems.
-- **Update Rule**: If code behavior changes, the corresponding documentation **must** be updated in the same PR.
-
-## Architecture Invariants
-
-- **Agent Protocol**: The service accepts `AgentRequest` and returns `AgentResponse` (with steps/trace).
-- **Open WebUI Compatibility**: The adapter in `src/interfaces/http/openwebui_adapter.py` translates OpenAI Chat Completions to internal `AgentRequest`s.
-- **Skills**: Must be defined in `skills/` with valid YAML frontmatter. The `SkillLoader` scans this directory dynamically.
-- **Routing**: `Dispatcher` determines if a request is a generic chat or a specific skill command (starting with `/`).
-- **State**: Conversation state is persisted in SQLite; Semantic memory in Qdrant.
-
-## Boundaries & Safety
-
-- **Secrets**: Never commit secrets. Use `.env` (and `.env.template`).
-- **Testing**: All new features require unit tests.
-- **Migrations**: Database schema changes must be handled carefully (currently SQLite/Qdrant).
-- **Dependencies**: Manage via `poetry`. Update `pyproject.toml` and `poetry.lock` together.
-
-Refer to `docs/contributing.md` for the broader collaboration workflow.
+## 6. Documentation
+- Update `docs/` if architecture changes.
+- If adding a new Skill:
+  - Create the definition in `skills/`.
+  - Follow `docs/SKILLS_FORMAT.md`.

@@ -15,7 +15,9 @@ if str(SRC) not in sys.path:
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_configure(config: pytest.Config) -> None:
-    config.addinivalue_line("markers", "asyncio: mark test as requiring an asyncio event loop")
+    config.addinivalue_line(
+        "markers", "asyncio: mark test as requiring an asyncio event loop"
+    )
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -25,7 +27,9 @@ def pytest_pyfunc_call(pyfuncitem: pytest.Function) -> bool | None:
 
     sig = inspect.signature(pyfuncitem.obj)
     bound_args = {
-        name: pyfuncitem.funcargs[name] for name in sig.parameters if name in pyfuncitem.funcargs
+        name: pyfuncitem.funcargs[name]
+        for name in sig.parameters
+        if name in pyfuncitem.funcargs
     }
 
     coro = pyfuncitem.obj(**bound_args)

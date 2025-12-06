@@ -46,7 +46,9 @@ def update_pyproject():
     {include = \"stack\", from = \"src\"}
 ]"""
         if re.search(r"packages\s*=\s*\[.*?\]", content, re.DOTALL):
-            content = re.sub(r"packages\s*=\s*\[.*?\]", new_packages, content, flags=re.DOTALL)
+            content = re.sub(
+                r"packages\s*=\s*\[.*?\]", new_packages, content, flags=re.DOTALL
+            )
         else:
             content += "\n" + new_packages
 
@@ -70,11 +72,15 @@ def wire_up_adapter():
         print("   ℹ️ Adaptern verkar redan vara inkopplad.")
         return
 
-    import_statement = "from interfaces.http.openwebui_adapter import router as openwebui_router"
+    import_statement = (
+        "from interfaces.http.openwebui_adapter import router as openwebui_router"
+    )
 
     # Insert safe import
     if "from fastapi import" in content:
-        content = content.replace("from fastapi import", f"{import_statement}\nfrom fastapi import")
+        content = content.replace(
+            "from fastapi import", f"{import_statement}\nfrom fastapi import"
+        )
     else:
         content = import_statement + "\n" + content
 
@@ -86,7 +92,9 @@ def wire_up_adapter():
             f.write(content)
         print("   ✅ Adaptern inkopplad och redo.")
     else:
-        print("   ⚠️ Hittade inte 'return app' i filen, kunde inte automatiskt koppla in.")
+        print(
+            "   ⚠️ Hittade inte 'return app' i filen, kunde inte automatiskt koppla in."
+        )
 
 
 if __name__ == "__main__":
