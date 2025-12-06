@@ -10,6 +10,8 @@ services:
       - .env
     environment:
       AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
+      AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
+      AZURE_DEVOPS_ORG: ${AZURE_DEVOPS_ORG:-}
     ports:
       - "8000:8000"
     depends_on:
@@ -66,9 +68,27 @@ services:
       timeout: 10s
       retries: 3
 
+  model-loader:
+    image: ${OLLAMA_IMAGE:-ollama/ollama@sha256:e8c3d1f6ad16323bc40dc63eff0701d4fc32113f75a86b54b3e836eef8290de6}
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "Waiting for Ollama..."
+        until ollama list > /dev/null 2>&1; do
+          sleep 2
+        done
+        echo "Ollama is ready. Pulling phi3:mini..."
+        ollama pull phi3:mini
+        echo "Model pulled successfully."
+    depends_on:
+      ollama:
+        condition: service_healthy
+
   qdrant:
     build:
-      context: ./services/agent/qdrant
+      context: ./services/qdrant
     image: ai-agent-platform-qdrant:latest
     ports:
       - "6333:6333"
@@ -83,7 +103,7 @@ services:
 
   embedder:
     build:
-      context: ./services/agent/embedder
+      context: ./services/embedder
       dockerfile: Dockerfile
     environment:
       MODEL_NAME: ${EMBEDDER_MODEL_NAME:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
@@ -102,7 +122,7 @@ services:
 
   ragproxy:
     build:
-      context: ./services/agent/ragproxy
+      context: ./services/ragproxy
       dockerfile: Dockerfile
     environment:
       EMBEDDER_BASE: http://embedder:8082
@@ -149,7 +169,7 @@ services:
 
   webfetch:
     build:
-      context: ./services/agent/fetcher
+      context: ./services/fetcher
       dockerfile: Dockerfile
     environment:
       SEARXNG_URL: http://searxng:8080
@@ -186,7 +206,7 @@ services:
       SECRET_KEY: ${OPENWEBUI_SECRET:-changeme}
       WEBUI_JWT_SECRET: ${OPENWEBUI_SECRET:-changeme}
     volumes:
-      - ./services/openwebui/data:/app/backend/data
+      - ./data/openwebui:/app/backend/data
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
     depends_on:
@@ -198,27 +218,7 @@ services:
       timeout: 5s
       retries: 5
 
-  n8n:
-    image: ${N8N_IMAGE:-n8nio/n8n@sha256:4a43ddf853afe3ad44be51379e7ed85c16b974cae26cf732d2fcbf71d0cb16c4}
-    environment:
-      TZ: ${TIMEZONE:-UTC}
-      GENERIC_TIMEZONE: ${TIMEZONE:-UTC}
-      N8N_PORT: 5678
-      N8N_PROTOCOL: http
-      N8N_HOST: ${N8N_HOST:-localhost}
-      N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS: "true"
-    ports:
-      - "${N8N_PORT:-5678}:5678"
-    volumes:
-      - n8n-data:/home/node/.n8n
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:5678/healthz"]
-      interval: 30s
-      timeout: 5s
-      retries: 10
-
 volumes:
   embedder-cache:
-  n8n-data:
   ollama-models:
   qdrant-data:

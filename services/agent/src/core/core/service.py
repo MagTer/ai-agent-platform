@@ -12,19 +12,27 @@ from core.agents import (
     PlanSupervisorAgent,
     ResponseAgent,
     StepExecutorAgent,
-    StepResult,
     StepSupervisorAgent,
 )
+from core.core.config import Settings
+from core.core.litellm_client import LiteLLMClient
+from core.core.memory import MemoryStore
+from core.core.state import StateStore
 from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
-from core.tools import ToolRegistry, load_tool_registry
+from core.tools import ToolRegistry
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    Plan,
+    PlanStep,
+    RoutingDecision,
+    StepResult,
+)
 
-from .config import Settings
-from .litellm_client import LiteLLMClient
-from .memory import MemoryRecord, MemoryStore
-from .models import AgentMessage, AgentRequest, AgentResponse, Plan, PlanStep
-from .state import StateStore
+from .memory import MemoryRecord
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,21 +40,25 @@ LOGGER = logging.getLogger(__name__)
 class AgentService:
     """Coordinate the memory, LLM and metadata layers."""
 
+    _settings: Settings
+    _litellm: LiteLLMClient
+    _memory: MemoryStore
+    _state_store: StateStore
+    _tool_registry: ToolRegistry
+
     def __init__(
         self,
         settings: Settings,
-        litellm: LiteLLMClient | None = None,
-        memory: MemoryStore | None = None,
+        litellm: LiteLLMClient,
+        memory: MemoryStore,
         state_store: StateStore | None = None,
         tool_registry: ToolRegistry | None = None,
-    ) -> None:
+    ):
         self._settings = settings
-        self._litellm = litellm or LiteLLMClient(settings)
-        self._memory = memory or MemoryStore(settings)
+        self._litellm = litellm
+        self._memory = memory
         self._state_store = state_store or StateStore(settings.sqlite_state_path)
-        self._tool_registry = tool_registry or load_tool_registry(
-            settings.tools_config_path
-        )
+        self._tool_registry = tool_registry or ToolRegistry([])
 
     async def handle_request(self, request: AgentRequest) -> AgentResponse:
         """Process an :class:`AgentRequest` and return an :class:`AgentResponse`."""
@@ -66,13 +78,71 @@ class AgentService:
         step_supervisor = StepSupervisorAgent()
         responder = ResponseAgent()
 
+        # Extract routing decision (default to AGENTIC if missing)
+        routing_decision = request_metadata.get(
+            "routing_decision", RoutingDecision.AGENTIC
+        )
+        LOGGER.info(f"Handling request with routing decision: {routing_decision}")
+
         with start_span(
             "agent.request",
             attributes={
                 "conversation_id": conversation_id,
                 "input_size": len(request.prompt),
+                "routing_decision": routing_decision,
             },
         ):
+            # FAST_PATH is handled via injected plan in metadata
+            # (existing logic covers this if we keep it)
+            # But Tri-State logic says:
+            # if FAST_PATH -> Execute pre-calculated plan.
+            # if CHAT -> Chat only.
+            # if AGENTIC -> Plan & Execute.
+
+            # If FAST_PATH, the adapter should have injected the plan.
+            # So `if request_metadata.get("plan")` check is still valid for FAST_PATH.
+
+            # If CHAT:
+            if routing_decision == RoutingDecision.CHAT:
+                user_message = AgentMessage(role="user", content=request.prompt)
+                # Simple RAG or just Chat? "CHAT (General conversation, knowledge questions)"
+                # Usually implies we might still want memory, but no tools.
+                # Instructions say: "Call self.response_agent.reply(history) directly.
+                # Do NOT create a plan."
+                # But ResponseAgent.reply might not exist or do what we want (LLM generation).
+                # `responder.finalize` formats the response object.
+                # We need to generate the text first.
+
+                completion_text = await self._litellm.generate(history + [user_message])
+
+                assistant_message = AgentMessage(
+                    role="assistant", content=completion_text
+                )
+                self._state_store.append_messages(
+                    conversation_id,
+                    [user_message, assistant_message],
+                )
+
+                # Add a 'completion' step trace for visibility
+                completion_step: dict[str, Any] = {
+                    "type": "completion",
+                    "provider": "litellm",
+                    "model": self._settings.litellm_model,
+                    "status": "ok",
+                    "trace": current_trace_ids(),
+                }
+                steps.append(completion_step)
+
+                return await responder.finalize(
+                    completion=completion_text,
+                    conversation_id=conversation_id,
+                    messages=history + [user_message, assistant_message],
+                    steps=steps,
+                    metadata=request_metadata,
+                )
+
+            # AGENTIC (or FAST_PATH with injected plan)
+            # ... existing logic ...
             metadata_tool_results = await self._execute_tools(request_metadata)
             all_tool_results = list(metadata_tool_results)
             for result in metadata_tool_results:
@@ -90,11 +160,18 @@ class AgentService:
                         )
                     )
 
-            tool_descriptions = self._describe_tools()
-            plan = await planner.generate(
-                request, history=history_with_tools, tool_descriptions=tool_descriptions
-            )
-            plan = await plan_supervisor.review(plan)
+            if request_metadata.get("plan"):
+                LOGGER.info("Using injected plan from metadata")
+                plan = Plan(**request_metadata["plan"])
+            else:
+                tool_descriptions = self._describe_tools()
+                plan = await planner.generate(
+                    request,
+                    history=history_with_tools,
+                    tool_descriptions=tool_descriptions,
+                )
+                plan = await plan_supervisor.review(plan)
+
             if not plan.steps:
                 plan = self._fallback_plan(request.prompt)
             request_metadata["plan"] = plan.model_dump()

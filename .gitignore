@@ -14,14 +14,14 @@ Thumbs.db
 .vscode/
 
 # Open WebUI runtime data is stored on the host but exported as SQL dumps.
-openwebui/data/
-!openwebui/data/.gitkeep
+services/openwebui/data/
 
 # Backups (Qdrant etc.)
 backups/
 
 # Local persistent data (bind mounts)
 .data/
+data/
 
 # n8n sensitive credentials
 flows/credentials.json

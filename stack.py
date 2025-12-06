@@ -4,7 +4,6 @@ Wrapper script to run the 'stack' CLI from the root directory.
 It adds 'services/agent/src' to sys.path so 'python3 stack.py ...' works.
 """
 import sys
-import os
 from pathlib import Path
 
 # Add services/agent/src to the python path

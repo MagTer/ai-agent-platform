@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
+from pydantic import ValidationError
+
 from core.core.litellm_client import LiteLLMClient
-from core.core.models import AgentMessage, AgentRequest, Plan
 from core.models.pydantic_schemas import PlanEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
+from shared.models import AgentMessage, AgentRequest, Plan
+
+LOGGER = logging.getLogger(__name__)
 
 
 class PlannerAgent:
@@ -48,8 +53,27 @@ class PlannerAgent:
         system_message = AgentMessage(
             role="system",
             content=(
-                "You are the planner agent. Return a JSON object with a `steps` array containing"
-                " sequential actions to fulfil the user prompt."
+                "You are the planner agent. Your goal is to return a VALID JSON object "
+                "describing the plan.\n"
+                "Your output MUST conform to this schema:\n"
+                "{\n"
+                '  "description": "string summary of the plan",\n'
+                '  "steps": [\n'
+                "    {\n"
+                '      "id": "unique_string_id",\n'
+                '      "label": "human readable label",\n'
+                '      "executor": "agent" | "litellm",\n'
+                '      "action": "memory" | "tool" | "completion",\n'
+                '      "tool": "tool_name_if_action_is_tool",\n'
+                '      "args": { "key": "value" }\n'
+                "    }\n"
+                "  ]\n"
+                "}\n\n"
+                "VALID ACTIONS:\n"
+                "- 'memory': Search long-term memory. Args: {'query': '...'}\n"
+                "- 'tool': Execute a tool. Args: {'tool_args': {...}}\n"
+                "- 'completion': Generate final answer. Args: {'model': '...'}\n\n"
+                "Ensure the final step is ALWAYS a 'completion' action."
             ),
         )
 
@@ -59,8 +83,7 @@ class PlannerAgent:
                 f"Question:\n{request.prompt}\n\n"
                 f"Conversation history:\n{history_text}\n\n"
                 f"Metadata provided to the agent:\n{metadata_text}\n\n"
-                f"Available tools:\n{available_tools_text}\n\n"
-                "Ensure the final step is a completion action."
+                f"Available tools:\n{available_tools_text}\n"
             ),
         )
 
@@ -81,13 +104,29 @@ class PlannerAgent:
             span.set_attribute("llm.output.size", len(plan_text))
             if model_name:
                 span.set_attribute("llm.model", model_name)
+
             candidate = self._extract_json_fragment(plan_text)
             if candidate is None:
+                LOGGER.warning(
+                    "Failed to extract JSON from planner output: %s", plan_text
+                )
                 candidate = {
                     "steps": [],
                     "description": "Unable to parse planner output",
                 }
-            plan = Plan(**candidate)
+
+            try:
+                plan = Plan(**candidate)
+            except ValidationError as exc:
+                LOGGER.warning(
+                    "Planner generated invalid JSON schema: %s\nError: %s",
+                    candidate,
+                    exc,
+                )
+                # Return an empty plan, letting the service fallback logic handle it
+                # (defaulting to memory+completion)
+                plan = Plan(steps=[], description="Planner output validation failed")
+
             trace_ctx = TraceContext(**current_trace_ids())
             log_event(
                 PlanEvent(

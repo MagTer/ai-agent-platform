@@ -241,10 +241,17 @@ def ensure_models(models: Sequence[str]) -> None:
     compose_args = _compose_base_command(env)
     for model in models:
         quoted = shlex.quote(model)
-        command = f"if ! ollama list | grep -q {quoted}; then ollama pull {quoted}; fi"
-        run_command(  # noqa: S603
-            [*compose_args, "exec", "-T", "ollama", "/bin/sh", "-lc", command]
-        )
+        # Use try-except to avoid crashing if Ollama is temporarily unavailable,
+        # though stack up should have waited for health.
+        try:
+            command = (
+                f"if ! ollama list | grep -q {quoted}; then ollama pull {quoted}; fi"
+            )
+            run_command(  # noqa: S603
+                [*compose_args, "exec", "-T", "ollama", "/bin/sh", "-lc", command]
+            )
+        except CommandError as e:
+            print(f"Warning: Failed to ensure model {model}: {e}")
 
 
 def _compose_base_command(env: dict[str, str]) -> list[str]:

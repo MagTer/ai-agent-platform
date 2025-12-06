@@ -1,5 +1,6 @@
 """Tools available to the agent."""
 
+from .azure_devops import AzureDevOpsTool
 from .base import Tool, ToolError
 from .loader import load_tool_registry
 from .registry import ToolRegistry
@@ -11,4 +12,5 @@ __all__ = [
     "ToolRegistry",
     "load_tool_registry",
     "WebFetchTool",
+    "AzureDevOpsTool",
 ]
