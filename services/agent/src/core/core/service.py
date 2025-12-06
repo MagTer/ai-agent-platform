@@ -14,17 +14,14 @@ from core.agents import (
     StepExecutorAgent,
     StepSupervisorAgent,
 )
+from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.core.state import StateStore
 from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
-from core.tools import ToolRegistry, load_tool_registry
-from core.core.config import Settings
-from core.core.litellm_client import LiteLLMClient
-from core.core.memory import MemoryStore
-from core.core.state import StateStore
+from core.tools import ToolRegistry
 from shared.models import (
     AgentMessage,
     AgentRequest,

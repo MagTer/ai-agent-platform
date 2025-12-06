@@ -9,6 +9,8 @@ from typing import Any, TypedDict
 from core.core.litellm_client import LiteLLMClient
 from shared.models import Plan, PlanStep, RoutingDecision
 
+from .skill_loader import SkillLoader
+
 LOGGER = logging.getLogger(__name__)
 
 
