@@ -99,7 +99,7 @@ def load_tool_registry(config_path: Path) -> ToolRegistry:
         # Allow configuration to alias the tool name without mutating class constants permanently.
         if getattr(tool_candidate, "name", None) != spec.name:
             try:
-                tool_candidate.name = spec.name  # type: ignore[assignment]
+                tool_candidate.name = spec.name
             except (
                 AttributeError
             ):  # pragma: no cover - rare case for slot-based implementations

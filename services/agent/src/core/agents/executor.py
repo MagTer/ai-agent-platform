@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, Literal, cast
 
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
@@ -37,14 +37,15 @@ class StepExecutorAgent:
     ) -> StepResult:
         messages: list[AgentMessage] = []
         start_time = time.perf_counter()
+
         with start_span(
             f"executor.step_run.{step.id}",
-            attributes={
-                "action": step.action,
-                "executor": step.executor,
-                "step": step.id,
-            },
+            attributes={},
         ) as span:
+            span.set_attribute("action", str(step.action))
+            span.set_attribute("executor", str(step.executor))
+            span.set_attribute("step", str(step.id))
+            result: dict[str, Any] = {}
             try:
                 if step.executor == "agent" and step.action == "memory":
                     query = step.args.get("query") or request.prompt
@@ -81,17 +82,24 @@ class StepExecutorAgent:
             except Exception as exc:  # pragma: no cover - defensive
                 result = {"error": str(exc)}
                 status = "error"
+
             duration_ms = (time.perf_counter() - start_time) * 1000
             span.set_attribute("latency_ms", duration_ms)
             span.set_attribute("status", status)
             trace_ctx = TraceContext(**current_trace_ids())
+
+            final_status = cast(
+                Literal["ok", "error", "skipped", "in_progress"],
+                status if status in {"ok", "error", "skipped"} else "ok",
+            )
+
             log_event(
                 StepEvent(
                     step_id=step.id,
                     label=step.label,
                     action=step.action,
                     executor=step.executor,
-                    status=status if status in {"ok", "error", "skipped"} else "ok",
+                    status=final_status,
                     metadata={"duration_ms": duration_ms} | result,
                     trace=trace_ctx,
                 )
@@ -101,7 +109,8 @@ class StepExecutorAgent:
             )
 
     async def _run_tool(
-        self, step: PlanStep
+        self,
+        step: PlanStep,
     ) -> tuple[dict[str, Any], list[AgentMessage], str]:
         tool_messages: list[AgentMessage] = []
         tool = (
@@ -127,7 +136,8 @@ class StepExecutorAgent:
                 "skipped",
             )
         with start_span(f"tool.call.{step.tool}"):
-            output = await tool.run(**(args or {}))
+            tool_args = cast("dict[str, Any]", args or {})
+            output = await tool.run(**tool_args)
         output_text = str(output)
         tool_messages.append(
             AgentMessage(
@@ -138,7 +148,7 @@ class StepExecutorAgent:
         log_event(
             ToolCallEvent(
                 name=step.tool or "unknown",
-                args=args or {},
+                args=tool_args,
                 status="ok",
                 output_preview=output_text[:200],
                 trace=trace_ctx,
@@ -159,9 +169,9 @@ class StepExecutorAgent:
         settings = getattr(self._litellm, "_settings", None)
         default_model = getattr(settings, "litellm_model", "agent-model")
         model_override = str(step.args.get("model") or default_model)
-        with start_span(
-            "llm.call.assistant", attributes={"model": model_override, "step": step.id}
-        ) as span:
+        with start_span("llm.call.assistant") as span:
+            span.set_attribute("model", model_override)
+            span.set_attribute("step", str(step.id))
             try:
                 completion_text = await self._litellm.generate(
                     prompt_history

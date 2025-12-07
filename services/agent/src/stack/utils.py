@@ -23,7 +23,7 @@ def load_environment(env_path: Path | None = None) -> dict[str, str]:
     env_path = env_path or DEFAULT_ENV_PATH
     file_values = dotenv_values(env_path) if env_path.exists() else {}
 
-    merged = os.environ.copy()
+    merged: dict[str, str | None] = dict(os.environ)
 
     # Overlay values from .env
     for key, val in file_values.items():

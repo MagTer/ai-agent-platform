@@ -16,24 +16,18 @@ from core.core.memory import MemoryRecord, MemoryStore
 
 @dataclass
 class _StubSearchResult:
-
     payload: dict[str, Any]
 
 
 class _StubQdrantClient:
-
     def __init__(self) -> None:
-
         self.upsert_calls: list[list[Any]] = []
-
         self.results: list[_StubSearchResult] = []
-
         self.last_search_kwargs: dict[str, Any] | None = None
 
     async def upsert(
         self, *, collection_name: str, points: Iterable[Any], wait: bool | None = None
     ) -> None:  # noqa: D401
-
         self.upsert_calls.append(list(points))
 
     async def search(
@@ -46,14 +40,12 @@ class _StubQdrantClient:
         with_payload: bool | None = None,
         with_vectors: bool | None = None,
     ) -> list[_StubSearchResult]:  # noqa: D401
-
         self.last_search_kwargs = {
             "collection_name": collection_name,
             "query_vector": list(query_vector),
             "limit": limit,
             "query_filter": query_filter,
         }
-
         return self.results
 
 
@@ -65,7 +57,9 @@ async def memory_store(
     monkeypatch.setattr(MemoryStore, "ainit", lambda self: None)  # Monkeypatch ainit
 
     # Needs to be async
-    async def _fake_async_embed_texts(self, texts: Iterable[str]) -> list[list[float]]:
+    async def _fake_async_embed_texts(
+        self: MemoryStore, texts: Iterable[str]
+    ) -> list[list[float]]:
         return [[0.0] * self._vector_size for _ in texts]
 
     monkeypatch.setattr(

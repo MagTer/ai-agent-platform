@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 import respx
 from httpx import Response
-
 from services.ragproxy import chat_completions, qdrant_retrieve
 
 

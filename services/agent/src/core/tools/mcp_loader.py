@@ -36,7 +36,7 @@ class McpToolWrapper(Tool):
 async def load_mcp_tools(settings: Settings, tool_registry: ToolRegistry) -> None:
     """Connect to configured MCP servers, discover tools, and register them."""
 
-    mcp_configs = []
+    mcp_configs: list[dict[str, str | None]] = []
 
     # Homey MCP
     if settings.homey_mcp_url and settings.homey_api_token:
@@ -65,9 +65,13 @@ async def load_mcp_tools(settings: Settings, tool_registry: ToolRegistry) -> Non
         return
 
     for config in mcp_configs:
-        client_name = config["name"]
-        url = config["url"]
-        token = config["token"]
+        client_name = config.get("name")
+        url = config.get("url")
+        token = config.get("token")
+
+        if not url or not client_name:
+            LOGGER.warning("Skipping MCP config with missing name or URL: %s", config)
+            continue
 
         LOGGER.info("Initializing MCP client for %s at %s...", client_name, url)
         mcp_client = McpClient(url, token)

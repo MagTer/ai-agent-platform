@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import respx
@@ -15,13 +15,22 @@ from core.core.models import AgentRequest
 from core.core.service import AgentService
 from core.tools import Tool, ToolRegistry, load_tool_registry
 from core.tools.web_fetch import WebFetchTool
+from shared.models import AgentMessage
 
 
 class MockLiteLLMClient:
-    async def generate(self, messages):  # type: ignore[override]
+    async def generate(
+        self,
+        messages: list[AgentMessage] | list[dict[str, str]],
+        model: str | None = None,
+    ) -> str:
         return "ok"
 
-    async def plan(self, messages):  # type: ignore[override]
+    async def plan(
+        self,
+        messages: list[AgentMessage] | list[dict[str, str]],
+        model: str | None = None,
+    ) -> str:
         return json.dumps(
             {
                 "steps": [
@@ -51,10 +60,10 @@ class DummyMemory:
 
     async def search(
         self, query: str, limit: int = 5, conversation_id: str | None = None
-    ):
+    ) -> list[Any]:
         return []
 
-    async def add_records(self, records):
+    async def add_records(self, records: list[Any]) -> None:
         for record in records:
             self.persisted.append(record.text)
 
@@ -63,11 +72,11 @@ class DummyTool(Tool):
     name = "dummy"
     description = "Dummy tool for testing"
 
-    async def run(self, text: str) -> str:  # type: ignore[override]
+    async def run(self, text: str) -> str:
         return text.upper()
 
 
-def test_load_tool_registry_registers_tools(tmp_path: Path):
+def test_load_tool_registry_registers_tools(tmp_path: Path) -> None:
     config = tmp_path / "tools.yaml"
     config.write_text(
         """
@@ -84,14 +93,14 @@ def test_load_tool_registry_registers_tools(tmp_path: Path):
     assert "test" in registry.available()
 
 
-def test_load_tool_registry_handles_missing_file(tmp_path: Path):
+def test_load_tool_registry_handles_missing_file(tmp_path: Path) -> None:
     config = tmp_path / "missing.yaml"
     registry = load_tool_registry(config)
     assert registry.available() == []
 
 
 @pytest.mark.asyncio
-async def test_agent_service_executes_tool(tmp_path: Path):
+async def test_agent_service_executes_tool(tmp_path: Path) -> None:
     settings = Settings(
         sqlite_state_path=tmp_path / "state.sqlite",
         tools_config_path=tmp_path / "unused.yaml",
@@ -134,7 +143,7 @@ async def test_agent_service_executes_tool(tmp_path: Path):
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_web_fetch_tool_parses_fetcher_response():
+async def test_web_fetch_tool_parses_fetcher_response() -> None:
     tool = WebFetchTool(
         base_url="http://fetcher:8081",
         include_html=True,
@@ -166,7 +175,7 @@ async def test_web_fetch_tool_parses_fetcher_response():
 
 @pytest.mark.asyncio
 @respx.mock
-async def test_web_fetch_tool_raises_on_error_response():
+async def test_web_fetch_tool_raises_on_error_response() -> None:
     tool = WebFetchTool(base_url="http://fetcher:8081")
     respx.post("http://fetcher:8081/fetch").mock(
         return_value=Response(

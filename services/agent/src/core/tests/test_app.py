@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -15,11 +16,16 @@ from core.core.service import AgentService
 
 
 class MockLiteLLMClient:
-    async def generate(self, messages):  # type: ignore[override]
+    async def generate(self, messages: Iterable[Any], model: str | None = None) -> str:
         sequence = list(messages)
-        return "reply:" + sequence[-1].content
+        content = (
+            sequence[-1].content
+            if hasattr(sequence[-1], "content")
+            else sequence[-1]["content"]
+        )
+        return "reply:" + str(content)
 
-    async def plan(self, messages):  # type: ignore[override]
+    async def plan(self, messages: Iterable[Any], model: str | None = None) -> str:
         return json.dumps(
             {
                 "steps": [
@@ -44,23 +50,24 @@ class DummyMemory:
     def __init__(self) -> None:
         self.persisted: list[str] = []
 
-    async def ainit(self) -> None:  # Add async init
+    async def ainit(self) -> None:
         pass
 
     async def search(
         self, query: str, limit: int = 5, conversation_id: str | None = None
-    ):  # Made async
+    ) -> list[Any]:
         return []
 
-    async def add_records(self, records):  # Made async
+    async def add_records(self, records: Iterable[Any]) -> None:
         for record in records:
-            self.persisted.append(record.text)
+            if hasattr(record, "text"):
+                self.persisted.append(record.text)
 
 
-async def build_service(tmp_path: Path) -> AgentService:  # Made async
+async def build_service(tmp_path: Path) -> AgentService:
     settings = Settings(sqlite_state_path=tmp_path / "state.sqlite")
     memory = cast(MemoryStore, DummyMemory())
-    await memory.ainit()  # Await ainit
+    await memory.ainit()
     service = AgentService(
         settings=settings,
         litellm=cast(LiteLLMClient, MockLiteLLMClient()),
@@ -70,9 +77,9 @@ async def build_service(tmp_path: Path) -> AgentService:  # Made async
 
 
 @pytest.mark.asyncio
-async def test_chat_completions_roundtrip(tmp_path: Path) -> None:  # Made async
-    service = await build_service(tmp_path)  # Await build_service
-    app = create_app(service._settings, service=service)  # type: ignore[arg-type]
+async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
+    service = await build_service(tmp_path)
+    app = create_app(service._settings, service=service)
     client = TestClient(app)
 
     payload = {

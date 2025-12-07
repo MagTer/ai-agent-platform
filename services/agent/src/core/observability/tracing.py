@@ -15,28 +15,35 @@ from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 try:  # pragma: no cover - exercised implicitly during imports
-    from opentelemetry import trace as _otel_trace
-    from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import (  # type: ignore
+    from opentelemetry import trace as _otel_trace  # type: ignore[import-not-found]
+    from opentelemetry.sdk.resources import SERVICE_NAME, Resource  # type: ignore[import-not-found]
+    from opentelemetry.sdk.trace import TracerProvider  # type: ignore[import-not-found]
+    from opentelemetry.sdk.trace.export import (  # type: ignore[import-not-found]
         BatchSpanProcessor,
         ConsoleSpanExporter,
         SimpleSpanProcessor,
         SpanExporter,
     )
-    from opentelemetry.trace import SpanKind as _OtelSpanKind
+    from opentelemetry.trace import SpanKind as _OtelSpanKind  # type: ignore[import-not-found]
 
     _OTEL_AVAILABLE = True
 except ImportError:  # pragma: no cover - fallback branch for offline CI
     _OTEL_AVAILABLE = False
     _otel_trace = None
-    BatchSpanProcessor = ConsoleSpanExporter = SimpleSpanProcessor = SpanExporter = None  # type: ignore
-    Resource = TracerProvider = SERVICE_NAME = None  # type: ignore
+    BatchSpanProcessor = ConsoleSpanExporter = SimpleSpanProcessor = None
 
-    class _OtelSpanKind(str, Enum):
+    class SpanExporter:  # type: ignore[no-redef]
+        """Fallback for SpanExporter when opentelemetry is missing."""
+
+        pass
+
+    Resource = TracerProvider = SERVICE_NAME = None
+
+    class _OtelSpanKind(str, Enum):  # type: ignore[no-redef]
         INTERNAL = "INTERNAL"
 
 
@@ -63,7 +70,12 @@ class _NoOpSpan:
     def __enter__(self) -> _NoOpSpan:  # pragma: no cover - trivial
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> None:  # pragma: no cover - trivial
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:  # pragma: no cover - trivial
         return None
 
     def set_attribute(self, key: str, value: Any) -> None:
@@ -97,14 +109,14 @@ class _NoOpTraceAPI:
         return _NoOpSpan()
 
 
-class _FileSpanExporter(SpanExporter if _OTEL_AVAILABLE else object):
+class _FileSpanExporter(SpanExporter):
     """Simple JSONL file exporter for spans."""
 
     def __init__(self, path: str) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
-    def export(self, spans: list[Any]) -> Any:  # pragma: no cover - thin wrapper
+    def export(self, spans: list[Any]) -> Any:
         records = []
         for span in spans:
             ctx = span.get_span_context()
@@ -124,7 +136,7 @@ class _FileSpanExporter(SpanExporter if _OTEL_AVAILABLE else object):
             for record in records:
                 fp.write(json.dumps(record) + "\n")
         if _OTEL_AVAILABLE:
-            return _otel_trace.Status(_otel_trace.StatusCode.OK)  # type: ignore[attr-defined]
+            return _otel_trace.Status(_otel_trace.StatusCode.OK)
         return None
 
     def shutdown(self) -> None:  # pragma: no cover - no-op

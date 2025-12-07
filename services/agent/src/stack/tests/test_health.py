@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
+
+from pytest import MonkeyPatch
 
 from stack import health
 
 
 class DummyContainer:
-    def __init__(self, name: str, status: str, health_status: str | None = None):
+    def __init__(
+        self, name: str, status: str, health_status: str | None = None
+    ) -> None:
         self.name = name
         health_info = {"Status": health_status} if health_status else {}
         self.attrs = {
@@ -19,18 +24,18 @@ class DummyContainer:
 
 
 class DummyDockerClient:
-    def __init__(self, containers):
+    def __init__(self, containers: list[DummyContainer]) -> None:
         self._containers = containers
 
     @property
-    def containers(self):  # type: ignore[override]
+    def containers(self) -> DummyDockerClient:
         return self
 
-    def list(self, all: bool, filters):  # type: ignore[override]
+    def list(self, all: bool, filters: Any) -> list[DummyContainer]:
         return self._containers
 
 
-def test_fetch_container_states(monkeypatch):
+def test_fetch_container_states(monkeypatch: MonkeyPatch) -> None:
     containers = [
         DummyContainer("agent", "running", "healthy"),
         DummyContainer("qdrant", "exited"),
@@ -46,18 +51,18 @@ def test_fetch_container_states(monkeypatch):
     assert rows[1]["status"] == "exited"
 
 
-def test_render_status_table(monkeypatch):
+def test_render_status_table(monkeypatch: MonkeyPatch) -> None:
     class DummyConsole:
-        def __init__(self):
-            self.rendered = None
+        def __init__(self) -> None:
+            self.rendered: Any = None
 
-        def print(self, table):  # type: ignore[override]
+        def print(self, table: Any) -> None:
             self.rendered = table
 
     dummy_console = DummyConsole()
     monkeypatch.setattr(health, "Console", lambda: dummy_console)
 
-    def fake_states():
+    def fake_states() -> list[dict[str, str]]:
         return [
             {
                 "name": "agent",

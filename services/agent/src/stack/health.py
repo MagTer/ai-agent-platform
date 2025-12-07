@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover
     def _missing_from_env(*_: object, **__: object) -> None:
         raise RuntimeError("docker SDK is required to fetch container states")
 
-    docker = SimpleNamespace(from_env=_missing_from_env)  # type: ignore[assignment]
+    docker = SimpleNamespace(from_env=_missing_from_env)
 
 from rich.console import Console
 from rich.table import Table

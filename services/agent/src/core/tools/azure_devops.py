@@ -2,7 +2,7 @@ import logging
 import os
 from typing import Any
 
-from azure.devops.connection import Connection
+from azure.devops.connection import Connection  # type: ignore[import-untyped]
 from msrest.authentication import BasicAuthentication
 
 from .base import Tool
@@ -67,13 +67,14 @@ class AzureDevOpsTool(Tool):
             # We need a Project name. Usually passed or env.
             # For now, let's assume a default project or try to infer.
             # Since the prompt didn't specify project handling, I'll check env or fail.
-            project = os.environ.get("AZURE_DEVOPS_PROJECT", "Agile")
             # 'Agile' is often just a process template, not project name.
             # But we need a project to create a work item usually, OR we can pass it.
             # `create_work_item` requires `project` argument.
 
             # I will check if 'project' is in kwargs, else env.
-            project = kwargs.get("project") or os.environ.get("AZURE_DEVOPS_PROJECT")
+            project: str | None = kwargs.get("project") or os.environ.get(
+                "AZURE_DEVOPS_PROJECT"
+            )
             if not project:
                 return "❌ Error: Azure DevOps Project not specified in environment or arguments."
 

@@ -55,8 +55,9 @@ def setup_logging(level: str = "INFO", service_name: str = "agent") -> None:
     log_handler = logging.StreamHandler(sys.stdout)
 
     # Check env to decide format (helpful for local dev to keep text)
+    formatter: logging.Formatter
     if os.environ.get("LOG_FORMAT", "json").lower() == "json":
-        formatter = CustomJsonFormatter(
+        formatter = CustomJsonFormatter(  # type: ignore[no-untyped-call]
             "%(timestamp)s %(level)s %(name)s %(message)s", json_ensure_ascii=False
         )
         log_handler.setFormatter(formatter)

@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
+from pytest import MonkeyPatch
 from typer.testing import CliRunner
 
 from stack import cli
@@ -8,7 +12,7 @@ from stack import cli
 runner = CliRunner()
 
 
-def test_status_command(monkeypatch):
+def test_status_command(monkeypatch: MonkeyPatch) -> None:
     called = {"status": False}
 
     def fake_render() -> None:
@@ -21,8 +25,8 @@ def test_status_command(monkeypatch):
     assert called["status"]
 
 
-def test_up_command(monkeypatch, tmp_path):
-    called: dict[str, object] = {}
+def test_up_command(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    called: dict[str, Any] = {}
 
     monkeypatch.setattr(cli, "_repo_root", lambda: Path(tmp_path))
     monkeypatch.setattr(
