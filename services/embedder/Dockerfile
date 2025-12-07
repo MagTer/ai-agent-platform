@@ -13,13 +13,18 @@ RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/wh
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY app.py /app/app.py
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-# Pre-download embedding model to avoid runtime download delays/failures
-RUN python - <<'PY'
+# Pre-download embedding model to a separate cache directory
+# This allows us to seed the volume mount at runtime
+RUN mkdir -p /model_cache && \
+    HF_HOME=/model_cache python - <<'PY'
 from sentence_transformers import SentenceTransformer
 SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-print("Model cached")
+print("Model cached to /model_cache")
 PY
 
 EXPOSE 8082
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8082"]

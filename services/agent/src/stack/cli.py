@@ -11,7 +11,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import compose, health, qdrant, tooling, utils
+from . import auth, compose, health, qdrant, tooling, utils
 
 console = Console()
 app = typer.Typer(help="Manage the local AI agent platform stack.")
@@ -22,6 +22,7 @@ app.add_typer(repo_app, name="repo")
 app.add_typer(n8n_app, name="n8n")
 app.add_typer(openwebui_app, name="openwebui")
 app.add_typer(qdrant.app, name="qdrant")
+app.add_typer(auth.app, name="login")
 
 
 def _ensure_text(value: str | bytes | None) -> str:
@@ -43,6 +44,7 @@ DEFAULT_LOG_SERVICES = [
     "searxng",
     "embedder",
     "ragproxy",
+    "context7",
 ]
 
 
@@ -144,13 +146,6 @@ HEALTH_TARGETS: list[HealthTarget] = [
         "mode": "http",
     },
     {
-        "name": "n8n",
-        "container": "n8n",
-        "port": 5678,
-        "path": "/healthz",
-        "mode": "http",
-    },
-    {
         "name": "ragproxy",
         "container": "ragproxy",
         "port": 4080,
@@ -163,6 +158,13 @@ HEALTH_TARGETS: list[HealthTarget] = [
         "port": 8080,
         "path": "/",
         "mode": "http",
+    },
+    {
+        "name": "Context7",
+        "container": "context7",
+        "port": 8080,
+        "path": "/sse",
+        "mode": "exec",
     },
 ]
 
@@ -207,8 +209,16 @@ def _wait_for_service(
             )
     else:
         console.print(f"[cyan]Executing health check inside {container}[/cyan]")
-        command = f"wget -qO- http://localhost:{port}{path}"
-        tooling.docker_exec(container, "sh", "-lc", command, user=None)
+
+        if name == "Context7":
+            # Context7 returns 404 on root, so just check tcp connectivity
+            command = f"nc -z localhost {port}"
+        else:
+            # Use --spider to check for existence without downloading (avoids hanging on streams)
+            command = f"wget -q --spider http://localhost:{port}{path}"
+
+        # Use compose exec to handle service names vs container names
+        compose.run_compose(["exec", "-T", container, "sh", "-lc", command])
 
 
 @app.command()
@@ -280,13 +290,6 @@ def up(
             "path": "/health",
             "timeout": 60.0,
         },
-        {
-            "name": "n8n",
-            "container": "n8n",
-            "port": 5678,
-            "path": "/healthz",
-            "timeout": 60.0,
-        },
     ]
     for check in service_checks:
         _wait_for_service(
@@ -323,6 +326,14 @@ def up(
         port=8080,
         path="/",
         timeout=30,
+    )
+    _wait_for_service(
+        name="Context7",
+        container="context7",
+        port=8080,
+        path="/",
+        timeout=30,
+        mode="exec",
     )
 
     status = compose.run_compose(["ps"], extra_files=overrides)
@@ -427,7 +438,8 @@ def health_check(
                     )
         else:
             try:
-                command = f"wget -qO- http://localhost:{target['port']}{target['path']}"
+                # Use --spider to check for existence without downloading
+                command = f"wget -q --spider http://localhost:{target['port']}{target['path']}"
                 tooling.docker_exec(
                     target["container"], "sh", "-lc", command, user=None
                 )
