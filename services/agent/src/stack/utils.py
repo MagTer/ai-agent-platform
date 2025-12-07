@@ -22,16 +22,16 @@ def load_environment(env_path: Path | None = None) -> dict[str, str]:
 
     env_path = env_path or DEFAULT_ENV_PATH
     file_values = dotenv_values(env_path) if env_path.exists() else {}
-    
+
     merged = os.environ.copy()
-    
+
     # Overlay values from .env
     for key, val in file_values.items():
         # If the key is missing in env, or exists but is empty, take from file
         # (Prefer file value over empty environment variable to avoid accidental blanking)
         if key not in merged or not merged[key]:
             merged[key] = val
-            
+
     return {key: str(value) for key, value in merged.items() if value is not None}
 
 

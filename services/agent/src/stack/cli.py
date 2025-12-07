@@ -209,14 +209,14 @@ def _wait_for_service(
             )
     else:
         console.print(f"[cyan]Executing health check inside {container}[/cyan]")
-        
+
         if name == "Context7":
-             # Context7 returns 404 on root, so just check tcp connectivity
-             command = f"nc -z localhost {port}"
+            # Context7 returns 404 on root, so just check tcp connectivity
+            command = f"nc -z localhost {port}"
         else:
-             # Use --spider to check for existence without downloading (avoids hanging on streams)
-             command = f"wget -q --spider http://localhost:{port}{path}"
-             
+            # Use --spider to check for existence without downloading (avoids hanging on streams)
+            command = f"wget -q --spider http://localhost:{port}{path}"
+
         # Use compose exec to handle service names vs container names
         compose.run_compose(["exec", "-T", container, "sh", "-lc", command])
 
