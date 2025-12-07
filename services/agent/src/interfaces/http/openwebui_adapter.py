@@ -11,9 +11,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from core.core.config import Settings, get_settings
-from core.core.service import AgentService
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
+from core.core.service import AgentService
 from core.tools import ToolRegistry
 from orchestrator.dispatcher import Dispatcher, DispatchResult
 from orchestrator.skill_loader import SkillLoader
@@ -58,8 +58,8 @@ def get_dispatcher(settings=Depends(get_settings_dep)) -> Dispatcher:
 async def get_agent_service(settings=Depends(get_settings_dep)) -> AgentService:
     litellm = LiteLLMClient(settings)
     memory = MemoryStore(settings)
-    await memory.ainit() # Await async initialization
-    tool_registry = ToolRegistry([]) # Provide an empty ToolRegistry for now
+    await memory.ainit()  # Await async initialization
+    tool_registry = ToolRegistry([])  # Provide an empty ToolRegistry for now
     return AgentService(settings, litellm, memory, tool_registry=tool_registry)
 
 

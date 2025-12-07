@@ -41,7 +41,7 @@ class MemoryStore:
         # or we could make MemoryStore a dependency that's created async.
         # For now, I'll remove the call from __init__ and add a note.
 
-    async def ainit(self) -> None: # Async initialization method
+    async def ainit(self) -> None:  # Async initialization method
         await self._async_ensure_client()
 
     async def _async_ensure_client(self) -> None:
@@ -89,7 +89,9 @@ class MemoryStore:
             )
         try:
             # Use await for async client methods
-            await self._client.upsert(collection_name=self._settings.qdrant_collection, points=points)
+            await self._client.upsert(
+                collection_name=self._settings.qdrant_collection, points=points
+            )
         except UnexpectedResponse as exc:  # pragma: no cover - defensive branch
             LOGGER.error("Failed to upsert memory points: %s", exc)
 

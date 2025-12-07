@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from qdrant_client import AsyncQdrantClient # Changed to AsyncQdrantClient
+from qdrant_client import AsyncQdrantClient  # Changed to AsyncQdrantClient
 
 from core.core.config import Settings
 from core.core.memory import MemoryRecord, MemoryStore
@@ -24,7 +24,9 @@ class _StubQdrantClient:
         self.results: list[_StubSearchResult] = []
         self.last_search_kwargs: dict[str, Any] | None = None
 
-    async def upsert(self, *, collection_name: str, points: Iterable[Any], wait: bool | None = None) -> None:  # noqa: D401
+    async def upsert(
+        self, *, collection_name: str, points: Iterable[Any], wait: bool | None = None
+    ) -> None:  # noqa: D401
         self.upsert_calls.append(list(points))
 
     async def search(
@@ -51,16 +53,18 @@ async def memory_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[MemoryStore, _StubQdrantClient]:
     monkeypatch.setattr(MemoryStore, "_async_ensure_client", lambda self: None)
-    monkeypatch.setattr(MemoryStore, "ainit", lambda self: None) # Monkeypatch ainit
-    
+    monkeypatch.setattr(MemoryStore, "ainit", lambda self: None)  # Monkeypatch ainit
+
     # Needs to be async
     async def _fake_async_embed_texts(self, texts: Iterable[str]) -> list[list[float]]:
         return [[0.0] * self._vector_size for _ in texts]
 
-    monkeypatch.setattr(MemoryStore, "_async_embed_texts", _fake_async_embed_texts) # Monkeypatch async embed
+    monkeypatch.setattr(
+        MemoryStore, "_async_embed_texts", _fake_async_embed_texts
+    )  # Monkeypatch async embed
     store = MemoryStore(settings=Settings())
     stub_client = _StubQdrantClient()
-    store._client = cast(AsyncQdrantClient, stub_client) # Changed to AsyncQdrantClient
+    store._client = cast(AsyncQdrantClient, stub_client)  # Changed to AsyncQdrantClient
     return store, stub_client
 
 
