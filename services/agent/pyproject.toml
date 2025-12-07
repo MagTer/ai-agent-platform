@@ -121,5 +121,3 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.ruff.lint.per-file-ignores]
 "src/core/models/gemini_cli.py" = ["S603"]
-
-# Force CI cache refresh
