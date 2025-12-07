@@ -27,19 +27,6 @@ jobs:
           key: ${{ runner.os }}-poetry-${{ hashFiles('services/agent/poetry.lock', 'services/agent/pyproject.toml') }}
       - name: Install dependencies
         run: poetry install --no-interaction --directory services/agent
-      - name: Debug Poetry Environment
-        run: |
-          cd services/agent
-          echo "Current directory: $(pwd)"
-          echo "Running 'poetry run env':"
-          poetry run env
-          echo "Running 'poetry run which black':"
-          poetry run which black || echo "black not found by poetry run"
-          echo "Contents of .venv/bin:"
-          ls -l .venv/bin
-          echo "Running 'poetry run python -c \"import black\"':"
-          poetry run python -c "import black" || echo "black import failed"
-          cd -
       - name: Run Quality Checks
         run: python scripts/code_check.py
 

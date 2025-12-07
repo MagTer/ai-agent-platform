@@ -54,6 +54,8 @@ def get_commands() -> list[Command]:
             args=[
                 "poetry",
                 "run",
+                "python",
+                "-m",
                 "black",
                 "src",
                 "../embedder",
