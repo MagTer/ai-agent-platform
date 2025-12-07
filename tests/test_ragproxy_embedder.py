@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import json # Added import
 from types import SimpleNamespace
+
+import pytest
+import respx
+from httpx import Response
 
 from services.ragproxy import chat_completions, qdrant_retrieve
 
@@ -13,68 +18,65 @@ class DummyResponse(SimpleNamespace):
         return getattr(self, "_data", {})
 
 
-def test_qdrant_retrieve_round_trips_embedder(monkeypatch):
-    calls: list[str] = []
+@pytest.mark.asyncio
+@respx.mock
+async def test_qdrant_retrieve_round_trips_embedder():
+    respx.post("http://embedder:8082/embed").mock(
+        return_value=Response(200, json={"vectors": [[0.3, 0.4]]})
+    )
+    respx.post("http://qdrant:6333/collections/memory/points/search").mock(
+        return_value=Response(
+            200,
+            json={
+                "result": [
+                    {
+                        "payload": {"url": "https://example.com", "text": "context"},
+                        "vector": [0.3, 0.4],
+                    }
+                ]
+            },
+        )
+    )
 
-    def fake_post(url, json=None, timeout=None):
-        calls.append(url)
-        if url.startswith("http://embedder"):
-            return DummyResponse(_data={"vectors": [[0.3, 0.4]]})
-        if url.startswith("http://qdrant"):
-            return DummyResponse(
-                _data={
-                    "result": [
-                        {
-                            "payload": {
-                                "url": "https://example.com",
-                                "text": "context",
-                            },
-                            "vector": [0.3, 0.4],
-                        }
-                    ]
-                }
-            )
-        raise AssertionError(f"Unexpected URL: {url}")
-
-    monkeypatch.setattr("services.ragproxy.requests.post", fake_post)
-    hits = qdrant_retrieve("hello", 2)
+    hits = await qdrant_retrieve("hello", 2)
     assert len(hits) == 1
     assert hits[0]["url"] == "https://example.com"
-    assert any("embedder" in call for call in calls)
 
 
-def test_chat_completions_injects_rag_context(monkeypatch):
+@pytest.mark.asyncio
+@respx.mock
+async def test_chat_completions_injects_rag_context():
     seen_payload: dict | None = None
 
-    def fake_post(url, json=None, timeout=None):
+    async def capture_payload(request):
         nonlocal seen_payload
-        if url.startswith("http://embedder"):
-            return DummyResponse(_data={"vectors": [[0.1, 0.2]]})
-        if url.startswith("http://qdrant"):
-            return DummyResponse(
-                _data={
-                    "result": [
-                        {
-                            "payload": {
-                                "url": "https://docs.example",
-                                "text": "doc text",
-                            },
-                            "vector": [0.1, 0.2],
-                        }
-                    ]
-                }
-            )
-        if url.startswith("http://litellm"):
-            seen_payload = json or {}
-            return DummyResponse(
-                _data={
-                    "choices": [{"message": {"role": "assistant", "content": "reply"}}]
-                }
-            )
-        raise AssertionError(f"Unexpected URL: {url}")
+        seen_payload = json.loads(request.content.decode())
+        return Response(
+            200,
+            json={
+                "choices": [{"message": {"role": "assistant", "content": "reply"}}]
+            }
+        )
 
-    monkeypatch.setattr("services.ragproxy.requests.post", fake_post)
-    result = chat_completions(
+    respx.post("http://embedder:8082/embed").mock(
+        return_value=Response(200, json={"vectors": [[0.1, 0.2]]})
+    )
+    respx.post("http://qdrant:6333/collections/memory/points/search").mock(
+        return_value=Response(
+            200,
+            json={
+                "result": [
+                    {
+                        "payload": {"url": "https://docs.example", "text": "doc text"},
+                        "vector": [0.1, 0.2],
+                    }
+                ]
+            },
+        )
+    )
+    respx.post("http://litellm:4000/v1/chat/completions").mock(side_effect=capture_payload)
+
+    result = await chat_completions(
         {
             "model": "rag/phi3-en",
             "messages": [

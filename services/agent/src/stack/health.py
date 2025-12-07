@@ -33,9 +33,7 @@ class StatusTable(Table):
 def fetch_container_states() -> list[dict[str, str]]:
     """Return a summary of containers belonging to the stack project."""
 
-    if not hasattr(
-        docker, "from_env"
-    ):  # pragma: no cover - dependency missing at runtime
+    if not hasattr(docker, "from_env"):  # pragma: no cover - dependency missing at runtime
         raise RuntimeError("docker SDK is required to fetch container states")
 
     client = docker.from_env()

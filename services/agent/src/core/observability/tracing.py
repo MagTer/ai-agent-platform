@@ -143,9 +143,7 @@ def configure_tracing(service_name: str, *, span_log_path: str | None = None) ->
     provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
     span_log_file = span_log_path or os.getenv("SPAN_LOG_PATH")
     if span_log_file:
-        provider.add_span_processor(
-            BatchSpanProcessor(_FileSpanExporter(span_log_file))
-        )
+        provider.add_span_processor(BatchSpanProcessor(_FileSpanExporter(span_log_file)))
     _otel_trace.set_tracer_provider(provider)
 
 

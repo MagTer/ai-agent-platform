@@ -23,12 +23,8 @@ def ensure_schema(
     port: int = typer.Option(6333, help="Qdrant HTTP port."),
     collection: str = typer.Option("memory", help="Collection name."),
     size: int = typer.Option(384, help="Vector size."),
-    distance: str = typer.Option(
-        "Cosine", help="Distance metric (Cosine, Euclid, Dot)."
-    ),
-    recreate: bool = typer.Option(
-        False, help="Drop the collection before ensuring schema."
-    ),
+    distance: str = typer.Option("Cosine", help="Distance metric (Cosine, Euclid, Dot)."),
+    recreate: bool = typer.Option(False, help="Drop the collection before ensuring schema."),
 ) -> None:
     """Ensure the target Qdrant collection exists with the requested schema."""
 
@@ -41,9 +37,7 @@ def ensure_schema(
             raise typer.BadParameter("distance must be Cosine, Euclid or Dot")
         try:
             response = client.get(f"{base_url}/collections/{collection}")
-            exists = (
-                response.status_code == 200 and response.json().get("status") == "ok"
-            )
+            exists = response.status_code == 200 and response.json().get("status") == "ok"
         except httpx.HTTPError:
             exists = False
 
@@ -53,9 +47,7 @@ def ensure_schema(
 
         if not exists:
             payload = {"vectors": {"size": size, "distance": distance_value}}
-            client.put(
-                f"{base_url}/collections/{collection}", json=payload
-            ).raise_for_status()
+            client.put(f"{base_url}/collections/{collection}", json=payload).raise_for_status()
         typer.echo(f"Collection '{collection}' is ensured at {host}:{port}.")
     finally:
         client.close()
@@ -63,9 +55,7 @@ def ensure_schema(
 
 @app.command("backup")
 def backup(
-    backup_dir: Path = typer.Option(
-        Path("backups"), help="Destination directory for archives."
-    ),
+    backup_dir: Path = typer.Option(Path("backups"), help="Destination directory for archives."),
     container: str = typer.Option("qdrant", help="Running Qdrant container name."),
 ) -> None:
     """Create a compressed archive of the Qdrant storage volume."""
@@ -98,9 +88,7 @@ def backup(
 
 @app.command("restore")
 def restore(
-    backup_file: Path = typer.Argument(
-        ..., help="Path to a previously created archive."
-    ),
+    backup_file: Path = typer.Argument(..., help="Path to a previously created archive."),
     container: str = typer.Option("qdrant", help="Running Qdrant container name."),
     compose_file: Path = typer.Option(
         Path("docker-compose.yml"),
@@ -115,9 +103,7 @@ def restore(
     if not resolved_backup.exists():
         raise FileNotFoundError(f"Backup file not found: {resolved_backup}")
 
-    compose_path = (
-        compose_file if compose_file.is_absolute() else (repo_root / compose_file)
-    )
+    compose_path = compose_file if compose_file.is_absolute() else (repo_root / compose_file)
     tooling.ensure_container_exists(container)
 
     typer.echo("Stopping Qdrant via docker compose…")

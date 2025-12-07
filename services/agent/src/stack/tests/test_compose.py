@@ -39,7 +39,5 @@ def test_compose_command_honours_project_name(monkeypatch, tmp_path):
 
     monkeypatch.setattr(compose, "resolve_compose_files", fake_resolve)
 
-    command = compose._compose_command(
-        ["up"], env={"STACK_PROJECT_NAME": "custom-project"}
-    )
+    command = compose._compose_command(["up"], env={"STACK_PROJECT_NAME": "custom-project"})
     assert command[-3:] == ["-p", "custom-project", "up"]

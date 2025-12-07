@@ -28,27 +28,19 @@ class Settings(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    app_name: str = Field(
-        default="AI Agent Server", description="Human friendly service name."
-    )
+    app_name: str = Field(default="AI Agent Server", description="Human friendly service name.")
     environment: Literal["development", "production", "test"] = Field(
         default="development",
         description="Runtime environment used for logging and diagnostics.",
     )
-    host: str = Field(
-        default="0.0.0.0", description="Host interface for the FastAPI server."
-    )
-    port: int = Field(
-        default=8000, description="Listening port for the FastAPI server."
-    )
+    host: str = Field(default="0.0.0.0", description="Host interface for the FastAPI server.")
+    port: int = Field(default=8000, description="Listening port for the FastAPI server.")
 
     litellm_api_base: HttpUrl = Field(
         default=DEFAULT_LITELLM_API_BASE,
         description="Base URL for the LiteLLM gateway.",
     )
-    litellm_api_key: str | None = Field(
-        default=None, description="Optional LiteLLM API key."
-    )
+    litellm_api_key: str | None = Field(default=None, description="Optional LiteLLM API key.")
     litellm_model: str = Field(
         default="ollama/phi3:mini",
         description="Default model identifier passed to LiteLLM.",
@@ -62,9 +54,7 @@ class Settings(BaseModel):
         default=DEFAULT_QDRANT_URL,
         description="Base URL for the Qdrant vector database.",
     )
-    qdrant_api_key: str | None = Field(
-        default=None, description="Optional Qdrant API key."
-    )
+    qdrant_api_key: str | None = Field(default=None, description="Optional Qdrant API key.")
     qdrant_collection: str = Field(
         default="agent-memories",
         description="Vector collection used to persist semantic memories.",
@@ -113,9 +103,7 @@ class Settings(BaseModel):
         description="Optional file path for writing span telemetry (JSONL).",
     )
 
-    log_level: str = Field(
-        default="INFO", description="Python logging level for the service."
-    )
+    log_level: str = Field(default="INFO", description="Python logging level for the service.")
 
     def __init__(self, **data: Any) -> None:  # noqa: D401 - inherited docstring
         env_values = type(self)._load_environment_values()

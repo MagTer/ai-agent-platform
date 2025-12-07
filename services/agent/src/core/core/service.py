@@ -79,9 +79,7 @@ class AgentService:
         responder = ResponseAgent()
 
         # Extract routing decision (default to AGENTIC if missing)
-        routing_decision = request_metadata.get(
-            "routing_decision", RoutingDecision.AGENTIC
-        )
+        routing_decision = request_metadata.get("routing_decision", RoutingDecision.AGENTIC)
         LOGGER.info(f"Handling request with routing decision: {routing_decision}")
 
         with start_span(
@@ -115,9 +113,7 @@ class AgentService:
 
                 completion_text = await self._litellm.generate(history + [user_message])
 
-                assistant_message = AgentMessage(
-                    role="assistant", content=completion_text
-                )
+                assistant_message = AgentMessage(role="assistant", content=completion_text)
                 self._state_store.append_messages(
                     conversation_id,
                     [user_message, assistant_message],
@@ -164,7 +160,8 @@ class AgentService:
                 LOGGER.info("Using injected plan from metadata")
                 plan = Plan(**request_metadata["plan"])
             else:
-                tool_descriptions = self._describe_tools()
+                allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
+                tool_descriptions = self._describe_tools(allowlist)
                 plan = await planner.generate(
                     request,
                     history=history_with_tools,
@@ -205,33 +202,31 @@ class AgentService:
                     "trace": current_trace_ids(),
                 }
                 steps.append(step_entry)
-                result: StepResult = await executor.run(
+                step_execution_result: StepResult = await executor.run(
                     plan_step,
                     request=request,
                     conversation_id=conversation_id,
                     prompt_history=prompt_history,
                 )
-                decision = await step_supervisor.review(plan_step, result.status)
+                decision = await step_supervisor.review(plan_step, step_execution_result.status)
                 step_entry.update(
-                    status=result.status,
-                    result=result.result,
+                    status=step_execution_result.status,
+                    result=step_execution_result.result,
                     decision=decision,
                     trace=current_trace_ids(),
                 )
-                prompt_history.extend(result.messages)
+                prompt_history.extend(step_execution_result.messages)
                 if plan_step.action == "tool":
-                    plan_tool_results.append(result.result)
-                if plan_step.action == "completion" and result.status == "ok":
-                    completion_text = result.result.get("completion", "")
+                    plan_tool_results.append(step_execution_result.result)
+                if plan_step.action == "completion" and step_execution_result.status == "ok":
+                    completion_text = step_execution_result.result.get("completion", "")
                     completion_provider = plan_step.provider or completion_provider
-                    completion_model = result.result.get("model", completion_model)
+                    completion_model = step_execution_result.result.get("model", completion_model)
                     completion_step_id = plan_step.id
                     break
 
             if not completion_text:
-                completion_text = await self._litellm.generate(
-                    prompt_history + [user_message]
-                )
+                completion_text = await self._litellm.generate(prompt_history + [user_message])
                 completion_step_id = completion_step_id or (
                     plan.steps[-1].id if plan.steps else None
                 )
@@ -241,7 +236,7 @@ class AgentService:
                 request_metadata["tool_results"] = tool_results
 
             assistant_message = AgentMessage(role="assistant", content=completion_text)
-            completion_step: dict[str, Any] = {
+            final_completion_step_entry: dict[str, Any] = {
                 "type": "completion",
                 "provider": completion_provider,
                 "model": completion_model,
@@ -249,11 +244,10 @@ class AgentService:
                 "plan_step_id": completion_step_id,
                 **current_trace_ids(),
             }
-            steps.append(completion_step)
+            steps.append(final_completion_step_entry)
 
-            await asyncio.to_thread(
-                self._memory.add_records,
-                [MemoryRecord(conversation_id=conversation_id, text=request.prompt)],
+            await self._memory.add_records(
+                [MemoryRecord(conversation_id=conversation_id, text=request.prompt)]
             )
             self._state_store.append_messages(
                 conversation_id,
@@ -284,9 +278,7 @@ class AgentService:
 
         return await self._litellm.list_models()
 
-    def conversation_history(
-        self, conversation_id: str, limit: int = 20
-    ) -> list[AgentMessage]:
+    def conversation_history(self, conversation_id: str, limit: int = 20) -> list[AgentMessage]:
         """Return the stored conversation history."""
 
         return self._state_store.get_messages(conversation_id, limit=limit)
@@ -330,9 +322,7 @@ class AgentService:
                 LOGGER.warning("Encountered tool call without a name; skipping")
                 continue
 
-            result = await self._run_tool_call(
-                str(tool_name), call_args, allowlist=allowlist
-            )
+            result = await self._run_tool_call(str(tool_name), call_args, allowlist=allowlist)
             results.append(result)
         return results
 
@@ -365,9 +355,7 @@ class AgentService:
             try:
                 output = await tool.run(**sanitized_args)
                 status = "ok"
-            except (
-                Exception
-            ) as exc:  # pragma: no cover - depends on tool implementation
+            except Exception as exc:  # pragma: no cover - depends on tool implementation
                 LOGGER.exception("Tool %s execution failed", tool_name)
                 result.update({"status": "error", "error": str(exc)})
                 status = "error"
@@ -401,9 +389,7 @@ class AgentService:
         )
         return result
 
-    def _tool_result_entry(
-        self, result: dict[str, Any], *, source: str = "plan"
-    ) -> dict[str, Any]:
+    def _tool_result_entry(self, result: dict[str, Any], *, source: str = "plan") -> dict[str, Any]:
         """Turn a tool result into a structured step entry."""
 
         entry: dict[str, Any] = {
@@ -442,15 +428,20 @@ class AgentService:
             description="Fallback plan generated when the planner response was invalid.",
         )
 
-    def _describe_tools(self) -> list[dict[str, str]]:
+    def _describe_tools(self, allowlist: set[str] | None = None) -> list[dict[str, str]]:
         if not self._tool_registry:
             return []
+
+        tools = self._tool_registry.tools()
+        if allowlist is not None:
+            tools = [t for t in tools if t.name in allowlist]
+
         return [
             {
                 "name": tool.name,
                 "description": getattr(tool, "description", tool.__class__.__name__),
             }
-            for tool in self._tool_registry.tools()
+            for tool in tools
         ]
 
     @staticmethod

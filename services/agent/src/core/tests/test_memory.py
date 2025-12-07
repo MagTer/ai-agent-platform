@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient # Changed to AsyncQdrantClient
 
 from core.core.config import Settings
 from core.core.memory import MemoryRecord, MemoryStore
@@ -24,18 +24,18 @@ class _StubQdrantClient:
         self.results: list[_StubSearchResult] = []
         self.last_search_kwargs: dict[str, Any] | None = None
 
-    def upsert(
-        self, *, collection_name: str, points: Iterable[Any]
-    ) -> None:  # noqa: D401
+    async def upsert(self, *, collection_name: str, points: Iterable[Any], wait: bool | None = None) -> None:  # noqa: D401
         self.upsert_calls.append(list(points))
 
-    def search(
+    async def search(
         self,
         *,
         collection_name: str,
         query_vector: Iterable[float],
         limit: int,
         query_filter: Any | None = None,
+        with_payload: bool | None = None,
+        with_vectors: bool | None = None,
     ) -> list[_StubSearchResult]:  # noqa: D401
         self.last_search_kwargs = {
             "collection_name": collection_name,
@@ -47,22 +47,25 @@ class _StubQdrantClient:
 
 
 @pytest.fixture
-def memory_store(
+async def memory_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[MemoryStore, _StubQdrantClient]:
-    monkeypatch.setattr(MemoryStore, "_ensure_client", lambda self: None)
-
-    def _fake_embed_texts(self, texts: Iterable[str]) -> list[list[float]]:
+    monkeypatch.setattr(MemoryStore, "_async_ensure_client", lambda self: None)
+    monkeypatch.setattr(MemoryStore, "ainit", lambda self: None) # Monkeypatch ainit
+    
+    # Needs to be async
+    async def _fake_async_embed_texts(self, texts: Iterable[str]) -> list[list[float]]:
         return [[0.0] * self._vector_size for _ in texts]
 
-    monkeypatch.setattr(MemoryStore, "_embed_texts", _fake_embed_texts)
+    monkeypatch.setattr(MemoryStore, "_async_embed_texts", _fake_async_embed_texts) # Monkeypatch async embed
     store = MemoryStore(settings=Settings())
     stub_client = _StubQdrantClient()
-    store._client = cast(QdrantClient, stub_client)  # type: ignore[attr-defined]
+    store._client = cast(AsyncQdrantClient, stub_client) # Changed to AsyncQdrantClient
     return store, stub_client
 
 
-def test_add_records_generates_unique_point_ids(
+@pytest.mark.asyncio
+async def test_add_records_generates_unique_point_ids(
     monkeypatch: pytest.MonkeyPatch, memory_store: tuple[MemoryStore, _StubQdrantClient]
 ) -> None:
     store, stub_client = memory_store
@@ -74,12 +77,12 @@ def test_add_records_generates_unique_point_ids(
 
     monkeypatch.setattr("core.core.memory.uuid4", _uuid_factory)
 
-    store.add_records(
+    await store.add_records(
         [
             MemoryRecord(conversation_id="conv-1", text="hello"),
         ]
     )
-    store.add_records(
+    await store.add_records(
         [
             MemoryRecord(conversation_id="conv-1", text="world"),
         ]
@@ -93,7 +96,8 @@ def test_add_records_generates_unique_point_ids(
     assert second_call[0].payload["conversation_id"] == "conv-1"
 
 
-def test_search_returns_all_payload_matches(
+@pytest.mark.asyncio
+async def test_search_returns_all_payload_matches(
     memory_store: tuple[MemoryStore, _StubQdrantClient],
 ) -> None:
     store, stub_client = memory_store
@@ -102,14 +106,15 @@ def test_search_returns_all_payload_matches(
         _StubSearchResult(payload={"conversation_id": "conv-1", "text": "world"}),
     ]
 
-    matches = store.search("hello", limit=5)
+    matches = await store.search("hello", limit=5)
 
     assert [record.text for record in matches] == ["hello", "world"]
     assert all(record.conversation_id == "conv-1" for record in matches)
     assert len(matches) > 1
 
 
-def test_search_supports_conversation_filter(
+@pytest.mark.asyncio
+async def test_search_supports_conversation_filter(
     memory_store: tuple[MemoryStore, _StubQdrantClient],
 ) -> None:
     store, stub_client = memory_store
@@ -117,7 +122,7 @@ def test_search_supports_conversation_filter(
         _StubSearchResult(payload={"conversation_id": "conv-1", "text": "hello"}),
     ]
 
-    matches = store.search("hello", conversation_id="conv-1")
+    matches = await store.search("hello", conversation_id="conv-1")
 
     assert matches
     assert stub_client.last_search_kwargs is not None

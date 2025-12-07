@@ -13,7 +13,7 @@ def _load_app(monkeypatch) -> Any:
         importlib.reload(importlib.import_module("services.fetcher.app"))
     app_module = importlib.import_module("services.fetcher.app")
 
-    def stub_fetch_and_extract(url: str) -> dict[str, Any]:
+    async def stub_fetch_and_extract(url: str) -> dict[str, Any]:
         return {"url": url, "ok": True, "text": "hello", "html": "<p>hello</p>"}
 
     monkeypatch.setattr(

@@ -31,9 +31,7 @@ class LiteLLMClient:
             headers["Authorization"] = f"Bearer {self._settings.litellm_api_key}"
         return headers
 
-    async def _chat(
-        self, messages: Iterable[AgentMessage], *, model: str | None = None
-    ) -> str:
+    async def _chat(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
         """Send the chat payload to LiteLLM and return the assistant response."""
 
         payload: dict[str, Any] = {
@@ -41,9 +39,7 @@ class LiteLLMClient:
             "messages": [message.model_dump() for message in messages],
         }
 
-        async with httpx.AsyncClient(
-            base_url=str(self._settings.litellm_api_base)
-        ) as client:
+        async with httpx.AsyncClient(base_url=str(self._settings.litellm_api_base)) as client:
             try:
                 response = await client.post(
                     "/v1/chat/completions",
@@ -67,16 +63,12 @@ class LiteLLMClient:
         except (KeyError, IndexError, TypeError) as exc:  # pragma: no cover - defensive
             raise LiteLLMError("Unexpected response format from LiteLLM") from exc
 
-    async def generate(
-        self, messages: Iterable[AgentMessage], *, model: str | None = None
-    ) -> str:
+    async def generate(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
         """Call the LiteLLM chat completions endpoint and return the assistant message."""
 
         return await self._chat(messages, model=model)
 
-    async def plan(
-        self, messages: Iterable[AgentMessage], *, model: str | None = None
-    ) -> str:
+    async def plan(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
         """Ask Phi3 Mini to emit a structured execution plan before running the final completion."""
 
         return await self._chat(messages, model=model)
@@ -84,9 +76,7 @@ class LiteLLMClient:
     async def list_models(self) -> Any:
         """Return the raw body from LiteLLM's `/v1/models` endpoint."""
 
-        async with httpx.AsyncClient(
-            base_url=str(self._settings.litellm_api_base)
-        ) as client:
+        async with httpx.AsyncClient(base_url=str(self._settings.litellm_api_base)) as client:
             try:
                 response = await client.get(
                     "/v1/models",

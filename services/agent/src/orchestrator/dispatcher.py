@@ -7,7 +7,7 @@ from re import Pattern
 from typing import Any, TypedDict
 
 from core.core.litellm_client import LiteLLMClient
-from shared.models import Plan, PlanStep, RoutingDecision
+from shared.models import AgentMessage, Plan, PlanStep, RoutingDecision
 
 from .skill_loader import SkillLoader
 
@@ -31,6 +31,7 @@ class DispatchResult:
     decision: RoutingDecision
     plan: Plan | None = None
     skill_name: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class FastPathEntry(TypedDict, total=False):
@@ -96,6 +97,7 @@ class Dispatcher:
                     original_message=message,
                     decision=RoutingDecision.FAST_PATH,
                     skill_name=skill.name,
+                    metadata={"tools": skill.tools},
                 )
 
         # 2. Check Regex Fast Paths -> FAST_PATH
@@ -142,10 +144,9 @@ class Dispatcher:
             # Use a very low max_tokens to force brevity and speed
             classification = await self.litellm.generate(
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": stripped_message},
+                    AgentMessage(role="system", content=system_prompt),
+                    AgentMessage(role="user", content=stripped_message),
                 ],
-                max_tokens=5,
             )
             classification = classification.strip().upper()
             LOGGER.info(f"Dispatcher classified intent as: {classification}")

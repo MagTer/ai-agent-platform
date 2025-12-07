@@ -34,16 +34,12 @@ class PlannerAgent:
         """Return a :class:`Plan` describing execution steps."""
 
         available_tools_text = (
-            "\n".join(
-                f"- {entry['name']}: {entry['description']}"
-                for entry in tool_descriptions
-            )
+            "\n".join(f"- {entry['name']}: {entry['description']}" for entry in tool_descriptions)
             or "- (no MCP-specific tools are registered)"
         )
 
         history_text = (
-            "\n".join(f"{message.role}: {message.content}" for message in history)
-            or "(no history)"
+            "\n".join(f"{message.role}: {message.content}" for message in history) or "(no history)"
         )
         try:
             metadata_text = json.dumps(request.metadata or {}, indent=2)
@@ -107,9 +103,7 @@ class PlannerAgent:
 
             candidate = self._extract_json_fragment(plan_text)
             if candidate is None:
-                LOGGER.warning(
-                    "Failed to extract JSON from planner output: %s", plan_text
-                )
+                LOGGER.warning("Failed to extract JSON from planner output: %s", plan_text)
                 candidate = {
                     "steps": [],
                     "description": "Unable to parse planner output",

@@ -32,9 +32,7 @@ class StateStore:
             )
             connection.commit()
 
-    def append_messages(
-        self, conversation_id: str, messages: Iterable[AgentMessage]
-    ) -> None:
+    def append_messages(self, conversation_id: str, messages: Iterable[AgentMessage]) -> None:
         """Persist chat messages related to a conversation."""
 
         with sqlite3.connect(self._database_path) as connection:
@@ -43,10 +41,7 @@ class StateStore:
                 INSERT INTO interactions (conversation_id, role, content)
                 VALUES (?, ?, ?)
                 """,
-                (
-                    (conversation_id, message.role, message.content)
-                    for message in messages
-                ),
+                ((conversation_id, message.role, message.content) for message in messages),
             )
             connection.commit()
 

@@ -59,12 +59,15 @@ class DummyMemory:
     def __init__(self) -> None:
         self.records: list[str] = []
 
-    def search(
+    async def ainit(self) -> None:
+        pass
+
+    async def search(
         self, query: str, limit: int = 5, conversation_id: str | None = None
     ) -> list[MemoryRecord]:  # noqa: D401
         return []
 
-    def add_records(self, records: Iterable[MemoryRecord]) -> None:
+    async def add_records(self, records: Iterable[MemoryRecord]) -> None:
         for record in records:
             self.records.append(record.text)
 
@@ -140,9 +143,7 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
     registry = ToolRegistry([DummyTool()])
     service = AgentService(
         settings=settings,
-        litellm=cast(
-            LiteLLMClient, MockLiteLLMClient(plan_output=json.dumps(plan_definition))
-        ),
+        litellm=cast(LiteLLMClient, MockLiteLLMClient(plan_output=json.dumps(plan_definition))),
         memory=cast(MemoryStore, DummyMemory()),
         state_store=StateStore(tmp_path / "state.sqlite"),
         tool_registry=registry,
@@ -154,6 +155,4 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
     assert response.response == "response: Hello world"
     assert response.metadata["plan"]["description"] == "Test plan flow"
     assert any(step.get("tool") == "dummy_tool" for step in response.steps)
-    assert any(
-        result["name"] == "dummy_tool" for result in response.metadata["tool_results"]
-    )
+    assert any(result["name"] == "dummy_tool" for result in response.metadata["tool_results"])

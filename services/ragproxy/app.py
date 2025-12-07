@@ -1,8 +1,9 @@
 import os
 from typing import Any
+from contextlib import asynccontextmanager
 
+import httpx
 import numpy as np
-import requests
 from fastapi import Body, FastAPI, HTTPException
 
 EMBEDDER_BASE = os.getenv("EMBEDDER_BASE", "http://embedder:8082")
@@ -14,11 +15,31 @@ ENABLE_RAG = os.getenv("ENABLE_RAG", "true").lower() == "true"
 RAG_MAX_SOURCES = int(os.getenv("RAG_MAX_SOURCES", "5"))
 RAG_MAX_CHARS = int(os.getenv("RAG_MAX_CHARS", "1200"))
 
-app = FastAPI(title="RAG Proxy", version="0.2.0")
+http_client: httpx.AsyncClient | None = None
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
-    r = requests.post(
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global http_client
+    http_client = httpx.AsyncClient()
+    yield
+    if http_client:
+        await http_client.aclose()
+
+
+app = FastAPI(title="RAG Proxy", version="0.2.0", lifespan=lifespan)
+
+
+async def get_client() -> httpx.AsyncClient:
+    global http_client
+    if http_client is None:
+        http_client = httpx.AsyncClient()
+    return http_client
+
+
+async def embed_texts(texts: list[str]) -> list[list[float]]:
+    client = await get_client()
+    r = await client.post(
         f"{EMBEDDER_BASE.rstrip('/')}/embed",
         json={"inputs": texts, "normalize": True},
         timeout=30,
@@ -60,8 +81,8 @@ def _mmr(
     return selected
 
 
-def qdrant_retrieve(query: str, top_k: int) -> list[dict[str, Any]]:
-    vecs = embed_texts([query])
+async def qdrant_retrieve(query: str, top_k: int) -> list[dict[str, Any]]:
+    vecs = await embed_texts([query])
     if not vecs:
         return []
     qvec = np.array(vecs[0], dtype=np.float32)
@@ -71,7 +92,8 @@ def qdrant_retrieve(query: str, top_k: int) -> list[dict[str, Any]]:
         "with_payload": True,
         "with_vector": True,
     }
-    r = requests.post(
+    client = await get_client()
+    r = await client.post(
         f"{QDRANT_URL.rstrip('/')}/collections/memory/points/search",
         json=payload,
         timeout=30,
@@ -127,7 +149,7 @@ def models():
 
 
 @app.post("/v1/chat/completions")
-def chat_completions(body: dict[str, Any] = Body(...)):
+async def chat_completions(body: dict[str, Any] = Body(...)):
     model = (body.get("model") or "").lower()
     messages: list[dict[str, str]] = list(body.get("messages") or [])
     if not messages:
@@ -146,7 +168,7 @@ def chat_completions(body: dict[str, Any] = Body(...)):
             m for m in messages if m.get("role") == "user" and m.get("content")
         ]
         query = user_msgs[-1]["content"] if user_msgs else ""
-        hits = qdrant_retrieve(query, QDRANT_TOP_K)[:RAG_MAX_SOURCES]
+        hits = (await qdrant_retrieve(query, QDRANT_TOP_K))[:RAG_MAX_SOURCES]
         if hits:
             chunks = []
             sources = []
@@ -179,7 +201,8 @@ def chat_completions(body: dict[str, Any] = Body(...)):
     fwd = dict(body)
     fwd["model"] = forward_model
     fwd["messages"] = final_messages
-    r = requests.post(
+    client = await get_client()
+    r = await client.post(
         f"{LITELLM_BASE.rstrip('/')}/v1/chat/completions", json=fwd, timeout=120
     )
     r.raise_for_status()

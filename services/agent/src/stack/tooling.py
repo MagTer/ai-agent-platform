@@ -38,9 +38,7 @@ def resolve_repo_root(start: Path | None = None, marker: str = REPO_MARKER) -> P
         if directory.parent == directory:
             break
         directory = directory.parent
-    raise FileNotFoundError(
-        f"Could not find {marker} upwards from {start or PROJECT_ROOT}"
-    )
+    raise FileNotFoundError(f"Could not find {marker} upwards from {start or PROJECT_ROOT}")
 
 
 def ensure_program(name: str) -> None:
@@ -71,9 +69,7 @@ def run_command(  # noqa: S603
     )
     if check and result.returncode != 0:
         quoted = " ".join(map(shlex.quote, args))
-        raise CommandError(
-            f"Command failed ({result.returncode}): {quoted}\n{result.stderr}"
-        )
+        raise CommandError(f"Command failed ({result.returncode}): {quoted}\n{result.stderr}")
     return result
 
 
@@ -115,9 +111,7 @@ def current_branch(repo_root: Path) -> str | None:
     except CommandError:
         return None
     stdout = result.stdout or ""
-    branch_output = (
-        stdout.strip() if isinstance(stdout, str) else stdout.decode("utf-8").strip()
-    )
+    branch_output = stdout.strip() if isinstance(stdout, str) else stdout.decode("utf-8").strip()
     branch = branch_output
     return branch if branch else None
 
@@ -150,9 +144,7 @@ def ensure_branch(
     if branch_exists(repo_root, branch):
         run_git_command(["checkout", branch], repo_root=repo_root, printer=printer)
     else:
-        run_git_command(
-            ["checkout", "-b", branch], repo_root=repo_root, printer=printer
-        )
+        run_git_command(["checkout", "-b", branch], repo_root=repo_root, printer=printer)
     return branch
 
 
@@ -192,9 +184,7 @@ def docker_cp(src: str, dest: str) -> None:
 def ensure_container_exists(container: str) -> None:
     """Raise when ``container`` is not known to Docker."""
 
-    run_command(
-        ["docker", "inspect", container, "--format", "{{.Name}}"], capture_output=True
-    )
+    run_command(["docker", "inspect", container, "--format", "{{.Name}}"], capture_output=True)
 
 
 def get_mapped_port(container: str, internal_port: int) -> int:
@@ -244,9 +234,7 @@ def ensure_models(models: Sequence[str]) -> None:
         # Use try-except to avoid crashing if Ollama is temporarily unavailable,
         # though stack up should have waited for health.
         try:
-            command = (
-                f"if ! ollama list | grep -q {quoted}; then ollama pull {quoted}; fi"
-            )
+            command = f"if ! ollama list | grep -q {quoted}; then ollama pull {quoted}; fi"
             run_command(  # noqa: S603
                 [*compose_args, "exec", "-T", "ollama", "/bin/sh", "-lc", command]
             )
@@ -292,17 +280,13 @@ def stage_and_commit(
 ) -> str | None:
     """Stage all files and create a timestamped commit when required."""
 
-    run_git_command(
-        ["add", "-A"], repo_root=repo_root, printer=printer, capture_output=True
-    )
+    run_git_command(["add", "-A"], repo_root=repo_root, printer=printer, capture_output=True)
     status = run_command(["git", "status", "--porcelain"], cwd=repo_root)
     if not status.stdout.strip():
         return None
     timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
     final_message = f"{message} ({timestamp})"
-    run_git_command(
-        ["commit", "-m", final_message], repo_root=repo_root, printer=printer
-    )
+    run_git_command(["commit", "-m", final_message], repo_root=repo_root, printer=printer)
     return final_message
 
 

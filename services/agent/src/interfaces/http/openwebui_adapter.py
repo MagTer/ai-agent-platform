@@ -12,6 +12,9 @@ from pydantic import BaseModel
 
 from core.core.config import Settings, get_settings
 from core.core.service import AgentService
+from core.core.litellm_client import LiteLLMClient
+from core.core.memory import MemoryStore
+from core.tools import ToolRegistry
 from orchestrator.dispatcher import Dispatcher, DispatchResult
 from orchestrator.skill_loader import SkillLoader
 from orchestrator.utils import render_skill_prompt
@@ -48,15 +51,16 @@ def get_dispatcher(settings=Depends(get_settings_dep)) -> Dispatcher:
     # We need a LiteLLMClient.
     # Optimization: reuse the one from AgentService if possible, but simpler to create one here.
     # Or better: create a get_litellm dependency.
-    from core.core.litellm_client import LiteLLMClient
-
     litellm = LiteLLMClient(settings)
     return Dispatcher(loader, litellm)
 
 
-def get_agent_service() -> AgentService:
-    settings = get_settings()
-    return AgentService(settings)
+async def get_agent_service(settings=Depends(get_settings_dep)) -> AgentService:
+    litellm = LiteLLMClient(settings)
+    memory = MemoryStore(settings)
+    await memory.ainit() # Await async initialization
+    tool_registry = ToolRegistry([]) # Provide an empty ToolRegistry for now
+    return AgentService(settings, litellm, memory, tool_registry=tool_registry)
 
 
 # --- Endpoints ---
@@ -176,9 +180,7 @@ async def stream_response_generator(
 
         # Handle Fast Path (Plan exists)
         if dispatch_result.plan:
-            yield _format_chunk(
-                chunk_id, created, model_name, "**Fast Path Active**\n\n"
-            )
+            yield _format_chunk(chunk_id, created, model_name, "**Fast Path Active**\n\n")
             agent_req.metadata["plan"] = dispatch_result.plan.model_dump()
 
         # Handle Legacy Skill
@@ -232,9 +234,7 @@ def _format_chunk(chunk_id, created, model, content):
             "object": "chat.completion.chunk",
             "created": created,
             "model": model,
-            "choices": [
-                {"index": 0, "delta": {"content": content}, "finish_reason": None}
-            ],
+            "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
         }
     }
     return f"data: {json.dumps(data)}\n\n"
