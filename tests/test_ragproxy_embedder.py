@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json # Added import
+import json  # Added import
 from types import SimpleNamespace
 
 import pytest
@@ -53,9 +53,7 @@ async def test_chat_completions_injects_rag_context():
         seen_payload = json.loads(request.content.decode())
         return Response(
             200,
-            json={
-                "choices": [{"message": {"role": "assistant", "content": "reply"}}]
-            }
+            json={"choices": [{"message": {"role": "assistant", "content": "reply"}}]},
         )
 
     respx.post("http://embedder:8082/embed").mock(
@@ -74,7 +72,9 @@ async def test_chat_completions_injects_rag_context():
             },
         )
     )
-    respx.post("http://litellm:4000/v1/chat/completions").mock(side_effect=capture_payload)
+    respx.post("http://litellm:4000/v1/chat/completions").mock(
+        side_effect=capture_payload
+    )
 
     result = await chat_completions(
         {

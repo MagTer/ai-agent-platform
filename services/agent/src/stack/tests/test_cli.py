@@ -51,7 +51,9 @@ def test_up_command(monkeypatch, tmp_path):
         lambda **_: called.setdefault("wait", True),
     )
 
-    def fake_compose_up(*, detach: bool, build: bool, extra_files: list[Path] | None) -> None:
+    def fake_compose_up(
+        *, detach: bool, build: bool, extra_files: list[Path] | None
+    ) -> None:
         called["compose_up"] = {
             "detach": detach,
             "build": build,

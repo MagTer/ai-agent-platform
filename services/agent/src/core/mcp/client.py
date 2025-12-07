@@ -64,7 +64,9 @@ class McpClient:
                 self._url,
             )
         except Exception as e:
-            LOGGER.error("Failed to connect or establish MCP session with %s: %s", self._url, e)
+            LOGGER.error(
+                "Failed to connect or establish MCP session with %s: %s", self._url, e
+            )
             await self.disconnect()
             raise
 
@@ -93,7 +95,9 @@ class McpClient:
 
         try:
             remote_tools_raw = await self._mcp_session.list_tools()
-            self._tools_cache = [McpTool(**tool.model_dump()) for tool in remote_tools_raw]
+            self._tools_cache = [
+                McpTool(**tool.model_dump()) for tool in remote_tools_raw
+            ]
             return self._tools_cache
         except Exception as e:
             LOGGER.error("Failed to fetch tools from MCP server: %s", e)

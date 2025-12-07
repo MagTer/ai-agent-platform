@@ -77,7 +77,9 @@ class AzureDevOpsTool(Tool):
             if not project:
                 return "❌ Error: Azure DevOps Project not specified in environment or arguments."
 
-            work_item = wit_client.create_work_item(document=document, project=project, type=type)
+            work_item = wit_client.create_work_item(
+                document=document, project=project, type=type
+            )
 
             # The URL returned by API is API URL. UI URL is different.
             # Example: https://dev.azure.com/{org}/{project}/_workitems/edit/{id}

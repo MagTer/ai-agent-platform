@@ -23,7 +23,9 @@ class McpToolWrapper(Tool):
         self._mcp_tool = mcp_tool
         self.name = mcp_tool.name
         self.description = mcp_tool.description
-        self.parameters = mcp_tool.input_schema  # Assuming input_schema directly maps to parameters
+        self.parameters = (
+            mcp_tool.input_schema
+        )  # Assuming input_schema directly maps to parameters
 
     async def run(self, **kwargs: Any) -> Any:
         """Execute the remote MCP tool."""
@@ -77,7 +79,9 @@ async def load_mcp_tools(settings: Settings, tool_registry: ToolRegistry) -> Non
                 # Prefix tool names (e.g. f"{client_name}_{wrapper.name}") to avoid collisions.
                 # For now, we register them as is, assuming unique names or last-write-wins.
                 tool_registry.register(wrapper)
-                LOGGER.info("Registered MCP tool from %s: %s", client_name, wrapper.name)
+                LOGGER.info(
+                    "Registered MCP tool from %s: %s", client_name, wrapper.name
+                )
         except Exception:
             LOGGER.exception("Failed to load tools from MCP server: %s", client_name)
 

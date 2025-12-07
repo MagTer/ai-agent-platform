@@ -58,13 +58,18 @@ class StepExecutorAgent:
                     )
                     for record in records:
                         messages.append(
-                            AgentMessage(role="system", content=f"Context memory: {record.text}")
+                            AgentMessage(
+                                role="system", content=f"Context memory: {record.text}"
+                            )
                         )
                     result = {"count": len(records)}
                     status = "ok"
                 elif step.executor == "agent" and step.action == "tool":
                     result, messages, status = await self._run_tool(step)
-                elif step.executor in {"litellm", "remote"} and step.action == "completion":
+                elif (
+                    step.executor in {"litellm", "remote"}
+                    and step.action == "completion"
+                ):
                     completion, model = await self._generate_completion(
                         step, prompt_history, request
                     )
@@ -91,18 +96,30 @@ class StepExecutorAgent:
                     trace=trace_ctx,
                 )
             )
-            return StepResult(step=step, status=status, result=result, messages=messages)
+            return StepResult(
+                step=step, status=status, result=result, messages=messages
+            )
 
-    async def _run_tool(self, step: PlanStep) -> tuple[dict[str, Any], list[AgentMessage], str]:
+    async def _run_tool(
+        self, step: PlanStep
+    ) -> tuple[dict[str, Any], list[AgentMessage], str]:
         tool_messages: list[AgentMessage] = []
-        tool = self._tool_registry.get(step.tool) if self._tool_registry and step.tool else None
+        tool = (
+            self._tool_registry.get(step.tool)
+            if self._tool_registry and step.tool
+            else None
+        )
         if not tool:
             return {"name": step.tool, "status": "missing"}, tool_messages, "missing"
         raw_args = step.args if isinstance(step.args, dict) else {}
         args = (
-            raw_args.get("tool_args") if isinstance(raw_args.get("tool_args"), dict) else raw_args
+            raw_args.get("tool_args")
+            if isinstance(raw_args.get("tool_args"), dict)
+            else raw_args
         )
-        allowlist = raw_args.get("allowed_tools") if isinstance(raw_args, dict) else None
+        allowlist = (
+            raw_args.get("allowed_tools") if isinstance(raw_args, dict) else None
+        )
         if allowlist and step.tool not in allowlist:
             return (
                 {"name": step.tool, "status": "skipped", "reason": "not-allowed"},
@@ -113,7 +130,9 @@ class StepExecutorAgent:
             output = await tool.run(**(args or {}))
         output_text = str(output)
         tool_messages.append(
-            AgentMessage(role="system", content=f"Tool {step.tool} output:\n{output_text}")
+            AgentMessage(
+                role="system", content=f"Tool {step.tool} output:\n{output_text}"
+            )
         )
         trace_ctx = TraceContext(**current_trace_ids())
         log_event(
@@ -145,7 +164,8 @@ class StepExecutorAgent:
         ) as span:
             try:
                 completion_text = await self._litellm.generate(
-                    prompt_history + [AgentMessage(role="user", content=request.prompt)],
+                    prompt_history
+                    + [AgentMessage(role="user", content=request.prompt)],
                     model=model_override,
                 )
             except TypeError:

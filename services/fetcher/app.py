@@ -164,11 +164,13 @@ async def async_http_get(
     # Use global client or create one if missing (fallback)
     client = http_client or httpx.AsyncClient()
     should_close = http_client is None
-    
+
     try:
         for i in range(tries):
             try:
-                return await client.get(url, timeout=timeout, params=params, headers=headers)
+                return await client.get(
+                    url, timeout=timeout, params=params, headers=headers
+                )
             except Exception as e:
                 last_exc = e
                 if i < tries - 1:
@@ -486,19 +488,19 @@ def _pick_model(model: str | None, lang: str) -> str:
 
 async def _research_core(q: str, k: int, model: str | None, lang: str):
     chosen_model = _pick_model(model, lang)
-    
+
     # Start memory search and web search in parallel
     mem_task = None
     if ENABLE_QDRANT:
         mem_task = asyncio.create_task(qdrant_query(q, top_k=min(QDRANT_TOP_K, k)))
-    
+
     # Web search
     s = await search(q=q, k=k, lang=lang)
     web_urls = [r["url"] for r in s["results"] if r.get("url")]
-    
+
     # Parallel fetch of web pages
     web_extracts = await asyncio.gather(*(fetch_and_extract(u) for u in web_urls))
-    
+
     # Await memory results
     mem_extracts: list[dict[str, Any]] = []
     mem_urls: list[str] = []
@@ -567,7 +569,9 @@ async def research_get(
 
 
 @app.get("/retrieval_debug")
-async def retrieval_debug(q: str = Query(..., min_length=2), k: int = Query(5, ge=1, le=10)):
+async def retrieval_debug(
+    q: str = Query(..., min_length=2), k: int = Query(5, ge=1, le=10)
+):
     mem = await qdrant_query(q, top_k=min(QDRANT_TOP_K, k)) if ENABLE_QDRANT else []
     s = await search(q=q, k=k, lang="sv")
     web = s.get("results", [])

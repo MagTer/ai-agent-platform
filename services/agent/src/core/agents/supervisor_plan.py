@@ -12,7 +12,9 @@ class PlanSupervisorAgent:
     """Lightweight supervisor that can approve or adjust plans."""
 
     async def review(self, plan: Plan) -> Plan:
-        with start_span("supervisor.plan_review", attributes={"plan.steps": len(plan.steps)}):
+        with start_span(
+            "supervisor.plan_review", attributes={"plan.steps": len(plan.steps)}
+        ):
             decision = SupervisorDecision(
                 item_id="plan",
                 decision="ok",

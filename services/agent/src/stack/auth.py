@@ -29,7 +29,9 @@ def login_homey(
         # Copy from template if it doesn't exist
         template_path = PROJECT_ROOT / ".env.template"
         if template_path.exists():
-            console.print("[yellow].env file not found. Creating from .env.template...[/yellow]")
+            console.print(
+                "[yellow].env file not found. Creating from .env.template...[/yellow]"
+            )
             env_path.write_text(template_path.read_text())
         else:
             console.print(
@@ -55,4 +57,6 @@ def login_homey(
 
     env_path.write_text(new_content)
     console.print(f"[green]Successfully updated HOMEY_API_TOKEN in {env_path}[/green]")
-    console.print("[cyan]Please restart the stack to apply changes: `stack up -d`[/cyan]")
+    console.print(
+        "[cyan]Please restart the stack to apply changes: `stack up -d`[/cyan]"
+    )
