@@ -43,11 +43,20 @@ class MockLiteLLMClient:
 
 
 class DummyMemory:
-    def search(self, query: str, limit: int = 5, conversation_id: str | None = None):
+    def __init__(self) -> None:
+        self.persisted: list[str] = []
+
+    async def ainit(self) -> None:
+        pass
+
+    async def search(
+        self, query: str, limit: int = 5, conversation_id: str | None = None
+    ):
         return []
 
-    def add_records(self, records):
-        return None
+    async def add_records(self, records):
+        for record in records:
+            self.persisted.append(record.text)
 
 
 class DummyTool(Tool):

@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import cast
 
+import pytest
 from fastapi.testclient import TestClient
 
 from core.core.app import create_app
@@ -43,27 +44,34 @@ class DummyMemory:
     def __init__(self) -> None:
         self.persisted: list[str] = []
 
-    def search(
+    async def ainit(self) -> None:  # Add async init
+        pass
+
+    async def search(
         self, query: str, limit: int = 5, conversation_id: str | None = None
-    ):  # noqa: D401
+    ):  # Made async
         return []
 
-    def add_records(self, records):
+    async def add_records(self, records):  # Made async
         for record in records:
             self.persisted.append(record.text)
 
 
-def build_service(tmp_path: Path) -> AgentService:
+async def build_service(tmp_path: Path) -> AgentService:  # Made async
     settings = Settings(sqlite_state_path=tmp_path / "state.sqlite")
-    return AgentService(
+    memory = cast(MemoryStore, DummyMemory())
+    await memory.ainit()  # Await ainit
+    service = AgentService(
         settings=settings,
         litellm=cast(LiteLLMClient, MockLiteLLMClient()),
-        memory=cast(MemoryStore, DummyMemory()),
+        memory=memory,
     )
+    return service
 
 
-def test_chat_completions_roundtrip(tmp_path: Path) -> None:
-    service = build_service(tmp_path)
+@pytest.mark.asyncio
+async def test_chat_completions_roundtrip(tmp_path: Path) -> None:  # Made async
+    service = await build_service(tmp_path)  # Await build_service
     app = create_app(service._settings, service=service)  # type: ignore[arg-type]
     client = TestClient(app)
 

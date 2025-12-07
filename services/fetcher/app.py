@@ -3,16 +3,18 @@ import json
 import os
 import pathlib
 import time
+import asyncio
+from contextlib import asynccontextmanager
 from collections import deque
 from html.parser import HTMLParser
 from typing import Any
 
+import httpx
 import numpy as np
-import requests
 from fastapi import Body, Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient
 
 try:
     import trafilatura
@@ -102,7 +104,23 @@ RATE_MAX_REQ = int(os.getenv("RATE_MAX_REQ", "60"))  # requests per window
 
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="Web Fetcher", version="0.3.2")
+http_client: httpx.AsyncClient | None = None
+_qdrant: AsyncQdrantClient | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global http_client, _qdrant
+    http_client = httpx.AsyncClient()
+    _qdrant = AsyncQdrantClient(url=QDRANT_URL)
+    yield
+    if http_client:
+        await http_client.aclose()
+    if _qdrant:
+        await _qdrant.close()
+
+
+app = FastAPI(title="Web Fetcher", version="0.3.2", lifespan=lifespan)
 
 # -----------------------------
 # CORS
@@ -132,25 +150,35 @@ def limiter():
 # -----------------------------
 # HTTP helper with retries
 # -----------------------------
-def http_get(
+async def async_http_get(
     url: str,
     timeout: int,
     tries: int = 3,
     backoff: float = 1.5,
     params: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
-) -> requests.Response:
+) -> httpx.Response:
     if headers is None:
         headers = {"User-Agent": "Mozilla/5.0 (compatible; WebFetch/0.3.2)"}
     last_exc: Exception | None = None
-    for i in range(tries):
-        try:
-            return requests.get(url, timeout=timeout, params=params, headers=headers)
-        except Exception as e:
-            last_exc = e
-            if i < tries - 1:
-                time.sleep(backoff**i)
-    raise last_exc  # type: ignore
+    # Use global client or create one if missing (fallback)
+    client = http_client or httpx.AsyncClient()
+    should_close = http_client is None
+
+    try:
+        for i in range(tries):
+            try:
+                return await client.get(
+                    url, timeout=timeout, params=params, headers=headers
+                )
+            except Exception as e:
+                last_exc = e
+                if i < tries - 1:
+                    await asyncio.sleep(backoff**i)
+        raise last_exc  # type: ignore
+    finally:
+        if should_close:
+            await client.aclose()
 
 
 # -----------------------------
@@ -183,15 +211,16 @@ def _truncate_html(html: str) -> str:
     return html[:MAX_HTML_CHARS] + "\n... (truncated)\n"
 
 
-def fetch_and_extract(url: str) -> dict[str, Any]:
+async def fetch_and_extract(url: str) -> dict[str, Any]:
     cached = cache_get(url)
     if cached:
         return cached
     try:
-        r = http_get(url, timeout=REQUEST_TIMEOUT)
+        r = await async_http_get(url, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
         raw_html = r.text
-        text = _extract_text(raw_html)
+        # Running CPU-bound extraction in a thread pool to avoid blocking the loop
+        text = await asyncio.to_thread(_extract_text, raw_html)
         text = text.strip()
         if len(text) > MAX_CHARS:
             text = text[:MAX_CHARS] + "\n...\n"
@@ -212,16 +241,22 @@ def fetch_and_extract(url: str) -> dict[str, Any]:
 # -----------------------------
 # Embeddings via embedder service
 # -----------------------------
-def embed_texts(texts: list[str], normalize: bool = True) -> list[list[float]]:
+async def embed_texts(texts: list[str], normalize: bool = True) -> list[list[float]]:
     try:
-        r = requests.post(
-            EMBEDDER_BASE.rstrip("/") + "/embed",
-            json={"inputs": texts, "normalize": normalize},
-            timeout=REQUEST_TIMEOUT * 2,
-        )
-        r.raise_for_status()
-        data = r.json()
-        return data.get("vectors", [])
+        client = http_client or httpx.AsyncClient()
+        should_close = http_client is None
+        try:
+            r = await client.post(
+                EMBEDDER_BASE.rstrip("/") + "/embed",
+                json={"inputs": texts, "normalize": normalize},
+                timeout=REQUEST_TIMEOUT * 2,
+            )
+            r.raise_for_status()
+            data = r.json()
+            return data.get("vectors", [])
+        finally:
+            if should_close:
+                await client.aclose()
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"embedder error: {e}") from e
 
@@ -229,13 +264,10 @@ def embed_texts(texts: list[str], normalize: bool = True) -> list[list[float]]:
 # -----------------------------
 # Qdrant retrieval (best-effort)
 # -----------------------------
-_qdrant: QdrantClient | None = None
-
-
-def get_qdrant() -> QdrantClient:
+def get_qdrant() -> AsyncQdrantClient:
     global _qdrant
     if _qdrant is None:
-        _qdrant = QdrantClient(url=QDRANT_URL)
+        _qdrant = AsyncQdrantClient(url=QDRANT_URL)
     return _qdrant
 
 
@@ -281,14 +313,14 @@ def _mmr(
     return selected
 
 
-def qdrant_query(query: str, top_k: int = 5) -> list[dict[str, Any]]:
+async def qdrant_query(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     try:
-        vecs = embed_texts([query])
+        vecs = await embed_texts([query])
         if not vecs:
             return []
         qvec = np.array(vecs[0], dtype=np.float32)
         client = get_qdrant()
-        res = client.search(
+        res = await client.search(
             collection_name="memory",
             query_vector=qvec.tolist(),
             limit=max(top_k * 3, top_k),
@@ -334,13 +366,13 @@ def qdrant_query(query: str, top_k: int = 5) -> list[dict[str, Any]]:
 # SearxNG search
 # -----------------------------
 @app.get("/search")
-def search(
+async def search(
     q: str = Query(..., min_length=2), k: int = 5, lang: str = "sv"
 ) -> dict[str, Any]:
     url = SEARXNG_URL.rstrip("/") + "/search"
     params = {"q": q, "format": "json", "language": lang, "safesearch": 1}
     try:
-        r = http_get(url, timeout=REQUEST_TIMEOUT, params=params)
+        r = await async_http_get(url, timeout=REQUEST_TIMEOUT, params=params)
         r.raise_for_status()
         data = r.json()
     except Exception as e:
@@ -406,7 +438,7 @@ def _build_summary_prompt(
     return {"system": system, "user": user}
 
 
-def summarize_with_litellm(
+async def summarize_with_litellm(
     model: str,
     query: str,
     urls: list[str],
@@ -427,14 +459,20 @@ def summarize_with_litellm(
         "max_tokens": 700,
     }
     try:
-        r = requests.post(
-            LITELLM_BASE.rstrip("/") + "/v1/chat/completions",
-            json=payload,
-            timeout=REQUEST_TIMEOUT * 2,
-        )
-        r.raise_for_status()
-        data = r.json()
-        return data["choices"][0]["message"]["content"]
+        client = http_client or httpx.AsyncClient()
+        should_close = http_client is None
+        try:
+            r = await client.post(
+                LITELLM_BASE.rstrip("/") + "/v1/chat/completions",
+                json=payload,
+                timeout=REQUEST_TIMEOUT * 2,
+            )
+            r.raise_for_status()
+            data = r.json()
+            return data["choices"][0]["message"]["content"]
+        finally:
+            if should_close:
+                await client.aclose()
     except Exception as e:
         return f"Summarization failed: {e}"
 
@@ -448,24 +486,33 @@ def _pick_model(model: str | None, lang: str) -> str:
     return MODEL_SV if lang.lower().startswith("sv") else MODEL_EN
 
 
-def _research_core(q: str, k: int, model: str | None, lang: str):
+async def _research_core(q: str, k: int, model: str | None, lang: str):
     chosen_model = _pick_model(model, lang)
+
+    # Start memory search and web search in parallel
+    mem_task = None
+    if ENABLE_QDRANT:
+        mem_task = asyncio.create_task(qdrant_query(q, top_k=min(QDRANT_TOP_K, k)))
+
+    # Web search
+    s = await search(q=q, k=k, lang=lang)
+    web_urls = [r["url"] for r in s["results"] if r.get("url")]
+
+    # Parallel fetch of web pages
+    web_extracts = await asyncio.gather(*(fetch_and_extract(u) for u in web_urls))
+
+    # Await memory results
     mem_extracts: list[dict[str, Any]] = []
     mem_urls: list[str] = []
-    if ENABLE_QDRANT:
-        mem_extracts = qdrant_query(q, top_k=min(QDRANT_TOP_K, k))
+    if mem_task:
+        mem_extracts = await mem_task
         mem_urls = [m["url"] for m in mem_extracts if m.get("url")]
-
-    # Web
-    s = search(q=q, k=k, lang=lang)
-    web_urls = [r["url"] for r in s["results"] if r.get("url")]
-    web_extracts = [fetch_and_extract(u) for u in web_urls]
 
     # Merge, prefer memory first
     urls = mem_urls + [u for u in web_urls if u not in set(mem_urls)]
-    extracts = mem_extracts + web_extracts
+    extracts = mem_extracts + list(web_extracts)
 
-    summary = summarize_with_litellm(chosen_model, q, urls, extracts, lang)
+    summary = await summarize_with_litellm(chosen_model, q, urls, extracts, lang)
     return {
         "query": q,
         "model": chosen_model,
@@ -484,8 +531,8 @@ def health():
 
 
 @app.post("/extract")
-def extract(urls: list[str] = Body(...)) -> dict[str, Any]:
-    out = [fetch_and_extract(u) for u in urls]
+async def extract(urls: list[str] = Body(...)) -> dict[str, Any]:
+    out = await asyncio.gather(*(fetch_and_extract(u) for u in urls))
     return {"items": out}
 
 
@@ -494,8 +541,8 @@ class FetchPayload(BaseModel):
 
 
 @app.post("/fetch")
-def fetch(payload: FetchPayload) -> dict[str, Any]:
-    return {"item": fetch_and_extract(payload.url)}
+async def fetch(payload: FetchPayload) -> dict[str, Any]:
+    return {"item": await fetch_and_extract(payload.url)}
 
 
 class ResearchPayload(BaseModel):
@@ -506,24 +553,26 @@ class ResearchPayload(BaseModel):
 
 
 @app.post("/research")
-def research_post(payload: ResearchPayload, _=Depends(limiter)):
-    return _research_core(payload.query, payload.k, payload.model, payload.lang)
+async def research_post(payload: ResearchPayload, _=Depends(limiter)):
+    return await _research_core(payload.query, payload.k, payload.model, payload.lang)
 
 
 @app.get("/research")
-def research_get(
+async def research_get(
     q: str = Query(..., min_length=2),
     k: int = Query(5, ge=1, le=10),
     model: str | None = Query(None),
     lang: str = Query("sv"),
     _=Depends(limiter),
 ):
-    return _research_core(q, k, model, lang)
+    return await _research_core(q, k, model, lang)
 
 
 @app.get("/retrieval_debug")
-def retrieval_debug(q: str = Query(..., min_length=2), k: int = Query(5, ge=1, le=10)):
-    mem = qdrant_query(q, top_k=min(QDRANT_TOP_K, k)) if ENABLE_QDRANT else []
-    s = search(q=q, k=k, lang="sv")
+async def retrieval_debug(
+    q: str = Query(..., min_length=2), k: int = Query(5, ge=1, le=10)
+):
+    mem = await qdrant_query(q, top_k=min(QDRANT_TOP_K, k)) if ENABLE_QDRANT else []
+    s = await search(q=q, k=k, lang="sv")
     web = s.get("results", [])
     return {"query": q, "enable_qdrant": ENABLE_QDRANT, "memory": mem, "web": web}

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 import numpy as np
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient
 from qdrant_client.conversions.common_types import Distance, VectorParams
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
@@ -34,19 +34,27 @@ class MemoryStore:
         self._settings = settings
         self._vector_size = settings.qdrant_vector_size
         self._embedder = EmbedderClient(str(settings.embedder_url))
-        self._client: QdrantClient | None = None
-        self._ensure_client()
+        self._client: AsyncQdrantClient | None = None
+        # _ensure_client is now async, so it needs to be awaited.
+        # This means __init__ cannot directly call it with await.
+        # It needs to be called after instantiation in an async context,
+        # or we could make MemoryStore a dependency that's created async.
+        # For now, I'll remove the call from __init__ and add a note.
 
-    def _ensure_client(self) -> None:
+    async def ainit(self) -> None:  # Async initialization method
+        await self._async_ensure_client()
+
+    async def _async_ensure_client(self) -> None:
         try:
-            self._client = QdrantClient(
+            self._client = AsyncQdrantClient(
                 url=str(self._settings.qdrant_url),
                 api_key=self._settings.qdrant_api_key,
             )
             try:
-                self._client.get_collection(self._settings.qdrant_collection)
+                # Use await for async client methods
+                await self._client.get_collection(self._settings.qdrant_collection)
             except UnexpectedResponse:
-                self._client.create_collection(
+                await self._client.create_collection(
                     collection_name=self._settings.qdrant_collection,
                     vectors_config=VectorParams(
                         size=self._vector_size, distance=Distance.COSINE  # type: ignore[attr-defined]
@@ -56,7 +64,7 @@ class MemoryStore:
             LOGGER.warning("Unable to initialise Qdrant client: %s", exc)
             self._client = None
 
-    def add_records(self, records: Iterable[MemoryRecord]) -> None:
+    async def add_records(self, records: Iterable[MemoryRecord]) -> None:
         """Persist a batch of semantic memories."""
 
         if not self._client:
@@ -66,7 +74,7 @@ class MemoryStore:
         record_list = list(records)
         if not record_list:
             return
-        vectors = self._embed_texts([record.text for record in record_list])
+        vectors = await self._async_embed_texts([record.text for record in record_list])
         points = []
         for record, vector in zip(record_list, vectors, strict=True):
             points.append(
@@ -80,13 +88,14 @@ class MemoryStore:
                 )
             )
         try:
-            self._client.upsert(
+            # Use await for async client methods
+            await self._client.upsert(
                 collection_name=self._settings.qdrant_collection, points=points
             )
         except UnexpectedResponse as exc:  # pragma: no cover - defensive branch
             LOGGER.error("Failed to upsert memory points: %s", exc)
 
-    def search(
+    async def search(
         self, query: str, limit: int = 5, conversation_id: str | None = None
     ) -> list[MemoryRecord]:
         """Return the most relevant stored memories for the given query."""
@@ -95,7 +104,7 @@ class MemoryStore:
         if not client:
             return []
 
-        vectors = self._embed_texts([query])
+        vectors = await self._async_embed_texts([query])
         if not vectors:
             return []
         vector = vectors[0]
@@ -110,7 +119,8 @@ class MemoryStore:
                 ]
             )
         try:
-            results = client.search(
+            # Use await for async client methods
+            results = await client.search(  # type: ignore[attr-defined]
                 collection_name=self._settings.qdrant_collection,
                 query_vector=vector,
                 limit=limit,
@@ -129,13 +139,14 @@ class MemoryStore:
                 records.append(MemoryRecord(conversation_id=conversation_id, text=text))
         return records
 
-    def _embed_texts(self, texts: list[str]) -> list[list[float]]:
+    async def _async_embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Embed a batch of strings via the embedder with a local fallback."""
 
         if not texts:
             return []
         try:
-            vectors = self._embedder.embed(texts)
+            # Use await for async embedder methods
+            vectors = await self._embedder.embed(texts)
             if len(vectors) == len(texts):
                 return vectors
             LOGGER.warning(

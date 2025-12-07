@@ -1,7 +1,7 @@
 import glob
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import yaml
 
@@ -23,6 +23,7 @@ class Skill:
     permission: str
     prompt_template: str
     file_path: str
+    tools: list[str] = field(default_factory=list)
 
 
 class SkillLoader:
@@ -90,6 +91,11 @@ class SkillLoader:
                         )
                     )
 
+        # Read tools list from metadata, defaulting to empty list
+        tools_list = metadata.get("tools", [])
+        if not isinstance(tools_list, list):
+            tools_list = []
+
         return Skill(
             name=metadata["name"],
             description=metadata.get("description", ""),
@@ -97,4 +103,5 @@ class SkillLoader:
             permission=metadata.get("permission", "read"),
             prompt_template=template_content,
             file_path=file_path,
+            tools=[str(t) for t in tools_list if isinstance(t, str)],
         )

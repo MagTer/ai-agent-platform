@@ -53,7 +53,7 @@ class StepExecutorAgent:
                         limit = int(limit_value) if limit_value is not None else 5
                     except (TypeError, ValueError):
                         limit = 5
-                    records = self._memory.search(
+                    records = await self._memory.search(
                         str(query), limit=limit, conversation_id=conversation_id
                     )
                     for record in records:
