@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+import pytest_asyncio
 from qdrant_client import AsyncQdrantClient  # Changed to AsyncQdrantClient
 
 from core.core.config import Settings
@@ -15,18 +16,24 @@ from core.core.memory import MemoryRecord, MemoryStore
 
 @dataclass
 class _StubSearchResult:
+
     payload: dict[str, Any]
 
 
 class _StubQdrantClient:
+
     def __init__(self) -> None:
+
         self.upsert_calls: list[list[Any]] = []
+
         self.results: list[_StubSearchResult] = []
+
         self.last_search_kwargs: dict[str, Any] | None = None
 
     async def upsert(
         self, *, collection_name: str, points: Iterable[Any], wait: bool | None = None
     ) -> None:  # noqa: D401
+
         self.upsert_calls.append(list(points))
 
     async def search(
@@ -39,16 +46,18 @@ class _StubQdrantClient:
         with_payload: bool | None = None,
         with_vectors: bool | None = None,
     ) -> list[_StubSearchResult]:  # noqa: D401
+
         self.last_search_kwargs = {
             "collection_name": collection_name,
             "query_vector": list(query_vector),
             "limit": limit,
             "query_filter": query_filter,
         }
+
         return self.results
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def memory_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[MemoryStore, _StubQdrantClient]:
