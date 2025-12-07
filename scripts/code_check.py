@@ -74,7 +74,7 @@ def get_commands() -> list[Command]:
         ),
         Command(
             name="Pytest",
-            args=["poetry", "run", "pytest"],
+            args=["poetry", "run", "python", "-m", "pytest"],
             cwd=AGENT_DIR,
             extra_env=agent_env,
         ),
