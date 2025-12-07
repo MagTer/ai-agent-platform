@@ -10,9 +10,9 @@ from typing import Any
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
 
-from core.core.config import Settings
-from ..models.mcp import McpTool
 from core.observability.tracing import start_span
+
+from ..models.mcp import McpTool
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,22 +43,30 @@ class McpClient:
                 sse_client(str(self._url), headers=self._headers)
             )
             read_stream, write_stream = streams
-            
+
             # Now instantiate ClientSession with the streams
             self._mcp_session = ClientSession(read_stream, write_stream)
             try:
-                await asyncio.wait_for(self._mcp_session.initialize(), timeout=60.0) # Initialize the ClientSession
-            except asyncio.TimeoutError:
+                await asyncio.wait_for(
+                    self._mcp_session.initialize(), timeout=60.0
+                )  # Initialize the ClientSession
+            except TimeoutError:
                 LOGGER.error("MCP session initialization timed out for %s", self._url)
                 raise
-            
+
             LOGGER.info("Successfully connected to MCP server at %s", self._url)
-            
+
             # Fetch tools immediately after connecting
             self._tools_cache = await self.get_tools()
-            LOGGER.info("Discovered %d tools from MCP server at %s.", len(self._tools_cache), self._url)
+            LOGGER.info(
+                "Discovered %d tools from MCP server at %s.",
+                len(self._tools_cache),
+                self._url,
+            )
         except Exception as e:
-            LOGGER.error("Failed to connect or establish MCP session with %s: %s", self._url, e)
+            LOGGER.error(
+                "Failed to connect or establish MCP session with %s: %s", self._url, e
+            )
             await self.disconnect()
             raise
 
@@ -66,11 +74,11 @@ class McpClient:
         """Disconnects the MCP client session."""
         if self._mcp_session:
             # The session itself doesn't strictly need closing if we close the transport,
-            # but it's good practice if the SDK supports it.
-            # However, mcp.client.session.ClientSession is an async context manager or has close methods?
+            # but good practice if the SDK supports it.
+            # However, mcp.client.session.ClientSession is an async context manager?
             # Checking SDK usage, usually closing streams is enough.
             self._mcp_session = None
-            
+
         await self._exit_stack.aclose()
         LOGGER.info("Disconnected from MCP server.")
 
@@ -79,7 +87,7 @@ class McpClient:
         if not self._mcp_session:
             LOGGER.warning("MCP client not connected. Cannot fetch tools.")
             return []
-        
+
         # If tools are already cached, return them.
         # In a full SSE implementation, this cache would be updated by tool_manifest events.
         if self._tools_cache:
@@ -87,7 +95,9 @@ class McpClient:
 
         try:
             remote_tools_raw = await self._mcp_session.list_tools()
-            self._tools_cache = [McpTool(**tool.model_dump()) for tool in remote_tools_raw]
+            self._tools_cache = [
+                McpTool(**tool.model_dump()) for tool in remote_tools_raw
+            ]
             return self._tools_cache
         except Exception as e:
             LOGGER.error("Failed to fetch tools from MCP server: %s", e)
