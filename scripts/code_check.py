@@ -69,7 +69,7 @@ def get_commands() -> list[Command]:
         ),
         Command(
             name="Mypy (type check)",
-            args=["poetry", "run", "mypy", "src"],
+            args=["poetry", "run", "python", "-m", "mypy", "src"],
             cwd=AGENT_DIR,
         ),
         Command(
