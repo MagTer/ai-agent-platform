@@ -9,6 +9,7 @@ import subprocess
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -46,7 +47,7 @@ def resolve_repo_root(start: Path | None = None, marker: str = REPO_MARKER) -> P
 def ensure_program(name: str) -> None:
     """Ensure an executable exists on ``PATH``."""
 
-    if shutil.which(name) is None:  # type: ignore[name-defined]
+    if shutil.which(name) is None:
         raise FileNotFoundError(f"Required executable not found in PATH: {name}")
 
 
@@ -90,7 +91,7 @@ def run_git_command(
     *,
     repo_root: Path | None = None,
     printer: GitPrinter | None = _default_git_printer,
-    **kwargs,
+    **kwargs: Any,
 ) -> subprocess.CompletedProcess[str | bytes]:
     """Run a git command relative to the repository and optionally emit it."""
 
@@ -281,7 +282,7 @@ def read_models_file(repo_root: Path) -> list[str] | None:
 def git_available() -> bool:
     """Return True when ``git`` can be located."""
 
-    return shutil.which("git") is not None  # type: ignore[name-defined]
+    return shutil.which("git") is not None
 
 
 def stage_and_commit(

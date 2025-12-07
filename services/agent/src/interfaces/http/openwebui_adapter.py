@@ -46,7 +46,7 @@ def get_settings_dep() -> Settings:
     return get_settings()
 
 
-def get_dispatcher(settings=Depends(get_settings_dep)) -> Dispatcher:
+def get_dispatcher(settings: Settings = Depends(get_settings_dep)) -> Dispatcher:
     loader = SkillLoader()
     # We need a LiteLLMClient.
     # Optimization: reuse the one from AgentService if possible, but simpler to create one here.
@@ -55,7 +55,9 @@ def get_dispatcher(settings=Depends(get_settings_dep)) -> Dispatcher:
     return Dispatcher(loader, litellm)
 
 
-async def get_agent_service(settings=Depends(get_settings_dep)) -> AgentService:
+async def get_agent_service(
+    settings: Settings = Depends(get_settings_dep),
+) -> AgentService:
     litellm = LiteLLMClient(settings)
     memory = MemoryStore(settings)
     await memory.ainit()  # Await async initialization
@@ -71,7 +73,7 @@ async def chat_completions(
     request: ChatCompletionRequest,
     dispatcher: Dispatcher = Depends(get_dispatcher),
     agent_service: AgentService = Depends(get_agent_service),
-):
+) -> Any:
     """
     OpenAI-compatible endpoint for Open WebUI.
     Routes requests via the Dispatcher.
@@ -135,7 +137,7 @@ async def chat_completions(
                 # We need to parse params again or pass them in DispatchResult
                 # Simplification: pass raw args if DispatchResult held them
                 # For now, re-parse or ignore arguments for this legacy path
-                agent_req.prompt = render_skill_prompt(skill, {{}})
+                agent_req.prompt = render_skill_prompt(skill, {})
 
         response = await agent_service.handle_request(agent_req)
         content = response.response
@@ -183,6 +185,8 @@ async def stream_response_generator(
             yield _format_chunk(
                 chunk_id, created, model_name, "**Fast Path Active**\n\n"
             )
+            if agent_req.metadata is None:
+                agent_req.metadata = {}
             agent_req.metadata["plan"] = dispatch_result.plan.model_dump()
 
         # Handle Legacy Skill
@@ -190,7 +194,7 @@ async def stream_response_generator(
             skill = dispatcher.skill_loader.skills.get(dispatch_result.skill_name)
             if skill:
                 # Naive param parsing or empty
-                system_prompt = render_skill_prompt(skill, {{}})
+                system_prompt = render_skill_prompt(skill, {})
                 agent_req.prompt = system_prompt
                 yield _format_chunk(
                     chunk_id,
@@ -217,28 +221,22 @@ async def stream_response_generator(
 
     # Final chunk
     final_chunk = {
-        {
-            "id": chunk_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model_name,
-            "choices": [{"index": 0, "delta": {{}}, "finish_reason": "stop"}],
-        }
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model_name,
+        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
     }
     yield f"data: {json.dumps(final_chunk)}\n\n"
     yield "data: [DONE]\n\n"
 
 
-def _format_chunk(chunk_id, created, model, content):
+def _format_chunk(chunk_id: str, created: int, model: str, content: str) -> str:
     data = {
-        {
-            "id": chunk_id,
-            "object": "chat.completion.chunk",
-            "created": created,
-            "model": model,
-            "choices": [
-                {"index": 0, "delta": {"content": content}, "finish_reason": None}
-            ],
-        }
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "created": created,
+        "model": model,
+        "choices": [{"index": 0, "delta": {"content": content}, "finish_reason": None}],
     }
     return f"data: {json.dumps(data)}\n\n"

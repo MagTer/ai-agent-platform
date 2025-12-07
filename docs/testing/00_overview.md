@@ -7,10 +7,10 @@ testing aligns with the Codex compliance checklist.
 
 ## Running the full suite
 
-Use the consolidated helper to match CI locally:
+Use the consolidated helper to match CI locally. This script mirrors the CI pipeline exactly, ensuring that if it passes locally, it will pass in CI.
 
 ```bash
-poetry run python scripts/code_check.py
+python scripts/code_check.py
 ```
 
 The script executes the following in order:

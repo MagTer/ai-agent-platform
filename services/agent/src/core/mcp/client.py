@@ -94,10 +94,8 @@ class McpClient:
             return self._tools_cache
 
         try:
-            remote_tools_raw = await self._mcp_session.list_tools()
-            self._tools_cache = [
-                McpTool(**tool.model_dump()) for tool in remote_tools_raw
-            ]
+            result = await self._mcp_session.list_tools()
+            self._tools_cache = [McpTool(**tool.model_dump()) for tool in result.tools]
             return self._tools_cache
         except Exception as e:
             LOGGER.error("Failed to fetch tools from MCP server: %s", e)

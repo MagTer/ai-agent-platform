@@ -17,7 +17,7 @@ def render_skill_prompt(skill: Skill, params: dict[str, Any]) -> str:
     """
     template = skill.prompt_template
 
-    def replace_match(match):
+    def replace_match(match: re.Match[str]) -> str:
         key = match.group(1)
         # Return the value from params if it exists, else empty string
         # We could also leave the placeholder if we wanted, but instructions say "default to empty"

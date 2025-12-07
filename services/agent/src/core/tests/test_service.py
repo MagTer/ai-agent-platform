@@ -44,12 +44,12 @@ class MockLiteLLMClient(LiteLLMClient):
         )
 
     async def plan(
-        self, messages: Iterable[AgentMessage], *, model: str | None = None  # type: ignore[override]
+        self, messages: Iterable[AgentMessage], *, model: str | None = None
     ) -> str:
         return self._plan_output
 
     async def generate(
-        self, messages: Iterable[AgentMessage], *, model: str | None = None  # type: ignore[override]
+        self, messages: Iterable[AgentMessage], *, model: str | None = None
     ) -> str:
         sequence = list(messages)
         return "response: " + sequence[-1].content

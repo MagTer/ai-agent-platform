@@ -62,9 +62,11 @@
   - Never use bare `except:`.
 
 ## 4. Verification & Testing (Pre-Commit)
-Before declaring a task "Done" or creating a PR, you MUST run:
 
-    poetry run python scripts/code_check.py
+**Running Tests & Quality Checks**
+DO NOT run `pytest` or `poetry run` directly. Always use the unified entry point which handles `PYTHONPATH` and directories for you:
+
+    python scripts/code_check.py
 
 **Auto-Correction Protocol:**
 1. If the script fails, read the error log.

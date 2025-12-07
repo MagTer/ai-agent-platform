@@ -27,32 +27,8 @@ jobs:
           key: ${{ runner.os }}-poetry-${{ hashFiles('services/agent/poetry.lock', 'services/agent/pyproject.toml') }}
       - name: Install dependencies
         run: poetry install --no-interaction --directory services/agent
-      - name: Ruff
-        run: poetry run --directory services/agent ruff check services/agent/src services/embedder services/fetcher services/indexer services/ragproxy tests scripts
-      - name: Black
-        run: poetry run --directory services/agent black --check services/agent/src services/embedder services/fetcher services/indexer services/ragproxy tests scripts
-      - name: Pytest
-        run: PYTHONPATH="${{ github.workspace }}" poetry run --directory services/agent pytest
-      - name: Dependency freshness
-        shell: bash
-        run: |
-          set +e
-          cd services/agent
-          poetry run python ../../scripts/deps_check.py --quiet
-          status=$?
-
-          if [[ $status -eq 0 ]]; then
-            exit 0
-          fi
-
-          if [[ $status -eq 4 ]]; then
-            echo "::error::Dependency freshness check failed to execute (exit code ${status})."
-            exit $status
-          fi
-
-          echo "::warning::Dependency freshness check detected outdated dependencies (exit code ${status})."
-          poetry run python ../../scripts/deps_check.py || true
-          exit 0
+      - name: Run Quality Checks
+        run: python scripts/code_check.py
 
   compose:
     name: Compose config
