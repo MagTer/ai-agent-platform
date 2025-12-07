@@ -68,7 +68,9 @@ def create_app(
     @app.on_event("startup")
     async def _startup_mcp_tools() -> None:
         """Load MCP tools on application startup."""
-        await load_mcp_tools(settings, service_instance._tool_registry)
+        import asyncio
+        # Run MCP loading in the background so it doesn't block startup
+        asyncio.create_task(load_mcp_tools(settings, service_instance._tool_registry))
 
     def get_service() -> AgentService:
         """Return a singleton agent service instance."""

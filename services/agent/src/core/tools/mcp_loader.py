@@ -32,21 +32,51 @@ class McpToolWrapper(Tool):
 
 
 async def load_mcp_tools(settings: Settings, tool_registry: ToolRegistry) -> None:
-    """Connect to the MCP server, discover tools, and register them."""
-    if not settings.homey_mcp_url or not settings.homey_api_token:
-        LOGGER.info("MCP integration disabled (missing URL or API token).")
+    """Connect to configured MCP servers, discover tools, and register them."""
+    
+    mcp_configs = []
+
+    # Homey MCP
+    if settings.homey_mcp_url and settings.homey_api_token:
+        mcp_configs.append({
+            "name": "Homey",
+            "url": str(settings.homey_mcp_url),
+            "token": settings.homey_api_token
+        })
+    else:
+        LOGGER.info("Homey MCP integration disabled (missing URL or API token).")
+
+    # Context7 MCP
+    if settings.context7_mcp_url:
+        mcp_configs.append({
+            "name": "Context7",
+            "url": str(settings.context7_mcp_url),
+            "token": None # Context7 doesn't use a token in this setup yet
+        })
+
+    if not mcp_configs:
+        LOGGER.info("No MCP servers configured.")
         return
 
-    mcp_client = McpClient(settings)
-    
-    try:
-        await mcp_client.connect() # This will connect and fetch tools into its cache
-        for mcp_tool in mcp_client._tools_cache: # Access the cached tools directly
-            wrapper = McpToolWrapper(mcp_client, mcp_tool)
-            tool_registry.register(wrapper)
-            LOGGER.info("Registered MCP tool: %s", wrapper.name)
-    except Exception:
-        LOGGER.exception("Failed to load tools from MCP server.")
+    for config in mcp_configs:
+        client_name = config["name"]
+        url = config["url"]
+        token = config["token"]
+
+        LOGGER.info("Initializing MCP client for %s at %s...", client_name, url)
+        mcp_client = McpClient(url, token)
+        
+        try:
+            await mcp_client.connect()
+            for mcp_tool in mcp_client._tools_cache:
+                wrapper = McpToolWrapper(mcp_client, mcp_tool)
+                # Optionally prefix tool names to avoid collisions, e.g. f"{client_name}_{wrapper.name}"
+                # For now, we register them as is, assuming unique names or last-write-wins.
+                tool_registry.register(wrapper)
+                LOGGER.info("Registered MCP tool from %s: %s", client_name, wrapper.name)
+        except Exception:
+            LOGGER.exception("Failed to load tools from MCP server: %s", client_name)
+
 
 
 __all__ = ["load_mcp_tools"]

@@ -44,8 +44,18 @@ def get_model() -> SentenceTransformerType:
     return _model
 
 
+# Eagerly load the model on startup
+try:
+    get_model()
+    print(f"Model {MODEL_NAME} loaded successfully.")
+except Exception as e:
+    print(f"Failed to load model {MODEL_NAME}: {e}")
+
+
 @app.get("/health")
 def health():
+    if _model is None:
+        return {"ok": False, "model": MODEL_NAME, "error": "Model not loaded"}
     return {"ok": True, "model": MODEL_NAME}
 
 
