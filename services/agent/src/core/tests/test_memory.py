@@ -8,10 +8,9 @@ from typing import Any, cast
 
 import pytest
 import pytest_asyncio
-from qdrant_client import AsyncQdrantClient  # Changed to AsyncQdrantClient
-
 from core.core.config import Settings
 from core.core.memory import MemoryRecord, MemoryStore
+from qdrant_client import AsyncQdrantClient  # Changed to AsyncQdrantClient
 
 
 @dataclass
@@ -57,9 +56,7 @@ async def memory_store(
     monkeypatch.setattr(MemoryStore, "ainit", lambda self: None)  # Monkeypatch ainit
 
     # Needs to be async
-    async def _fake_async_embed_texts(
-        self: MemoryStore, texts: Iterable[str]
-    ) -> list[list[float]]:
+    async def _fake_async_embed_texts(self: MemoryStore, texts: Iterable[str]) -> list[list[float]]:
         return [[0.0] * self._vector_size for _ in texts]
 
     monkeypatch.setattr(

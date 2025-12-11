@@ -6,22 +6,19 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from fastapi.testclient import TestClient
-
 from core.core.app import create_app
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.core.service import AgentService
+from fastapi.testclient import TestClient
 
 
 class MockLiteLLMClient:
     async def generate(self, messages: Iterable[Any], model: str | None = None) -> str:
         sequence = list(messages)
         content = (
-            sequence[-1].content
-            if hasattr(sequence[-1], "content")
-            else sequence[-1]["content"]
+            sequence[-1].content if hasattr(sequence[-1], "content") else sequence[-1]["content"]
         )
         return "reply:" + str(content)
 

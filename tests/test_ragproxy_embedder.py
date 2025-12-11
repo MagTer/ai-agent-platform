@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 import respx
 from httpx import Response
+
 from services.ragproxy import chat_completions, qdrant_retrieve
 
 
@@ -71,13 +72,11 @@ async def test_chat_completions_injects_rag_context():
             },
         )
     )
-    respx.post("http://litellm:4000/v1/chat/completions").mock(
-        side_effect=capture_payload
-    )
+    respx.post("http://litellm:4000/v1/chat/completions").mock(side_effect=capture_payload)
 
     result = await chat_completions(
         {
-            "model": "rag/phi3-en",
+            "model": "rag/llama3-en",
             "messages": [
                 {"role": "system", "content": "You are helpful."},
                 {"role": "user", "content": "What is new?"},
@@ -86,7 +85,5 @@ async def test_chat_completions_injects_rag_context():
     )
     assert result["choices"][0]["message"]["content"] == "reply"
     assert seen_payload is not None
-    user_messages = [
-        msg for msg in seen_payload["messages"] if msg.get("role") == "user"
-    ]
+    user_messages = [msg for msg in seen_payload["messages"] if msg.get("role") == "user"]
     assert any("Context:" in msg.get("content", "") for msg in user_messages)

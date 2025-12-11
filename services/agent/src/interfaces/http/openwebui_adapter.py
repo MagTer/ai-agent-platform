@@ -6,18 +6,17 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-
 from core.core.config import Settings, get_settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.core.service import AgentService
-from core.tools import ToolRegistry
+from core.tools.loader import load_tool_registry
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from orchestrator.dispatcher import Dispatcher, DispatchResult
 from orchestrator.skill_loader import SkillLoader
 from orchestrator.utils import render_skill_prompt
+from pydantic import BaseModel
 from shared.models import AgentMessage, AgentRequest
 
 LOGGER = logging.getLogger(__name__)
@@ -61,7 +60,7 @@ async def get_agent_service(
     litellm = LiteLLMClient(settings)
     memory = MemoryStore(settings)
     await memory.ainit()  # Await async initialization
-    tool_registry = ToolRegistry([])  # Provide an empty ToolRegistry for now
+    tool_registry = load_tool_registry(settings.tools_config_path)
     return AgentService(settings, litellm, memory, tool_registry=tool_registry)
 
 
@@ -182,9 +181,7 @@ async def stream_response_generator(
 
         # Handle Fast Path (Plan exists)
         if dispatch_result.plan:
-            yield _format_chunk(
-                chunk_id, created, model_name, "**Fast Path Active**\n\n"
-            )
+            yield _format_chunk(chunk_id, created, model_name, "**Fast Path Active**\n\n")
             if agent_req.metadata is None:
                 agent_req.metadata = {}
             agent_req.metadata["plan"] = dispatch_result.plan.model_dump()

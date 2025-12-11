@@ -6,8 +6,6 @@ from typing import Any, cast
 
 import pytest
 import respx
-from httpx import Response
-
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
@@ -15,6 +13,7 @@ from core.core.models import AgentRequest
 from core.core.service import AgentService
 from core.tools import Tool, ToolRegistry, load_tool_registry
 from core.tools.web_fetch import WebFetchTool
+from httpx import Response
 from shared.models import AgentMessage
 
 
@@ -131,13 +130,10 @@ async def test_agent_service_executes_tool(tmp_path: Path) -> None:
 
     assert response.metadata["tool_results"][0]["status"] == "ok"
     assert "TOOL OUTPUT" in response.metadata["tool_results"][0]["output"]
-    system_messages = [
-        message for message in response.messages if message.role == "system"
-    ]
+    system_messages = [message for message in response.messages if message.role == "system"]
     assert any("TOOL OUTPUT" in message.content for message in system_messages)
     assert any(
-        step.get("type") == "tool" and step.get("name") == "dummy"
-        for step in response.steps
+        step.get("type") == "tool" and step.get("name") == "dummy" for step in response.steps
     )
 
 
