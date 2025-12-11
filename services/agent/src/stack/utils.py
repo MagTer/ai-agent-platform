@@ -14,7 +14,7 @@ PROJECT_NAME_ENV = "STACK_PROJECT_NAME"
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
 DEFAULT_COMPOSE_FILE = PROJECT_ROOT / "docker-compose.yml"
-DEFAULT_PROJECT_NAME = "ai-agent-stack"
+DEFAULT_PROJECT_NAME = "ai-agent-platform"
 
 
 def load_environment(env_path: Path | None = None) -> dict[str, str]:
@@ -27,9 +27,8 @@ def load_environment(env_path: Path | None = None) -> dict[str, str]:
 
     # Overlay values from .env
     for key, val in file_values.items():
-        # If the key is missing in env, or exists but is empty, take from file
-        # (Prefer file value over empty environment variable to avoid accidental blanking)
-        if key not in merged or not merged[key]:
+        # Always prioritize .env values if they are not empty
+        if val is not None and val != "":
             merged[key] = val
 
     return {key: str(value) for key, value in merged.items() if value is not None}

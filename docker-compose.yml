@@ -1,4 +1,4 @@
-name: ai-agent-stack
+name: ai-agent-platform
 
 services:
   agent:
@@ -8,25 +8,43 @@ services:
     image: ai-agent-platform-agent:latest
     env_file:
       - .env
+    volumes:
+      - ./config:/app/config:ro
+      - ./skills:/app/skills:ro
     environment:
       AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
-      AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
-      AZURE_DEVOPS_ORG: ${AZURE_DEVOPS_ORG:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix:4317
+      OTEL_SERVICE_NAME: ai_agent
     ports:
       - "8000:8000"
     depends_on:
       litellm:
         condition: service_started
       qdrant:
-        condition: service_healthy
+        condition: service_started
       ragproxy:
         condition: service_started
       webfetch:
         condition: service_started
+      phoenix:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
+      retries: 5
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    ports:
+      - "6006:6006"
+      - "4317:4317"
+    environment:
+      - PHOENIX_COLLECTOR_OTLP_ENABLED=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6006/"]
+      interval: 10s
+      timeout: 10s
       retries: 5
 
   litellm:
@@ -35,7 +53,7 @@ services:
     environment:
       LITELLM_LOGGING: warn
       LITELLM_PORT: 4000
-      LITELLM_PROXY_MODEL: ${LITELLM_PROXY_MODEL:-ollama/phi3:mini}
+      LITELLM_PROXY_MODEL: ${LITELLM_PROXY_MODEL:-ollama/llama3.1:8b}
       OLLAMA_API_BASE: http://ollama:11434
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -64,7 +82,7 @@ services:
       - "11434:11434"
     healthcheck:
       test: ["CMD", "ollama", "--version"]
-      interval: 1m
+      interval: 10s
       timeout: 10s
       retries: 3
 
@@ -78,10 +96,10 @@ services:
       - ./data/qdrant:/qdrant/storage
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz || curl -f http://localhost:6333/readyz"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 10s
 
   embedder:
     build:
@@ -98,7 +116,7 @@ services:
       - ./data/embedder:/root/.cache
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8082/health"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 10
 
@@ -117,14 +135,14 @@ services:
       RAG_MAX_CHARS: ${RAG_MAX_CHARS:-1200}
     depends_on:
       embedder:
-        condition: service_healthy
+        condition: service_started
       qdrant:
         condition: service_started
       litellm:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:4080/health"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 10
 
@@ -145,7 +163,7 @@ services:
       - SETUID
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 10
 
@@ -156,7 +174,7 @@ services:
     environment:
       SEARXNG_URL: http://searxng:8080
       LITELLM_BASE: http://litellm:4000
-      DEFAULT_MODEL: ${FETCHER_DEFAULT_MODEL:-local/phi3-en}
+      DEFAULT_MODEL: ${FETCHER_DEFAULT_MODEL:-local/llama3-en}
       REQUEST_TIMEOUT: ${FETCHER_REQUEST_TIMEOUT:-15}
       MAX_WORKERS: ${FETCHER_MAX_WORKERS:-4}
       EMBEDDER_BASE: http://embedder:8082
@@ -166,12 +184,12 @@ services:
       - "${FETCHER_PORT:-8081}:8081"
     depends_on:
       searxng:
-        condition: service_healthy
+        condition: service_started
       litellm:
         condition: service_started
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 10
 
@@ -181,7 +199,7 @@ services:
       - "3030:8080"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/sse"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 10
 
@@ -203,9 +221,9 @@ services:
       - "${OPENWEBUI_PORT:-3000}:8080"
     depends_on:
       agent:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080"]
-      interval: 30s
+      interval: 10s
       timeout: 5s
       retries: 5

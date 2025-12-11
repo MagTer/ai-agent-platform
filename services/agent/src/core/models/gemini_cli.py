@@ -25,9 +25,9 @@ class GeminiCLIModel:
             # Execute the command
             # S603: The 'prompt' is passed as a literal argument and not interpreted as shell code.
             # The gemini CLI is expected to handle its own argument parsing securely.
-            result = subprocess.run(
+            result = subprocess.run(  # noqa: S603
                 command, capture_output=True, text=True, check=True
-            )  # noqa: S603
+            )
 
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:

@@ -27,8 +27,8 @@ DEFAULTS: dict[str, str] = {
     "embedder": os.environ.get("EMBEDDER_URL", "http://127.0.0.1:8082"),
 }
 
-PRIMARY_MODEL = os.environ.get("PRIMARY_MODEL", "phi3:mini")
-LITELLM_MODEL = os.environ.get("LITELLM_MODEL", "local/phi3-en")
+PRIMARY_MODEL = os.environ.get("PRIMARY_MODEL", "llama3.1:8b")
+LITELLM_MODEL = os.environ.get("LITELLM_MODEL", "local/llama3-en")
 
 DEFAULT_TIMEOUT = float(os.environ.get("INTEGRATION_TIMEOUT", "300.0"))
 RETRY_DELAY_SEC = float(os.environ.get("INTEGRATION_RETRY_DELAY", "10.0"))
@@ -94,13 +94,9 @@ def _safe_load(body: bytes) -> Any:
         return body.decode("utf-8", errors="ignore")
 
 
-def expect(
-    status: int, *, url: str, expected: int = 200, payload: Any | None = None
-) -> None:
+def expect(status: int, *, url: str, expected: int = 200, payload: Any | None = None) -> None:
     if status != expected:
-        raise AssertionError(
-            f"{url} returned {status}, expected {expected} ({payload})"
-        )
+        raise AssertionError(f"{url} returned {status}, expected {expected} ({payload})")
 
 
 def test_ollama() -> None:
@@ -110,9 +106,7 @@ def test_ollama() -> None:
     expect(status, url=models_url, payload=data)
     if not isinstance(data, dict):
         raise AssertionError("Ollama /v1/models did not return JSON")
-    model_ids = [
-        entry.get("id") for entry in data.get("data", []) if isinstance(entry, dict)
-    ]
+    model_ids = [entry.get("id") for entry in data.get("data", []) if isinstance(entry, dict)]
     if PRIMARY_MODEL not in model_ids:
         raise AssertionError(f"{PRIMARY_MODEL} not listed by Ollama: {model_ids}")
 
@@ -135,9 +129,7 @@ def test_litellm() -> None:
     }
     status, data = request_json(chat_url, method="POST", payload=payload)
     expect(status, url=chat_url, payload=data)
-    assert isinstance(data, dict) and data.get(
-        "choices"
-    ), "LiteLLM response missing choices"
+    assert isinstance(data, dict) and data.get("choices"), "LiteLLM response missing choices"
 
 
 def test_agent() -> None:
@@ -173,9 +165,7 @@ def test_embedder_embed_endpoint() -> None:
 
 def _ensure_qdrant_collection_exists() -> None:
     if httpx is None:
-        raise RuntimeError(
-            "httpx dependency required to ensure qdrant collection schema"
-        )
+        raise RuntimeError("httpx dependency required to ensure qdrant collection schema")
     base = DEFAULTS["qdrant"]
     url = f"{base}/collections/memory"
     with httpx.Client(timeout=10.0) as client:
@@ -201,7 +191,7 @@ def test_ragproxy_flow() -> None:
     python_script = (
         "import json, requests, sys\n"
         "payload = {\n"
-        "    'model': 'rag/phi3-en',\n"
+        "    'model': 'rag/llama3-en',\n"
         "    'messages': [\n"
         "        {'role': 'user', 'content': 'integration rag check'}\n"
         "    ]\n"
@@ -229,9 +219,7 @@ def test_qdrant_direct() -> None:
     url = f"{base}/collections"
     status, data = request_json(url)
     expect(status, url=url, payload=data)
-    assert isinstance(
-        data, dict
-    ), "Qdrant collections endpoint returned non-dict payload"
+    assert isinstance(data, dict), "Qdrant collections endpoint returned non-dict payload"
 
 
 def test_qdrant_via_agent() -> None:

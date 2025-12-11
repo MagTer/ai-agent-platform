@@ -3,8 +3,9 @@
 Wrapper script to run the 'stack' CLI from the root directory.
 It adds 'services/agent/src' to sys.path so 'python3 stack.py ...' works.
 """
-import sys
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 # Path to the agent service directory
@@ -15,7 +16,7 @@ def main():
     """Run the stack CLI via poetry in the agent service directory."""
 
     # Check if poetry is installed
-    if subprocess.run(["which", "poetry"], capture_output=True).returncode != 0:
+    if shutil.which("poetry") is None:
         print("Error: 'poetry' not found. Please install poetry first.")
         sys.exit(1)
 
@@ -35,7 +36,7 @@ def main():
         full_env = os.environ.copy()
         full_env.update(env)
 
-        subprocess.run(cmd, cwd=AGENT_DIR, env=full_env, check=True)
+        subprocess.run(cmd, cwd=AGENT_DIR, env=full_env, check=True)  # noqa: S603
     except subprocess.CalledProcessError as e:
         sys.exit(e.returncode)
     except KeyboardInterrupt:

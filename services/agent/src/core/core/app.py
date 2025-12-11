@@ -7,10 +7,9 @@ import logging
 from collections.abc import Iterable
 from typing import Any
 
+from core.observability.tracing import configure_tracing
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-
-from core.observability.tracing import configure_tracing
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
 from ..tools.mcp_loader import load_mcp_tools
@@ -34,9 +33,7 @@ from .state import (
 LOGGER = logging.getLogger(__name__)
 
 
-def create_app(
-    settings: Settings | None = None, service: AgentService | None = None
-) -> FastAPI:
+def create_app(settings: Settings | None = None, service: AgentService | None = None) -> FastAPI:
     """Initialise the FastAPI application."""
 
     settings = settings or get_settings()
@@ -71,8 +68,24 @@ def create_app(
         """Load MCP tools on application startup."""
         import asyncio
 
+        # Initialize memory store (connect to Qdrant)
+        await memory_store.ainit()
+
         # Run MCP loading in the background so it doesn't block startup
         asyncio.create_task(load_mcp_tools(settings, service_instance._tool_registry))
+
+        # Warm-up LiteLLM connection in background
+        async def warm_up_litellm() -> None:
+            try:
+                await litellm_client.list_models()
+            except Exception:
+                LOGGER.warning("LiteLLM warm-up failed (non-critical)")
+
+        asyncio.create_task(warm_up_litellm())
+
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
+        await litellm_client.aclose()
 
     def get_service() -> AgentService:
         """Return a singleton agent service instance."""
@@ -184,9 +197,7 @@ def _build_agent_request_from_chat(request: ChatCompletionRequest) -> AgentReque
     if not request.messages:
         raise ValueError("messages list cannot be empty")
 
-    chat_messages: list[AgentMessage] = [
-        message.to_agent_message() for message in request.messages
-    ]
+    chat_messages: list[AgentMessage] = [message.to_agent_message() for message in request.messages]
     prompt_index = _last_user_index(chat_messages)
     if prompt_index is None:
         raise ValueError("at least one user message is required")
