@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
@@ -19,37 +19,37 @@ from types import TracebackType
 from typing import Any
 
 try:  # pragma: no cover - exercised implicitly during imports
-    from openinference.instrumentation.litellm import (  # type: ignore[import-not-found]
+    from openinference.instrumentation.litellm import (
         LiteLLMInstrumentor,
     )
-    from opentelemetry import trace as _otel_trace  # type: ignore[import-not-found]
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # type: ignore[import-not-found]
+    from opentelemetry import trace as _otel_trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
         OTLPSpanExporter,
     )
-    from opentelemetry.sdk.resources import SERVICE_NAME, Resource  # type: ignore[import-not-found]
-    from opentelemetry.sdk.trace import TracerProvider  # type: ignore[import-not-found]
-    from opentelemetry.sdk.trace.export import (  # type: ignore[import-not-found]
+    from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import (
         BatchSpanProcessor,
         ConsoleSpanExporter,
         SimpleSpanProcessor,
         SpanExporter,
     )
-    from opentelemetry.trace import SpanKind as _OtelSpanKind  # type: ignore[import-not-found]
+    from opentelemetry.trace import SpanKind as _OtelSpanKind
 
     _OTEL_AVAILABLE = True
 except ImportError:  # pragma: no cover - fallback branch for offline CI
     _OTEL_AVAILABLE = False
-    _otel_trace = None
-    BatchSpanProcessor = ConsoleSpanExporter = SimpleSpanProcessor = None
-    OTLPSpanExporter = None
-    LiteLLMInstrumentor = None
+    _otel_trace = None  # type: ignore[assignment]
+    BatchSpanProcessor = ConsoleSpanExporter = SimpleSpanProcessor = None  # type: ignore[assignment, misc]
+    OTLPSpanExporter = None  # type: ignore[assignment, misc]
+    LiteLLMInstrumentor = None  # type: ignore[assignment, misc]
 
     class SpanExporter:  # type: ignore[no-redef]
         """Fallback for SpanExporter when opentelemetry is missing."""
 
         pass
 
-    Resource = TracerProvider = SERVICE_NAME = None
+    Resource = TracerProvider = SERVICE_NAME = None  # type: ignore[assignment, misc]
 
     class _OtelSpanKind(str, Enum):  # type: ignore[no-redef]
         INTERNAL = "INTERNAL"
@@ -124,7 +124,7 @@ class _FileSpanExporter(SpanExporter):
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
-    def export(self, spans: list[Any]) -> Any:
+    def export(self, spans: Sequence[Any]) -> Any:
         records = []
         for span in spans:
             ctx = span.get_span_context()
@@ -135,7 +135,7 @@ class _FileSpanExporter(SpanExporter):
                     "span_id": format(getattr(ctx, "span_id", 0), "016x"),
                 },
                 "kind": getattr(getattr(span, "kind", None), "name", "INTERNAL"),
-                "attributes": getattr(span, "attributes", {}),
+                "attributes": dict(getattr(span, "attributes", {}) or {}),
                 "start_time": getattr(span, "start_time", None),
                 "end_time": getattr(span, "end_time", None),
             }
@@ -178,7 +178,7 @@ def configure_tracing(service_name: str, *, span_log_path: str | None = None) ->
     _otel_trace.set_tracer_provider(provider)
 
     # 4. Instrument LiteLLM
-    if LiteLLMInstrumentor:
+    if LiteLLMInstrumentor is not None:
         logger.info("Instrumenting LiteLLM for OpenInference")
         LiteLLMInstrumentor().instrument(tracer_provider=provider)
 

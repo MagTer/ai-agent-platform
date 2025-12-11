@@ -22,9 +22,6 @@ PYPROJECT_CONFIG = REPO_ROOT / "services" / "agent" / "pyproject.toml"
 
 def check_venv() -> None:
     """Ensure the script is running inside a virtual environment."""
-    if os.environ.get("CI") == "true":
-        return
-
     # Check if we are in a virtual environment
     # sys.prefix != sys.base_prefix covers standard venvs
     # VIRTUAL_ENV covers some other cases
