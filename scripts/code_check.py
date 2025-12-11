@@ -75,31 +75,34 @@ def run_command(command: list[str], cwd: Path) -> None:
 def main() -> None:
     check_venv()
 
-    print(f"{BLUE}Starting Quality Checks...{RESET}\n")
+    is_ci = os.environ.get("CI") == "true"
+    print(f"{BLUE}Starting Quality Checks... (CI={is_ci}){RESET}\n")
 
     # 1. Global Linters
     print(f"{BLUE}--- Global Linters ---{RESET}")
 
     # Ruff
-    run_command(
-        [sys.executable, "-m", "ruff", "check", "--fix", ".", "--config", str(PYPROJECT_CONFIG)],
-        cwd=REPO_ROOT,
-    )
+    ruff_cmd = [sys.executable, "-m", "ruff", "check", ".", "--config", str(PYPROJECT_CONFIG)]
+    if not is_ci:
+        ruff_cmd.insert(4, "--fix")
+
+    run_command(ruff_cmd, cwd=REPO_ROOT)
 
     # Black
-    run_command(
-        [
-            sys.executable,
-            "-m",
-            "black",
-            ".",
-            "--config",
-            str(PYPROJECT_CONFIG),
-            "--extend-exclude",
-            "/(data|services/openwebui/data)",
-        ],
-        cwd=REPO_ROOT,
-    )
+    black_cmd = [
+        sys.executable,
+        "-m",
+        "black",
+        ".",
+        "--config",
+        str(PYPROJECT_CONFIG),
+        "--extend-exclude",
+        "/(data|services/openwebui/data)",
+    ]
+    if is_ci:
+        black_cmd.append("--check")
+
+    run_command(black_cmd, cwd=REPO_ROOT)
 
     # 2. Service-level Checks
     print(f"{BLUE}--- Service Checks ---{RESET}")
