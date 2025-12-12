@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import httpx
 
 from .base import Tool, ToolError
+
+LOGGER = logging.getLogger(__name__)
 
 
 class WebSearchTool(Tool):
@@ -32,6 +35,8 @@ class WebSearchTool(Tool):
             "lang": self._lang,
         }
         
+        LOGGER.info(f"Searching web for: '{query}'")
+
         async with httpx.AsyncClient() as client:
             try:
                 # The fetcher service uses GET for search
@@ -46,6 +51,8 @@ class WebSearchTool(Tool):
              raise ToolError("Invalid JSON response from search service")
 
         results = data.get("results", [])
+        LOGGER.info(f"Found {len(results)} results from SearXNG")
+        
         if not results:
             return "No results found."
 

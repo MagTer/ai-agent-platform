@@ -12,7 +12,7 @@ model_list:
     litellm_params:
       model: rag/llama3-en
       api_base: http://ragproxy:4080
-      temperature: 0.35
+      temperature: 0.1
       max_output_tokens: 1024
       stream: true
 

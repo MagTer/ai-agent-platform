@@ -118,6 +118,11 @@ class MemoryStore:
                     )
                 ]
             )
+
+        LOGGER.info(
+            f"Searching memory for query='{query}' conversation_id='{conversation_id or 'all'}'"
+        )
+
         try:
             # Use await for async client methods
             results = await client.search(  # type: ignore[attr-defined]
@@ -129,6 +134,8 @@ class MemoryStore:
         except UnexpectedResponse as exc:  # pragma: no cover - defensive
             LOGGER.error("Memory search failed: %s", exc)
             return []
+
+        LOGGER.info(f"Found {len(results)} memory records")
 
         records: list[MemoryRecord] = []
         for match in results:

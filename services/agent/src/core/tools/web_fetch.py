@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import httpx
 
 from .base import Tool, ToolError
+
+LOGGER = logging.getLogger(__name__)
 
 
 class WebFetchTool(Tool):
@@ -27,6 +30,7 @@ class WebFetchTool(Tool):
         self._html_max_chars = html_max_chars
 
     async def run(self, url: str) -> str:
+        LOGGER.info(f"Fetching URL: {url}")
         endpoint = f"{self._base_url}/fetch"
         async with httpx.AsyncClient() as client:
             try:
@@ -47,6 +51,8 @@ class WebFetchTool(Tool):
         if not isinstance(extracted_text, str):
             extracted_text = ""
         extracted_text = extracted_text.strip()
+        
+        LOGGER.info(f"Fetched {len(extracted_text)} chars from {url}")
 
         snippet = extracted_text[: self._summary_max_chars]
         if extracted_text and len(extracted_text) > self._summary_max_chars:

@@ -450,7 +450,7 @@ async def summarize_with_litellm(
             {"role": "system", "content": prompts["system"]},
             {"role": "user", "content": prompts["user"]},
         ],
-        "temperature": 0.2,
+        "temperature": 0.0,
         "max_tokens": 700,
     }
     try:

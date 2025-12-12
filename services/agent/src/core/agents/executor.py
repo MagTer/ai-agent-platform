@@ -45,6 +45,11 @@ class StepExecutorAgent:
             span.set_attribute("action", str(step.action))
             span.set_attribute("executor", str(step.executor))
             span.set_attribute("step", str(step.id))
+            
+            # Record arguments (sanitize if needed in future)
+            if step.args:
+                span.set_attribute("step.args", str(step.args))
+
             result: dict[str, Any] = {}
             try:
                 if step.executor == "agent" and step.action == "memory":
@@ -81,6 +86,8 @@ class StepExecutorAgent:
             duration_ms = (time.perf_counter() - start_time) * 1000
             span.set_attribute("latency_ms", duration_ms)
             span.set_attribute("status", status)
+            if result:
+                span.set_attribute("step.result", str(result))
             trace_ctx = TraceContext(**current_trace_ids())
 
             final_status = cast(
