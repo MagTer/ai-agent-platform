@@ -160,6 +160,7 @@ class MemoryStore:
         try:
             # Use await for async embedder methods
             vectors = await self._embedder.embed(texts)
+            return vectors
         except EmbedderError as exc:
             LOGGER.warning("Embedder request failed: %s", exc)
         return []
