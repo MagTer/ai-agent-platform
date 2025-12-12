@@ -67,7 +67,7 @@ exclude = '''\
 /( 
     \.git
   | \.venv
-  | \.venv/ # Explicitly exclude any path containing /.venv/
+  | services/agent/\.venv
   | \.venv_temp
   | _build
   | dist

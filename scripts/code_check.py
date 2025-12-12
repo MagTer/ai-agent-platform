@@ -173,7 +173,7 @@ def run_global_checks() -> None:
         str(PYPROJECT_CONFIG),
         # Explicitly exclude data directories that might not be in .gitignore or black config
         "--extend-exclude",
-        "/(data|services/openwebui/data)",
+        "/(data|services/openwebui/data)|.*\\.venv",
     ]
     if ci_mode:
         black_cmd.append("--check")
