@@ -9,9 +9,15 @@ from uuid import uuid4
 
 import numpy as np
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.conversions.common_types import Distance, VectorParams
 from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
 
 from .config import Settings
 from .embedder import EmbedderClient, EmbedderError
