@@ -147,28 +147,10 @@ class MemoryStore:
         try:
             # Use await for async embedder methods
             vectors = await self._embedder.embed(texts)
-            if len(vectors) == len(texts):
-                return vectors
-            LOGGER.warning(
-                "Embedder returned %d/%d vectors; falling back to local encoder",
-                len(vectors),
-                len(texts),
-            )
         except EmbedderError as exc:
             LOGGER.warning("Embedder request failed: %s", exc)
-        return [self._fallback_embed(text) for text in texts]
+        return []
 
-    def _fallback_embed(self, text: str) -> list[float]:
-        """Deterministic embedding used when the embedder service is unavailable."""
-
-        if not text:
-            return [0.0] * self._vector_size
-        values = np.frombuffer(text.encode("utf-8"), dtype=np.uint8)
-        tiled = np.resize(values, self._vector_size)
-        norm = np.linalg.norm(tiled)
-        if norm == 0:
-            return tiled.astype(float).tolist()
-        return (tiled / norm).astype(float).tolist()
 
 
 __all__ = ["MemoryStore", "MemoryRecord"]

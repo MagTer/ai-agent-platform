@@ -59,6 +59,7 @@ EMBEDDER_BASE = os.getenv("EMBEDDER_BASE", "http://embedder:8082")
 QDRANT_URL = os.getenv("QDRANT_URL", "http://qdrant:6333")
 ENABLE_QDRANT = os.getenv("ENABLE_QDRANT", "true").lower() == "true"
 QDRANT_TOP_K = int(os.getenv("QDRANT_TOP_K", "5"))
+QDRANT_COLLECTION = os.getenv("QDRANT_COLLECTION", "agent-memories")
 MMR_LAMBDA = float(os.getenv("MMR_LAMBDA", "0.7"))
 
 MODEL_EN = os.getenv("MODEL_EN", "local/llama3-en")
@@ -317,7 +318,7 @@ async def qdrant_query(query: str, top_k: int = 5) -> list[dict[str, Any]]:
         qvec = np.array(vecs[0], dtype=np.float32)
         client = get_qdrant()
         res = await client.search(
-            collection_name="memory",
+            collection_name=QDRANT_COLLECTION,
             query_vector=qvec.tolist(),
             limit=max(top_k * 3, top_k),
             with_payload=True,

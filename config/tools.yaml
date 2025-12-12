@@ -8,3 +8,10 @@
 - name: azure_devops
   type: core.tools.azure_devops.AzureDevOpsTool
   args: {}
+
+- name: web_search
+  type: core.tools.web_search.WebSearchTool
+  args:
+    base_url: http://webfetch:8081
+    max_results: 5
+    lang: en
