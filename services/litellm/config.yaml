@@ -1,30 +1,16 @@
 # ==========================================
 # AI Agent Platform - LiteLLM Configuration
-# Single unified profile for Phi3 Mini
+# Single unified profile for Llama 3.1 8B
 # ==========================================
 
 model_list:
-  - model_name: local/phi3-en
-    display_name: "Phi3 Mini EN (Reasoning)"
+  - model_name: local/llama3-en
     litellm_params:
-      model: ollama/phi3:mini
-      api_base: http://ollama:11434
-      temperature: 0.35
-      top_p: 0.9
-      num_ctx: 4096
-      max_output_tokens: 1024
-      reuse_client: true
-      stream: true
-      messages:
-        - role: system
-          content: >
-            You are a sharp, modern assistant. Keep all internal reasoning and
-            output in English, stay concise, and if uncertain point out the open
-            questions with next steps.
-  - model_name: rag/phi3-en
-    display_name: "RAG -> Phi3 Mini"
+      model: ollama/llama3.1:8b
+  - model_name: rag/llama3-en
+    display_name: "RAG -> Llama 3.1 8B"
     litellm_params:
-      model: rag/phi3-en
+      model: rag/llama3-en
       api_base: http://ragproxy:4080
       temperature: 0.35
       max_output_tokens: 1024
@@ -42,7 +28,7 @@ general_settings:
 litellm_settings:
   budget_limit: 1.50     # USD per dag, 0 = avstangd
   rate_limits:
-    - model: local/phi3-en
+    - model: local/llama3-en
       rpm: 120
 
 # ---- Logging ----

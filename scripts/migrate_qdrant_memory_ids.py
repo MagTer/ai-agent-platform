@@ -21,9 +21,7 @@ def _batched(iterable: Iterable[str | int], size: int) -> Iterator[list[str | in
         yield batch
 
 
-def migrate_point_ids(
-    url: str, api_key: str | None, collection: str, batch_size: int
-) -> int:
+def migrate_point_ids(url: str, api_key: str | None, collection: str, batch_size: int) -> int:
     """Re-write all points in *collection* with freshly generated UUID identifiers."""
 
     client = QdrantClient(url=url, api_key=api_key)
@@ -47,18 +45,14 @@ def migrate_point_ids(
 
         for point in points:
             new_points.append(
-                PointStruct(
-                    id=uuid4().hex, payload=point.payload or {}, vector=point.vector
-                )
+                PointStruct(id=uuid4().hex, payload=point.payload or {}, vector=point.vector)
             )
             old_point_ids.append(point.id)
 
         client.upsert(collection_name=collection, points=new_points)
 
         for batch in _batched(old_point_ids, batch_size):
-            client.delete(
-                collection_name=collection, points_selector=PointIdsList(points=batch)
-            )
+            client.delete(collection_name=collection, points_selector=PointIdsList(points=batch))
 
         processed += len(points)
 
@@ -67,9 +61,7 @@ def migrate_point_ids(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--url", default="http://localhost:6333", help="Qdrant service URL"
-    )
+    parser.add_argument("--url", default="http://localhost:6333", help="Qdrant service URL")
     parser.add_argument("--api-key", default=None, help="Optional Qdrant API key")
     parser.add_argument(
         "--collection",
@@ -84,9 +76,7 @@ def main() -> None:
     )
 
     args = parser.parse_args()
-    migrated = migrate_point_ids(
-        args.url, args.api_key, args.collection, args.batch_size
-    )
+    migrated = migrate_point_ids(args.url, args.api_key, args.collection, args.batch_size)
     print(f"Migrated {migrated} points in collection '{args.collection}'.")
 
 

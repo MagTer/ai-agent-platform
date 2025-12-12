@@ -197,9 +197,7 @@ def main():
 
         # If structured event data exists and matches query, show context
         if entry.payload and "event_data" in entry.payload and args.query:
-            print(
-                f"    \033[90m{json.dumps(entry.payload['event_data'], indent=2)}\033[0m"
-            )
+            print(f"    \033[90m{json.dumps(entry.payload['event_data'], indent=2)}\033[0m")
 
     print("-" * 80)
 

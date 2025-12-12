@@ -8,9 +8,7 @@ from pytest import MonkeyPatch
 from stack import compose
 
 
-def test_compose_command_includes_overrides(
-    monkeypatch: MonkeyPatch, tmp_path: Path
-) -> None:
+def test_compose_command_includes_overrides(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     override = tmp_path / "override.yml"
     override.write_text("version: '3.9'\n", encoding="utf-8")
 
@@ -34,9 +32,7 @@ def test_compose_command_includes_overrides(
     assert command == expected_sequence
 
 
-def test_compose_command_honours_project_name(
-    monkeypatch: MonkeyPatch, tmp_path: Path
-) -> None:
+def test_compose_command_honours_project_name(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     override = tmp_path / "override.yml"
     override.write_text("version: '3.9'\n", encoding="utf-8")
 
@@ -46,7 +42,5 @@ def test_compose_command_honours_project_name(
 
     monkeypatch.setattr(compose, "resolve_compose_files", fake_resolve)
 
-    command = compose._compose_command(
-        ["up"], env={"STACK_PROJECT_NAME": "custom-project"}
-    )
+    command = compose._compose_command(["up"], env={"STACK_PROJECT_NAME": "custom-project"})
     assert command[-3:] == ["-p", "custom-project", "up"]

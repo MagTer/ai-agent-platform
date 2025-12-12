@@ -52,9 +52,7 @@ def test_optional_sections_are_mappings(catalog, section):
     for action in catalog["actions"]:
         if section in action:
             assert isinstance(action[section], dict)
-            assert action[section].get(
-                "tool_name"
-            ), "tool_name krävs när openwebui-nyckeln används"
+            assert action[section].get("tool_name"), "tool_name krävs när openwebui-nyckeln används"
 
 
 def test_verification_command_is_json_safe(catalog):
@@ -70,6 +68,4 @@ def test_verification_command_is_json_safe(catalog):
                 payload = command.split("-d", 1)[1].strip().strip("'")
                 json.loads(payload)
             except json.JSONDecodeError as exc:
-                raise AssertionError(
-                    f"Ogiltig JSON i smoke test-kommandot: {exc}"
-                ) from exc
+                raise AssertionError(f"Ogiltig JSON i smoke test-kommandot: {exc}") from exc

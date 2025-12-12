@@ -33,7 +33,7 @@ services:
     environment:
       LITELLM_LOGGING: warn
       LITELLM_PORT: 4000
-      LITELLM_PROXY_MODEL: ${LITELLM_PROXY_MODEL:-ollama/phi3:mini}
+      LITELLM_PROXY_MODEL: ${LITELLM_PROXY_MODEL:-ollama/llama3.1:8b}
       OLLAMA_API_BASE: http://ollama:11434
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -154,7 +154,7 @@ services:
     environment:
       SEARXNG_URL: http://searxng:8080
       LITELLM_BASE: http://litellm:4000
-      DEFAULT_MODEL: ${FETCHER_DEFAULT_MODEL:-local/phi3-en}
+      DEFAULT_MODEL: ${FETCHER_DEFAULT_MODEL:-local/llama3-en}
       REQUEST_TIMEOUT: ${FETCHER_REQUEST_TIMEOUT:-15}
       MAX_WORKERS: ${FETCHER_MAX_WORKERS:-4}
       EMBEDDER_BASE: http://embedder:8082

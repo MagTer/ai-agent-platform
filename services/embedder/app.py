@@ -15,9 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover - only used for typing
 else:  # Fallback runtime alias when the dependency is missing
     SentenceTransformerType = Any
 
-MODEL_NAME = os.getenv(
-    "MODEL_NAME", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
-)
+MODEL_NAME = os.getenv("MODEL_NAME", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
 NORMALIZE = os.getenv("NORMALIZE", "true").lower() == "true"
 
 app = FastAPI(title="Embedder (CPU)", version="0.1.0")

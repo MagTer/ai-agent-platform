@@ -24,9 +24,7 @@ class EmbedderClient:
         if not inputs:
             return []
         payload = {"inputs": list(inputs), "normalize": True}
-        async with httpx.AsyncClient(
-            base_url=self._base_url, timeout=self._timeout
-        ) as client:
+        async with httpx.AsyncClient(base_url=self._base_url, timeout=self._timeout) as client:
             try:
                 response = await client.post("/embed", json=payload)
                 response.raise_for_status()

@@ -33,7 +33,7 @@ def _ensure_text(value: str | bytes | None) -> str:
     return value.decode("utf-8")
 
 
-DEFAULT_MODELS = ["phi3:mini"]
+DEFAULT_MODELS = ["llama3.1:8b"]
 DEFAULT_LOG_SERVICES = [
     "webfetch",
     "n8n",
@@ -57,9 +57,7 @@ def _require_branch_name(value: str) -> str:
     if not cleaned:
         raise typer.BadParameter("Branch name cannot be empty.")
     if cleaned == "main":
-        raise typer.BadParameter(
-            "Branch 'main' is protected; choose another branch name."
-        )
+        raise typer.BadParameter("Branch 'main' is protected; choose another branch name.")
     return cleaned
 
 
@@ -204,9 +202,7 @@ def _wait_for_service(
         url = f"http://localhost:{mapped}{path}"
         console.print(f"[cyan]Waiting for {name} at {url}[/cyan]")
         if not tooling.wait_http_ok(url, timeout):
-            raise RuntimeError(
-                f"{name} did not become healthy within {timeout} seconds"
-            )
+            raise RuntimeError(f"{name} did not become healthy within {timeout} seconds")
     else:
         console.print(f"[cyan]Executing health check inside {container}[/cyan]")
 
@@ -223,9 +219,7 @@ def _wait_for_service(
 
 @app.command()
 def up(
-    detach: bool = typer.Option(
-        True, help="Run services in the background.", show_default=True
-    ),
+    detach: bool = typer.Option(True, help="Run services in the background.", show_default=True),
     build: bool = typer.Option(False, help="Build images before starting containers."),
     bind_mounts: bool = typer.Option(
         False,
@@ -433,16 +427,12 @@ def health_check(
                     table.add_row(name, "[green]ok[/green]", str(response.status_code))
                 else:
                     overall_ok = False
-                    table.add_row(
-                        name, "[yellow]warn[/yellow]", f"HTTP {response.status_code}"
-                    )
+                    table.add_row(name, "[yellow]warn[/yellow]", f"HTTP {response.status_code}")
         else:
             try:
                 # Use --spider to check for existence without downloading
                 command = f"wget -q --spider http://localhost:{target['port']}{target['path']}"
-                tooling.docker_exec(
-                    target["container"], "sh", "-lc", command, user=None
-                )
+                tooling.docker_exec(target["container"], "sh", "-lc", command, user=None)
                 table.add_row(name, "[green]ok[/green]", "exec")
             except Exception as exc:  # noqa: BLE001
                 overall_ok = False
@@ -489,9 +479,7 @@ def repo_save(
     if branch:
         requested_branch = _validate_feature_branch_name(branch)
     else:
-        console.print(
-            "[yellow]Repository requires a feature branch for this snapshot.[/yellow]"
-        )
+        console.print("[yellow]Repository requires a feature branch for this snapshot.[/yellow]")
         requested_branch = _prompt_feature_branch_name()
     console.print(f"[cyan]Switching to branch {requested_branch}[/cyan]")
     tooling.ensure_branch(repo_root, requested_branch, printer=git_printer)
@@ -504,9 +492,7 @@ def repo_save(
             console.print("[cyan]Validating docker-compose configuration…[/cyan]")
             compose.run_compose(["config"])
         except FileNotFoundError:
-            console.print(
-                "[yellow]Docker not available; skipping compose validation.[/yellow]"
-            )
+            console.print("[yellow]Docker not available; skipping compose validation.[/yellow]")
 
     committed = tooling.stage_and_commit(repo_root, message, printer=git_printer)
     if committed:
@@ -539,9 +525,7 @@ def repo_push(
 
     console.print(f"[cyan]Pushing branch {current} to {remote}[/cyan]")
     args = (
-        ["push", "--set-upstream", remote, current]
-        if set_upstream
-        else ["push", remote, current]
+        ["push", "--set-upstream", remote, current] if set_upstream else ["push", remote, current]
     )
     tooling.run_git_command(
         args,
@@ -621,9 +605,7 @@ def repo_publish(
 
 
 def _run_quality_checks(repo_root: Path) -> None:
-    console.print(
-        "[cyan]Running local quality checks (ruff, black, mypy, pytest)...[/cyan]"
-    )
+    console.print("[cyan]Running local quality checks (ruff, black, mypy, pytest)...[/cyan]")
     tooling.run_command(
         [
             "python",
@@ -647,9 +629,7 @@ def n8n_export(
         help="Export credentials.json alongside workflows.",
     ),
     container: str = typer.Option("n8n", help="Docker container name."),
-    flows_dir: Path = typer.Option(
-        Path("flows"), help="Destination directory for exports."
-    ),
+    flows_dir: Path = typer.Option(Path("flows"), help="Destination directory for exports."),
 ) -> None:
     """Export workflows from the running n8n container."""
 
@@ -662,21 +642,16 @@ def n8n_export(
     console.print(f"[cyan]Preparing export directory {tmp_export}[/cyan]")
     cleanup_cmd = f"rm -rf {tmp_export} && mkdir -p {tmp_export}"
     tooling.docker_exec(container, "sh", "-lc", cleanup_cmd, user="0")
-    tooling.docker_exec(
-        container, "sh", "-lc", f"chown -R node:node {tmp_export}", user="0"
-    )
+    tooling.docker_exec(container, "sh", "-lc", f"chown -R node:node {tmp_export}", user="0")
 
     console.print("[cyan]Running n8n export…[/cyan]")
     workflow_export_cmd = (
-        "n8n export:workflow --all --pretty --separate "
-        "--output '/home/node/n8n_export' || true"
+        "n8n export:workflow --all --pretty --separate " "--output '/home/node/n8n_export' || true"
     )
     tooling.docker_exec(container, "sh", "-lc", workflow_export_cmd)
 
     if include_credentials:
-        console.print(
-            "[cyan]Exporting credentials (without decrypting secrets)…[/cyan]"
-        )
+        console.print("[cyan]Exporting credentials (without decrypting secrets)…[/cyan]")
         credentials_export_cmd = (
             "n8n export:credentials --all --pretty --output "
             "'/home/node/n8n_export/credentials.json' || true"
@@ -698,9 +673,7 @@ def n8n_export(
         summary = f"Exported {len(exported)} workflow file(s) → {workflows_dest}"
         console.print(f"[green]{summary}[/green]")
     else:
-        console.print(
-            f"[yellow]No workflow JSON files found in {workflows_dest}.[/yellow]"
-        )
+        console.print(f"[yellow]No workflow JSON files found in {workflows_dest}.[/yellow]")
 
     combined_path = target_dir / "workflows.json"
     combined: list[dict[str, object]] = []
@@ -717,9 +690,7 @@ def n8n_export(
     if include_credentials:
         creds_path = target_dir / "credentials.json"
         try:
-            tooling.docker_cp(
-                f"{container}:{tmp_export}/credentials.json", str(creds_path)
-            )
+            tooling.docker_cp(f"{container}:{tmp_export}/credentials.json", str(creds_path))
             console.print(f"[green]Exported credentials → {creds_path}[/green]")
         except tooling.CommandError:
             console.print("[yellow]No credentials exported.[/yellow]")
@@ -749,15 +720,11 @@ def n8n_import(
     console.print(f"[cyan]Preparing import directory {tmp_import}[/cyan]")
     prep_cmd = f"rm -rf {tmp_import} && mkdir -p {tmp_import}"
     tooling.docker_exec(container, "sh", "-lc", prep_cmd, user="0")
-    tooling.docker_exec(
-        container, "sh", "-lc", f"chown -R node:node {tmp_import}", user="0"
-    )
+    tooling.docker_exec(container, "sh", "-lc", f"chown -R node:node {tmp_import}", user="0")
 
     console.print(f"[cyan]Copying workflows from {import_source}…[/cyan]")
     tooling.docker_cp(str(import_source), f"{container}:{tmp_import}")
-    tooling.docker_exec(
-        container, "sh", "-lc", f"chown -R node:node {tmp_import}", user="0"
-    )
+    tooling.docker_exec(container, "sh", "-lc", f"chown -R node:node {tmp_import}", user="0")
     flatten_cmd = (
         "if [ -d '/home/node/n8n_import/workflows' ]; then "
         "mv /home/node/n8n_import/workflows/* /home/node/n8n_import/ && "
@@ -779,17 +746,12 @@ def n8n_import(
     if include_credentials:
         credentials_file = source_root / "credentials.json"
         if credentials_file.exists():
-            console.print(
-                f"[cyan]Importing credentials from {credentials_file}…[/cyan]"
-            )
-            tooling.docker_cp(
-                str(credentials_file), f"{container}:{tmp_import}/credentials.json"
-            )
+            console.print(f"[cyan]Importing credentials from {credentials_file}…[/cyan]")
+            tooling.docker_cp(str(credentials_file), f"{container}:{tmp_import}/credentials.json")
             chown_cmd = "chown node:node /home/node/n8n_import/credentials.json"
             tooling.docker_exec(container, "sh", "-lc", chown_cmd, user="0")
             credentials_import_cmd = (
-                "n8n import:credentials --input "
-                "'/home/node/n8n_import/credentials.json'"
+                "n8n import:credentials --input " "'/home/node/n8n_import/credentials.json'"
             )
             tooling.docker_exec(container, "sh", "-lc", credentials_import_cmd)
             console.print("[green]Credentials import completed.[/green]")
@@ -815,9 +777,7 @@ def openwebui_export(
 
     tooling.ensure_docker()
     repo_root = _repo_root()
-    compose_path = (
-        compose_file if compose_file.is_absolute() else (repo_root / compose_file)
-    )
+    compose_path = compose_file if compose_file.is_absolute() else (repo_root / compose_file)
     dump_path = (repo_root / dump_path).resolve()
     tooling.ensure_directory(dump_path.parent)
 
@@ -866,14 +826,10 @@ def openwebui_import(
     if not resolved_dump.exists():
         raise FileNotFoundError(f"Dump file not found: {resolved_dump}")
 
-    compose_path = (
-        compose_file if compose_file.is_absolute() else (repo_root / compose_file)
-    )
+    compose_path = compose_file if compose_file.is_absolute() else (repo_root / compose_file)
 
     container_target = f"{service}:/tmp/openwebui.sql"
-    compose.run_compose(
-        ["cp", str(resolved_dump), container_target], files_override=[compose_path]
-    )
+    compose.run_compose(["cp", str(resolved_dump), container_target], files_override=[compose_path])
 
     python_script = """
 import os, sqlite3, pathlib

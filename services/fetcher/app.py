@@ -61,10 +61,10 @@ ENABLE_QDRANT = os.getenv("ENABLE_QDRANT", "true").lower() == "true"
 QDRANT_TOP_K = int(os.getenv("QDRANT_TOP_K", "5"))
 MMR_LAMBDA = float(os.getenv("MMR_LAMBDA", "0.7"))
 
-MODEL_EN = os.getenv("MODEL_EN", "local/phi3-en")
+MODEL_EN = os.getenv("MODEL_EN", "local/llama3-en")
 MODEL_SV = os.getenv(
     "MODEL_SV",
-    "local/phi3-en",
+    "local/llama3-en",
 )
 # Swedish queries still run via the English pipeline; translation happens elsewhere.
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", MODEL_EN)
@@ -168,9 +168,7 @@ async def async_http_get(
     try:
         for i in range(tries):
             try:
-                return await client.get(
-                    url, timeout=timeout, params=params, headers=headers
-                )
+                return await client.get(url, timeout=timeout, params=params, headers=headers)
             except Exception as e:
                 last_exc = e
                 if i < tries - 1:
@@ -277,9 +275,7 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (da * db))
 
 
-def _mmr(
-    query_vec: np.ndarray, doc_vecs: list[np.ndarray], k: int, lam: float
-) -> list[int]:
+def _mmr(query_vec: np.ndarray, doc_vecs: list[np.ndarray], k: int, lam: float) -> list[int]:
     """Return indices selected via Maximal Marginal Relevance."""
 
     if not doc_vecs:
@@ -366,9 +362,7 @@ async def qdrant_query(query: str, top_k: int = 5) -> list[dict[str, Any]]:
 # SearxNG search
 # -----------------------------
 @app.get("/search")
-async def search(
-    q: str = Query(..., min_length=2), k: int = 5, lang: str = "sv"
-) -> dict[str, Any]:
+async def search(q: str = Query(..., min_length=2), k: int = 5, lang: str = "sv") -> dict[str, Any]:
     url = SEARXNG_URL.rstrip("/") + "/search"
     params = {"q": q, "format": "json", "language": lang, "safesearch": 1}
     try:
@@ -569,9 +563,7 @@ async def research_get(
 
 
 @app.get("/retrieval_debug")
-async def retrieval_debug(
-    q: str = Query(..., min_length=2), k: int = Query(5, ge=1, le=10)
-):
+async def retrieval_debug(q: str = Query(..., min_length=2), k: int = Query(5, ge=1, le=10)):
     mem = await qdrant_query(q, top_k=min(QDRANT_TOP_K, k)) if ENABLE_QDRANT else []
     s = await search(q=q, k=k, lang="sv")
     web = s.get("results", [])

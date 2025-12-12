@@ -64,12 +64,28 @@ curl -s http://localhost:6333/collections | jq '.result | keys'
 # Webfetch
 curl -s http://localhost:8081/health | jq
 
+# Phoenix (LLM Observability)
+curl -s http://localhost:6006 | head -n 5
+
 # Embedder
 curl -s http://localhost:8082/health | jq
 ```
 
 > LiteLLM is still covered by Docker Compose healthchecks and `python -m stack status`.
 > Manual probes are intentionally omitted to avoid GPU spin-up on developer machines.
+
+## Observability (Arize Phoenix)
+
+The platform now includes **Arize Phoenix** for LLM tracing and observability.
+
+- **Dashboard:** [http://localhost:6006](http://localhost:6006)
+- **Features:**
+    - View traces for all agent interactions.
+    - Inspect inputs/outputs for every LLM call (prompts & completions).
+    - Visualize tool execution and latency.
+    - Debug errors in the retrieval or planning steps.
+
+The agent is configured to send OpenTelemetry (OTLP) traces to Phoenix automatically.
 
 ## Smoke Tests
 ```bash
@@ -85,8 +101,7 @@ curl -sS -X POST http://localhost:8000/v1/agent \
 curl -sS -X POST http://localhost:8000/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{
-        "model": "ollama/phi3:mini",
-        "messages": [
+                  "model": "ollama/llama3.1:8b",        "messages": [
           {"role": "system", "content": "You are a helpful agent."},
           {"role": "user", "content": "Confirm that requests flow through the agent."}
         ]
@@ -112,7 +127,7 @@ response payload. The `steps` array should list the orchestration trace in the
 order memory → tools → completion.
 
 ## Maintenance
-- **Model management**: start `ollama run phi3:mini` inside the `ollama` container to warm the English model; use translation helpers for Swedish text.
+- **Model management**: start `ollama run llama3.1:8b` inside the `ollama` container to warm the English model; use translation helpers for Swedish text.
 - **Database**: the agent stores conversation metadata in `./data/agent_state.sqlite`. Back up or prune the file as part of maintenance.
 - **LiteLLM configuration**: adjust routing or budgets via environment variables in `.env` or `docker-compose.yml`, then run `poetry run stack up` to reload.
 - **Qdrant backups**: `poetry run stack qdrant backup --backup-dir backups` creates timestamped archives; restore with `poetry run stack qdrant restore backups/<file>.tgz`.
