@@ -72,15 +72,11 @@ class AzureDevOpsTool(Tool):
             # `create_work_item` requires `project` argument.
 
             # I will check if 'project' is in kwargs, else env.
-            project: str | None = kwargs.get("project") or os.environ.get(
-                "AZURE_DEVOPS_PROJECT"
-            )
+            project: str | None = kwargs.get("project") or os.environ.get("AZURE_DEVOPS_PROJECT")
             if not project:
                 return "❌ Error: Azure DevOps Project not specified in environment or arguments."
 
-            work_item = wit_client.create_work_item(
-                document=document, project=project, type=type
-            )
+            work_item = wit_client.create_work_item(document=document, project=project, type=type)
 
             # The URL returned by API is API URL. UI URL is different.
             # Example: https://dev.azure.com/{org}/{project}/_workitems/edit/{id}

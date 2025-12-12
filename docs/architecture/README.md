@@ -37,7 +37,7 @@ The AI Agent Platform is a self-hosted research and automation environment desig
 | `agent` | FastAPI orchestration layer (`src/agent/`) exposing `/healthz`, `/v1/agent`, and OpenAI-compatible `/v1/chat/completions`. | `8000` |
 | `stack CLI` | Typer-based helper (`python -m stack`) that wraps Docker Compose for lifecycle management and health reporting. | n/a |
 | `litellm` | Gateway that proxies chat completions to Ollama or remote providers configured in Compose. | `4000` |
-| `ollama` | GPU-capable inference runtime that serves Phi3 Mini (via `runtime: nvidia` and the Nvidia driver caps) | `11434` |
+| `ollama` | GPU-capable inference runtime that serves Llama 3.1 8B (via `runtime: nvidia` and the Nvidia driver caps) | `11434` |
 | `openwebui` | Web UI for reasoning modes; routes chat traffic through the agent. | `3000 → 8080` |
 | `qdrant` | Vector store that retains semantic memories and RAG content chunks. | `6333` |
 | `embedder` | CPU-bound sentence-transformer service providing deterministic `/embed` vectors. | `8082` |

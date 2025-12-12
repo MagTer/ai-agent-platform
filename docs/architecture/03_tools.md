@@ -57,7 +57,7 @@ deterministically.
 
 ## Planning Orchestration
 
-The agent asks Phi3 Mini (via LiteLLM) to plan the work needed to respond before
+The agent asks Llama 3.1 8B (via LiteLLM) to plan the work needed to respond before
 making the final completion call. The planner is provided with the up-to-date
 tool inventory (`memory`/RAG via Qdrant/embedder, `web_fetch`, `ragproxy`, plus
 any MCP-registered helpers) so every step that needs a helper can reference it
@@ -131,7 +131,7 @@ exposes:
 Memory/RAG tooling (`qdrant`, `embedder`, `ragproxy`) is invoked via the
 `memory` action or will surface via additional MCP helpers if they are registered.
 Add new entries to `config/tools.yaml` (see `agent.tools.loader`) when you want
-Phi3 Mini to orchestrate more capabilities.
+Llama 3.1 8B to orchestrate more capabilities.
 
 ### Web Fetch contract
 
@@ -192,4 +192,4 @@ Run it from the repo root with the stack running:
 python -m poetry run python scripts/integration_checks.py
 ```
 
-The helper now verifies the Ollama `/v1/models` response contains the single `phi3:mini` model and that LiteLLM only asks for the configured `local/phi3-en` backend before running `/v1/chat/completions`. You can override the shared model via `PRIMARY_MODEL` (Ollama) or `LITELLM_MODEL` (LiteLLM) when you swap to a different local backend, raise `INTEGRATION_TIMEOUT` (default `300s`) if completions routinely take longer, and tune `INTEGRATION_RETRY_DELAY` (default `10s`) to give LLMs time to warm up. You can still override the service URLs (`OLLAMA_URL`, `LITELLM_URL`, `AGENT_URL`, `QDRANT_URL`) when ports differ or you run the helper inside a container (point them at hostnames like `http://ollama:11434`). If Swedish responses are required, run the translator tool after the English completion or route the final answer through OpenRouter so the agent stays on the fast English model internally.
+The helper now verifies the Ollama `/v1/models` response contains the single `llama3.1:8b` model and that LiteLLM only asks for the configured `local/llama3-en` backend before running `/v1/chat/completions`. You can override the shared model via `PRIMARY_MODEL` (Ollama) or `LITELLM_MODEL` (LiteLLM) when you swap to a different local backend, raise `INTEGRATION_TIMEOUT` (default `300s`) if completions routinely take longer, and tune `INTEGRATION_RETRY_DELAY` (default `10s`) to give LLMs time to warm up. You can still override the service URLs (`OLLAMA_URL`, `LITELLM_URL`, `AGENT_URL`, `QDRANT_URL`) when ports differ or you run the helper inside a container (point them at hostnames like `http://ollama:11434`). If Swedish responses are required, run the translator tool after the English completion or route the final answer through OpenRouter so the agent stays on the fast English model internally.

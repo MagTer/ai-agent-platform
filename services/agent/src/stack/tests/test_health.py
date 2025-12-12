@@ -9,9 +9,7 @@ from stack import health
 
 
 class DummyContainer:
-    def __init__(
-        self, name: str, status: str, health_status: str | None = None
-    ) -> None:
+    def __init__(self, name: str, status: str, health_status: str | None = None) -> None:
         self.name = name
         health_info = {"Status": health_status} if health_status else {}
         self.attrs = {
@@ -40,9 +38,7 @@ def test_fetch_container_states(monkeypatch: MonkeyPatch) -> None:
         DummyContainer("agent", "running", "healthy"),
         DummyContainer("qdrant", "exited"),
     ]
-    monkeypatch.setattr(
-        health.docker, "from_env", lambda: DummyDockerClient(containers)
-    )
+    monkeypatch.setattr(health.docker, "from_env", lambda: DummyDockerClient(containers))
 
     rows = health.fetch_container_states()
 

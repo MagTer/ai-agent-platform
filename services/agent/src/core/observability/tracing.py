@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
@@ -19,29 +19,37 @@ from types import TracebackType
 from typing import Any
 
 try:  # pragma: no cover - exercised implicitly during imports
-    from opentelemetry import trace as _otel_trace  # type: ignore[import-not-found]
-    from opentelemetry.sdk.resources import SERVICE_NAME, Resource  # type: ignore[import-not-found]
-    from opentelemetry.sdk.trace import TracerProvider  # type: ignore[import-not-found]
-    from opentelemetry.sdk.trace.export import (  # type: ignore[import-not-found]
+    from openinference.instrumentation.litellm import (
+        LiteLLMInstrumentor,
+    )
+    from opentelemetry import trace as _otel_trace
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+        OTLPSpanExporter,
+    )
+    from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import (
         BatchSpanProcessor,
         ConsoleSpanExporter,
         SimpleSpanProcessor,
         SpanExporter,
     )
-    from opentelemetry.trace import SpanKind as _OtelSpanKind  # type: ignore[import-not-found]
+    from opentelemetry.trace import SpanKind as _OtelSpanKind
 
     _OTEL_AVAILABLE = True
 except ImportError:  # pragma: no cover - fallback branch for offline CI
     _OTEL_AVAILABLE = False
-    _otel_trace = None
-    BatchSpanProcessor = ConsoleSpanExporter = SimpleSpanProcessor = None
+    _otel_trace = None  # type: ignore[assignment]
+    BatchSpanProcessor = ConsoleSpanExporter = SimpleSpanProcessor = None  # type: ignore[assignment, misc]
+    OTLPSpanExporter = None  # type: ignore[assignment, misc]
+    LiteLLMInstrumentor = None  # type: ignore[assignment, misc]
 
     class SpanExporter:  # type: ignore[no-redef]
         """Fallback for SpanExporter when opentelemetry is missing."""
 
         pass
 
-    Resource = TracerProvider = SERVICE_NAME = None
+    Resource = TracerProvider = SERVICE_NAME = None  # type: ignore[assignment, misc]
 
     class _OtelSpanKind(str, Enum):  # type: ignore[no-redef]
         INTERNAL = "INTERNAL"
@@ -116,7 +124,7 @@ class _FileSpanExporter(SpanExporter):
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
-    def export(self, spans: list[Any]) -> Any:
+    def export(self, spans: Sequence[Any]) -> Any:
         records = []
         for span in spans:
             ctx = span.get_span_context()
@@ -127,7 +135,7 @@ class _FileSpanExporter(SpanExporter):
                     "span_id": format(getattr(ctx, "span_id", 0), "016x"),
                 },
                 "kind": getattr(getattr(span, "kind", None), "name", "INTERNAL"),
-                "attributes": getattr(span, "attributes", {}),
+                "attributes": dict(getattr(span, "attributes", {}) or {}),
                 "start_time": getattr(span, "start_time", None),
                 "end_time": getattr(span, "end_time", None),
             }
@@ -144,7 +152,7 @@ class _FileSpanExporter(SpanExporter):
 
 
 def configure_tracing(service_name: str, *, span_log_path: str | None = None) -> None:
-    """Initialise the tracer provider with console and file exporters if available."""
+    """Initialise the tracer provider with OTLP, console, and file exporters if available."""
 
     if not _OTEL_AVAILABLE:
         logger.info("OpenTelemetry not available; using no-op tracer")
@@ -152,13 +160,27 @@ def configure_tracing(service_name: str, *, span_log_path: str | None = None) ->
 
     resource = Resource.create({SERVICE_NAME: service_name})
     provider = TracerProvider(resource=resource)
+
+    # 1. Console Exporter (Simple)
     provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+
+    # 2. File Exporter (Batch)
     span_log_file = span_log_path or os.getenv("SPAN_LOG_PATH")
     if span_log_file:
-        provider.add_span_processor(
-            BatchSpanProcessor(_FileSpanExporter(span_log_file))
-        )
+        provider.add_span_processor(BatchSpanProcessor(_FileSpanExporter(span_log_file)))
+
+    # 3. OTLP Exporter (Batch) - Phoenix
+    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if otlp_endpoint:
+        logger.info(f"Configuring OTLP exporter to {otlp_endpoint}")
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint)))
+
     _otel_trace.set_tracer_provider(provider)
+
+    # 4. Instrument LiteLLM
+    if LiteLLMInstrumentor is not None:
+        logger.info("Instrumenting LiteLLM for OpenInference")
+        LiteLLMInstrumentor().instrument(tracer_provider=provider)
 
 
 def get_tracer() -> Any:

@@ -48,7 +48,7 @@ The embedder endpoint (`AGENT_EMBEDDER_URL`) is used whenever the memory store i
 ## Orchestrating with a planning agent
 
 The agent is the user’s “speaking partner” in Open WebUI. Before it makes any calls,
-LiteLLM (Phi3 Mini via the LiteLLM gateway) first ingests the question together with the
+LiteLLM (Llama 3.1 8B via the LiteLLM gateway) first ingests the question together with the
 catalog of available tools (RAG/Embedder, WebFetch, other MCP-registered helpers) and
 produces a lightweight, structured plan. The plan lists the steps that have to execute
 before returning a response, and the client can stream those steps as they happen so the
@@ -64,7 +64,7 @@ Every execution and heuristic decision is logged via the `steps` trace and dupli
 enables streaming updates to the Open WebUI client, and makes it easy to inspect why a particular
 model or tool was chosen.
 
-All internal reasoning runs on the shared English Phi3 Mini model. Swedish input is translated to English before the plan is executed, and the final response can be routed via a translation tool or OpenRouter so the end user still receives Swedish text without the agent having to host a second LLM.
+All internal reasoning runs on the shared English Llama 3.1 8B model. Swedish input is translated to English before the plan is executed, and the final response can be routed via a translation tool or OpenRouter so the end user still receives Swedish text without the agent having to host a second LLM.
 inspect why a particular tool or LLM was chosen.
 
 ## Response Contract

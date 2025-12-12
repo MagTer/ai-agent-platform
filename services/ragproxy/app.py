@@ -54,9 +54,7 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (da * db))
 
 
-def _mmr(
-    query_vec: np.ndarray, doc_vecs: list[np.ndarray], k: int, lam: float
-) -> list[int]:
+def _mmr(query_vec: np.ndarray, doc_vecs: list[np.ndarray], k: int, lam: float) -> list[int]:
     if not doc_vecs:
         return []
     sims = [_cosine(query_vec, v) for v in doc_vecs]
@@ -139,10 +137,10 @@ def models():
         "object": "list",
         "data": [
             {
-                "id": "rag/phi3-en",
+                "id": "rag/llama3-en",
                 "object": "model",
                 "owned_by": "ragproxy",
-                "description": "Retrieval-augmented phi3-mini via Qdrant/embedder",
+                "description": "Retrieval-augmented llama3.1-8b via Qdrant/embedder",
             }
         ],
     }
@@ -157,16 +155,14 @@ async def chat_completions(body: dict[str, Any] = Body(...)):
 
     use_rag = ENABLE_RAG and model.startswith("rag/")
     # Map to underlying LiteLLM model
-    forward_model = "local/phi3-en"
+    forward_model = "local/llama3-en"
     if model.endswith("-sv"):
-        forward_model = "local/phi3-en"
+        forward_model = "local/llama3-en"
         # Swedish fallback uses the English model; translation occurs elsewhere.
 
     final_messages = messages
     if use_rag:
-        user_msgs = [
-            m for m in messages if m.get("role") == "user" and m.get("content")
-        ]
+        user_msgs = [m for m in messages if m.get("role") == "user" and m.get("content")]
         query = user_msgs[-1]["content"] if user_msgs else ""
         hits = (await qdrant_retrieve(query, QDRANT_TOP_K))[:RAG_MAX_SOURCES]
         if hits:
@@ -190,9 +186,7 @@ async def chat_completions(body: dict[str, Any] = Body(...)):
                     "You are a precise assistant. Use ONLY the provided context for facts. "
                     "Cite as [n] and list sources."
                 )
-            user_aug = (
-                f"Question: {query}\n\nContext:\n{context}\n\nSources:\n{src_list}\n\n"
-            )
+            user_aug = f"Question: {query}\n\nContext:\n{context}\n\nSources:\n{src_list}\n\n"
             final_messages = [
                 {"role": "system", "content": sys},
                 {"role": "user", "content": user_aug},
@@ -202,8 +196,6 @@ async def chat_completions(body: dict[str, Any] = Body(...)):
     fwd["model"] = forward_model
     fwd["messages"] = final_messages
     client = await get_client()
-    r = await client.post(
-        f"{LITELLM_BASE.rstrip('/')}/v1/chat/completions", json=fwd, timeout=120
-    )
+    r = await client.post(f"{LITELLM_BASE.rstrip('/')}/v1/chat/completions", json=fwd, timeout=120)
     r.raise_for_status()
     return r.json()

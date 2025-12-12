@@ -1,142 +1,222 @@
 #!/usr/bin/env python3
 """
-Single Source of Truth for running quality checks.
-Handles directory switching and environment variables automatically.
+Quality Assurance Script for AI Agent Platform.
+
+This script serves as the single source of truth for running quality checks (linting, formatting,
+type checking, testing) both locally and in CI environments.
+
+Features:
+- Auto-detection of CI environment (disables fixes, enables strict checks).
+- Auto-restart via Poetry if not running in a virtual environment.
+- Global checks (Ruff, Black) run on the repository root.
+- Service-specific checks (Mypy, Pytest) run in their respective service directories.
 """
 
 import os
+import shutil
 import subprocess
 import sys
-from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 
-# Identify directories
+# --- Configuration ---
 REPO_ROOT = Path(__file__).resolve().parent.parent
-AGENT_DIR = REPO_ROOT / "services" / "agent"
+AGENT_SERVICE_DIR = REPO_ROOT / "services" / "agent"
+
+# The central configuration for tools (Ruff, Black, Mypy, Pytest) is in the agent service
+PYPROJECT_CONFIG = AGENT_SERVICE_DIR / "pyproject.toml"
+
+# List of service directories to run service-level checks on
+SERVICE_DIRS = [
+    AGENT_SERVICE_DIR,
+]
+
+# --- Styling ---
+GREEN = "\033[92m"
+RED = "\033[91m"
+BLUE = "\033[94m"
+YELLOW = "\033[93m"
+RESET = "\033[0m"
+BOLD = "\033[1m"
 
 
-@dataclass
-class Command:
-    name: str
-    args: list[str]
-    cwd: Path
-    extra_env: dict | None = None
-    allowed_return_codes: Sequence[int] = (0,)
+def print_step(msg: str) -> None:
+    print(f"\n{BLUE}{BOLD}==> {msg}{RESET}")
 
 
-def get_commands() -> list[Command]:
-    # Common environment for agent-related commands to find 'scripts' module etc.
-    agent_env = os.environ.copy()
-    agent_env["PYTHONPATH"] = str(REPO_ROOT)
-
-    return [
-        Command(
-            name="Ruff (lint + fix)",
-            args=[
-                "poetry",
-                "run",
-                "ruff",
-                "check",
-                "--fix",
-                "src",
-                "../embedder",
-                "../fetcher",
-                "../indexer",
-                "../ragproxy",
-                "../../tests",
-                "../../scripts",
-            ],
-            cwd=AGENT_DIR,
-        ),
-        Command(
-            name="Black (format)",
-            args=[
-                "poetry",
-                "run",
-                "python",
-                "-m",
-                "black",
-                "src",
-                "../embedder",
-                "../fetcher",
-                "../indexer",
-                "../ragproxy",
-                "../../tests",
-                "../../scripts",
-            ],
-            cwd=AGENT_DIR,
-        ),
-        Command(
-            name="Mypy (type check)",
-            args=["poetry", "run", "python", "-m", "mypy", "src"],
-            cwd=AGENT_DIR,
-        ),
-        Command(
-            name="Pytest",
-            args=["poetry", "run", "python", "-m", "pytest"],
-            cwd=AGENT_DIR,
-            extra_env=agent_env,
-        ),
-        Command(
-            name="Dependency Check",
-            args=["poetry", "run", "python", "../../scripts/deps_check.py", "--quiet"],
-            cwd=AGENT_DIR,
-            extra_env=agent_env,
-            # Allow exit codes 1, 2, 3 (outdated dependencies) but fail on 4 (error)
-            allowed_return_codes=(0, 1, 2, 3),
-        ),
-    ]
+def print_success(msg: str) -> None:
+    print(f"{GREEN}✅ {msg}{RESET}")
 
 
-def run_command(command: Command) -> None:
-    """Execute a single command and exit immediately on failure."""
-    print(f"\n==> {command.name}")
-    print(f"CWD: {command.cwd}")
-    print("$", " ".join(command.args))
+def print_error(msg: str) -> None:
+    print(f"{RED}❌ {msg}{RESET}")
 
-    env = os.environ.copy()
-    if command.extra_env:
-        env.update(command.extra_env)
 
-    # Flush stdout before running subprocess to ensure order in logs
-    sys.stdout.flush()
+def print_info(msg: str) -> None:
+    print(f"{YELLOW}ℹ️  {msg}{RESET}")
 
+
+# --- Environment & Context ---
+
+
+def is_ci() -> bool:
+    """Detect if running in a CI environment."""
+    return os.environ.get("CI", "").lower() in ("true", "1", "yes")
+
+
+def ensure_virtual_environment() -> None:
+    """
+    Ensure the script is running inside a virtual environment.
+    If not, attempt to restart the script using 'poetry run'.
+    """
+    # Check if we are in a virtual environment
+    # sys.prefix != sys.base_prefix covers standard venvs
+    # VIRTUAL_ENV covers some other cases (like poetry shell)
+    in_venv = (sys.prefix != sys.base_prefix) or (os.environ.get("VIRTUAL_ENV") is not None)
+
+    if in_venv:
+        return
+
+    print_info("Not running in a virtual environment. Attempting to auto-restart via Poetry...")
+
+    # Validate that the poetry project exists where we expect it
+    if not AGENT_SERVICE_DIR.exists():
+        print_error(f"Cannot find poetry project at {AGENT_SERVICE_DIR}")
+        print_error("Please ensure you are running this script from the repository.")
+        sys.exit(1)
+
+    # Check if poetry is available
+    poetry_bin = shutil.which("poetry")
+    if not poetry_bin:
+        print_error("Poetry executable not found in PATH.")
+        print_error("Please install Poetry or activate a virtual environment manually.")
+        sys.exit(1)
+
+    # Construct the command to restart self
+    # poetry -C <dir> run python <script> <args>
+    script_path = Path(__file__).resolve()
+    cmd = [
+        poetry_bin,
+        "-C",
+        str(AGENT_SERVICE_DIR),
+        "run",
+        "python",
+        str(script_path),
+    ] + sys.argv[1:]
+
+    print_info(f"Restarting: {' '.join(cmd)}")
     try:
-        result = subprocess.run(  # noqa: S603
-            command.args,
-            cwd=command.cwd,
-            env=env,
-            check=False,
-            text=True,
-        )
-
-        if result.returncode not in command.allowed_return_codes:
-            print(f"\n❌ {command.name} failed with exit code {result.returncode}.")
-            sys.exit(result.returncode)
-
-        if result.returncode == 0:
-            print(f"✅ {command.name} passed.")
-        else:
-            print(
-                f"⚠️ {command.name} passed with warning (exit code {result.returncode})."
-            )
-
-    except FileNotFoundError as e:
-        print(f"\n❌ Failed to execute command: {e}")
-        print("Ensure that the executable (e.g. poetry) is in your PATH.")
+        # execvp replaces the current process
+        os.execvp(poetry_bin, cmd)  # noqa: S606
+    except OSError as e:
+        print_error(f"Failed to restart via Poetry: {e}")
         sys.exit(1)
 
 
+def run_cmd(args: list[str], cwd: Path) -> None:
+    """
+    Run a subprocess command in a specific directory.
+
+    Args:
+        args: Command arguments list.
+        cwd: Directory to execute the command in.
+    """
+    # Use the current interpreter executable if 'python' is requested
+    # This ensures we stick to the active virtual environment
+    final_args = list(args)
+    if final_args[0] == "python":
+        final_args[0] = sys.executable
+
+    cmd_str = " ".join(final_args)
+    print(f"{BLUE}$ {cmd_str}{RESET}")
+    print(f"  (cwd: {cwd})")
+
+    # Inject REPO_ROOT into PYTHONPATH.
+    # This is critical for tests and type checking to resolve imports like 'services.agent...'
+    env = os.environ.copy()
+    current_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = f"{REPO_ROOT}:{current_pythonpath}"
+
+    try:
+        subprocess.run(final_args, cwd=cwd, env=env, check=True)  # noqa: S603
+    except subprocess.CalledProcessError as e:
+        print_error(f"Command failed with exit code {e.returncode}")
+        sys.exit(e.returncode)
+
+
+# --- Check Implementations ---
+
+
+def run_global_checks() -> None:
+    """Run formatters and linters on the entire repository."""
+    print_step("Running Global Linters")
+
+    ci_mode = is_ci()
+
+    # 1. Ruff
+    # Runs on REPO_ROOT but uses config from services/agent/pyproject.toml
+    ruff_cmd = ["python", "-m", "ruff", "check", ".", "--config", str(PYPROJECT_CONFIG)]
+    if not ci_mode:
+        ruff_cmd.insert(4, "--fix")
+        print_info("Ruff: Auto-fix enabled")
+    else:
+        print_info("Ruff: CI Mode (Check only)")
+
+    run_cmd(ruff_cmd, cwd=REPO_ROOT)
+
+    # 2. Black
+    black_cmd = [
+        "python",
+        "-m",
+        "black",
+        ".",
+        "--config",
+        str(PYPROJECT_CONFIG),
+        # Explicitly exclude data directories that might not be in .gitignore or black config
+        "--extend-exclude",
+        "/(data|services/openwebui/data)|.*\\.venv",
+    ]
+    if ci_mode:
+        black_cmd.append("--check")
+        print_info("Black: CI Mode (Check only)")
+    else:
+        print_info("Black: Auto-formatting enabled")
+
+    run_cmd(black_cmd, cwd=REPO_ROOT)
+
+
+def run_service_checks() -> None:
+    """Run type checking and tests for each service."""
+    print_step("Running Service-Level Checks")
+
+    for service_dir in SERVICE_DIRS:
+        if not service_dir.exists():
+            print_error(f"Service directory not found: {service_dir}")
+            continue
+
+        service_name = service_dir.relative_to(REPO_ROOT)
+        print(f"\n{BOLD}👉 Service: {service_name}{RESET}")
+
+        # 1. Mypy
+        # Runs inside the service directory.
+        # It relies on pyproject.toml in that directory for configuration.
+        run_cmd(["python", "-m", "mypy"], cwd=service_dir)
+
+        # 2. Pytest
+        # Runs inside the service directory.
+        run_cmd(["python", "-m", "pytest"], cwd=service_dir)
+
+
 def main() -> None:
-    print(f"Repo Root: {REPO_ROOT}")
-    print(f"Agent Dir: {AGENT_DIR}")
+    ensure_virtual_environment()
 
-    commands = get_commands()
-    for command in commands:
-        run_command(command)
+    print(f"\n{BOLD}🚀 Starting Quality Assurance Checks...{RESET}")
+    print(f"   Root: {REPO_ROOT}")
+    print(f"   Mode: {'CI' if is_ci() else 'Local'}")
 
-    print("\n🎉 All quality checks completed successfully.")
+    run_global_checks()
+    run_service_checks()
+
+    print_success("All quality checks completed successfully.")
 
 
 if __name__ == "__main__":

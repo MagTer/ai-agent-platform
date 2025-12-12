@@ -28,7 +28,10 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --directory services/agent
       - name: Run Quality Checks
-        run: python scripts/code_check.py
+        working-directory: services/agent
+        run: poetry run python ../../scripts/code_check.py
+        env:
+          CI: "true"
 
   compose:
     name: Compose config

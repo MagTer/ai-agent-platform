@@ -44,16 +44,10 @@ def ensure_collection(client: QdrantClient, name: str, dim: int = 384):
 
 
 def main():
-    ap = argparse.ArgumentParser(
-        description="Ingest URLs into Qdrant using webfetch + embedder"
-    )
+    ap = argparse.ArgumentParser(description="Ingest URLs into Qdrant using webfetch + embedder")
     ap.add_argument("urls", nargs="+", help="One or more URLs to ingest")
-    ap.add_argument(
-        "--webfetch", default="http://localhost:8081", help="webfetch base URL"
-    )
-    ap.add_argument(
-        "--embedder", default="http://localhost:8082", help="embedder base URL"
-    )
+    ap.add_argument("--webfetch", default="http://localhost:8081", help="webfetch base URL")
+    ap.add_argument("--embedder", default="http://localhost:8082", help="embedder base URL")
     ap.add_argument("--qdrant", default="http://localhost:6333", help="Qdrant URL")
     ap.add_argument("--collection", default="memory", help="Qdrant collection name")
     args = ap.parse_args()
@@ -62,9 +56,7 @@ def main():
     ensure_collection(qd, args.collection, dim=384)
 
     # Extract
-    r = requests.post(
-        args.webfetch.rstrip("/") + "/extract", json=args.urls, timeout=30
-    )
+    r = requests.post(args.webfetch.rstrip("/") + "/extract", json=args.urls, timeout=30)
     r.raise_for_status()
     items = r.json().get("items", [])
 

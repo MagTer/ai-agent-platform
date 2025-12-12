@@ -7,8 +7,6 @@ import os
 import sys
 from typing import Any
 
-from pythonjsonlogger import jsonlogger
-
 from core.models.pydantic_schemas import (
     PlanEvent,
     StepEvent,
@@ -16,11 +14,10 @@ from core.models.pydantic_schemas import (
     ToolCallEvent,
     UserFacingEvent,
 )
+from pythonjsonlogger import jsonlogger
 
 # Common event types for type hinting
-LoggableEvent = (
-    StepEvent | PlanEvent | SupervisorDecision | ToolCallEvent | UserFacingEvent
-)
+LoggableEvent = StepEvent | PlanEvent | SupervisorDecision | ToolCallEvent | UserFacingEvent
 
 
 class CustomJsonFormatter(jsonlogger.JsonFormatter):
@@ -63,9 +60,7 @@ def setup_logging(level: str = "INFO", service_name: str = "agent") -> None:
         log_handler.setFormatter(formatter)
     else:
         # Standard text format
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
+        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         log_handler.setFormatter(formatter)
 
     root_logger.addHandler(log_handler)

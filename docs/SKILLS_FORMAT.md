@@ -28,6 +28,7 @@ You are a specialized assistant. Your task is to...
 | `description` | string | Yes | Used for help listings and semantic routing intent matching. |
 | `inputs` | list | No | A list of input parameters the skill expects. |
 | `permission` | string | No | Access level required (default: `read`). |
+| `tools` | list | No | A list of tool names allowed for this skill (e.g., `['web_fetch']`). |
 
 ## Input Field Schema
 
@@ -45,6 +46,9 @@ Each item in the `inputs` list can have:
 ---
 name: "daily-briefing"
 description: "Generates a morning summary of emails and tasks"
+tools:
+  - "web_fetch"
+  - "calendar_tool"
 inputs:
   - name: focus_area
     required: false

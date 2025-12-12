@@ -6,12 +6,11 @@ import json
 import logging
 from typing import Any
 
-from pydantic import ValidationError
-
 from core.core.litellm_client import LiteLLMClient
 from core.models.pydantic_schemas import PlanEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
+from pydantic import ValidationError
 from shared.models import AgentMessage, AgentRequest, Plan
 
 LOGGER = logging.getLogger(__name__)
@@ -34,16 +33,12 @@ class PlannerAgent:
         """Return a :class:`Plan` describing execution steps."""
 
         available_tools_text = (
-            "\n".join(
-                f"- {entry['name']}: {entry['description']}"
-                for entry in tool_descriptions
-            )
+            "\n".join(f"- {entry['name']}: {entry['description']}" for entry in tool_descriptions)
             or "- (no MCP-specific tools are registered)"
         )
 
         history_text = (
-            "\n".join(f"{message.role}: {message.content}" for message in history)
-            or "(no history)"
+            "\n".join(f"{message.role}: {message.content}" for message in history) or "(no history)"
         )
         try:
             metadata_text = json.dumps(request.metadata or {}, indent=2)
@@ -53,37 +48,50 @@ class PlannerAgent:
         system_message = AgentMessage(
             role="system",
             content=(
-                "You are the planner agent. Your goal is to return a VALID JSON object "
-                "describing the plan.\n"
-                "Your output MUST conform to this schema:\n"
+                "You are the Planner Agent. Your task is to create a JSON execution plan "
+                "for the user's request.\n"
+                "You have access to a specific set of tools. Use them to gather "
+                "information if needed.\n\n"
+                "### RESPONSE FORMAT (Strict JSON)\n"
                 "{\n"
-                '  "description": "string summary of the plan",\n'
+                '  "description": "Brief plan summary",\n'
                 '  "steps": [\n'
                 "    {\n"
-                '      "id": "unique_string_id",\n'
-                '      "label": "human readable label",\n'
-                '      "executor": "agent" | "litellm",\n'
-                '      "action": "memory" | "tool" | "completion",\n'
-                '      "tool": "tool_name_if_action_is_tool",\n'
-                '      "args": { "key": "value" }\n'
+                '      "id": "step-1",\n'
+                '      "label": "Step Name",\n'
+                '      "executor": "agent" or "litellm",\n'
+                '      "action": "memory" or "tool" or "completion",\n'
+                '      "tool": "tool_name" (only for action="tool"),\n'
+                '      "args": { ... } (arguments for the action/tool)\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
-                "VALID ACTIONS:\n"
-                "- 'memory': Search long-term memory. Args: {'query': '...'}\n"
-                "- 'tool': Execute a tool. Args: {'tool_args': {...}}\n"
-                "- 'completion': Generate final answer. Args: {'model': '...'}\n\n"
-                "Ensure the final step is ALWAYS a 'completion' action."
+                "### ACTIONS & EXECUTORS\n"
+                "1. SEARCH MEMORY (executor='agent', action='memory')\n"
+                "   - Use to find past context.\n"
+                "   - Args: { 'query': 'search string' }\n"
+                "2. EXECUTE TOOL (executor='agent', action='tool')\n"
+                "   - Use to call an external function from the Available Tools list.\n"
+                "   - Tool: Exact name from the list.\n"
+                "   - Args: Dictionary of arguments for that tool.\n"
+                "3. GENERATE ANSWER (executor='litellm', action='completion')\n"
+                "   - Use this as the FINAL step to synthesize the answer.\n"
+                "   - Args: { 'model': 'ollama/llama3.1:8b' }\n\n"
+                "### CRITICAL RULES\n"
+                "- The LAST step must ALWAYS be action='completion'.\n"
+                "- Do NOT hallucinate tools. Only use provided ones.\n"
+                "- If no tools are needed, just plan a 'completion' step.\n"
             ),
         )
 
         user_message = AgentMessage(
             role="user",
             content=(
-                f"Question:\n{request.prompt}\n\n"
-                f"Conversation history:\n{history_text}\n\n"
-                f"Metadata provided to the agent:\n{metadata_text}\n\n"
-                f"Available tools:\n{available_tools_text}\n"
+                f"### AVAILABLE TOOLS\n{available_tools_text}\n\n"
+                f"### USER REQUEST\n{request.prompt}\n\n"
+                f"### CONTEXT (History)\n{history_text}\n\n"
+                f"### METADATA\n{metadata_text}\n\n"
+                "Create the execution plan now."
             ),
         )
 
@@ -100,16 +108,14 @@ class PlannerAgent:
             "planner.generate",
             attributes=span_attributes,
         ) as span:
-            plan_text = await self._litellm.plan([system_message, user_message])
+            plan_text = await self._litellm.plan([system_message, user_message], model=model_name)
             span.set_attribute("llm.output.size", len(plan_text))
             if model_name:
                 span.set_attribute("llm.model", model_name)
 
             candidate = self._extract_json_fragment(plan_text)
             if candidate is None:
-                LOGGER.warning(
-                    "Failed to extract JSON from planner output: %s", plan_text
-                )
+                LOGGER.warning("Failed to extract JSON from planner output: %s", plan_text)
                 candidate = {
                     "steps": [],
                     "description": "Unable to parse planner output",

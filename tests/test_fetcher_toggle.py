@@ -31,9 +31,7 @@ async def make_stubbed_app(monkeypatch, enable_qdrant: bool):
     else:
 
         async def stub_qdrant_query(q: str, top_k: int = 5):
-            raise AssertionError(
-                "qdrant_query should not be called when ENABLE_QDRANT=false"
-            )
+            raise AssertionError("qdrant_query should not be called when ENABLE_QDRANT=false")
 
     async def stub_summarize(model, query, urls, items, lang):
         return "ok"

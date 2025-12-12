@@ -8,17 +8,13 @@ from pytest import MonkeyPatch
 from stack import utils
 
 
-def test_resolve_compose_files_defaults_to_root(
-    tmp_path: Path, monkeypatch: MonkeyPatch
-) -> None:
+def test_resolve_compose_files_defaults_to_root(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
     monkeypatch.delenv(utils.COMPOSE_FILES_ENV, raising=False)
     files = utils.resolve_compose_files()
     assert files == [utils.DEFAULT_COMPOSE_FILE]
 
 
-def test_resolve_compose_files_honours_env(
-    monkeypatch: MonkeyPatch, tmp_path: Path
-) -> None:
+def test_resolve_compose_files_honours_env(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     override = tmp_path / "override.yml"
     override.write_text("version: '3'\n", encoding="utf-8")
     monkeypatch.setenv(utils.COMPOSE_FILES_ENV, str(override))
@@ -35,9 +31,7 @@ def test_resolve_compose_files_accepts_pathlike(tmp_path: Path) -> None:
     assert override in files
 
 
-def test_resolve_compose_files_supports_relative(
-    monkeypatch: MonkeyPatch, tmp_path: Path
-) -> None:
+def test_resolve_compose_files_supports_relative(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     relative = "docker-compose.bind.yml"
     monkeypatch.setenv(utils.COMPOSE_FILES_ENV, relative)
     files = utils.resolve_compose_files(os.environ)

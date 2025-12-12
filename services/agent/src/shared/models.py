@@ -53,9 +53,7 @@ class PlanStep(BaseModel):
     action: Literal["memory", "tool", "completion"] = Field(
         description="Semantic action performed by the step."
     )
-    tool: str | None = Field(
-        default=None, description="Tool referenced by this step (if any)."
-    )
+    tool: str | None = Field(default=None, description="Tool referenced by this step (if any).")
     args: dict[str, Any] = Field(
         default_factory=dict, description="Optional arguments consumed by the step."
     )
@@ -83,9 +81,7 @@ class Plan(BaseModel):
 class AgentResponse(BaseModel):
     """Response payload returned to the caller."""
 
-    conversation_id: str = Field(
-        description="Conversation identifier used for follow-up calls."
-    )
+    conversation_id: str = Field(description="Conversation identifier used for follow-up calls.")
     response: str = Field(description="Assistant completion text.")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     messages: list[AgentMessage] = Field(

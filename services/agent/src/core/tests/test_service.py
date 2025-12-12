@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryRecord, MemoryStore
@@ -43,14 +42,10 @@ class MockLiteLLMClient(LiteLLMClient):
             }
         )
 
-    async def plan(
-        self, messages: Iterable[AgentMessage], *, model: str | None = None
-    ) -> str:
+    async def plan(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
         return self._plan_output
 
-    async def generate(
-        self, messages: Iterable[AgentMessage], *, model: str | None = None
-    ) -> str:
+    async def generate(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
         sequence = list(messages)
         return "response: " + sequence[-1].content
 
@@ -143,9 +138,7 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
     registry = ToolRegistry([DummyTool()])
     service = AgentService(
         settings=settings,
-        litellm=cast(
-            LiteLLMClient, MockLiteLLMClient(plan_output=json.dumps(plan_definition))
-        ),
+        litellm=cast(LiteLLMClient, MockLiteLLMClient(plan_output=json.dumps(plan_definition))),
         memory=cast(MemoryStore, DummyMemory()),
         state_store=StateStore(tmp_path / "state.sqlite"),
         tool_registry=registry,
@@ -157,6 +150,4 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
     assert response.response == "response: Hello world"
     assert response.metadata["plan"]["description"] == "Test plan flow"
     assert any(step.get("tool") == "dummy_tool" for step in response.steps)
-    assert any(
-        result["name"] == "dummy_tool" for result in response.metadata["tool_results"]
-    )
+    assert any(result["name"] == "dummy_tool" for result in response.metadata["tool_results"])

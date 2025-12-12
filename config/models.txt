@@ -1,2 +1,2 @@
 # One model per line; lines starting with # are ignored
-phi3:mini
+llama3.1:8b
