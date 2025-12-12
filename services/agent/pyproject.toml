@@ -53,6 +53,7 @@ target-version = "py311"
 extend-exclude = [
     "flows",
     "openwebui",
+    ".venv",
 ]
 
 [tool.ruff.lint]
@@ -66,6 +67,7 @@ exclude = '''\
 /( 
     \.git
   | \.venv
+  | \.venv/ # Explicitly exclude any path containing /.venv/
   | \.venv_temp
   | _build
   | dist
