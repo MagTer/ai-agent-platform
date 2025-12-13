@@ -36,6 +36,7 @@ class PlannerAgent:
             "\n".join(f"- {entry['name']}: {entry['description']}" for entry in tool_descriptions)
             or "- (no MCP-specific tools are registered)"
         )
+        LOGGER.info(f"PLANNER DEBUG: Available tools passed to LLM:\n{available_tools_text}")
 
         history_text = (
             "\n".join(f"{message.role}: {message.content}" for message in history) or "(no history)"
@@ -78,6 +79,7 @@ class PlannerAgent:
                 "   - Use this as the FINAL step to synthesize the answer.\n"
                 "   - Args: { 'model': 'ollama/llama3.1:8b' }\n\n"
                 "### CRITICAL RULES\n"
+                "- You have FULL PERMISSION to use all available tools. Do not ask for confirmation.\n"
                 "- The LAST step must ALWAYS be action='completion'.\n"
                 "- Do NOT hallucinate tools. Only use provided ones.\n"
                 "- If no tools are needed, just plan a 'completion' step.\n"

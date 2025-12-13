@@ -131,12 +131,13 @@ class MemoryStore:
 
         try:
             # Use await for async client methods
-            results = await client.search(  # type: ignore[attr-defined]
+            response = await client.query_points(
                 collection_name=self._settings.qdrant_collection,
-                query_vector=vector,
+                query=vector,
                 limit=limit,
                 query_filter=query_filter,
             )
+            results = response.points
         except UnexpectedResponse as exc:  # pragma: no cover - defensive
             LOGGER.error("Memory search failed: %s", exc)
             return []

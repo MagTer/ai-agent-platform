@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
+from ..tools.loader import load_tool_registry
 from ..tools.mcp_loader import load_mcp_tools
 from .config import Settings, get_settings
 from .litellm_client import LiteLLMClient, LiteLLMError
@@ -56,11 +57,15 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     memory_store = MemoryStore(settings)
     state_store = StateStore(settings.sqlite_state_path)  # Instantiate StateStore
 
+    # Load native tools from configuration
+    tool_registry = load_tool_registry(settings.tools_config_path)
+
     service_instance = service or AgentService(
         settings=settings,
         litellm=litellm_client,
         memory=memory_store,
         state_store=state_store,  # Pass StateStore
+        tool_registry=tool_registry,
     )
 
     @app.on_event("startup")
