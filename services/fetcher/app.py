@@ -160,7 +160,9 @@ async def async_http_get(
     headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     if headers is None:
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; WebFetch/0.3.2)"}
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
     last_exc: Exception | None = None
     # Use global client or create one if missing (fallback)
     client = http_client or httpx.AsyncClient()

@@ -83,6 +83,7 @@ class PlannerAgent:
                 "- The LAST step must ALWAYS be action='completion'.\n"
                 "- Do NOT hallucinate tools. Only use provided ones.\n"
                 "- If no tools are needed, just plan a 'completion' step.\n"
+                "- IMPORTANT: 'web_search' only provides snippets. You MUST use 'web_fetch' to read the full page content before answering complex questions.\n"
             ),
         )
 
