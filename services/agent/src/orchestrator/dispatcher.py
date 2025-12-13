@@ -133,10 +133,10 @@ class Dispatcher:
 
         # 3. Intent Classification (LLM) -> CHAT or AGENTIC
         # System prompt optimized for small models
-        system_prompt = (
             "You are a router. Classify user input as 'CHAT' "
-            "(greetings, simple questions, knowledge) "
-            "or 'TASK' (actions, tools, planning, analyzing files). "
+            "(greetings, simple chit-chat) "
+            "or 'TASK' (actions, tools, planning, analyzing files, searching, verifying facts). "
+            "If the user asks to check, verify, or search, MUST return TASK. "
             "Reply ONLY with the word CHAT or TASK."
         )
 
