@@ -7,7 +7,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from uuid import uuid4
 
-import numpy as np
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import (
@@ -165,7 +164,6 @@ class MemoryStore:
         except EmbedderError as exc:
             LOGGER.warning("Embedder request failed: %s", exc)
         return []
-
 
 
 __all__ = ["MemoryStore", "MemoryRecord"]

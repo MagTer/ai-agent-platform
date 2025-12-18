@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+
 import httpx
 
 from .base import Tool, ToolError
@@ -34,7 +35,7 @@ class WebSearchTool(Tool):
             "k": self._max_results,
             "lang": self._lang,
         }
-        
+
         LOGGER.info(f"Searching web for: '{query}'")
 
         async with httpx.AsyncClient() as client:
@@ -48,11 +49,11 @@ class WebSearchTool(Tool):
         try:
             data = response.json()
         except ValueError:
-             raise ToolError("Invalid JSON response from search service")
+            raise ToolError("Invalid JSON response from search service")
 
         results = data.get("results", [])
         LOGGER.info(f"Found {len(results)} results from SearXNG")
-        
+
         if not results:
             return "No results found."
 
@@ -62,11 +63,11 @@ class WebSearchTool(Tool):
             title = res.get("title", "No Title")
             url = res.get("url", "#")
             snippet = res.get("snippet", "").strip()
-            
+
             output_lines.append(f"{i}. {title}")
             output_lines.append(f"   URL: {url}")
             if snippet:
                 output_lines.append(f"   Snippet: {snippet}")
             output_lines.append("")
-        
+
         return "\n".join(output_lines)

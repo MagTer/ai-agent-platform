@@ -133,6 +133,8 @@ services:
       ENABLE_RAG: ${ENABLE_RAG:-true}
       RAG_MAX_SOURCES: ${RAG_MAX_SOURCES:-5}
       RAG_MAX_CHARS: ${RAG_MAX_CHARS:-1200}
+    ports:
+      - "8083:4080"
     depends_on:
       embedder:
         condition: service_started

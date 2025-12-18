@@ -45,7 +45,7 @@ class StepExecutorAgent:
             span.set_attribute("action", str(step.action))
             span.set_attribute("executor", str(step.executor))
             span.set_attribute("step", str(step.id))
-            
+
             # Record arguments (sanitize if needed in future)
             if step.args:
                 span.set_attribute("step.args", str(step.args))

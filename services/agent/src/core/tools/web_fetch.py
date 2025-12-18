@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+
 import httpx
 
 from .base import Tool, ToolError
@@ -14,7 +15,7 @@ class WebFetchTool(Tool):
     """Call the internal webfetch service and return structured context."""
 
     name = "web_fetch"
-    description = "Retrieve rendered page context (and optional HTML) using the webfetch service."
+    description = "Retrieve rendered page context (and optional HTML) using the webfetch service. Args: url (str) - The URL to fetch."
 
     def __init__(
         self,
@@ -29,7 +30,14 @@ class WebFetchTool(Tool):
         self._summary_max_chars = summary_max_chars
         self._html_max_chars = html_max_chars
 
-    async def run(self, url: str) -> str:
+    async def run(self, url: str | None = None, **kwargs: Any) -> str:
+        if not url:
+            # Fallback for when the agent puts the URL in a different arg or forgets it
+            url = kwargs.get("link") or kwargs.get("website")
+        
+        if not url:
+             return "Error: Missing required argument 'url'. Please provide the URL to fetch."
+
         LOGGER.info(f"Fetching URL: {url}")
         endpoint = f"{self._base_url}/fetch"
         async with httpx.AsyncClient() as client:
@@ -51,7 +59,7 @@ class WebFetchTool(Tool):
         if not isinstance(extracted_text, str):
             extracted_text = ""
         extracted_text = extracted_text.strip()
-        
+
         LOGGER.info(f"Fetched {len(extracted_text)} chars from {url}")
 
         snippet = extracted_text[: self._summary_max_chars]
