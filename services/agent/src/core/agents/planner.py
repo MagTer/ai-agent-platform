@@ -94,7 +94,8 @@ class PlannerAgent:
                 "4. **MEMORY**: Use `action: memory` (args: { 'query': '...' }) \n"
                 "   to find context if needed.\n"
                 "5. **WEB FLOW**: `web_search` results are snippets. \n"
-                "   ALWAYS follow up with `web_fetch` to get page text.\n\n"
+                "   ALWAYS follow up with `web_fetch` to get page text.\n"
+                "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n\n"
                 "### EXAMPLES\n"
                 "User: 'Check google.com'\n"
                 "Plan:\n"
@@ -163,6 +164,13 @@ class PlannerAgent:
                 exc_msg = None
 
                 if candidate:
+                    # Guardrail: Force executor='agent' for tool actions to prevent hallucinations
+                    steps = candidate.get("steps")
+                    if isinstance(steps, list):
+                        for step in steps:
+                            if isinstance(step, dict) and step.get("action") == "tool":
+                                step["executor"] = "agent"
+
                     try:
                         plan = Plan(**candidate)
                         trace_ctx = TraceContext(**current_trace_ids())
