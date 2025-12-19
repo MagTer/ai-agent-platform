@@ -82,8 +82,8 @@ async def load_mcp_tools(settings: Settings, tool_registry: ToolRegistry) -> Non
                 # For now, we register them as is, assuming unique names or last-write-wins.
                 tool_registry.register(wrapper)
                 LOGGER.info("Registered MCP tool from %s: %s", client_name, wrapper.name)
-        except Exception:
-            LOGGER.exception("Failed to load tools from MCP server: %s", client_name)
+        except Exception as e:
+            LOGGER.error("Failed to load tools from MCP server '%s': %s", client_name, e)
 
 
 __all__ = ["load_mcp_tools"]

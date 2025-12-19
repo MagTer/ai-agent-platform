@@ -7,11 +7,16 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from uuid import uuid4
 
-import numpy as np
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.conversions.common_types import Distance, VectorParams
 from qdrant_client.http.exceptions import UnexpectedResponse
-from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
 
 from .config import Settings
 from .embedder import EmbedderClient, EmbedderError
@@ -56,9 +61,7 @@ class MemoryStore:
             except UnexpectedResponse:
                 await self._client.create_collection(
                     collection_name=self._settings.qdrant_collection,
-                    vectors_config=VectorParams(
-                        size=self._vector_size, distance=Distance.COSINE  # type: ignore[attr-defined]
-                    ),
+                    vectors_config=VectorParams(size=self._vector_size, distance=Distance.COSINE),
                 )
         except Exception as exc:  # pragma: no cover - depends on infra
             LOGGER.warning("Unable to initialise Qdrant client: %s", exc)
@@ -118,17 +121,25 @@ class MemoryStore:
                     )
                 ]
             )
+
+        LOGGER.info(
+            f"Searching memory for query='{query}' conversation_id='{conversation_id or 'all'}'"
+        )
+
         try:
             # Use await for async client methods
-            results = await client.search(  # type: ignore[attr-defined]
+            response = await client.query_points(
                 collection_name=self._settings.qdrant_collection,
-                query_vector=vector,
+                query=vector,
                 limit=limit,
                 query_filter=query_filter,
             )
+            results = response.points
         except UnexpectedResponse as exc:  # pragma: no cover - defensive
             LOGGER.error("Memory search failed: %s", exc)
             return []
+
+        LOGGER.info(f"Found {len(results)} memory records")
 
         records: list[MemoryRecord] = []
         for match in results:
@@ -147,28 +158,10 @@ class MemoryStore:
         try:
             # Use await for async embedder methods
             vectors = await self._embedder.embed(texts)
-            if len(vectors) == len(texts):
-                return vectors
-            LOGGER.warning(
-                "Embedder returned %d/%d vectors; falling back to local encoder",
-                len(vectors),
-                len(texts),
-            )
+            return vectors
         except EmbedderError as exc:
             LOGGER.warning("Embedder request failed: %s", exc)
-        return [self._fallback_embed(text) for text in texts]
-
-    def _fallback_embed(self, text: str) -> list[float]:
-        """Deterministic embedding used when the embedder service is unavailable."""
-
-        if not text:
-            return [0.0] * self._vector_size
-        values = np.frombuffer(text.encode("utf-8"), dtype=np.uint8)
-        tiled = np.resize(values, self._vector_size)
-        norm = np.linalg.norm(tiled)
-        if norm == 0:
-            return tiled.astype(float).tolist()
-        return (tiled / norm).astype(float).tolist()
+        return []
 
 
 __all__ = ["MemoryStore", "MemoryRecord"]

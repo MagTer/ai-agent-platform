@@ -48,22 +48,26 @@ def setup_logging(level: str = "INFO", service_name: str = "agent") -> None:
     for handler in root_logger.handlers:
         root_logger.removeHandler(handler)
 
-    # JSON Handler
-    log_handler = logging.StreamHandler(sys.stdout)
-
     # Check env to decide format (helpful for local dev to keep text)
-    formatter: logging.Formatter
     if os.environ.get("LOG_FORMAT", "json").lower() == "json":
+        log_handler = logging.StreamHandler(sys.stdout)
         formatter = CustomJsonFormatter(  # type: ignore[no-untyped-call]
             "%(timestamp)s %(level)s %(name)s %(message)s", json_ensure_ascii=False
         )
         log_handler.setFormatter(formatter)
+        root_logger.addHandler(log_handler)
     else:
-        # Standard text format
-        formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        log_handler.setFormatter(formatter)
+        # Rich Text Format
+        from rich.logging import RichHandler
 
-    root_logger.addHandler(log_handler)
+        rich_handler = RichHandler(
+            rich_tracebacks=True,
+            markup=True,
+            show_time=True,
+            show_path=False,
+        )
+        # RichHandler handles formatting internally, no need for setFormatter
+        root_logger.addHandler(rich_handler)
 
     # Silence noisy libs
     logging.getLogger("httpx").setLevel(logging.WARNING)

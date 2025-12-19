@@ -1,0 +1,153 @@
+E501 Line too long (103 > 100)
+  --> src/core/agents/planner.py:83:101
+   |
+81 |                 "   - Args: { 'model': 'ollama/llama3.1:8b' }\n\n"
+82 |                 "### CRITICAL RULES\n"
+83 |                 "- You have FULL PERMISSION to use all available tools. Do not ask for confirmation.\n"
+   |                                                                                                     ^^^
+84 |                 "- The LAST step must ALWAYS be action='completion'.\n"
+85 |                 "- Do NOT hallucinate tools. Only use provided ones.\n"
+   |
+
+E501 Line too long (171 > 100)
+  --> src/core/agents/planner.py:86:101
+   |
+84 | …n"
+85 | …n"
+86 | …f a file or a web page, you MUST plan a tool call to read it first. You cannot 'know' it otherwise.\n"
+   |                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+87 | …each tool in the 'Available Tools' list.\n"
+88 | …ALWAYS follow up with 'web_fetch' (Args: url) to get the actual page content.\n"
+   |
+
+E501 Line too long (112 > 100)
+  --> src/core/agents/planner.py:87:101
+   |
+85 | …     "- Do NOT hallucinate tools. Only use provided ones.\n"
+86 | …     "- **NO GUESSING**: If you need to know the content of a file or a web page, you MUST plan a tool call to read it first. You can…
+87 | …     "- **VERIFY ARGS**: Check the required arguments for each tool in the 'Available Tools' list.\n"
+   |                                                                                           ^^^^^^^^^^^^
+88 | …     "- **WEB SEARCH**: 'web_search' only gives snippets. ALWAYS follow up with 'web_fetch' (Args: url) to get the actual page conten…
+89 | …     "- **NO CONVERSATIONAL TEXT**: Output ONLY the JSON object. Do not say 'Here is the plan'.\n"
+   |
+
+E501 Line too long (149 > 100)
+  --> src/core/agents/planner.py:88:101
+   |
+86 | …e content of a file or a web page, you MUST plan a tool call to read it first. You cannot 'know' it otherwise.\n"
+87 | …uments for each tool in the 'Available Tools' list.\n"
+88 | … snippets. ALWAYS follow up with 'web_fetch' (Args: url) to get the actual page content.\n"
+   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+89 | … the JSON object. Do not say 'Here is the plan'.\n"
+90 | …mpletion' step.\n"
+   |
+
+E501 Line too long (109 > 100)
+  --> src/core/agents/planner.py:89:101
+   |
+87 | …         "- **VERIFY ARGS**: Check the required arguments for each tool in the 'Available Tools' list.\n"
+88 | …         "- **WEB SEARCH**: 'web_search' only gives snippets. ALWAYS follow up with 'web_fetch' (Args: url) to get the actual page co…
+89 | …         "- **NO CONVERSATIONAL TEXT**: Output ONLY the JSON object. Do not say 'Here is the plan'.\n"
+   |                                                                                               ^^^^^^^^^
+90 | …         "- If no tools are needed, just plan a 'completion' step.\n"
+91 | …     ),
+   |
+
+F821 Undefined name `history_augmentation`
+   --> src/core/agents/planner.py:130:61
+    |
+128 |                     msgs = [system_message, user_message]
+129 |                 else:
+130 |                     msgs = [system_message, user_message] + history_augmentation
+    |                                                             ^^^^^^^^^^^^^^^^^^^^
+131 |
+132 |                 plan_text = await self._litellm.plan(
+    |
+
+E501 Line too long (102 > 100)
+   --> src/core/observability/tracing.py:164:101
+    |
+162 |     provider = TracerProvider(resource=resource)
+163 |
+164 |     # 1. Console Exporter (Simple) - Only if OTLP is missing (to reduce noise) or explicitly requested
+    |                                                                                                     ^^
+165 |     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+166 |     if not otlp_endpoint or os.getenv("FORCE_CONSOLE_TRACES", "false").lower() == "true":
+    |
+
+E501 Line too long (113 > 100)
+  --> src/core/tools/github.py:73:101
+   |
+71 |         except httpx.HTTPStatusError as exc:
+72 |             if exc.response.status_code == 403 and "rate limit" in exc.response.text.lower():
+73 |                 return "Error: GitHub API rate limit exceeded. Please try again later or provide a GITHUB_TOKEN."
+   |                                                                                                     ^^^^^^^^^^^^^
+74 |             if exc.response.status_code == 404:
+75 |                 return "Error: Resource not found. Check the URL and file path."
+   |
+
+E501 Line too long (104 > 100)
+  --> src/core/tools/github.py:76:101
+   |
+74 |             if exc.response.status_code == 404:
+75 |                 return "Error: Resource not found. Check the URL and file path."
+76 |             return f"Error: GitHub API request failed ({exc.response.status_code}): {exc.response.text}"
+   |                                                                                                     ^^^^
+77 |         except Exception as exc:
+78 |             LOGGER.exception("GitHub tool error")
+   |
+
+E501 Line too long (134 > 100)
+  --> src/core/tools/web_fetch.py:18:101
+   |
+17 |     name = "web_fetch"
+18 |     description = "Retrieve rendered page context (and optional HTML) using the webfetch service. Args: url (str) - The URL to fetch."
+   |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+19 |
+20 |     def __init__(
+   |
+
+F821 Undefined name `Any`
+  --> src/core/tools/web_fetch.py:33:59
+   |
+31 |         self._html_max_chars = html_max_chars
+32 |
+33 |     async def run(self, url: str | None = None, **kwargs: Any) -> str:
+   |                                                           ^^^
+34 |         if not url:
+35 |             # Fallback for when the agent puts the URL in a different arg or forgets it
+   |
+
+E501 Line too long (121 > 100)
+  --> src/core/tools/web_search.py:18:101
+   |
+17 |     name = "web_search"
+18 |     description = "Search the web for a given query. Returns a list of relevant results with titles, URLs, and snippets."
+   |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^
+19 |
+20 |     def __init__(
+   |
+
+B904 Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+  --> src/core/tools/web_search.py:52:13
+   |
+50 |             data = response.json()
+51 |         except ValueError:
+52 |             raise ToolError("Invalid JSON response from search service")
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+53 |
+54 |         results = data.get("results", [])
+   |
+
+E501 Line too long (139 > 100)
+   --> /home/magnus/dev/ai-agent-platform/services/fetcher/app.py:164:101
+    |
+162 | …
+163 | …
+164 | …0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    |                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+165 | …
+166 | …
+    |
+
+Found 14 errors.

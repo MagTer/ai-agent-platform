@@ -164,7 +164,8 @@ async def chat_completions(body: dict[str, Any] = Body(...)):
     if use_rag:
         user_msgs = [m for m in messages if m.get("role") == "user" and m.get("content")]
         query = user_msgs[-1]["content"] if user_msgs else ""
-        hits = (await qdrant_retrieve(query, QDRANT_TOP_K))[:RAG_MAX_SOURCES]
+        raw_hits = await qdrant_retrieve(query, QDRANT_TOP_K)
+        hits = raw_hits[:RAG_MAX_SOURCES]
         if hits:
             chunks = []
             sources = []
@@ -183,8 +184,9 @@ async def chat_completions(body: dict[str, Any] = Body(...)):
                 )
             else:
                 sys = (
-                    "You are a precise assistant. Use ONLY the provided context for facts. "
-                    "Cite as [n] and list sources."
+                    "You are a helpful assistant. You MUST answer the question using ONLY the "
+                    "provided context. If the answer is in the context, provide it and cite the "
+                    "source [n]."
                 )
             user_aug = f"Question: {query}\n\nContext:\n{context}\n\nSources:\n{src_list}\n\n"
             final_messages = [

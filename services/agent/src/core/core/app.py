@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
+import uuid
 from collections.abc import Iterable
 from typing import Any
 
 from core.observability.tracing import configure_tracing
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from interfaces.http.openwebui_adapter import router as openwebui_router
+from opentelemetry import trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
+from ..tools.loader import load_tool_registry
 from ..tools.mcp_loader import load_mcp_tools
 from .config import Settings, get_settings
 from .litellm_client import LiteLLMClient, LiteLLMError
@@ -52,15 +55,71 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def capture_request_response_middleware(request: Request, call_next: Any) -> Any:
+        span = trace.get_current_span()
+        if not span.is_recording():
+            return await call_next(request)
+
+        # Capture request body
+        try:
+            body = await request.body()
+            if body:
+                span.set_attribute("http.request.body", body.decode("utf-8", errors="replace"))
+
+            # Re-seed the body for downstream consumers
+            async def receive() -> dict[str, Any]:
+                return {"type": "http.request", "body": body, "more_body": False}
+
+            request._receive = receive
+        except Exception:
+            LOGGER.warning("Failed to capture request body", exc_info=True)
+
+        response = await call_next(request)
+
+        # Capture response body
+        # Note: This reads streaming responses which might have performance impact
+        try:
+            if hasattr(response, "body_iterator"):
+                original_iterator = response.body_iterator
+                chunks = []
+
+                async def response_stream_wrapper() -> Any:
+                    async for chunk in original_iterator:
+                        if isinstance(chunk, bytes):
+                            chunks.append(chunk)
+                        yield chunk
+
+                    # After stream is consumed
+                    if chunks:
+                        full_body = b"".join(chunks).decode("utf-8", errors="replace")
+                        span.set_attribute("http.response.body", full_body)
+
+                response.body_iterator = response_stream_wrapper()
+            elif hasattr(response, "body"):
+                span.set_attribute(
+                    "http.response.body", response.body.decode("utf-8", errors="replace")
+                )
+        except Exception:
+            LOGGER.warning("Failed to capture response body", exc_info=True)
+
+        return response
+
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="/healthz,/readyz")
+
     litellm_client = LiteLLMClient(settings)
     memory_store = MemoryStore(settings)
     state_store = StateStore(settings.sqlite_state_path)  # Instantiate StateStore
+
+    # Load native tools from configuration
+    tool_registry = load_tool_registry(settings.tools_config_path)
 
     service_instance = service or AgentService(
         settings=settings,
         litellm=litellm_client,
         memory=memory_store,
         state_store=state_store,  # Pass StateStore
+        tool_registry=tool_registry,
     )
 
     @app.on_event("startup")
@@ -233,10 +292,5 @@ def _last_user_index(messages: Iterable[AgentMessage]) -> int | None:
 
 
 def _derive_conversation_id(messages: Iterable[AgentMessage]) -> str:
-    """Create a deterministic conversation identifier."""
-
-    for message in messages:
-        if message.role == "user" and message.content:
-            digest = hashlib.sha256(message.content.encode("utf-8")).hexdigest()
-            return f"conv-{digest}"
-    return f"conv-{hashlib.sha256(b'agent').hexdigest()}"
+    """Create a random unique conversation identifier."""
+    return f"conv-{uuid.uuid4().hex}"
