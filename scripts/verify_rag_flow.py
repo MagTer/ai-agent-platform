@@ -5,7 +5,7 @@ import time
 import uuid
 from typing import Any
 
-import requests
+import requests  # type: ignore
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -157,7 +157,7 @@ def verify_response(response: dict[str, Any]) -> None:
         sys.exit(1)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Verify RAG End-to-End Flow")
     parser.add_argument("--ragproxy", default=DEFAULT_RAGPROXY_URL, help="RAG Proxy URL")
     parser.add_argument("--embedder", default=DEFAULT_EMBEDDER_URL, help="Embedder URL")
@@ -166,9 +166,11 @@ def main():
 
     args = parser.parse_args()
 
-    ingest_test_data(args.webfetch, args.embedder, args.qdrant, args.collection) if hasattr(
-        args, "webfetch"
-    ) else ingest_test_data("ignored", args.embedder, args.qdrant, args.collection)
+    (
+        ingest_test_data(args.webfetch, args.embedder, args.qdrant, args.collection)
+        if hasattr(args, "webfetch")
+        else ingest_test_data("ignored", args.embedder, args.qdrant, args.collection)
+    )
     response = query_rag_proxy(args.ragproxy)
     verify_response(response)
 

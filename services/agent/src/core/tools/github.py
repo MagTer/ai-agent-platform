@@ -70,10 +70,16 @@ class GitHubTool(Tool):
                 )
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 403 and "rate limit" in exc.response.text.lower():
-                return "Error: GitHub API rate limit exceeded. Please try again later or provide a GITHUB_TOKEN."
+                return (
+                    "Error: GitHub API rate limit exceeded. Please try again later or "
+                    "provide a GITHUB_TOKEN."
+                )
             if exc.response.status_code == 404:
                 return "Error: Resource not found. Check the URL and file path."
-            return f"Error: GitHub API request failed ({exc.response.status_code}): {exc.response.text}"
+            return (
+                f"Error: GitHub API request failed ({exc.response.status_code}): "
+                f"{exc.response.text}"
+            )
         except Exception as exc:
             LOGGER.exception("GitHub tool error")
             return f"Error: {exc}"
@@ -94,23 +100,19 @@ class GitHubTool(Tool):
         tree_url = f"{base_api}/git/trees/{default_branch}?recursive=1"
         resp = await self._client.get(tree_url)
         resp.raise_for_status()
-        
+
         data = resp.json()
         if data.get("truncated"):
-             LOGGER.warning("GitHub tree truncated")
-        
-        files = [
-            item["path"] 
-            for item in data.get("tree", []) 
-            if item["type"] == "blob"
-        ]
-        
+            LOGGER.warning("GitHub tree truncated")
+
+        files = [item["path"] for item in data.get("tree", []) if item["type"] == "blob"]
+
         # Limit output size
         preview = "\n".join(files[:500])
         count = len(files)
         if count > 500:
             preview += f"\n... ({count - 500} more files)"
-        
+
         return f"Files in {base_api}:\n{preview}"
 
     async def _read_file(self, base_api: str, path: str) -> str:
@@ -118,32 +120,32 @@ class GitHubTool(Tool):
         resp = await self._client.get(url)
         resp.raise_for_status()
         data = resp.json()
-        
+
         if isinstance(data, list):
             return f"Error: '{path}' is a directory, not a file. Use 'list_files' to see contents."
-            
+
         return self._decode_content(data)
 
     def _decode_content(self, data: dict[str, Any]) -> str:
         content = data.get("content", "")
         encoding = data.get("encoding")
-        
+
         if encoding == "base64":
             try:
                 decoded = base64.b64decode(content).decode("utf-8", errors="replace")
                 return decoded
             except Exception as exc:
                 return f"Error decoding base64 content: {exc}"
-        
+
         return content or "(empty file)"
 
     def _parse_repo_url(self, url: str) -> tuple[str, str]:
         """Extract owner and repo from URL."""
         if "github.com/" not in url:
-             raise ValueError("URL must be a valid GitHub URL (e.g., https://github.com/owner/repo)")
-        
+            raise ValueError("URL must be a valid GitHub URL (e.g., https://github.com/owner/repo)")
+
         parts = url.split("github.com/")[1].split("/")
         if len(parts) < 2:
             raise ValueError("Invalid repository URL format")
-            
+
         return parts[0], parts[1].removesuffix(".git")

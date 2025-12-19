@@ -3,7 +3,7 @@ import asyncio
 from qdrant_client import AsyncQdrantClient
 
 
-async def main():
+async def main() -> None:
     print("Inspecting AsyncQdrantClient...")
     client = AsyncQdrantClient(location=":memory:")
     methods = [m for m in dir(client) if not m.startswith("_")]

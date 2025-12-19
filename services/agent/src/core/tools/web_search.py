@@ -15,7 +15,10 @@ class WebSearchTool(Tool):
     """Perform a web search using the internal webfetch service (backed by SearXNG)."""
 
     name = "web_search"
-    description = "Search the web for a given query. Returns a list of relevant results with titles, URLs, and snippets."
+    description = (
+        "Search the web for a given query. Returns a list of relevant results with titles, "
+        "URLs, and snippets."
+    )
 
     def __init__(
         self,
@@ -32,7 +35,7 @@ class WebSearchTool(Tool):
         endpoint = f"{self._base_url}/search"
         params = {
             "q": query,
-            "k": self._max_results,
+            "k": str(self._max_results),
             "lang": self._lang,
         }
 
@@ -48,8 +51,8 @@ class WebSearchTool(Tool):
 
         try:
             data = response.json()
-        except ValueError:
-            raise ToolError("Invalid JSON response from search service")
+        except ValueError as err:
+            raise ToolError("Invalid JSON response from search service") from err
 
         results = data.get("results", [])
         LOGGER.info(f"Found {len(results)} results from SearXNG")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import httpx
 
@@ -15,7 +16,10 @@ class WebFetchTool(Tool):
     """Call the internal webfetch service and return structured context."""
 
     name = "web_fetch"
-    description = "Retrieve rendered page context (and optional HTML) using the webfetch service. Args: url (str) - The URL to fetch."
+    description = (
+        "Retrieve rendered page context (and optional HTML) using the webfetch service. "
+        "Args: url (str) - The URL to fetch."
+    )
 
     def __init__(
         self,
@@ -34,9 +38,9 @@ class WebFetchTool(Tool):
         if not url:
             # Fallback for when the agent puts the URL in a different arg or forgets it
             url = kwargs.get("link") or kwargs.get("website")
-        
+
         if not url:
-             return "Error: Missing required argument 'url'. Please provide the URL to fetch."
+            return "Error: Missing required argument 'url'. Please provide the URL to fetch."
 
         LOGGER.info(f"Fetching URL: {url}")
         endpoint = f"{self._base_url}/fetch"

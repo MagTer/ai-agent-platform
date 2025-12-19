@@ -3,7 +3,7 @@ import asyncio
 from core.tools.web_search import WebSearchTool
 
 
-async def main():
+async def main() -> None:
     print("Initializing WebSearchTool...")
     tool = WebSearchTool(base_url="http://webfetch:8081", max_results=3)
 

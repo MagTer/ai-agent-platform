@@ -161,7 +161,8 @@ def configure_tracing(service_name: str, *, span_log_path: str | None = None) ->
     resource = Resource.create({SERVICE_NAME: service_name})
     provider = TracerProvider(resource=resource)
 
-    # 1. Console Exporter (Simple) - Only if OTLP is missing (to reduce noise) or explicitly requested
+    # 1. Console Exporter (Simple) - Only if OTLP is missing (to reduce noise) or
+    # explicitly requested
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not otlp_endpoint or os.getenv("FORCE_CONSOLE_TRACES", "false").lower() == "true":
         provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))

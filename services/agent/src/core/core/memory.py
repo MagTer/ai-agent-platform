@@ -61,9 +61,7 @@ class MemoryStore:
             except UnexpectedResponse:
                 await self._client.create_collection(
                     collection_name=self._settings.qdrant_collection,
-                    vectors_config=VectorParams(
-                        size=self._vector_size, distance=Distance.COSINE  # type: ignore[attr-defined]
-                    ),
+                    vectors_config=VectorParams(size=self._vector_size, distance=Distance.COSINE),
                 )
         except Exception as exc:  # pragma: no cover - depends on infra
             LOGGER.warning("Unable to initialise Qdrant client: %s", exc)

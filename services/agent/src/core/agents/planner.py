@@ -6,12 +6,11 @@ import json
 import logging
 from typing import Any
 
-from pydantic import ValidationError
-
 from core.core.litellm_client import LiteLLMClient
 from core.models.pydantic_schemas import PlanEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
+from pydantic import ValidationError
 from shared.models import AgentMessage, AgentRequest, Plan
 
 LOGGER = logging.getLogger(__name__)
@@ -23,6 +22,7 @@ class PlannerAgent:
     def __init__(self, litellm: LiteLLMClient, model_name: str | None = None) -> None:
         self._litellm = litellm
         self._model_name = model_name
+        return
 
     async def generate(
         self,
@@ -80,13 +80,18 @@ class PlannerAgent:
                 "   - Use this as the FINAL step to synthesize the answer.\n"
                 "   - Args: { 'model': 'ollama/llama3.1:8b' }\n\n"
                 "### CRITICAL RULES\n"
-                "- You have FULL PERMISSION to use all available tools. Do not ask for confirmation.\n"
+                "- You have FULL PERMISSION to use all available tools. Do not ask for "
+                "confirmation.\n"
                 "- The LAST step must ALWAYS be action='completion'.\n"
                 "- Do NOT hallucinate tools. Only use provided ones.\n"
-                "- **NO GUESSING**: If you need to know the content of a file or a web page, you MUST plan a tool call to read it first. You cannot 'know' it otherwise.\n"
-                "- **VERIFY ARGS**: Check the required arguments for each tool in the 'Available Tools' list.\n"
-                "- **WEB SEARCH**: 'web_search' only gives snippets. ALWAYS follow up with 'web_fetch' (Args: url) to get the actual page content.\n"
-                "- **NO CONVERSATIONAL TEXT**: Output ONLY the JSON object. Do not say 'Here is the plan'.\n"
+                "- **NO GUESSING**: If you need to know the content of a file or a web page, "
+                "you MUST plan a tool call to read it first. You cannot 'know' it otherwise.\n"
+                "- **VERIFY ARGS**: Check the required arguments for each tool in the "
+                "'Available Tools' list.\n"
+                "- **WEB SEARCH**: 'web_search' only gives snippets. ALWAYS follow up with "
+                "'web_fetch' (Args: url) to get the actual page content.\n"
+                "- **NO CONVERSATIONAL TEXT**: Output ONLY the JSON object. Do not say "
+                "'Here is the plan'.\n"
                 "- If no tools are needed, just plan a 'completion' step.\n"
             ),
         )
@@ -121,6 +126,7 @@ class PlannerAgent:
         ) as span:
             max_retries = 2
             attempts = 0
+            history_augmentation: list[AgentMessage] = []
 
             while attempts <= max_retries:
                 attempts += 1
@@ -200,6 +206,8 @@ class PlannerAgent:
                             f"Planner failed after {attempts} attempts. Last error: {exc_msg}"
                         ),
                     )
+
+            raise RuntimeError("Unreachable: Planner loop exited without return")
 
     @staticmethod
     def _extract_json_fragment(raw: str) -> dict[str, Any] | None:

@@ -12,8 +12,8 @@ sys.modules["rich.logging"] = MagicMock()
 # Add src to path
 sys.path.append(os.path.join(os.getcwd(), "services", "agent", "src"))
 
-from core.observability.logging import setup_logging
-from core.observability.tracing import configure_tracing
+from core.observability.logging import setup_logging  # noqa: E402
+from core.observability.tracing import configure_tracing  # noqa: E402
 
 
 def test_logging_setup():

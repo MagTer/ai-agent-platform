@@ -3,7 +3,7 @@ from pathlib import Path
 from core.tools.loader import load_tool_registry
 
 
-def main():
+def main() -> None:
     config_path = Path("config/tools.yaml")
     print(f"Loading tools from {config_path.absolute()}...")
 

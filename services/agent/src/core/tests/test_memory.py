@@ -29,23 +29,24 @@ class _StubQdrantClient:
     ) -> None:  # noqa: D401
         self.upsert_calls.append(list(points))
 
-    async def search(
+    async def query_points(
         self,
         *,
         collection_name: str,
-        query_vector: Iterable[float],
+        query: Iterable[float] | None = None,
         limit: int,
         query_filter: Any | None = None,
         with_payload: bool | None = None,
         with_vectors: bool | None = None,
-    ) -> list[_StubSearchResult]:  # noqa: D401
+        **kwargs: Any,
+    ) -> SimpleNamespace:
         self.last_search_kwargs = {
             "collection_name": collection_name,
-            "query_vector": list(query_vector),
+            "query_vector": list(query) if query else [],
             "limit": limit,
             "query_filter": query_filter,
         }
-        return self.results
+        return SimpleNamespace(points=self.results)
 
 
 @pytest_asyncio.fixture
