@@ -2,6 +2,7 @@
 
 from .azure_devops import AzureDevOpsTool
 from .base import Tool, ToolError
+from .filesystem import ListDirectoryTool, ReadFileTool
 from .loader import load_tool_registry
 from .registry import ToolRegistry
 from .web_fetch import WebFetchTool
@@ -13,4 +14,6 @@ __all__ = [
     "load_tool_registry",
     "WebFetchTool",
     "AzureDevOpsTool",
+    "ListDirectoryTool",
+    "ReadFileTool",
 ]
