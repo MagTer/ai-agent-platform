@@ -3,6 +3,8 @@
 Use this index as the single entry point into the refactored Python-based stack. Each entry points to the primary reference that should be updated alongside any code change.
 
 ## Documentation Map
+- [Getting Started](./getting_started.md) - Quick start guide for launching the stack locally.
+- [Development Guide](./development.md) - Development workflow, code checks, adding skills, and automation utilities.
 - [Project Profile](./PROJECT_PROFILE.md) – persona, product vision, and non-functional constraints that apply to every change.
 - [Delivery Model](./DELIVERY_MODEL.md) – iteration cadence, Definition of Done, and review checklist tuned for the Python agent workflow.
 - [Contributing Guide](./contributing.md) – Codex-specific coding rules, required local checks, and dependency/documentation hygiene.
