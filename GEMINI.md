@@ -40,17 +40,21 @@ For every task involving code changes, adhere to this process:
     - **Limit:** If a file exceeds **~200 lines**, you MUST propose a split or refactor.
 4.  **Reuse:** Always check `src/core/` for existing helpers before writing new ones.
 
-## 4. Coding Standards (Python 3.11+)
+## 4. Coding Standards (Python 3.11+ Strict)
 
-- **Formatting:** Black compatible. **Line length: 100**. Double quotes.
-- **Type Hinting (Strict):**
-    - **No `Any`:** Avoid `Any` strictly. Use Pydantic models or Generics.
-    - **Signatures:** **ALL** function arguments and return values MUST have type hints.
-- **Pydantic V2:**
-    - Use `model_validate` (not `parse_obj`) and `ConfigDict`.
-    - Enforce strict validation.
-- **Async/Await:** Mandatory for all I/O operations (DB, API calls).
-- **Paths:** Always use `pathlib.Path`, never `os.path`.
+- **Formatting:** Strictly Black compatible. **Line length: 100**. Double quotes for strings.
+- **Type Hinting (Mandatory Strict Mode):**
+    - **Zero Tolerance for `Any`:** Never use `Any`. Use concrete Pydantic models, `Mapping`, `Sequence`, or specific `TypeVar` generics.
+    - **Total Signature Coverage:** Every function (including `__init__` and `__call__`) MUST have explicit type hints for ALL arguments and return values.
+    - **Explicit `None` Handling:** Implicit `Optional` is forbidden. Always use the pipe operator for nullable types: `field: str | None = None`.
+    - **Generic Specification:** Never use bare collection types. Always specify subtypes: `list[str]`, `dict[str, int]`, or `tuple[int, ...]`.
+- **Pydantic V2 Best Practices:**
+    - **Validation:** Use `model_validate` for instantiation and `model_dump` for serialization.
+    - **Configuration:** Use `ConfigDict(strict=True, from_attributes=True)` to ensure runtime types match definitions.
+    - **Metadata:** Leverage `Field(description=...)` to provide context, which improves the AI's own reasoning about the data.
+- **Async/Await:** Mandatory for all I/O operations (Database, API, Filesystem). Use `httpx.AsyncClient` for all external requests.
+- **Modern Path Handling:** Use `pathlib.Path` exclusively for all file and directory operations. String-based path manipulation is forbidden.
+- **Pre-output Validation:** Before outputting code, mentally verify it against `mypy --strict`. If any signature is missing a return type (e.g., `-> None`), fix it before responding.
 
 ## 5. Project Structure & Docs
 - **`/services`**: Microservices (Agent, Embedder, etc.).
