@@ -29,14 +29,30 @@ class PlannerAgent:
         request: AgentRequest,
         *,
         history: list[AgentMessage],
-        tool_descriptions: list[dict[str, str]],
+        tool_descriptions: list[dict[str, Any]],
     ) -> Plan:
         """Return a :class:`Plan` describing execution steps."""
 
-        available_tools_text = (
-            "\n".join(f"- {entry['name']}: {entry['description']}" for entry in tool_descriptions)
-            or "- (no MCP-specific tools are registered)"
-        )
+        lines = []
+        for entry in tool_descriptions:
+            name = entry["name"]
+            desc = entry["description"]
+            schema = entry.get("parameters") or entry.get("schema")
+
+            if schema:
+                # If we have a schema/dict, format it nicely
+                try:
+                    schema_str = json.dumps(schema, indent=None)
+                except (TypeError, ValueError):
+                    schema_str = str(schema)
+                lines.append(f"- Tool: {name}\n  Desc: {desc}\n  Args: {schema_str}")
+            else:
+                # Fallback: Instruct to check tool usage or assume standard args
+                lines.append(
+                    f"- Tool: {name}\n  Desc: {desc}\n  Args: (Inspect usage or standard dict)"
+                )
+
+        available_tools_text = "\n".join(lines) or "- (no MCP-specific tools are registered)"
         LOGGER.info(f"PLANNER DEBUG: Available tools passed to LLM:\n{available_tools_text}")
 
         history_text = (
@@ -50,49 +66,49 @@ class PlannerAgent:
         system_message = AgentMessage(
             role="system",
             content=(
-                "You are the Planner Agent. Your task is to create a JSON execution plan "
-                "for the user's request.\n"
-                "You have access to a specific set of tools. Use them to gather "
-                "information if needed.\n\n"
-                "### RESPONSE FORMAT (Strict JSON)\n"
+                "You are the Planner Agent. Your goal is to orchestrate \n"
+                "a precise JSON execution plan.\n"
+                "You must use the provided tools to satisfy the User Request.\n\n"
+                "### RESPONSE FORMAT (Strict JSON Only)\n"
+                "You must output a single JSON object. No conversational text.\n"
                 "{\n"
-                '  "description": "Brief plan summary",\n'
+                '  "description": "Brief summary of the plan",\n'
                 '  "steps": [\n'
                 "    {\n"
                 '      "id": "step-1",\n'
-                '      "label": "Step Name",\n'
-                '      "executor": "agent" or "litellm",\n'
-                '      "action": "memory" or "tool" or "completion",\n'
-                '      "tool": "tool_name" (only for action="tool"),\n'
-                '      "args": { ... } (arguments for the action/tool)\n'
+                '      "label": "Action Label",\n'
+                '      "executor": "agent" | "litellm",\n'
+                '      "action": "memory" | "tool" | "completion",\n'
+                '      "tool": "tool_name" (REQUIRED if action="tool"),\n'
+                '      "args": { "arg_name": "value" } (REQUIRED for all actions)\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
-                "### ACTIONS & EXECUTORS\n"
-                "1. SEARCH MEMORY (executor='agent', action='memory')\n"
-                "   - Use to find past context.\n"
-                "   - Args: { 'query': 'search string' }\n"
-                "2. EXECUTE TOOL (executor='agent', action='tool')\n"
-                "   - Use to call an external function from the Available Tools list.\n"
-                "   - Tool: Exact name from the list.\n"
-                "   - Args: Dictionary of arguments for that tool.\n"
-                "3. GENERATE ANSWER (executor='litellm', action='completion')\n"
-                "   - Use this as the FINAL step to synthesize the answer.\n"
-                "   - Args: { 'model': 'ollama/llama3.1:8b' }\n\n"
-                "### CRITICAL RULES\n"
-                "- You have FULL PERMISSION to use all available tools. Do not ask for "
-                "confirmation.\n"
-                "- The LAST step must ALWAYS be action='completion'.\n"
-                "- Do NOT hallucinate tools. Only use provided ones.\n"
-                "- **NO GUESSING**: If you need to know the content of a file or a web page, "
-                "you MUST plan a tool call to read it first. You cannot 'know' it otherwise.\n"
-                "- **VERIFY ARGS**: Check the required arguments for each tool in the "
-                "'Available Tools' list.\n"
-                "- **WEB SEARCH**: 'web_search' only gives snippets. ALWAYS follow up with "
-                "'web_fetch' (Args: url) to get the actual page content.\n"
-                "- **NO CONVERSATIONAL TEXT**: Output ONLY the JSON object. Do not say "
-                "'Here is the plan'.\n"
-                "- If no tools are needed, just plan a 'completion' step.\n"
+                "### RULES\n"
+                "1. **NO GUESSING**: If you need file content, plan a `read_file`. \n"
+                "   If you need web info, plan `web_search` then `web_fetch`.\n"
+                "2. **STRICT ARGS**: Use exactly the arguments defined in the \n"
+                "   'Available Tools' list.\n"
+                "3. **FINAL STEP**: Must be `action: completion` (executor: litellm) \n"
+                "   to answer the user.\n"
+                "4. **MEMORY**: Use `action: memory` (args: { 'query': '...' }) \n"
+                "   to find context if needed.\n"
+                "5. **WEB FLOW**: `web_search` results are snippets. \n"
+                "   ALWAYS follow up with `web_fetch` to get page text.\n\n"
+                "### EXAMPLES\n"
+                "User: 'Check google.com'\n"
+                "Plan:\n"
+                "{\n"
+                '  "description": "Fetch google.com content",\n'
+                '  "steps": [\n'
+                '    { "id": "1", "label": "Fetch Page", "executor": "agent", \n'
+                '      "action": "tool", "tool": "web_fetch", \n'
+                '      "args": { "url": "https://google.com" } },\n'
+                '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
+                '      "action": "completion", \n'
+                '      "args": { "model": "ollama/llama3.1:8b" } }\n'
+                "  ]\n"
+                "}"
             ),
         )
 

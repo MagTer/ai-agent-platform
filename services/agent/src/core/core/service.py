@@ -427,7 +427,7 @@ class AgentService:
             description="Fallback plan generated when the planner response was invalid.",
         )
 
-    def _describe_tools(self, allowlist: set[str] | None = None) -> list[dict[str, str]]:
+    def _describe_tools(self, allowlist: set[str] | None = None) -> list[dict[str, Any]]:
         if not self._tool_registry:
             return []
 
@@ -435,13 +435,21 @@ class AgentService:
         if allowlist is not None:
             tools = [t for t in tools if t.name in allowlist]
 
-        return [
-            {
+        tool_list: list[dict[str, Any]] = []
+        for tool in tools:
+            info = {
                 "name": tool.name,
                 "description": getattr(tool, "description", tool.__class__.__name__),
             }
-            for tool in tools
-        ]
+            # Attempt to grab schema info if available via attributes
+            if hasattr(tool, "parameters"):
+                info["parameters"] = tool.parameters
+            elif hasattr(tool, "schema"):
+                info["schema"] = tool.schema
+
+            tool_list.append(info)
+
+        return tool_list
 
     @staticmethod
     def _parse_tool_allowlist(raw: Any) -> set[str] | None:

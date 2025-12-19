@@ -116,20 +116,34 @@ class StepExecutorAgent:
         tool = self._tool_registry.get(step.tool) if self._tool_registry and step.tool else None
         if not tool:
             return {"name": step.tool, "status": "missing"}, tool_messages, "missing"
-        raw_args = step.args if isinstance(step.args, dict) else {}
-        args = (
-            raw_args.get("tool_args") if isinstance(raw_args.get("tool_args"), dict) else raw_args
-        )
-        allowlist = raw_args.get("allowed_tools") if isinstance(raw_args, dict) else None
+
+        # Simplified argument unpacking: Trust the plan, with minor legacy fallback
+        tool_args = step.args
+        if (
+            "tool_args" in step.args
+            and len(step.args) == 1
+            and isinstance(step.args["tool_args"], dict)
+        ):
+            tool_args = step.args["tool_args"]
+
+        allowlist = step.args.get("allowed_tools") if isinstance(step.args, dict) else None
         if allowlist and step.tool not in allowlist:
+            # Legacy guard, mostly for 'router' calls but safe to keep
             return (
                 {"name": step.tool, "status": "skipped", "reason": "not-allowed"},
                 tool_messages,
                 "skipped",
             )
+
         with start_span(f"tool.call.{step.tool}"):
-            tool_args = cast("dict[str, Any]", args or {})
-            output = await tool.run(**tool_args)
+            try:
+                output = await tool.run(**tool_args)
+            except TypeError as exc:
+                return (
+                    {"name": step.tool, "status": "error", "reason": f"Invalid arguments: {exc}"},
+                    tool_messages,
+                    "error",
+                )
         output_text = str(output)
         tool_messages.append(
             AgentMessage(role="system", content=f"Tool {step.tool} output:\n{output_text}")
