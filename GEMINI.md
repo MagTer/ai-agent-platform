@@ -23,7 +23,10 @@ For every task involving code changes, adhere to this process:
     - Run: `python3 scripts/code_check.py`
     - **Constraint:** You strictly strictly adhere to the project's formatting (Black, line-length 100) and linting (Ruff).
     - Fix *all* issues reported by the script before declaring done.
-6.  **Commit:** `git commit -m "feat: <description>"` (Conventional Commits).
+6.  **Cleanup (Mandatory):**
+    - Remove obsolete tests or unused files immediately after refactoring.
+    - Ensure no temporary files are left in the repo.
+7.  **Commit:** `git commit -m "feat: <description>"` (Conventional Commits).
 
 ## 3. Architecture & Anti-Spaghetti Rules
 **Architect before you implement.**
@@ -56,13 +59,23 @@ For every task involving code changes, adhere to this process:
 - **Modern Path Handling:** Use `pathlib.Path` exclusively for all file and directory operations. String-based path manipulation is forbidden.
 - **Pre-output Validation:** Before outputting code, mentally verify it against `mypy --strict`. If any signature is missing a return type (e.g., `-> None`), fix it before responding.
 
-## 5. Project Structure & Docs
+## 5. Testing Standards (Mandatory)
+- **Unit Test Isolation:**
+    - **No External I/O:** Unit tests MUST NOT access the real database, network, or file system (except `tmp_path`).
+    - **Mocking Strategy:** Use `unittest.mock` or `pytest.MonkeyPatch`. For FastAPI `TestClient`, strictly use `app.dependency_overrides` to inject mock overrides (especially for `get_db`).
+    - **Async Safety:** Be cautious of mixing `TestClient` (sync) with `AsyncSession`. Use `AsyncMock` for session dependencies.
+- **Integration Tests:** clearly label tests that require real containers with `@pytest.mark.integration`.
+- **Environment Handling:**
+    - **File System:** Always use the `tmp_path` fixture. Never write to the repository root or hardcoded paths like `/tmp`.
+    - **Cleanup:** Explicitly delete obsolete test files when refactoring code. Do not leave "zombie" tests.
+
+## 6. Project Structure & Docs
 - **`/services`**: Microservices (Agent, Embedder, etc.).
 - **`/scripts`**: Utility scripts (`code_check.py`, `troubleshoot.py`).
 - **`/docs`**: `ARCHITECTURE.md`, `CAPABILITIES.md`.
 - **`/flows`**: AI Workflow definitions.
 
-## 6. Critical Constraints
+## 7. Critical Constraints
 - **NO SECRETS:** Never output API keys or credentials.
 - **Virtual Env:** Do not traverse, search, or attempt to format files inside `.venv`.
 - **Troubleshooting:** If the environment acts up, suggest running `python scripts/troubleshoot.py`.
