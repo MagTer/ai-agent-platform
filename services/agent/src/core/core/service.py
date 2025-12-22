@@ -14,6 +14,7 @@ from core.agents import (
     StepSupervisorAgent,
 )
 from core.command_loader import list_commands
+from core.context_manager import ContextManager
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
@@ -21,6 +22,7 @@ from core.db import Context, Conversation, Message, Session
 from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
+from core.system_commands import handle_system_command
 from core.tools import ToolRegistry
 from shared.models import (
     AgentMessage,
@@ -46,6 +48,7 @@ class AgentService:
     _litellm: LiteLLMClient
     _memory: MemoryStore
     _tool_registry: ToolRegistry
+    context_manager: ContextManager
 
     def __init__(
         self,
@@ -58,39 +61,63 @@ class AgentService:
         self._litellm = litellm
         self._memory = memory
         self._tool_registry = tool_registry or ToolRegistry([])
+        self.context_manager = ContextManager(settings)
 
     async def handle_request(self, request: AgentRequest, session: AsyncSession) -> AgentResponse:
         """Process an :class:`AgentRequest` and return an :class:`AgentResponse`."""
         conversation_id = request.conversation_id or str(uuid.uuid4())
         LOGGER.info("Processing prompt for conversation %s", conversation_id)
 
-        # 1. Ensure Conversation and Session exist
+        # 1. Ensure Conversation exists (Strict Hierarchy)
         db_conversation = await session.get(Conversation, conversation_id)
         if not db_conversation:
-            # Ensure a default context exists (MVP)
-            context_stmt = select(Context).where(Context.name == "default")
-            context_result = await session.execute(context_stmt)
-            db_context = context_result.scalar_one_or_none()
+             # MVP: Auto-create attached to 'default' context if new
+            stmt = select(Context).where(Context.name == "default")
+            result = await session.execute(stmt)
+            db_context = result.scalar_one_or_none()
+            
             if not db_context:
-                db_context = Context(
-                    name="default",
-                    type="general",
-                    default_cwd="/tmp",  # noqa: S108
+                # Bootstrap default context
+                db_context = await self.context_manager.create_context(
+                    session, "default", "virtual", {}
                 )
-                session.add(db_context)
-                await session.flush()  # get ID
-
+            
             db_conversation = Conversation(
                 id=conversation_id,
-                platform="api",
-                platform_id="generic",
+                platform=request.metadata.get("platform", "api"),
+                platform_id=request.metadata.get("platform_id", "generic"),
                 context_id=db_context.id,
                 current_cwd=db_context.default_cwd,
             )
             session.add(db_conversation)
             await session.flush()
 
-        # Get active session
+        # 2. System Command Interceptor
+        # We allow system commands to bypass session creation if they don't need history?
+        # Actually /init and /switch don't need session history, but they might log.
+        # Let's handle them here.
+        sys_output = await handle_system_command(request.prompt, self, session, conversation_id)
+        if sys_output:
+            await session.commit()
+            return AgentResponse(
+                response=sys_output,
+                conversation_id=conversation_id,
+                messages=[AgentMessage(role="assistant", content=sys_output)],
+                metadata={"system_command": True}
+            )
+
+        # 3. Resolve Active Context
+        # Refresh conversation in case system command changed it (though we return above, 
+        # future commands might chain? No, return above.)
+        # If we didn't return, context is stable.
+        db_context = await session.get(Context, db_conversation.context_id)
+        if not db_context:
+            # Should not happen due to FK constraints but safe check
+            LOGGER.warning("Context missing for conversation %s", conversation_id)
+            # Recover to default?
+            return AgentResponse(response="Error: Context missing.", conversation_id=conversation_id)
+
+        # 4. Get active session
         session_stmt = select(Session).where(
             Session.conversation_id == conversation_id, Session.active.is_(True)
         )
@@ -116,6 +143,10 @@ class AgentService:
         # 3. Request Prep
         steps: list[dict[str, Any]] = []
         request_metadata: dict[str, Any] = dict(request.metadata or {})
+        # Inject CWD from conversation
+        if db_conversation.current_cwd:
+            request_metadata["cwd"] = db_conversation.current_cwd
+            
         planner = PlannerAgent(self._litellm, model_name=self._settings.litellm_model)
         plan_supervisor = PlanSupervisorAgent()
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)

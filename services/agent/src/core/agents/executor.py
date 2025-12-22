@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+import inspect
 from typing import Any, Literal, cast
 
 from core.command_loader import load_command
@@ -184,9 +185,21 @@ class StepExecutorAgent:
                 "skipped",
             )
 
+        # Inject CWD if provided and tool supports it
+        cwd = step.args.get("cwd")  # Explicit args take precedence
+        if not cwd and "cwd" in (request.metadata or {}):
+             cwd = request.metadata.get("cwd")
+
+        final_args = tool_args.copy()
+        if cwd:
+            # Check if tool.run accepts cwd
+            sig = inspect.signature(tool.run)
+            if "cwd" in sig.parameters or any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values()):
+                final_args["cwd"] = cwd
+
         with start_span(f"tool.call.{step.tool}"):
             try:
-                output = await tool.run(**tool_args)
+                output = await tool.run(**final_args)
             except TypeError as exc:
                 return (
                     {"name": step.tool, "status": "error", "reason": f"Invalid arguments: {exc}"},

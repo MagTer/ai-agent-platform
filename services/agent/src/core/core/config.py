@@ -69,6 +69,11 @@ class Settings(BaseModel):
         description="Path to the SQLite database used for metadata.",
     )
 
+    contexts_dir: Path = Field(
+        default=Path("contexts"),
+        description="Root directory where agent contexts (projects) are stored.",
+    )
+
     webfetch_url: HttpUrl = Field(
         default=DEFAULT_WEBFETCH_URL,
         description="Internal URL for the fetcher microservice used by tools.",
