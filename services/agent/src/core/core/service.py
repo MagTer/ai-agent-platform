@@ -16,6 +16,7 @@ from core.agents import (
     StepExecutorAgent,
     StepSupervisorAgent,
 )
+from core.command_loader import list_commands
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
@@ -72,7 +73,11 @@ class AgentService:
             context_result = await session.execute(context_stmt)
             db_context = context_result.scalar_one_or_none()
             if not db_context:
-                db_context = Context(name="default", type="general", default_cwd="/tmp")  # noqa: S108
+                db_context = Context(
+                    name="default",
+                    type="general",
+                    default_cwd="/tmp",  # noqa: S108
+                )
                 session.add(db_context)
                 await session.flush()  # get ID
 
@@ -533,26 +538,29 @@ class AgentService:
         )
 
     def _describe_tools(self, allowlist: set[str] | None = None) -> list[dict[str, Any]]:
-        if not self._tool_registry:
-            return []
+        tool_list = []
 
-        tools = self._tool_registry.tools()
-        if allowlist is not None:
-            tools = [t for t in tools if t.name in allowlist]
+        # 1. Registry Tools
+        if self._tool_registry:
+            for tool in self._tool_registry.tools():
+                if allowlist is not None and tool.name not in allowlist:
+                    continue
+                info = {
+                    "name": tool.name,
+                    "description": getattr(tool, "description", tool.__class__.__name__),
+                }
+                if hasattr(tool, "parameters"):
+                    info["parameters"] = tool.parameters
+                elif hasattr(tool, "schema"):
+                    info["schema"] = tool.schema
+                tool_list.append(info)
 
-        tool_list: list[dict[str, Any]] = []
-        for tool in tools:
-            info = {
-                "name": tool.name,
-                "description": getattr(tool, "description", tool.__class__.__name__),
-            }
-            # Attempt to grab schema info if available via attributes
-            if hasattr(tool, "parameters"):
-                info["parameters"] = tool.parameters
-            elif hasattr(tool, "schema"):
-                info["schema"] = tool.schema
-
-            tool_list.append(info)
+        # 2. Skills (Markdown Commands)
+        skills = list_commands()
+        for skill in skills:
+            if allowlist is not None and skill["name"] not in allowlist:
+                continue
+            tool_list.append(skill)
 
         return tool_list
 
