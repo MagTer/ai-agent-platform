@@ -5,7 +5,8 @@ from typing import Any, Optional
 import numpy as np
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
-from services.agent.src.modules.embedder import get_embedder
+
+from modules.embedder import get_embedder
 
 logger = logging.getLogger(__name__)
 

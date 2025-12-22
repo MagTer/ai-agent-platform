@@ -53,3 +53,17 @@ class Session(Base):
     session_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default={})
 
     conversation = relationship("Conversation", back_populates="sessions")
+    messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
+
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions.id"))
+    role: Mapped[str] = mapped_column(String)  # user, assistant, system, tool
+    content: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    trace_id: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    session = relationship("Session", back_populates="messages")

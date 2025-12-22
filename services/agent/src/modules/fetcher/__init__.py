@@ -12,7 +12,8 @@ from typing import Any, Optional
 import httpx
 import trafilatura
 from litellm import acompletion
-from services.agent.src.modules.rag import RAGManager
+
+from modules.rag import RAGManager
 
 logger = logging.getLogger(__name__)
 

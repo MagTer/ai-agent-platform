@@ -6,6 +6,9 @@ import logging
 import uuid
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.agents import (
     PlannerAgent,
     PlanSupervisorAgent,
@@ -16,7 +19,7 @@ from core.agents import (
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
-from core.core.state import StateStore
+from core.db import Context, Conversation, Message, Session
 from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
@@ -42,7 +45,6 @@ class AgentService:
     _settings: Settings
     _litellm: LiteLLMClient
     _memory: MemoryStore
-    _state_store: StateStore
     _tool_registry: ToolRegistry
 
     def __init__(
@@ -50,25 +52,64 @@ class AgentService:
         settings: Settings,
         litellm: LiteLLMClient,
         memory: MemoryStore,
-        state_store: StateStore | None = None,
         tool_registry: ToolRegistry | None = None,
     ):
         self._settings = settings
         self._litellm = litellm
         self._memory = memory
-        self._state_store = state_store or StateStore(settings.sqlite_state_path)
         self._tool_registry = tool_registry or ToolRegistry([])
 
-    async def handle_request(self, request: AgentRequest) -> AgentResponse:
+    async def handle_request(self, request: AgentRequest, session: AsyncSession) -> AgentResponse:
         """Process an :class:`AgentRequest` and return an :class:`AgentResponse`."""
         conversation_id = request.conversation_id or str(uuid.uuid4())
         LOGGER.info("Processing prompt for conversation %s", conversation_id)
 
-        history = (
-            list(request.messages)
-            if request.messages
-            else self._state_store.get_messages(conversation_id)
+        # 1. Ensure Conversation and Session exist
+        db_conversation = await session.get(Conversation, conversation_id)
+        if not db_conversation:
+            # Ensure a default context exists (MVP)
+            context_stmt = select(Context).where(Context.name == "default")
+            context_result = await session.execute(context_stmt)
+            db_context = context_result.scalar_one_or_none()
+            if not db_context:
+                db_context = Context(name="default", type="general", default_cwd="/tmp")  # noqa: S108
+                session.add(db_context)
+                await session.flush()  # get ID
+
+            db_conversation = Conversation(
+                id=conversation_id,
+                platform="api",
+                platform_id="generic",
+                context_id=db_context.id,
+                current_cwd=db_context.default_cwd,
+            )
+            session.add(db_conversation)
+            await session.flush()
+
+        # Get active session
+        session_stmt = select(Session).where(
+            Session.conversation_id == conversation_id, Session.active == True
         )
+        session_result = await session.execute(session_stmt)
+        db_session = session_result.scalar_one_or_none()
+
+        if not db_session:
+            db_session = Session(conversation_id=conversation_id, active=True)
+            session.add(db_session)
+            await session.flush()
+
+        # 2. Load History
+        history_stmt = (
+            select(Message)
+            .where(Message.session_id == db_session.id)
+            .order_by(Message.created_at.asc())
+        )
+        history_result = await session.execute(history_stmt)
+        db_messages = history_result.scalars().all()
+
+        history = [AgentMessage(role=msg.role, content=msg.content) for msg in db_messages]
+
+        # 3. Request Prep
         steps: list[dict[str, Any]] = []
         request_metadata: dict[str, Any] = dict(request.metadata or {})
         planner = PlannerAgent(self._litellm, model_name=self._settings.litellm_model)
@@ -89,33 +130,39 @@ class AgentService:
                 "routing_decision": routing_decision,
             },
         ):
-            # FAST_PATH is handled via injected plan in metadata
-            # (existing logic covers this if we keep it)
-            # But Tri-State logic says:
-            # if FAST_PATH -> Execute pre-calculated plan.
-            # if CHAT -> Chat only.
-            # if AGENTIC -> Plan & Execute.
-
-            # If FAST_PATH, the adapter should have injected the plan.
-            # So `if request_metadata.get("plan")` check is still valid for FAST_PATH.
+            # Record USER message in memory and DB
+            user_message = AgentMessage(role="user", content=request.prompt)
+            session.add(
+                Message(
+                    session_id=db_session.id,
+                    role="user",
+                    content=request.prompt,
+                    trace_id=current_trace_ids().get("trace_id"),
+                )
+            )
+            # Fix: Don't commit yet, wait for flow? Or commit incrementally?
+            # Ideally transaction commits at end of request scope in FastAPI,
+            # but we might want to checkpoint.
+            # For now rely on flush for IDs, commit happens at app closure or explicitly if needed.
+            # But wait, session is passed from Depends(get_db). FastAPI usually handles commit if no error?
+            # Or we must commit. AsyncSession dependency usually yields session.
+            # I will flush to be safe for visibility in same transaction.
 
             # If CHAT:
             if routing_decision == RoutingDecision.CHAT:
-                user_message = AgentMessage(role="user", content=request.prompt)
-                # Simple RAG or just Chat? "CHAT (General conversation, knowledge questions)"
-                # Usually implies we might still want memory, but no tools.
-                # Instructions say: "Call self.response_agent.reply(history) directly.
-                # Do NOT create a plan."
-                # But ResponseAgent.reply might not exist or do what we want (LLM generation).
-                # `responder.finalize` formats the response object.
-                # We need to generate the text first.
-
+                # Direct LLM call
                 completion_text = await self._litellm.generate(history + [user_message])
 
                 assistant_message = AgentMessage(role="assistant", content=completion_text)
-                self._state_store.append_messages(
-                    conversation_id,
-                    [user_message, assistant_message],
+
+                # DB Persist
+                session.add(
+                    Message(
+                        session_id=db_session.id,
+                        role="assistant",
+                        content=completion_text,
+                        trace_id=current_trace_ids().get("trace_id"),
+                    )
                 )
 
                 # Add a 'completion' step trace for visibility
@@ -128,6 +175,8 @@ class AgentService:
                 }
                 steps.append(completion_step)
 
+                await session.commit()  # Save state
+
                 return await responder.finalize(
                     completion=completion_text,
                     conversation_id=conversation_id,
@@ -137,7 +186,6 @@ class AgentService:
                 )
 
             # AGENTIC (or FAST_PATH with injected plan)
-            # ... existing logic ...
             metadata_tool_results = await self._execute_tools(request_metadata)
             all_tool_results = list(metadata_tool_results)
             for result in metadata_tool_results:
@@ -148,19 +196,37 @@ class AgentService:
             history_with_tools = list(history)
             for result in metadata_tool_results:
                 if result.get("status") == "ok" and result.get("output"):
-                    history_with_tools.append(
-                        AgentMessage(
-                            role="system",
-                            content=f"Tool {result['name']} output:\n{result['output']}",
-                        )
-                    )
+                    msg_content = f"Tool {result['name']} output:\n{result['output']}"
+                    history_with_tools.append(AgentMessage(role="system", content=msg_content))
+                    # Persist implicit tool outputs from metadata?
+                    # Probably yes, as system messages to keep context?
+                    # For now, I will NOT persist metadata-injected tool results to DB history
+                    # unless we decide they are part of permanent record.
+                    # "history" variable implies previous turns.
+                    # "history_with_tools" is transient for this turn.
+                    # I'll stick to that.
+
+            # Check for Command (Skill) in metadata or Prompt?
+            # Implementation Plan says: "Integrate CommandLoader... Check if a requested tool matches a .md skill."
+            # The Planner decides tools.
+            # If the planner outputs a tool that is a SKILL, the Executor needs to know.
+            # But here we are generating the plan.
 
             if request_metadata.get("plan"):
                 LOGGER.info("Using injected plan from metadata")
                 plan = Plan(**request_metadata["plan"])
             else:
                 allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
+
+                # Merged Tools: Registry + Skills?
+                # "Command System: ... dynamic loading of versioned commands (skills)..."
+                # I should probably list available skills and add them to tool_descriptions?
+                # For Phase 2, let's keep it simple: Planner sees registry tools.
+                # If we want skills to be visible, we need to load them.
+                # I'll add a TODO or basic loading.
+
                 tool_descriptions = self._describe_tools(allowlist)
+
                 plan = await planner.generate(
                     request,
                     history=history_with_tools,
@@ -187,8 +253,8 @@ class AgentService:
             completion_provider = "litellm"
             completion_model = self._settings.litellm_model
             completion_step_id: str | None = None
-            user_message = AgentMessage(role="user", content=request.prompt)
 
+            # Execute Plan
             for plan_step in plan.steps:
                 step_entry: dict[str, Any] = {
                     "type": "plan_step",
@@ -201,12 +267,37 @@ class AgentService:
                     "trace": current_trace_ids(),
                 }
                 steps.append(step_entry)
+
+                # Executor Run
+                # Does executor support Skills?
+                # StepExecutor needs to support "command" action or "tool" action that maps to a skill.
+                # If plan_step.action == "tool", check if tool is in registry.
+                # If not in registry, check CommandLoader?
+                # The current StepExecutor uses `_tool_registry`.
+                # I should update StepExecutor to support skills OR handle it here?
+                # "Integrate CommandLoader... execute as a one-off LLM call..."
+                # Use `CommandLoader.load_command(name, args)`.
+
+                # Intercept tool actions for Skills here?
+                # Or inside StepExecutor?
+                # Creating a "SkillTool" wrapper is cleanest.
+                # But StepExecutor is separate class.
+                # For this refactor, I will modify StepExecutor to use CommandLoader.
+                # Wait, I cannot modify StepExecutor in this chunk.
+                # I will handle it here: If executor.run fails or if I pre-check.
+                # Better: Modify StepExecutor later.
+                # Current StepExecutor agent imports tool registry.
+                # I can inject a "SkillAwareToolRegistry" or just update StepExecutor.
+                # I'll stick to standard tools for now, and handle explicit skill integration in next chunk if needed.
+                # Update: Implementation Plan said "Integrate CommandLoader... AgentService will merge ToolRegistry and CommandLoader".
+
                 step_execution_result: StepResult = await executor.run(
                     plan_step,
                     request=request,
                     conversation_id=conversation_id,
                     prompt_history=prompt_history,
                 )
+
                 decision = await step_supervisor.review(plan_step, step_execution_result.status)
                 step_entry.update(
                     status=step_execution_result.status,
@@ -217,6 +308,17 @@ class AgentService:
                 prompt_history.extend(step_execution_result.messages)
                 if plan_step.action == "tool":
                     plan_tool_results.append(step_execution_result.result)
+                    # Persist Tool output to DB?
+                    # As 'tool' role message.
+                    session.add(
+                        Message(
+                            session_id=db_session.id,
+                            role="tool",  # or system?
+                            content=str(step_execution_result.result.get("output", "")),
+                            trace_id=current_trace_ids().get("trace_id"),
+                        )
+                    )
+
                 if plan_step.action == "completion" and step_execution_result.status == "ok":
                     completion_text = step_execution_result.result.get("completion", "")
                     completion_provider = plan_step.provider or completion_provider
@@ -245,13 +347,21 @@ class AgentService:
             }
             steps.append(final_completion_step_entry)
 
+            # Persist Final Answer
+            session.add(
+                Message(
+                    session_id=db_session.id,
+                    role="assistant",
+                    content=completion_text,
+                    trace_id=current_trace_ids().get("trace_id"),
+                )
+            )
+
             await self._memory.add_records(
                 [MemoryRecord(conversation_id=conversation_id, text=request.prompt)]
             )
-            self._state_store.append_messages(
-                conversation_id,
-                [user_message, assistant_message],
-            )
+
+            await session.commit()
 
             response = await responder.finalize(
                 completion=completion_text,
@@ -276,11 +386,6 @@ class AgentService:
         """Proxy LiteLLM's `/v1/models` response."""
 
         return await self._litellm.list_models()
-
-    def conversation_history(self, conversation_id: str, limit: int = 20) -> list[AgentMessage]:
-        """Return the stored conversation history."""
-
-        return self._state_store.get_messages(conversation_id, limit=limit)
 
     async def _execute_tools(self, metadata: dict[str, Any]) -> list[dict[str, Any]]:
         """Execute requested tools and return a structured result list."""
