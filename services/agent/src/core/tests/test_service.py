@@ -4,15 +4,14 @@ import json
 from collections.abc import Iterable
 from pathlib import Path
 from typing import cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryRecord, MemoryStore
 from core.core.models import AgentMessage, AgentRequest
 from core.core.service import AgentService
-from core.core.state import StateStore
 from core.tools.base import Tool
 from core.tools.registry import ToolRegistry
 
@@ -77,8 +76,25 @@ async def test_agent_service_roundtrip(tmp_path: Path) -> None:
         memory=cast(MemoryStore, DummyMemory()),
     )
 
+    # Mock Session
+    session = AsyncMock()
+    # Mock get(Conversation) -> None
+    session.get.return_value = None
+    # Mock execute(Context) -> context
+    # Mock execute(Session) -> None (create new)
+    # Mock execute(Message) -> []
+
+    # We need to structure the mock to handle chained calls like result.scalar_one_or_none()
+    # safe defaults:
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = MagicMock(
+        id="default-ctx", default_cwd="/tmp"  # noqa: S108
+    )
+    mock_result.scalars.return_value.all.return_value = []
+    session.execute.return_value = mock_result
+
     request = AgentRequest(prompt="Hello")
-    response = await service.handle_request(request)
+    response = await service.handle_request(request, session=session)
 
     assert response.response.startswith("response:")
     assert response.conversation_id
@@ -91,7 +107,7 @@ async def test_agent_service_roundtrip(tmp_path: Path) -> None:
         conversation_id=response.conversation_id,
         messages=response.messages,
     )
-    follow_response = await service.handle_request(follow_up)
+    follow_response = await service.handle_request(follow_up, session=session)
 
     assert follow_response.conversation_id == response.conversation_id
     # prompt history should now contain previous assistant reply
@@ -141,12 +157,23 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
         settings=settings,
         litellm=cast(LiteLLMClient, MockLiteLLMClient(plan_output=json.dumps(plan_definition))),
         memory=cast(MemoryStore, DummyMemory()),
-        state_store=StateStore(tmp_path / "state.sqlite"),
         tool_registry=registry,
     )
 
+    # Mock Session
+    session = AsyncMock()
+    mock_result = MagicMock()
+    # Context
+    mock_result.scalar_one_or_none.return_value = MagicMock(
+        id="default-ctx", default_cwd="/tmp"  # noqa: S108
+    )
+    # History
+    mock_result.scalars.return_value.all.return_value = []
+    session.execute.return_value = mock_result
+    session.get.return_value = None
+
     request = AgentRequest(prompt="Hello world")
-    response = await service.handle_request(request)
+    response = await service.handle_request(request, session=session)
 
     assert response.response == "response: Hello world"
     assert response.metadata["plan"]["description"] == "Test plan flow"

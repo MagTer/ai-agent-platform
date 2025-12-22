@@ -6,9 +6,6 @@ import logging
 import uuid
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from core.agents import (
     PlannerAgent,
     PlanSupervisorAgent,
@@ -34,6 +31,8 @@ from shared.models import (
     RoutingDecision,
     StepResult,
 )
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from .memory import MemoryRecord
 

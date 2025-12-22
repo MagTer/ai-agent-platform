@@ -6,19 +6,20 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-
 from core.core.config import Settings, get_settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.core.service import AgentService
+from core.db.engine import get_db
 from core.tools.loader import load_tool_registry
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from orchestrator.dispatcher import Dispatcher, DispatchResult
 from orchestrator.skill_loader import SkillLoader
 from orchestrator.utils import render_skill_prompt
+from pydantic import BaseModel
 from shared.models import AgentMessage, AgentRequest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +74,7 @@ async def chat_completions(
     request: ChatCompletionRequest,
     dispatcher: Dispatcher = Depends(get_dispatcher),
     agent_service: AgentService = Depends(get_agent_service),
+    session: AsyncSession = Depends(get_db),
 ) -> Any:
     """
     OpenAI-compatible endpoint for Open WebUI.
@@ -106,6 +108,7 @@ async def chat_completions(
                 agent_service,
                 history_messages,
                 dispatcher,
+                session,
             ),
             media_type="text/event-stream",
         )
@@ -139,7 +142,7 @@ async def chat_completions(
                 # For now, re-parse or ignore arguments for this legacy path
                 agent_req.prompt = render_skill_prompt(skill, {})
 
-        response = await agent_service.handle_request(agent_req)
+        response = await agent_service.handle_request(agent_req, session=session)
         content = response.response
 
         return {
@@ -163,6 +166,7 @@ async def stream_response_generator(
     agent_service: AgentService,
     history: list[AgentMessage],
     dispatcher: Dispatcher,
+    session: AsyncSession,
 ) -> AsyncGenerator[str, None]:
     """
     Generates SSE events compatible with OpenAI API.
@@ -205,7 +209,7 @@ async def stream_response_generator(
         # AgentService.handle_request will use the injected plan if present
         # Note: This is a blocking call. Real streaming would require AgentService to yield events.
         # For now, we simulate streaming of the "Thought Process" (Steps) then the Answer.
-        response = await agent_service.handle_request(agent_req)
+        response = await agent_service.handle_request(agent_req, session=session)
 
         # 1. Stream Steps as "Thoughts" block
         if response.steps:

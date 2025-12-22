@@ -7,8 +7,6 @@ import os
 import sys
 from typing import Any
 
-from pythonjsonlogger import jsonlogger
-
 from core.models.pydantic_schemas import (
     PlanEvent,
     StepEvent,
@@ -16,6 +14,7 @@ from core.models.pydantic_schemas import (
     ToolCallEvent,
     UserFacingEvent,
 )
+from pythonjsonlogger import jsonlogger
 
 # Common event types for type hinting
 LoggableEvent = StepEvent | PlanEvent | SupervisorDecision | ToolCallEvent | UserFacingEvent

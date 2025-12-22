@@ -7,7 +7,7 @@ import numpy as np
 try:
     from sentence_transformers import SentenceTransformer
 except ImportError:
-    SentenceTransformer = None
+    SentenceTransformer = None  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +16,16 @@ class Embedder:
     _instance = None
     _model: Any = None
 
-    def __new__(cls):
+    def __new__(cls) -> "Embedder":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if self._model is None:
             self._load_model()
 
-    def _load_model(self):
+    def _load_model(self) -> None:
         model_name = os.getenv(
             "EMBEDDER_MODEL_NAME", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
         )

@@ -12,7 +12,6 @@ from typing import Any
 import httpx
 import trafilatura
 from litellm import acompletion
-
 from modules.rag import RAGManager
 
 logger = logging.getLogger(__name__)
@@ -32,7 +31,7 @@ class _PlainTextExtractor(HTMLParser):
 
 
 class WebFetcher:
-    def __init__(self):
+    def __init__(self) -> None:
         self.searxng_url = os.getenv("SEARXNG_URL", "http://searxng:8080")
         self.request_timeout = int(os.getenv("FETCHER_REQUEST_TIMEOUT", "15"))
         self.max_chars = int(os.getenv("FETCHER_MAX_CHARS", "12000"))
@@ -44,15 +43,15 @@ class WebFetcher:
         self.rag_manager = RAGManager()  # Internal RAG
 
         # Simple Rate Limiting
-        self._hits = deque()
+        self._hits: deque[float] = deque()
         self.rate_window = 60
         self.rate_max_req = 60
 
-    async def close(self):
+    async def close(self) -> None:
         await self.http_client.aclose()
         await self.rag_manager.close()
 
-    def _check_rate_limit(self):
+    def _check_rate_limit(self) -> None:
         now = time.time()
         while self._hits and now - self._hits[0] > self.rate_window:
             self._hits.popleft()
@@ -76,7 +75,7 @@ class WebFetcher:
                 return None
         return None
 
-    def _cache_set(self, url: str, data: dict[str, Any]):
+    def _cache_set(self, url: str, data: dict[str, Any]) -> None:
         (self.cache_dir / self._cache_key(url)).write_text(json.dumps(data), encoding="utf-8")
 
     def _extract_text(self, html: str) -> str:
@@ -117,7 +116,7 @@ class WebFetcher:
 
     async def search(self, query: str, k: int = 5, lang: str = "en") -> dict[str, Any]:
         url = self.searxng_url.rstrip("/") + "/search"
-        params = {"q": query, "format": "json", "language": lang, "safesearch": 1}
+        params: dict[str, Any] = {"q": query, "format": "json", "language": lang, "safesearch": 1}
         try:
             r = await self.http_client.get(url, params=params, timeout=self.request_timeout)
             r.raise_for_status()

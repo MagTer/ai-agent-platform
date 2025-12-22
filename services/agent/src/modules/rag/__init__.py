@@ -3,15 +3,14 @@ import os
 from typing import Any
 
 import numpy as np
-from qdrant_client import AsyncQdrantClient
-
 from modules.embedder import get_embedder
+from qdrant_client import AsyncQdrantClient
 
 logger = logging.getLogger(__name__)
 
 
 class RAGManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self.qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
         self.client = AsyncQdrantClient(url=self.qdrant_url)
         self.embedder = get_embedder()
@@ -67,7 +66,7 @@ class RAGManager:
 
             # Helper to search
             # We assume collection exists. In a full implementation we might want to check/create.
-            res = await self.client.search(
+            res = await self.client.search(  # type: ignore
                 collection_name=self.collection_name,
                 query_vector=qvec.tolist(),
                 limit=max(k * 3, k),
@@ -113,5 +112,5 @@ class RAGManager:
             logger.error(f"RAG Retrieval failed: {e}")
             return []
 
-    async def close(self):
+    async def close(self) -> None:
         await self.client.close()

@@ -1,0 +1,39 @@
+src/modules/embedder/__init__.py:10: error: Cannot assign to a type  [misc]
+src/modules/embedder/__init__.py:10: error: Incompatible types in assignment (expression has type "None", variable has type "type[SentenceTransformer]")  [assignment]
+src/modules/embedder/__init__.py:19: error: Function is missing a return type annotation  [no-untyped-def]
+src/modules/embedder/__init__.py:24: error: Function is missing a return type annotation  [no-untyped-def]
+src/modules/embedder/__init__.py:24: note: Use "-> None" if function does not return a value
+src/modules/embedder/__init__.py:26: error: Call to untyped function "_load_model" in typed context  [no-untyped-call]
+src/modules/embedder/__init__.py:28: error: Function is missing a return type annotation  [no-untyped-def]
+src/modules/embedder/__init__.py:28: note: Use "-> None" if function does not return a value
+src/modules/embedder/__init__.py:43: error: Call to untyped function "_load_model" in typed context  [no-untyped-call]
+src/modules/embedder/__init__.py:58: error: Call to untyped function "Embedder" in typed context  [no-untyped-call]
+src/modules/rag/__init__.py:13: error: Function is missing a return type annotation  [no-untyped-def]
+src/modules/rag/__init__.py:13: note: Use "-> None" if function does not return a value
+src/modules/rag/__init__.py:69: error: "AsyncQdrantClient" has no attribute "search"  [attr-defined]
+src/modules/rag/__init__.py:115: error: Function is missing a return type annotation  [no-untyped-def]
+src/modules/rag/__init__.py:115: note: Use "-> None" if function does not return a value
+src/modules/fetcher/__init__.py:34: error: Function is missing a return type annotation  [no-untyped-def]
+src/modules/fetcher/__init__.py:34: note: Use "-> None" if function does not return a value
+src/modules/fetcher/__init__.py:43: error: Call to untyped function "RAGManager" in typed context  [no-untyped-call]
+src/modules/fetcher/__init__.py:46: error: Need type annotation for "_hits"  [var-annotated]
+src/modules/fetcher/__init__.py:50: error: Function is missing a return type annotation  [no-untyped-def]
+src/modules/fetcher/__init__.py:50: note: Use "-> None" if function does not return a value
+src/modules/fetcher/__init__.py:52: error: Call to untyped function "close" in typed context  [no-untyped-call]
+src/modules/fetcher/__init__.py:54: error: Function is missing a return type annotation  [no-untyped-def]
+src/modules/fetcher/__init__.py:54: note: Use "-> None" if function does not return a value
+src/modules/fetcher/__init__.py:78: error: Function is missing a return type annotation  [no-untyped-def]
+src/modules/fetcher/__init__.py:94: error: Call to untyped function "_check_rate_limit" in typed context  [no-untyped-call]
+src/modules/fetcher/__init__.py:121: error: Argument "params" to "get" of "AsyncClient" has incompatible type "dict[str, object]"; expected "QueryParams | Mapping[str, str | int | float | bool | None | Sequence[str | int | float | bool | None]] | list[tuple[str, str | int | float | bool | None]] | tuple[tuple[str, str | int | float | bool | None], ...] | str | bytes | None"  [arg-type]
+src/modules/fetcher/__init__.py:203: error: Call to untyped function "WebFetcher" in typed context  [no-untyped-call]
+src/interfaces/http/openwebui_adapter.py:141: error: Missing positional argument "session" in call to "handle_request" of "AgentService"  [call-arg]
+src/interfaces/http/openwebui_adapter.py:207: error: Missing positional argument "session" in call to "handle_request" of "AgentService"  [call-arg]
+src/core/tests/test_tools.py:129: error: Missing positional argument "session" in call to "handle_request" of "AgentService"  [call-arg]
+src/core/tests/test_service.py:14: error: Cannot find implementation or library stub for module named "core.core.state"  [import-not-found]
+src/core/tests/test_service.py:14: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+src/core/tests/test_service.py:80: error: Missing positional argument "session" in call to "handle_request" of "AgentService"  [call-arg]
+src/core/tests/test_service.py:93: error: Missing positional argument "session" in call to "handle_request" of "AgentService"  [call-arg]
+src/core/tests/test_service.py:139: error: Unexpected keyword argument "state_store" for "AgentService"  [call-arg]
+src/core/core/service.py:50: note: "AgentService" defined here
+src/core/tests/test_service.py:148: error: Missing positional argument "session" in call to "handle_request" of "AgentService"  [call-arg]
+Found 29 errors in 6 files (checked 63 source files)

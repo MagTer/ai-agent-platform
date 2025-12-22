@@ -8,10 +8,9 @@ from typing import Any, cast
 
 import pytest
 import pytest_asyncio
-from qdrant_client import AsyncQdrantClient  # Changed to AsyncQdrantClient
-
 from core.core.config import Settings
 from core.core.memory import MemoryRecord, MemoryStore
+from qdrant_client import AsyncQdrantClient  # Changed to AsyncQdrantClient
 
 
 @dataclass
