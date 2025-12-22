@@ -1,0 +1,101 @@
+/usr/lib/python3.12/argparse.py:2479: UserWarning: Do not expect file_or_dir in Namespace(keyword='', markexpr='', maxfail=0, confcutdir=None, noconftest=False, keepduplicates=False, collect_in_virtualenv=False, continue_on_collection_errors=False, importmode='prepend', basetemp=None, durations=None, durations_min=None, showfixtures=False, show_fixtures_per_test=False, version=0, plugins=[], disable_plugin_autoload=False, traceconfig=False, verbose=4, no_header=False, no_summary=False, fold_skipped=True, force_short_summary=False, reportchars='a', disable_warnings=False, showlocals=False, tbstyle='auto', xfail_tb=False, showcapture='all', fulltrace=False, color='auto', code_highlight='yes', capture='fd', runxfail=False, pastebin=None, assertmode='rewrite', xmlpath=None, junitprefix=None, doctestmodules=False, doctestreport='udiff', doctestglob=[], doctest_ignore_import_errors=False, doctest_continue_on_failure=False, last_failed_no_failures='all', stepwise=False, stepwise_skip=False, stepwise_reset=False, logger_disable=[], markers=False, strict_config=None, strict_markers=None, strict=None, pythonwarnings=None, collectonly=False, pyargs=False, ignore=None, ignore_glob=None, deselect=None, inifilename=None, rootdir=None, help=False, debug=None, override_ini=None, usepdb=False, usepdb_cls=None, trace=False, lf=False, failedfirst=False, newfirst=False, cacheshow=None, cacheclear=False, setuponly=False, setupshow=False, setupplan=False, log_level=None, log_format=None, log_date_format=None, log_cli_level=None, log_cli_format=None, log_cli_date_format=None, log_file=None, log_file_mode=None, log_file_level=None, log_file_format=None, log_file_date_format=None, log_auto_indent=None, file_or_dir=[], asyncio_mode=None, asyncio_debug=None)
+  warn('Do not expect %s in %s' % (action.dest, namespace))
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.0, pluggy-1.6.0 -- /home/magnus/.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/bin/python
+cachedir: .pytest_cache
+rootdir: /home/magnus/dev/ai-agent-platform/services/agent
+configfile: pyproject.toml
+testpaths: ../../tests, src/core/tests, src/stack/tests
+plugins: respx-0.22.0, anyio-4.12.0, asyncio-1.3.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 49 items / 3 errors
+
+==================================== ERRORS ====================================
+___________________ ERROR collecting test_embedder_health.py ___________________
+ImportError while importing test module '/home/magnus/dev/ai-agent-platform/tests/test_embedder_health.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:935: in _load_unlocked
+    ???
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+../../tests/test_embedder_health.py:6: in <module>
+    from services.embedder.app import app
+E   ModuleNotFoundError: No module named 'services'
+__________________ ERROR collecting test_indexer_chunking.py ___________________
+ImportError while importing test module '/home/magnus/dev/ai-agent-platform/tests/test_indexer_chunking.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:935: in _load_unlocked
+    ???
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+../../tests/test_indexer_chunking.py:1: in <module>
+    from services.indexer.ingest import chunk_text
+E   ModuleNotFoundError: No module named 'services'
+__________________ ERROR collecting test_ragproxy_embedder.py __________________
+ImportError while importing test module '/home/magnus/dev/ai-agent-platform/tests/test_ragproxy_embedder.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/_pytest/python.py:507: in importtestmodule
+    mod = import_path(
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/_pytest/pathlib.py:587: in import_path
+    importlib.import_module(module_name)
+/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+<frozen importlib._bootstrap>:1331: in _find_and_load_unlocked
+    ???
+<frozen importlib._bootstrap>:935: in _load_unlocked
+    ???
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+../../tests/test_ragproxy_embedder.py:10: in <module>
+    from services.ragproxy import chat_completions, qdrant_retrieve
+E   ModuleNotFoundError: No module named 'services'
+=============================== warnings summary ===============================
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/litellm/types/llms/anthropic.py:531
+  /home/magnus/.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/litellm/types/llms/anthropic.py:531: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class AnthropicResponseContentBlockToolUse(BaseModel):
+
+../../../../.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/litellm/types/rag.py:181
+  /home/magnus/.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/lib/python3.12/site-packages/litellm/types/rag.py:181: PydanticDeprecatedSince20: Support for class-based `config` is deprecated, use ConfigDict instead. Deprecated in Pydantic V2.0 to be removed in V3.0. See Pydantic V2 Migration Guide at https://errors.pydantic.dev/2.12/migration/
+    class RAGIngestRequest(BaseModel):
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+ERROR test_embedder_health.py
+ERROR test_indexer_chunking.py
+ERROR test_ragproxy_embedder.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 3 errors during collection !!!!!!!!!!!!!!!!!!!!
+======================== 2 warnings, 3 errors in 4.77s =========================

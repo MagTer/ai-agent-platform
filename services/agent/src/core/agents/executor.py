@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any, Literal, cast
 
+from core.command_loader import load_command
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
@@ -113,8 +114,56 @@ class StepExecutorAgent:
         step: PlanStep,
     ) -> tuple[dict[str, Any], list[AgentMessage], str]:
         tool_messages: list[AgentMessage] = []
+
+        # 1. Try Native Tool
         tool = self._tool_registry.get(step.tool) if self._tool_registry and step.tool else None
+
         if not tool:
+            # 2. Try Skill (Markdown Command)
+            if step.tool:
+                try:
+                    metadata, rendered_prompt = load_command(step.tool, step.args or {})
+                    # Execute Skill via LLM (One-off)
+                    with start_span(f"skill.call.{step.tool}"):
+                        output_text = await self._litellm.generate(
+                            [AgentMessage(role="user", content=rendered_prompt)]
+                        )
+
+                    tool_messages.append(
+                        AgentMessage(
+                            role="system", content=f"Tool {step.tool} output:\n{output_text}"
+                        )
+                    )
+                    # Trace
+                    trace_ctx = TraceContext(**current_trace_ids())
+                    log_event(
+                        ToolCallEvent(
+                            name=step.tool,
+                            args=step.args,
+                            status="ok",
+                            output_preview=output_text[:200],
+                            trace=trace_ctx,
+                        )
+                    )
+                    return (
+                        {"name": step.tool, "status": "ok", "output": output_text},
+                        tool_messages,
+                        "ok",
+                    )
+
+                except FileNotFoundError:
+                    pass  # Fall through to return missing
+                except Exception as e:
+                    return (
+                        {
+                            "name": step.tool,
+                            "status": "error",
+                            "reason": f"Skill execution failed: {e}",
+                        },
+                        tool_messages,
+                        "error",
+                    )
+
             return {"name": step.tool, "status": "missing"}, tool_messages, "missing"
 
         # Simplified argument unpacking: Trust the plan, with minor legacy fallback

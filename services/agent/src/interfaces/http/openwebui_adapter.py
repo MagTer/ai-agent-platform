@@ -10,6 +10,7 @@ from core.core.config import Settings, get_settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.core.service import AgentService
+from core.db.engine import get_db
 from core.tools.loader import load_tool_registry
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -18,6 +19,7 @@ from orchestrator.skill_loader import SkillLoader
 from orchestrator.utils import render_skill_prompt
 from pydantic import BaseModel
 from shared.models import AgentMessage, AgentRequest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 LOGGER = logging.getLogger(__name__)
 
@@ -72,6 +74,7 @@ async def chat_completions(
     request: ChatCompletionRequest,
     dispatcher: Dispatcher = Depends(get_dispatcher),
     agent_service: AgentService = Depends(get_agent_service),
+    session: AsyncSession = Depends(get_db),
 ) -> Any:
     """
     OpenAI-compatible endpoint for Open WebUI.
@@ -105,6 +108,7 @@ async def chat_completions(
                 agent_service,
                 history_messages,
                 dispatcher,
+                session,
             ),
             media_type="text/event-stream",
         )
@@ -138,7 +142,7 @@ async def chat_completions(
                 # For now, re-parse or ignore arguments for this legacy path
                 agent_req.prompt = render_skill_prompt(skill, {})
 
-        response = await agent_service.handle_request(agent_req)
+        response = await agent_service.handle_request(agent_req, session=session)
         content = response.response
 
         return {
@@ -162,6 +166,7 @@ async def stream_response_generator(
     agent_service: AgentService,
     history: list[AgentMessage],
     dispatcher: Dispatcher,
+    session: AsyncSession,
 ) -> AsyncGenerator[str, None]:
     """
     Generates SSE events compatible with OpenAI API.
@@ -202,15 +207,48 @@ async def stream_response_generator(
 
         # Execute
         # AgentService.handle_request will use the injected plan if present
-        response = await agent_service.handle_request(agent_req)
+        # Note: This is a blocking call. Real streaming would require AgentService to yield events.
+        # For now, we simulate streaming of the "Thought Process" (Steps) then the Answer.
+        response = await agent_service.handle_request(agent_req, session=session)
+
+        # 1. Stream Steps as "Thoughts" block
+        if response.steps:
+            yield _format_chunk(chunk_id, created, model_name, "**Thinking Process:**\n\n")
+            for step in response.steps:
+                # Format step based on type
+                step_type = step.get("type", "unknown")
+                if step_type == "plan" and step.get("plan"):
+                    # Show Plan Summary
+                    plan_desc = step["plan"].get("description", "Plan Created")
+                    yield _format_chunk(chunk_id, created, model_name, f"> **Plan**: {plan_desc}\n")
+                elif step_type == "plan_step":  # Step Execution
+                    status = step.get("status", "unknown")
+                    icon = "✅" if status == "ok" else "⏳" if status == "in_progress" else "❌"
+                    label = step.get("label") or step.get("tool") or "Action"
+                    yield _format_chunk(chunk_id, created, model_name, f"> {icon} {label}\n")
+                    if step.get("result"):
+                        # Show small snippet of result if relevant
+                        output = str(step["result"].get("output", ""))
+                        if output:
+                            snippet = (output[:50] + "...") if len(output) > 50 else output
+                            yield _format_chunk(
+                                chunk_id, created, model_name, f">   *Result: {snippet}*\n"
+                            )
+                elif step_type == "tool_call":  # Ad-hoc tool call
+                    yield _format_chunk(
+                        chunk_id, created, model_name, f"> 🛠️ Executed {step.get('name')}\n"
+                    )
+
+            yield _format_chunk(chunk_id, created, model_name, "\n---\n\n")
+
         full_response_text = response.response
 
-        # Simulate streaming
+        # 2. Stream Final Answer
         words = full_response_text.split(" ")
         for i, word in enumerate(words):
             text_chunk = word + " " if i < len(words) - 1 else word
             yield _format_chunk(chunk_id, created, model_name, text_chunk)
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(0.01)  # Faster simulation
 
     except Exception as e:
         LOGGER.error(f"Error during generation: {e}")

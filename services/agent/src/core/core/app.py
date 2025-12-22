@@ -7,12 +7,14 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
+from core.db.engine import get_db
 from core.observability.tracing import configure_tracing
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from interfaces.http.openwebui_adapter import router as openwebui_router
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..tools.loader import load_tool_registry
 from ..tools.mcp_loader import load_mcp_tools
@@ -29,9 +31,6 @@ from .models import (
     HealthStatus,
 )
 from .service import AgentService
-from .state import (
-    StateStore,
-)  # Make sure StateStore is also imported if used in AgentService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -109,7 +108,8 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
     litellm_client = LiteLLMClient(settings)
     memory_store = MemoryStore(settings)
-    state_store = StateStore(settings.sqlite_state_path)  # Instantiate StateStore
+    litellm_client = LiteLLMClient(settings)
+    memory_store = MemoryStore(settings)
 
     # Load native tools from configuration
     tool_registry = load_tool_registry(settings.tools_config_path)
@@ -118,7 +118,6 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         settings=settings,
         litellm=litellm_client,
         memory=memory_store,
-        state_store=state_store,  # Pass StateStore
         tool_registry=tool_registry,
     )
 
@@ -159,9 +158,10 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     async def run_agent(
         request: AgentRequest,
         svc: AgentService = Depends(get_service),
+        session: AsyncSession = Depends(get_db),
     ) -> AgentResponse:
         try:
-            return await svc.handle_request(request)
+            return await svc.handle_request(request, session=session)
         except LiteLLMError as exc:  # pragma: no cover - upstream failure
             LOGGER.error("LiteLLM gateway error: %s", exc)
             raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -172,6 +172,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     async def _handle_chat_completions(
         request: ChatCompletionRequest,
         svc: AgentService,
+        session: AsyncSession,
     ) -> ChatCompletionResponse:
         try:
             agent_request = _build_agent_request_from_chat(request)
@@ -179,7 +180,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         try:
-            response = await svc.handle_request(agent_request)
+            response = await svc.handle_request(agent_request, session=session)
         except LiteLLMError as exc:
             LOGGER.error("LiteLLM gateway error: %s", exc)
             raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -210,15 +211,17 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     async def chat_completions(
         request: ChatCompletionRequest,
         svc: AgentService = Depends(get_service),
+        session: AsyncSession = Depends(get_db),
     ) -> ChatCompletionResponse:
-        return await _handle_chat_completions(request, svc)
+        return await _handle_chat_completions(request, svc, session)
 
     @app.post("/chat/completions", response_model=ChatCompletionResponse)
     async def legacy_chat_completions(
         request: ChatCompletionRequest,
         svc: AgentService = Depends(get_service),
+        session: AsyncSession = Depends(get_db),
     ) -> ChatCompletionResponse:
-        return await _handle_chat_completions(request, svc)
+        return await _handle_chat_completions(request, svc, session)
 
     @app.get("/models")
     async def list_models(svc: AgentService = Depends(get_service)) -> Any:
@@ -227,6 +230,18 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         except LiteLLMError as exc:  # pragma: no cover - upstream failure
             LOGGER.error("LiteLLM gateway error: %s", exc)
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    @app.get("/v1/agent/history/{conversation_id}", response_model=list[AgentMessage])
+    async def get_history(
+        conversation_id: str,
+        svc: AgentService = Depends(get_service),
+        session: AsyncSession = Depends(get_db),
+    ) -> list[AgentMessage]:
+        try:
+            return await svc.get_history(conversation_id, session=session)
+        except Exception as exc:
+            LOGGER.exception(f"Failed to fetch history for {conversation_id}")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     app.include_router(openwebui_router)
     return app
@@ -293,4 +308,4 @@ def _last_user_index(messages: Iterable[AgentMessage]) -> int | None:
 
 def _derive_conversation_id(messages: Iterable[AgentMessage]) -> str:
     """Create a random unique conversation identifier."""
-    return f"conv-{uuid.uuid4().hex}"
+    return str(uuid.uuid4())

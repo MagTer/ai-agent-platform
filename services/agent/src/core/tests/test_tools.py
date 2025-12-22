@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import respx
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
@@ -13,7 +13,6 @@ from core.core.models import AgentRequest
 from core.core.service import AgentService
 from core.tools import Tool, ToolRegistry, load_tool_registry
 from core.tools.web_fetch import WebFetchTool
-from httpx import Response
 from shared.models import AgentMessage
 
 
@@ -126,7 +125,17 @@ async def test_agent_service_executes_tool(tmp_path: Path) -> None:
         },
     )
 
-    response = await service.handle_request(request)
+    # Mock Session
+    session = AsyncMock()
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = MagicMock(
+        id="default-ctx", default_cwd="/tmp"  # noqa: S108
+    )
+    mock_result.scalars.return_value.all.return_value = []
+    session.execute.return_value = mock_result
+    session.get.return_value = None
+
+    response = await service.handle_request(request, session=session)
 
     assert response.metadata["tool_results"][0]["status"] == "ok"
     assert "TOOL OUTPUT" in response.metadata["tool_results"][0]["output"]
@@ -138,49 +147,48 @@ async def test_agent_service_executes_tool(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_web_fetch_tool_parses_fetcher_response() -> None:
-    tool = WebFetchTool(
-        base_url="http://fetcher:8081",
-        include_html=True,
-        summary_max_chars=32,
-        html_max_chars=32,
-    )
-    respx.post("http://fetcher:8081/fetch").mock(
-        return_value=Response(
-            200,
-            json={
-                "item": {
-                    "url": "https://example.com",
-                    "ok": True,
-                    "text": "This is a long block of extracted text that should be truncated.",
-                    "html": "<html><body>Hello world</body></html>",
-                }
-            },
+async def test_web_fetch_tool_parses_fetcher_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CACHE_DIR", str(tmp_path))
+
+    mock_fetcher = AsyncMock()
+    mock_fetcher.fetch.return_value = {
+        "url": "https://example.com",
+        "ok": True,
+        "text": "This is a long block of extracted text that should be truncated.",
+        "html_truncated": "<html><body>Hello world</body></html>",
+    }
+
+    # Patch get_fetcher in the tool module
+    with patch("core.tools.web_fetch.get_fetcher", return_value=mock_fetcher):
+        tool = WebFetchTool(
+            base_url="http://ignored",
+            include_html=True,
+            summary_max_chars=32,
+            html_max_chars=32,
         )
-    )
+        output = await tool.run("https://example.com")
 
-    output = await tool.run("https://example.com")
-
-    assert "Fetched URL: https://example.com" in output
-    assert "Extracted Text Snippet:" in output
-    assert "Raw HTML Snippet:" in output
-    assert "This is a long block of extracte" in output
-    assert "…" in output
+        assert "Fetched URL: https://example.com" in output
+        assert "Extracted Text Snippet:" in output
+        assert "Raw HTML Snippet:" in output
+        assert "This is a long block of extracte" in output
+        assert "…" in output
 
 
 @pytest.mark.asyncio
-@respx.mock
-async def test_web_fetch_tool_raises_on_error_response() -> None:
-    tool = WebFetchTool(base_url="http://fetcher:8081")
-    respx.post("http://fetcher:8081/fetch").mock(
-        return_value=Response(
-            200,
-            json={"item": {"url": "https://example.com", "ok": False, "error": "boom"}},
-        )
-    )
+async def test_web_fetch_tool_raises_on_error_response(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CACHE_DIR", str(tmp_path))
 
-    with pytest.raises(Exception) as exc:
-        await tool.run("https://example.com")
+    mock_fetcher = AsyncMock()
+    mock_fetcher.fetch.return_value = {"url": "https://example.com", "ok": False, "error": "boom"}
+
+    with patch("core.tools.web_fetch.get_fetcher", return_value=mock_fetcher):
+        tool = WebFetchTool(base_url="http://ignored")
+        with pytest.raises(Exception) as exc:
+            await tool.run("https://example.com")
 
     assert "boom" in str(exc.value)

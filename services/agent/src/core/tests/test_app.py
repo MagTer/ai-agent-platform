@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import AsyncGenerator, Iterable
 from pathlib import Path
 from typing import Any, cast
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from core.core.app import create_app
@@ -11,6 +12,7 @@ from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.core.service import AgentService
+from core.db.engine import get_db
 from fastapi.testclient import TestClient
 
 
@@ -77,6 +79,24 @@ async def build_service(tmp_path: Path) -> AgentService:
 async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
     service = await build_service(tmp_path)
     app = create_app(service._settings, service=service)
+
+    # Mock DB Dependency
+    mock_session = AsyncMock()
+    mock_session.get.return_value = None
+    mock_result = MagicMock()
+    # Context
+    mock_result.scalar_one_or_none.return_value = MagicMock(
+        id="default-ctx", default_cwd="/tmp"  # noqa: S108
+    )
+    # History
+    mock_result.scalars.return_value.all.return_value = []
+    mock_session.execute.return_value = mock_result
+
+    async def mock_get_db() -> AsyncGenerator[Any, None]:
+        yield mock_session
+
+    app.dependency_overrides[get_db] = mock_get_db
+
     client = TestClient(app)
 
     payload = {

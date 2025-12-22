@@ -1,11 +1,9 @@
-"""HTTP fetch tool used to augment the agent with browsing capability."""
-
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-import httpx
+from modules.fetcher import get_fetcher
 
 from .base import Tool, ToolError
 
@@ -13,11 +11,11 @@ LOGGER = logging.getLogger(__name__)
 
 
 class WebFetchTool(Tool):
-    """Call the internal webfetch service and return structured context."""
+    """Call the internal webfetch module and return structured context."""
 
     name = "web_fetch"
     description = (
-        "Retrieve rendered page context (and optional HTML) using the webfetch service. "
+        "Retrieve rendered page context (and optional HTML) using the internal fetcher module. "
         "Args: url (str) - The URL to fetch."
     )
 
@@ -29,7 +27,7 @@ class WebFetchTool(Tool):
         summary_max_chars: int = 1200,
         html_max_chars: int = 4000,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        # base_url is ignored in the modular monolith
         self._include_html = include_html
         self._summary_max_chars = summary_max_chars
         self._html_max_chars = html_max_chars
@@ -43,17 +41,12 @@ class WebFetchTool(Tool):
             return "Error: Missing required argument 'url'. Please provide the URL to fetch."
 
         LOGGER.info(f"Fetching URL: {url}")
-        endpoint = f"{self._base_url}/fetch"
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(endpoint, json={"url": url}, timeout=30.0)
-                response.raise_for_status()
-            except httpx.HTTPError as exc:  # pragma: no cover - network errors are environmental
-                raise ToolError(f"Web fetch failed: {exc}") from exc
-        data = response.json()
-        item = data.get("item")
-        if not isinstance(item, dict):
-            raise ToolError("Unexpected response from webfetch")
+
+        try:
+            fetcher = get_fetcher()
+            item = await fetcher.fetch(url)
+        except Exception as exc:
+            raise ToolError(f"Web fetch failed: {exc}") from exc
 
         if not item.get("ok", False):
             error_detail = item.get("error") or "unknown error"
@@ -78,7 +71,7 @@ class WebFetchTool(Tool):
         sections.append(snippet)
 
         if self._include_html:
-            raw_html = item.get("html")
+            raw_html = item.get("html_truncated") or item.get("html")
             if isinstance(raw_html, str) and raw_html.strip():
                 html_snippet = raw_html[: self._html_max_chars]
                 if len(raw_html) > self._html_max_chars:
