@@ -6,6 +6,8 @@ from typing import Any, cast
 
 import pytest
 import respx
+from httpx import Response
+
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
@@ -13,7 +15,6 @@ from core.core.models import AgentRequest
 from core.core.service import AgentService
 from core.tools import Tool, ToolRegistry, load_tool_registry
 from core.tools.web_fetch import WebFetchTool
-from httpx import Response
 from shared.models import AgentMessage
 
 

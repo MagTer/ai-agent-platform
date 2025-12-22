@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+from fastapi.testclient import TestClient
+
 from core.core.app import create_app
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.core.service import AgentService
-from fastapi.testclient import TestClient
 
 
 class MockLiteLLMClient:

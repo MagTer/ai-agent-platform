@@ -1,4 +1,4 @@
-name: ai-agent-platform
+version: '3.8'
 
 services:
   agent:
@@ -13,20 +13,17 @@ services:
       - ./skills:/app/skills:ro
     environment:
       AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://phoenix:4317
-      OTEL_SERVICE_NAME: ai_agent
+      QDRANT_URL: http://qdrant:6333
+      SEARXNG_URL: http://searxng:8080
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/agent_db}
     ports:
       - "8000:8000"
     depends_on:
-      litellm:
-        condition: service_started
       qdrant:
         condition: service_started
-      ragproxy:
+      searxng:
         condition: service_started
-      webfetch:
-        condition: service_started
-      phoenix:
+      postgres:
         condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
@@ -34,198 +31,47 @@ services:
       timeout: 5s
       retries: 5
 
-  phoenix:
-    image: arizephoenix/phoenix:latest
-    ports:
-      - "6006:6006"
-      - "4317:4317"
+  postgres:
+    image: postgres:15-alpine
     environment:
-      - PHOENIX_COLLECTOR_OTLP_ENABLED=true
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6006/"]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
-      timeout: 10s
+      timeout: 5s
       retries: 5
 
-  litellm:
-    image: ${LITELLM_IMAGE:-ghcr.io/berriai/litellm@sha256:6eb7f8bdc47baf3aa07d3d7b2ddc330662ed28811a2a03ba32c8a548809f30e3}
-    command: ["--config", "/app/config.yaml", "--port", "4000"]
-    environment:
-      LITELLM_LOGGING: warn
-      LITELLM_PORT: 4000
-      LITELLM_PROXY_MODEL: ${LITELLM_PROXY_MODEL:-ollama/llama3.1:8b}
-      OLLAMA_API_BASE: http://ollama:11434
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-    volumes:
-      - ./services/litellm/config.yaml:/app/config.yaml:ro
-    ports:
-      - "4000:4000"
-    depends_on:
-      ollama:
-        condition: service_started
-
-  ollama:
-    image: ${OLLAMA_IMAGE:-ollama/ollama@sha256:e8c3d1f6ad16323bc40dc63eff0701d4fc32113f75a86b54b3e836eef8290de6}
-    runtime: nvidia
-    environment:
-      NVIDIA_VISIBLE_DEVICES: ${OLLAMA_VISIBLE_DEVICES:-all}
-      NVIDIA_DRIVER_CAPABILITIES: ${OLLAMA_DRIVER_CAPABILITIES:-compute,utility}
-      OLLAMA_HOST: 0.0.0.0
-      OLLAMA_NUM_GPU: 1
-      OLLAMA_GPU_LAYERS: -1
-      OLLAMA_BATCH: 128 
-    volumes:
-      - ./data/ollama:/root/.ollama
-    ports:
-      - "11434:11434"
-    healthcheck:
-      test: ["CMD", "ollama", "--version"]
-      interval: 10s
-      timeout: 10s
-      retries: 3
-
   qdrant:
-    build:
-      context: ./services/qdrant
-    image: ai-agent-platform-qdrant:latest
+    image: qdrant/qdrant:latest
     ports:
       - "6333:6333"
     volumes:
       - ./data/qdrant:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz || curl -f http://localhost:6333/readyz"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
-
-  embedder:
-    build:
-      context: ./services/embedder
-      dockerfile: Dockerfile
-    environment:
-      MODEL_NAME: ${EMBEDDER_MODEL_NAME:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
-      NORMALIZE: ${EMBEDDER_NORMALIZE:-true}
-      OMP_NUM_THREADS: ${EMBEDDER_OMP_NUM_THREADS:-2}
-      TOKENIZERS_PARALLELISM: "false"
-    ports:
-      - "${EMBEDDER_PORT:-8082}:8082"
-    volumes:
-      - ./data/embedder:/root/.cache
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8082/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  ragproxy:
-    build:
-      context: ./services/ragproxy
-      dockerfile: Dockerfile
-    environment:
-      EMBEDDER_BASE: http://embedder:8082
-      QDRANT_URL: http://qdrant:6333
-      LITELLM_BASE: http://litellm:4000
-      QDRANT_TOP_K: ${QDRANT_TOP_K:-5}
-      MMR_LAMBDA: ${MMR_LAMBDA:-0.7}
-      ENABLE_RAG: ${ENABLE_RAG:-true}
-      RAG_MAX_SOURCES: ${RAG_MAX_SOURCES:-5}
-      RAG_MAX_CHARS: ${RAG_MAX_CHARS:-1200}
-    ports:
-      - "8083:4080"
-    depends_on:
-      embedder:
-        condition: service_started
-      qdrant:
-        condition: service_started
-      litellm:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:4080/health"]
+      test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
 
   searxng:
-    image: ${SEARXNG_IMAGE:-searxng/searxng@sha256:d477c0460cc06afa57541f24c7adcae3846303a125c3ae785b9893c9c2c2186f}
+    image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
     ports:
       - "${SEARXNG_PORT:-8080}:8080"
     volumes:
       - ./services/searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
-      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
       SEARXNG_BASE_URL: http://searxng:8080/
-    cap_drop:
-      - ALL
-    cap_add:
-      - CHOWN
-      - SETGID
-      - SETUID
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
       interval: 10s
       timeout: 5s
       retries: 10
 
-  webfetch:
-    build:
-      context: ./services/fetcher
-      dockerfile: Dockerfile
-    environment:
-      SEARXNG_URL: http://searxng:8080
-      LITELLM_BASE: http://litellm:4000
-      DEFAULT_MODEL: ${FETCHER_DEFAULT_MODEL:-local/llama3-en}
-      REQUEST_TIMEOUT: ${FETCHER_REQUEST_TIMEOUT:-15}
-      MAX_WORKERS: ${FETCHER_MAX_WORKERS:-4}
-      EMBEDDER_BASE: http://embedder:8082
-      QDRANT_URL: http://qdrant:6333
-      ENABLE_QDRANT: ${ENABLE_QDRANT:-true}
-    ports:
-      - "${FETCHER_PORT:-8081}:8081"
-    depends_on:
-      searxng:
-        condition: service_started
-      litellm:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  context7:
-    image: mcp/context7
-    ports:
-      - "3030:8080"
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/sse"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  openwebui:
-    image: ${OPENWEBUI_IMAGE:-ghcr.io/open-webui/open-webui@sha256:53a4d2fc8c7a7cc620cd18e6fe416ed9940f2db87fddf837e3aa55111bec6995}
-    environment:
-      WEBUI_NAME: "AI Agent Platform"
-      LITELLM_URL: http://agent:8000
-      OPENAI_API_BASE_URL: http://agent:8000
-      OPENAI_API_KEY: ${OPENWEBUI_OPENAI_API_KEY:-agent-placeholder}
-      ENABLE_OLLAMA_MODELS: "False"
-      WEBUI_AUTH: "True"
-      ENABLE_SIGNUP: "True"
-      SECRET_KEY: ${OPENWEBUI_SECRET:-changeme}
-      WEBUI_JWT_SECRET: ${OPENWEBUI_SECRET:-changeme}
-    volumes:
-      - ./data/openwebui:/app/backend/data
-    ports:
-      - "${OPENWEBUI_PORT:-3000}:8080"
-    depends_on:
-      agent:
-        condition: service_started
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+volumes:
+  postgres_data:

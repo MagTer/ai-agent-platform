@@ -7,9 +7,10 @@ import logging
 from contextlib import AsyncExitStack
 from typing import Any
 
-from core.observability.tracing import start_span
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
+
+from core.observability.tracing import start_span
 
 from ..models.mcp import McpTool
 

@@ -9,7 +9,8 @@ packages = [
     {include = "core", from = "src"},
     {include = "orchestrator", from = "src"},
     {include = "interfaces", from = "src"},
-    {include = "stack", from = "src"}
+    {include = "stack", from = "src"},
+    {include = "modules", from = "src"}
 ]
 
 [tool.poetry.dependencies]
@@ -33,6 +34,12 @@ opentelemetry-sdk = "^1.24.0"
 opentelemetry-exporter-otlp = "^1.24.0"
 openinference-instrumentation-litellm = "^0.1.0"
 opentelemetry-instrumentation-fastapi = "^0.60b1"
+trafilatura = "^2.0.0"
+sentence-transformers = "^5.2.0"
+sqlalchemy = "^2.0.45"
+asyncpg = "^0.31.0"
+alembic = "^1.17.2"
+beautifulsoup4 = "^4.14.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "9.0.0"
