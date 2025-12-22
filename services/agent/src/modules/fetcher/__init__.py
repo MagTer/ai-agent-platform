@@ -7,7 +7,7 @@ import time
 from collections import deque
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 import trafilatura

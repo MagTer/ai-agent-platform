@@ -1,10 +1,9 @@
 import logging
 import os
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 from qdrant_client import AsyncQdrantClient
-from qdrant_client.http import models
 
 from modules.embedder import get_embedder
 

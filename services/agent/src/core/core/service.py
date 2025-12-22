@@ -93,7 +93,7 @@ class AgentService:
 
         # Get active session
         session_stmt = select(Session).where(
-            Session.conversation_id == conversation_id, Session.active == True
+            Session.conversation_id == conversation_id, Session.active.is_(True)
         )
         session_result = await session.execute(session_stmt)
         db_session = session_result.scalar_one_or_none()
@@ -149,7 +149,8 @@ class AgentService:
             # Ideally transaction commits at end of request scope in FastAPI,
             # but we might want to checkpoint.
             # For now rely on flush for IDs, commit happens at app closure or explicitly if needed.
-            # But wait, session is passed from Depends(get_db). FastAPI usually handles commit if no error?
+            # But wait, session is passed from Depends(get_db).
+            # FastAPI usually handles commit if no error?
             # Or we must commit. AsyncSession dependency usually yields session.
             # I will flush to be safe for visibility in same transaction.
 
@@ -212,7 +213,9 @@ class AgentService:
                     # I'll stick to that.
 
             # Check for Command (Skill) in metadata or Prompt?
-            # Implementation Plan says: "Integrate CommandLoader... Check if a requested tool matches a .md skill."
+            # Check for Command (Skill) in metadata or Prompt?
+            # Implementation Plan says: "Integrate CommandLoader...
+            # Check if a requested tool matches a .md skill."
             # The Planner decides tools.
             # If the planner outputs a tool that is a SKILL, the Executor needs to know.
             # But here we are generating the plan.
@@ -275,7 +278,8 @@ class AgentService:
 
                 # Executor Run
                 # Does executor support Skills?
-                # StepExecutor needs to support "command" action or "tool" action that maps to a skill.
+                # StepExecutor needs to support "command" action or "tool" action
+                # that maps to a skill.
                 # If plan_step.action == "tool", check if tool is in registry.
                 # If not in registry, check CommandLoader?
                 # The current StepExecutor uses `_tool_registry`.
@@ -293,8 +297,10 @@ class AgentService:
                 # Better: Modify StepExecutor later.
                 # Current StepExecutor agent imports tool registry.
                 # I can inject a "SkillAwareToolRegistry" or just update StepExecutor.
-                # I'll stick to standard tools for now, and handle explicit skill integration in next chunk if needed.
-                # Update: Implementation Plan said "Integrate CommandLoader... AgentService will merge ToolRegistry and CommandLoader".
+                # I'll stick to standard tools for now, and handle explicit skill integration
+                # in next chunk if needed.
+                # Update: Implementation Plan said "Integrate CommandLoader...
+                # AgentService will merge ToolRegistry and CommandLoader".
 
                 step_execution_result: StepResult = await executor.run(
                     plan_step,
@@ -391,6 +397,19 @@ class AgentService:
         """Proxy LiteLLM's `/v1/models` response."""
 
         return await self._litellm.list_models()
+
+    async def get_history(self, conversation_id: str, session: AsyncSession) -> list[AgentMessage]:
+        """Retrieve the conversation history from the database."""
+        stmt = (
+            select(Message)
+            .join(Session)
+            .where(Session.conversation_id == conversation_id)
+            .order_by(Message.created_at.asc())
+        )
+        result = await session.execute(stmt)
+        db_messages = result.scalars().all()
+
+        return [AgentMessage(role=msg.role, content=msg.content) for msg in db_messages]
 
     async def _execute_tools(self, metadata: dict[str, Any]) -> list[dict[str, Any]]:
         """Execute requested tools and return a structured result list."""

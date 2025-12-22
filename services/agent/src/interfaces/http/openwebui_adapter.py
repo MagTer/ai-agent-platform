@@ -203,15 +203,48 @@ async def stream_response_generator(
 
         # Execute
         # AgentService.handle_request will use the injected plan if present
+        # Note: This is a blocking call. Real streaming would require AgentService to yield events.
+        # For now, we simulate streaming of the "Thought Process" (Steps) then the Answer.
         response = await agent_service.handle_request(agent_req)
+
+        # 1. Stream Steps as "Thoughts" block
+        if response.steps:
+            yield _format_chunk(chunk_id, created, model_name, "**Thinking Process:**\n\n")
+            for step in response.steps:
+                # Format step based on type
+                step_type = step.get("type", "unknown")
+                if step_type == "plan" and step.get("plan"):
+                    # Show Plan Summary
+                    plan_desc = step["plan"].get("description", "Plan Created")
+                    yield _format_chunk(chunk_id, created, model_name, f"> **Plan**: {plan_desc}\n")
+                elif step_type == "plan_step":  # Step Execution
+                    status = step.get("status", "unknown")
+                    icon = "✅" if status == "ok" else "⏳" if status == "in_progress" else "❌"
+                    label = step.get("label") or step.get("tool") or "Action"
+                    yield _format_chunk(chunk_id, created, model_name, f"> {icon} {label}\n")
+                    if step.get("result"):
+                        # Show small snippet of result if relevant
+                        output = str(step["result"].get("output", ""))
+                        if output:
+                            snippet = (output[:50] + "...") if len(output) > 50 else output
+                            yield _format_chunk(
+                                chunk_id, created, model_name, f">   *Result: {snippet}*\n"
+                            )
+                elif step_type == "tool_call":  # Ad-hoc tool call
+                    yield _format_chunk(
+                        chunk_id, created, model_name, f"> 🛠️ Executed {step.get('name')}\n"
+                    )
+
+            yield _format_chunk(chunk_id, created, model_name, "\n---\n\n")
+
         full_response_text = response.response
 
-        # Simulate streaming
+        # 2. Stream Final Answer
         words = full_response_text.split(" ")
         for i, word in enumerate(words):
             text_chunk = word + " " if i < len(words) - 1 else word
             yield _format_chunk(chunk_id, created, model_name, text_chunk)
-            await asyncio.sleep(0.02)
+            await asyncio.sleep(0.01)  # Faster simulation
 
     except Exception as e:
         LOGGER.error(f"Error during generation: {e}")

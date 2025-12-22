@@ -232,6 +232,18 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             LOGGER.error("LiteLLM gateway error: %s", exc)
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    @app.get("/v1/agent/history/{conversation_id}", response_model=list[AgentMessage])
+    async def get_history(
+        conversation_id: str,
+        svc: AgentService = Depends(get_service),
+        session: AsyncSession = Depends(get_db),
+    ) -> list[AgentMessage]:
+        try:
+            return await svc.get_history(conversation_id, session=session)
+        except Exception as exc:
+            LOGGER.exception(f"Failed to fetch history for {conversation_id}")
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     app.include_router(openwebui_router)
     return app
 
