@@ -13,6 +13,7 @@ from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.core.service import AgentService
 from core.db.engine import get_db
+from core.db.models import Context, Conversation
 from fastapi.testclient import TestClient
 
 
@@ -81,8 +82,19 @@ async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
     app = create_app(service._settings, service=service)
 
     # Mock DB Dependency
+    # Mock DB Dependency
     mock_session = AsyncMock()
-    mock_session.get.return_value = None
+
+    mock_context = MagicMock(id="default-ctx", default_cwd="/tmp")  # noqa: S108
+
+    def get_side_effect(model: Any, id: Any) -> Any:
+        if model == Conversation:
+            return None
+        if model == Context:
+            return mock_context
+        return None
+
+    mock_session.get.side_effect = get_side_effect
     mock_result = MagicMock()
     # Context
     mock_result.scalar_one_or_none.return_value = MagicMock(
