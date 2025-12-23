@@ -82,6 +82,10 @@ class StepExecutorAgent:
                     result = {"reason": "unsupported executor/action"}
                     status = "skipped"
             except Exception as exc:  # pragma: no cover - defensive
+                from core.tools.base import ToolConfirmationError
+
+                if isinstance(exc, ToolConfirmationError):
+                    raise exc
                 result = {"error": str(exc)}
                 status = "error"
 
@@ -202,7 +206,23 @@ class StepExecutorAgent:
 
         with start_span(f"tool.call.{step.tool}"):
             try:
-                output = await tool.run(**final_args)
+                if tool.requires_confirmation:
+                    # Check for confirmation token/flag in args (future proofing)
+                    # For now, always raise unless explicit "confirm=True" is in args?
+                    # The Prompt/Request metadata might carry confirmation, but we pass args here.
+                    # Let's check a reserved arg "_confirmed" or similar?
+                    # Or relying on the AgentService to re-call with modification.
+                    # Simple approach: If args.get("confirm_dangerous_action") is not True, raise.
+                    if not final_args.get("confirm_dangerous_action"):
+                        from core.tools.base import ToolConfirmationError
+
+                        raise ToolConfirmationError(tool.name, tool_args=final_args)
+
+                # Remove confirmation flag before calling tool
+                run_args = final_args.copy()
+                run_args.pop("confirm_dangerous_action", None)
+
+                output = await tool.run(**run_args)
             except TypeError as exc:
                 return (
                     {"name": step.tool, "status": "error", "reason": f"Invalid arguments: {exc}"},

@@ -116,3 +116,66 @@ class ReadFileTool(Tool):
             return f"Error: Permission denied reading '{path}'."
         except Exception as exc:
             return f"Error: Failed to read file: {exc}"
+
+
+class EditFileTool(Tool):
+    """Smart search-and-replace tool for surgical edits."""
+
+    name = "edit_file"
+    description = (
+        "Replace a specific block of text in a file with new content. "
+        "Args: "
+        "path (str) - File path. "
+        "target (str) - Exact text block to replace. "
+        "replacement (str) - New text content."
+    )
+
+    def __init__(self, base_path: str) -> None:
+        self._base_path = base_path
+
+    async def run(self, path: str, target: str, replacement: str, **kwargs: Any) -> str:
+        try:
+            target_path = validate_path(self._base_path, path)
+        except ValueError as exc:
+            return f"Error: {exc}"
+
+        if not target_path.exists():
+            return f"Error: File '{path}' does not exist."
+        if not target_path.is_file():
+            return f"Error: Path '{path}' is not a file."
+
+        try:
+            content = target_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return f"Error: File '{path}' is not valid UTF-8 text."
+        except Exception as exc:
+            return f"Error: Failed to read file: {exc}"
+
+        # Normalize line endings for reliable matching?
+        # For now, start strict. If target has \r\n and file has \n, it might fail.
+        # Let's simple count occurrences.
+        count = content.count(target)
+
+        if count == 0:
+            # Fallback: Try ignoring trailing whitespace on lines?
+            # For strict mode requested: Return Error.
+            return (
+                "Error: Target block not found in file. "
+                "Ensure exact match including whitespace and indentation."
+            )
+
+        if count > 1:
+            return (
+                f"Error: Target block found {count} times. "
+                "Provide a more unique target block (add surrounding lines)."
+            )
+
+        # Single match - safer to use replace
+        new_content = content.replace(target, replacement, 1)
+
+        try:
+            target_path.write_text(new_content, encoding="utf-8")
+        except Exception as exc:
+            return f"Error: Failed to write to file: {exc}"
+
+        return f"Success: File '{path}' updated."

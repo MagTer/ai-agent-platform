@@ -24,6 +24,7 @@ from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
 from core.system_commands import handle_system_command
 from core.tools import ToolRegistry
+from core.tools.base import ToolConfirmationError
 from shared.models import (
     AgentMessage,
     AgentRequest,
@@ -334,12 +335,53 @@ class AgentService:
                 # Update: Implementation Plan said "Integrate CommandLoader...
                 # AgentService will merge ToolRegistry and CommandLoader".
 
-                step_execution_result: StepResult = await executor.run(
-                    plan_step,
-                    request=request,
-                    conversation_id=conversation_id,
-                    prompt_history=prompt_history,
-                )
+                try:
+                    step_execution_result: StepResult = await executor.run(
+                        plan_step,
+                        request=request,
+                        conversation_id=conversation_id,
+                        prompt_history=prompt_history,
+                    )
+                except ToolConfirmationError as exc:
+                    LOGGER.info(
+                        f"Step {plan_step.id} paused for confirmation of tool {exc.tool_name}"
+                    )
+                    msg_content = (
+                        f"Action paused. Tool '{exc.tool_name}' requires "
+                        "confirmation to proceed.\n"
+                        f"Arguments: {exc.tool_args}\n"
+                        "Please reply with 'CONFIRM' to execute this action, "
+                        "or provide new instructions."
+                    )
+
+                    # Log system message
+                    session.add(
+                        Message(
+                            session_id=db_session.id,
+                            role="system",
+                            content=msg_content,
+                            trace_id=current_trace_ids().get("trace_id"),
+                        )
+                    )
+                    await session.commit()
+
+                    step_entry.update(
+                        status="confirmation_required",
+                        result={"reason": "confirmation_required", "tool": exc.tool_name},
+                    )
+
+                    return await responder.finalize(
+                        completion=msg_content,
+                        conversation_id=conversation_id,
+                        messages=history_with_tools
+                        + [user_message, AgentMessage(role="system", content=msg_content)],
+                        steps=steps,
+                        metadata={
+                            "status": "confirmation_required",
+                            "tool": exc.tool_name,
+                            "args": exc.tool_args,
+                        },
+                    )
 
                 decision = await step_supervisor.review(plan_step, step_execution_result.status)
                 step_entry.update(
