@@ -21,9 +21,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            .venv
-            ~/.cache/pip
-            ~/.cache/pypoetry
+            services/agent/.venv
           key: ${{ runner.os }}-poetry-${{ hashFiles('services/agent/poetry.lock', 'services/agent/pyproject.toml') }}
       - name: Install dependencies
         run: poetry install --no-interaction --directory services/agent
