@@ -9,16 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -26,18 +17,13 @@ jobs:
         with:
           poetry-version: 1.8.2
       - name: Configure Poetry
-        run: poetry config virtualenvs.in-project true
-      - name: Cache Poetry
-        uses: actions/cache@v4
-        with:
-          path: |
-            services/agent/.venv
-          key: ${{ runner.os }}-poetry-v1-${{ hashFiles('services/agent/poetry.lock', 'services/agent/pyproject.toml') }}
+        run: poetry config virtualenvs.create false
+
       - name: Install dependencies
-        run: poetry install --no-interaction --directory services/agent
+        run: poetry install --no-interaction --no-root --directory services/agent
       - name: Run Quality Checks
         working-directory: services/agent
-        run: poetry run python ../../scripts/code_check.py
+        run: python ../../scripts/code_check.py
         env:
           CI: "true"
 

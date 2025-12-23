@@ -18,14 +18,15 @@ class TelegramAdapter(PlatformAdapter):
         self.token = token
         self.agent_service = agent_service
         # Initialize Bot and Dispatcher
+        self.bot: Bot | None = None
+        self.dp: TelegramDispatcher | None = None
+
         if self.token:
             self.bot = Bot(token=self.token)
             self.dp = TelegramDispatcher()
             self.dp.message.register(self._handle_message)
         else:
             LOGGER.warning("Telegram token not provided. Adapter disabled.")
-            self.bot = None
-            self.dp = None
 
     async def start(self) -> None:
         if self.dp and self.bot:
