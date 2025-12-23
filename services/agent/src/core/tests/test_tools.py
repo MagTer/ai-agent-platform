@@ -9,11 +9,11 @@ import pytest
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
-from core.core.models import AgentRequest
 from core.core.service import AgentService
+from core.db import Context, Conversation
 from core.tools import Tool, ToolRegistry, load_tool_registry
 from core.tools.web_fetch import WebFetchTool
-from shared.models import AgentMessage
+from shared.models import AgentMessage, AgentRequest
 
 
 class MockLiteLLMClient:
@@ -133,7 +133,16 @@ async def test_agent_service_executes_tool(tmp_path: Path) -> None:
     )
     mock_result.scalars.return_value.all.return_value = []
     session.execute.return_value = mock_result
-    session.get.return_value = None
+    mock_ctx = MagicMock(id="default-ctx", default_cwd="/tmp")  # noqa: S108
+
+    def get_side_effect(model: Any, id: Any) -> Any:
+        if model == Conversation:
+            return None
+        if model == Context:
+            return mock_ctx
+        return None
+
+    session.get.side_effect = get_side_effect
 
     response = await service.handle_request(request, session=session)
 

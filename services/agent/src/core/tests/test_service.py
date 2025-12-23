@@ -3,17 +3,18 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryRecord, MemoryStore
-from core.core.models import AgentMessage, AgentRequest
 from core.core.service import AgentService
+from core.db import Context, Conversation
+from core.tools import ToolRegistry
 from core.tools.base import Tool
-from core.tools.registry import ToolRegistry
+from shared.models import AgentMessage, AgentRequest
 
 
 class MockLiteLLMClient(LiteLLMClient):
@@ -78,8 +79,16 @@ async def test_agent_service_roundtrip(tmp_path: Path) -> None:
 
     # Mock Session
     session = AsyncMock()
-    # Mock get(Conversation) -> None
-    session.get.return_value = None
+    mock_ctx = MagicMock(id="default-ctx", default_cwd="/tmp")  # noqa: S108
+
+    def get_side_effect(model: Any, id: Any) -> Any:
+        if model == Conversation:
+            return None
+        if model == Context:
+            return mock_ctx
+        return None
+
+    session.get.side_effect = get_side_effect
     # Mock execute(Context) -> context
     # Mock execute(Session) -> None (create new)
     # Mock execute(Message) -> []
@@ -170,7 +179,18 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
     # History
     mock_result.scalars.return_value.all.return_value = []
     session.execute.return_value = mock_result
-    session.get.return_value = None
+    session.execute.return_value = mock_result
+
+    mock_ctx = MagicMock(id="default-ctx", default_cwd="/tmp")  # noqa: S108
+
+    def get_side_effect(model: Any, id: Any) -> Any:
+        if model == Conversation:
+            return None
+        if model == Context:
+            return mock_ctx
+        return None
+
+    session.get.side_effect = get_side_effect
 
     request = AgentRequest(prompt="Hello world")
     response = await service.handle_request(request, session=session)

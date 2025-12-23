@@ -1,13 +1,12 @@
 """System command handler for the Agent Service."""
 
-import shlex
 import logging
+import shlex
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from core.db.models import Conversation, Session
 from sqlalchemy import select
-
-from core.db.models import Conversation, Session, Context
+from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
     from core.core.service import AgentService
@@ -35,7 +34,7 @@ async def handle_system_command(
     except ValueError:
         # Malformed quoting etc.
         return None
-    
+
     if not parts:
         return None
 
@@ -53,10 +52,7 @@ async def handle_system_command(
 
 
 async def _handle_init(
-    args: list[str],
-    service: "AgentService",
-    session: AsyncSession,
-    conversation_id: str
+    args: list[str], service: "AgentService", session: AsyncSession, conversation_id: str
 ) -> str:
     """
     Usage: /init <name> <type> [<key>=<value> ...]
@@ -67,7 +63,7 @@ async def _handle_init(
 
     name = args[0]
     ctype = args[1]
-    
+
     # Parse kwargs
     config = {}
     for kv in args[2:]:
@@ -76,20 +72,20 @@ async def _handle_init(
             config[k] = v
         else:
             # Handle flag or error? MVP: ignore or value=True
-            config[kv] = True
+            config[kv] = "true"
 
     try:
         context = await service.context_manager.create_context(session, name, ctype, config)
-        
+
         # Auto-switch
         # Need to load conversation and update it
         # Assuming conversation exists if we are here?
         # Service handle_request ensures conversation exists before calling?
         # Yes, we will call this inside handle_request AFTER conversation loaded.
-        
+
         # Ideally we reuse the logic of /switch
         await _switch_context(session, conversation_id, context.id, context.default_cwd)
-        
+
         return f"Initialized and switched to new context: **{name}** ({ctype})"
     except Exception as e:
         LOGGER.exception("Failed to init context")
@@ -97,10 +93,7 @@ async def _handle_init(
 
 
 async def _handle_switch(
-    args: list[str],
-    service: "AgentService",
-    session: AsyncSession,
-    conversation_id: str
+    args: list[str], service: "AgentService", session: AsyncSession, conversation_id: str
 ) -> str:
     """
     Usage: /switch <name>
@@ -118,10 +111,7 @@ async def _handle_switch(
 
 
 async def _switch_context(
-    session: AsyncSession,
-    conversation_id: str,
-    context_id: Any,
-    new_cwd: str
+    session: AsyncSession, conversation_id: str, context_id: Any, new_cwd: str
 ) -> None:
     """Helper to update conversation context."""
     conversation = await session.get(Conversation, conversation_id)
@@ -133,9 +123,7 @@ async def _switch_context(
 
 
 async def _handle_status(
-    service: "AgentService",
-    session: AsyncSession,
-    conversation_id: str
+    service: "AgentService", session: AsyncSession, conversation_id: str
 ) -> str:
     """Return status of current conversation."""
     conversation = await session.get(Conversation, conversation_id)
@@ -144,12 +132,14 @@ async def _handle_status(
 
     context = await service.context_manager.get_context_by_id(session, conversation.context_id)
     context_name = context.name if context else "Unknown"
-    
+
     # Get active session
-    sess_stmt = select(Session).where(Session.conversation_id == conversation_id, Session.active == True)
+    sess_stmt = select(Session).where(
+        Session.conversation_id == conversation_id, Session.active.is_(True)
+    )
     sess_res = await session.execute(sess_stmt)
     active_session = sess_res.scalar_one_or_none()
-    
+
     lines = [
         "## Agent Status",
         f"- **Conversation ID:** `{conversation_id}`",

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import time
 import inspect
+import time
 from typing import Any, Literal, cast
 
 from core.command_loader import load_command
@@ -71,7 +71,7 @@ class StepExecutorAgent:
                     result = {"count": len(records)}
                     status = "ok"
                 elif step.executor == "agent" and step.action == "tool":
-                    result, messages, status = await self._run_tool(step)
+                    result, messages, status = await self._run_tool(step, request)
                 elif step.executor in {"litellm", "remote"} and step.action == "completion":
                     completion, model = await self._generate_completion(
                         step, prompt_history, request
@@ -113,6 +113,7 @@ class StepExecutorAgent:
     async def _run_tool(
         self,
         step: PlanStep,
+        request: AgentRequest,
     ) -> tuple[dict[str, Any], list[AgentMessage], str]:
         tool_messages: list[AgentMessage] = []
 
@@ -188,13 +189,15 @@ class StepExecutorAgent:
         # Inject CWD if provided and tool supports it
         cwd = step.args.get("cwd")  # Explicit args take precedence
         if not cwd and "cwd" in (request.metadata or {}):
-             cwd = request.metadata.get("cwd")
+            cwd = (request.metadata or {}).get("cwd")
 
         final_args = tool_args.copy()
         if cwd:
             # Check if tool.run accepts cwd
             sig = inspect.signature(tool.run)
-            if "cwd" in sig.parameters or any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values()):
+            has_cwd = "cwd" in sig.parameters
+            has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+            if has_cwd or has_kwargs:
                 final_args["cwd"] = cwd
 
         with start_span(f"tool.call.{step.tool}"):

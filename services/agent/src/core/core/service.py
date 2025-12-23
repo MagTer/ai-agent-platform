@@ -71,21 +71,21 @@ class AgentService:
         # 1. Ensure Conversation exists (Strict Hierarchy)
         db_conversation = await session.get(Conversation, conversation_id)
         if not db_conversation:
-             # MVP: Auto-create attached to 'default' context if new
+            # MVP: Auto-create attached to 'default' context if new
             stmt = select(Context).where(Context.name == "default")
             result = await session.execute(stmt)
             db_context = result.scalar_one_or_none()
-            
+
             if not db_context:
                 # Bootstrap default context
                 db_context = await self.context_manager.create_context(
                     session, "default", "virtual", {}
                 )
-            
+
             db_conversation = Conversation(
                 id=conversation_id,
-                platform=request.metadata.get("platform", "api"),
-                platform_id=request.metadata.get("platform_id", "generic"),
+                platform=(request.metadata or {}).get("platform", "api"),
+                platform_id=(request.metadata or {}).get("platform_id", "generic"),
                 context_id=db_context.id,
                 current_cwd=db_context.default_cwd,
             )
@@ -103,11 +103,11 @@ class AgentService:
                 response=sys_output,
                 conversation_id=conversation_id,
                 messages=[AgentMessage(role="assistant", content=sys_output)],
-                metadata={"system_command": True}
+                metadata={"system_command": True},
             )
 
         # 3. Resolve Active Context
-        # Refresh conversation in case system command changed it (though we return above, 
+        # Refresh conversation in case system command changed it (though we return above,
         # future commands might chain? No, return above.)
         # If we didn't return, context is stable.
         db_context = await session.get(Context, db_conversation.context_id)
@@ -115,7 +115,9 @@ class AgentService:
             # Should not happen due to FK constraints but safe check
             LOGGER.warning("Context missing for conversation %s", conversation_id)
             # Recover to default?
-            return AgentResponse(response="Error: Context missing.", conversation_id=conversation_id)
+            return AgentResponse(
+                response="Error: Context missing.", conversation_id=conversation_id
+            )
 
         # 4. Get active session
         session_stmt = select(Session).where(
@@ -146,7 +148,7 @@ class AgentService:
         # Inject CWD from conversation
         if db_conversation.current_cwd:
             request_metadata["cwd"] = db_conversation.current_cwd
-            
+
         planner = PlannerAgent(self._litellm, model_name=self._settings.litellm_model)
         plan_supervisor = PlanSupervisorAgent()
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
@@ -224,15 +226,15 @@ class AgentService:
             # AGENTIC (or FAST_PATH with injected plan)
             metadata_tool_results = await self._execute_tools(request_metadata)
             all_tool_results = list(metadata_tool_results)
-            for result in metadata_tool_results:
-                entry = self._tool_result_entry(result, source="metadata")
+            for tool_res in metadata_tool_results:
+                entry = self._tool_result_entry(tool_res, source="metadata")
                 entry.update(current_trace_ids())
                 steps.append(entry)
 
             history_with_tools = list(history)
-            for result in metadata_tool_results:
-                if result.get("status") == "ok" and result.get("output"):
-                    msg_content = f"Tool {result['name']} output:\n{result['output']}"
+            for tool_res in metadata_tool_results:
+                if tool_res.get("status") == "ok" and tool_res.get("output"):
+                    msg_content = f"Tool {tool_res['name']} output:\n{tool_res['output']}"
                     history_with_tools.append(AgentMessage(role="system", content=msg_content))
                     # Persist implicit tool outputs from metadata?
                     # Probably yes, as system messages to keep context?

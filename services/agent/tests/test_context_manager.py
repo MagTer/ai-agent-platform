@@ -1,10 +1,11 @@
-import pytest
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from sqlalchemy.ext.asyncio import AsyncSession
+
+import pytest
 from core.context_manager import ContextManager
 from core.core.config import Settings
 from core.db.models import Context
+from sqlalchemy.ext.asyncio import AsyncSession
+
 
 @pytest.fixture
 def mock_settings(tmp_path):
@@ -12,6 +13,7 @@ def mock_settings(tmp_path):
     # Mock settings.contexts_dir to use tmp_path
     settings.contexts_dir = tmp_path / "contexts"
     return settings
+
 
 @pytest.mark.asyncio
 async def test_create_virtual_context(mock_settings, tmp_path):
@@ -22,7 +24,7 @@ async def test_create_virtual_context(mock_settings, tmp_path):
     session.execute.return_value = mock_result
 
     manager = ContextManager(mock_settings)
-    
+
     # Action
     context = await manager.create_context(session, "test-virtual", "virtual", {})
 
@@ -30,11 +32,12 @@ async def test_create_virtual_context(mock_settings, tmp_path):
     assert session.add.called
     assert context.name == "test-virtual"
     assert context.type == "virtual"
-    
+
     # Verify FS
     expected_path = mock_settings.contexts_dir / "test-virtual"
     assert expected_path.exists()
     assert context.default_cwd == str(expected_path)
+
 
 @pytest.mark.asyncio
 async def test_create_git_context_success(mock_settings):
@@ -60,6 +63,7 @@ async def test_create_git_context_success(mock_settings):
 
         assert context.type == "git"
         assert context.config == args
+
 
 @pytest.mark.asyncio
 async def test_create_context_collision(mock_settings):
