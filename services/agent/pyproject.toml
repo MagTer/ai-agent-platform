@@ -42,6 +42,7 @@ alembic = "^1.17.2"
 beautifulsoup4 = "^4.14.3"
 langchain-text-splitters = "^1.1.0"
 pathspec = "^0.12.1"
+aiogram = "^3.10.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "9.0.0"
@@ -105,13 +106,14 @@ files = ["src/core", "src/orchestrator", "src/interfaces", "src/stack", "src/mod
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = ["typer", "typer.*", "yaml"]
+module = ["typer", "typer.*", "yaml", "aiogram", "aiogram.*"]
 ignore_errors = true
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 addopts = "-ra"
+asyncio_mode = "auto"
 testpaths = ["../../tests", "src/core/tests", "src/stack/tests"]
 
 [tool.coverage.run]

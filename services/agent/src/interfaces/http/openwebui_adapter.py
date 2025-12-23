@@ -14,6 +14,7 @@ from core.db.engine import get_db
 from core.tools.loader import load_tool_registry
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from interfaces.base import PlatformAdapter
 from orchestrator.dispatcher import Dispatcher, DispatchResult
 from orchestrator.skill_loader import SkillLoader
 from orchestrator.utils import render_skill_prompt
@@ -24,6 +25,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class OpenWebUIAdapter(PlatformAdapter):
+    """
+    Adapter for Open WebUI (HTTP/OpenAI API).
+    This is primarily a passive adapter (FastAPI handles the lifecycle),
+    but implementation ensures architectural consistency.
+    """
+
+    async def start(self) -> None:
+        LOGGER.info("OpenWebUIAdapter (HTTP) initialized. Listening via FastAPI.")
+
+    async def stop(self) -> None:
+        LOGGER.info("OpenWebUIAdapter (HTTP) stopped.")
+
+    async def send_message(
+        self, conversation_id: str, content: str, metadata: dict[str, Any] | None = None
+    ) -> None:
+        # In the request-response model, we assume the response is returned
+        # by the endpoint. This method is illustrative or for async push if valid.
+        LOGGER.debug(f"OpenWebUIAdapter.send_message called for {conversation_id}")
+
 
 # --- OpenAI Compatibility Models ---
 

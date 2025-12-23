@@ -95,7 +95,9 @@ class PlannerAgent:
                 "   to find context if needed.\n"
                 "5. **WEB FLOW**: `web_search` results are snippets. \n"
                 "   ALWAYS follow up with `web_fetch` to get page text.\n"
-                "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n\n"
+                "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n"
+                "7. **CHECK TOOLS**: Look at 'Available Tools'. "
+                "If a tool like 'clock' or 'calculator' helps, use it.\n\n"
                 "### EXAMPLES\n"
                 "User: 'Check google.com'\n"
                 "Plan:\n"
@@ -108,6 +110,29 @@ class PlannerAgent:
                 '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
                 '      "action": "completion", \n'
                 '      "args": { "model": "ollama/llama3.1:8b" } }\n'
+                "  ]\n"
+                "}\n\n"
+                "User: 'What time is it?'\n"
+                "Plan:\n"
+                "{\n"
+                '  "description": "Get current time",\n'
+                '  "steps": [\n'
+                '    { "id": "1", "label": "Check Clock", "executor": "agent", \n'
+                '      "action": "tool", "tool": "clock", "args": {} },\n'
+                '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
+                '      "action": "completion" }\n'
+                "  ]\n"
+                "}\n\n"
+                "User: 'Calculate 15 * 7 + 3'\n"
+                "Plan:\n"
+                "{\n"
+                '  "description": "Calculate math expression",\n'
+                '  "steps": [\n'
+                '    { "id": "1", "label": "Calculate", "executor": "agent", \n'
+                '      "action": "tool", "tool": "calculator", \n'
+                '      "args": { "expression": "15 * 7 + 3" } },\n'
+                '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
+                '      "action": "completion" }\n'
                 "  ]\n"
                 "}"
             ),

@@ -73,6 +73,10 @@ def ensure_virtual_environment() -> None:
     # VIRTUAL_ENV covers some other cases (like poetry shell)
     in_venv = (sys.prefix != sys.base_prefix) or (os.environ.get("VIRTUAL_ENV") is not None)
 
+    if is_ci():
+        print_info("CI Environment detected. Skipping virtual environment check.")
+        return
+
     if in_venv:
         return
 

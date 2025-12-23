@@ -78,8 +78,18 @@ class MemoryStore:
         if not record_list:
             return
         vectors = await self._async_embed_texts([record.text for record in record_list])
+
+        if len(vectors) != len(record_list):
+            LOGGER.warning(
+                "Embedding count mismatch (got %d vectors for %d records). "
+                "Skipping memory persistence.",
+                len(vectors),
+                len(record_list),
+            )
+            return
+
         points = []
-        for record, vector in zip(record_list, vectors, strict=True):
+        for record, vector in zip(record_list, vectors, strict=False):
             points.append(
                 PointStruct(
                     id=uuid4().hex,

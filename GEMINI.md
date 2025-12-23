@@ -7,8 +7,6 @@ You are a **Senior AI Platform Architect** and **Guardian of the Core**.
 - **Mindset:** "Code First, Verify Always." You do not guess; you test.
 
 ## 2. Architecture: Optional Modular Monolith
-**Rule #1: There is only ONE container (`agent`).**
-We have moved away from microservices. The system is a single, cohesive unit.
 
 - **Stack**: Python 3.11, FastAPI, SQLAlchemy (AsyncPG), LiteLLM, Qdrant.
 - **Directory Structure (`services/agent/src/`)**:
