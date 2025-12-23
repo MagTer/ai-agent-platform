@@ -22,7 +22,7 @@ jobs:
         with:
           path: |
             services/agent/.venv
-          key: ${{ runner.os }}-poetry-${{ hashFiles('services/agent/poetry.lock', 'services/agent/pyproject.toml') }}
+          key: ${{ runner.os }}-poetry-v1-${{ hashFiles('services/agent/poetry.lock', 'services/agent/pyproject.toml') }}
       - name: Install dependencies
         run: poetry install --no-interaction --directory services/agent
       - name: Run Quality Checks
