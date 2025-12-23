@@ -7,6 +7,7 @@ model_list:
   - model_name: local/llama3-en
     litellm_params:
       model: ollama/llama3.1:8b
+      api_base: http://ollama:11434
   - model_name: rag/llama3-en
     display_name: "RAG -> Llama 3.1 8B"
     litellm_params:

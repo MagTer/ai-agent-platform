@@ -231,6 +231,10 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             LOGGER.error("LiteLLM gateway error: %s", exc)
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
+    @app.get("/v1/models")
+    async def list_models_v1(svc: AgentService = Depends(get_service)) -> Any:
+        return await list_models(svc)
+
     @app.get("/v1/agent/history/{conversation_id}", response_model=list[AgentMessage])
     async def get_history(
         conversation_id: str,

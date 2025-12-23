@@ -9,3 +9,10 @@
   args:
     base_url: http://webfetch:8081
     include_html: false
+
+- name: clock
+  type: core.tools.clock.ClockTool
+
+- name: calculator
+  type: core.tools.calculator.CalculatorTool
+

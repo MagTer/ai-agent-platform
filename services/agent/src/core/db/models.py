@@ -34,6 +34,7 @@ class Conversation(Base):
     platform_id: Mapped[str] = mapped_column(String)
     context_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contexts.id"))
     current_cwd: Mapped[str] = mapped_column(String)
+    conversation_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

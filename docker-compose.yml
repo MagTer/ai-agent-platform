@@ -1,6 +1,33 @@
-version: '3.8'
-
 services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./data/ollama:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: always
+    networks:
+      - default
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./services/litellm/config.yaml:/app/config.yaml
+    command: [ "--config", "/app/config.yaml", "--port", "4000" ]
+    depends_on:
+      - ollama
+    networks:
+      - default
+
   agent:
     build:
       context: ./services/agent
@@ -9,13 +36,18 @@ services:
     env_file:
       - .env
     volumes:
-      - ./config:/app/config:ro
+      - ./services/agent/config:/app/config:ro
       - ./skills:/app/skills:ro
+      - ./services/agent/src:/app/src
+      - ./services/agent/tests:/app/tests
+      - ./services/agent/scripts:/app/scripts
+      - ./services/agent/pyproject.toml:/app/pyproject.toml
     environment:
       AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
       QDRANT_URL: http://qdrant:6333
       SEARXNG_URL: http://searxng:8080
       POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/agent_db}
+      LITELLM_BASE_URL: http://litellm:4000
     ports:
       - "8000:8000"
     depends_on:
@@ -24,6 +56,8 @@ services:
       searxng:
         condition: service_started
       postgres:
+        condition: service_started
+      litellm:
         condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
@@ -79,11 +113,15 @@ services:
       - "3000:8080"
     environment:
       - OPENAI_API_BASE_URL=http://agent:8000/v1
+      - OPENAI_API_KEY=sk-dummy
     volumes:
-      - open-webui:/app/backend/data
+      - ./data/openwebui:/app/backend/data
     depends_on:
       - agent
 
 volumes:
   postgres_data:
-  open-webui:
+
+networks:
+  default:
+    driver: bridge
