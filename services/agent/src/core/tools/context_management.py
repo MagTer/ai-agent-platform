@@ -14,7 +14,10 @@ class PinFileTool(Tool):
     """
 
     name = "pin_file"
-    description = "Pin a file to the active context so it is always available to the agent. Args: filepath (str)"
+    description = (
+        "Pin a file to the active context so it is always available to the agent. "
+        "Args: filepath (str)"
+    )
 
     async def run(self, filepath: str) -> str:
         path = Path(filepath).resolve()
@@ -24,7 +27,7 @@ class PinFileTool(Tool):
         # Determine Context (Simplification: Get first context or match cwd)
         # Ideally this should be passed from the Agent state, but tools are stateless.
         # We assume the 'primary' context is what we want.
-        
+
         async with AsyncSessionLocal() as session:
             # Find context that matches current working directory or just the first one
             # We used 'default_cwd' in data model
@@ -33,21 +36,21 @@ class PinFileTool(Tool):
             context = result.scalar_one_or_none()
 
             if not context:
-                # Fallback: Create a default context if none exists? 
+                # Fallback: Create a default context if none exists?
                 # Or raise error. raising error seems safer.
                 raise ToolError("No active context found in database.")
 
             pinned = list(context.pinned_files) if context.pinned_files else []
             s_path = str(path)
-            
+
             if s_path in pinned:
                 return f"File already pinned: {filepath}"
-            
+
             pinned.append(s_path)
-            context.pinned_files = pinned # type: ignore
+            context.pinned_files = pinned
             session.add(context)
             await session.commit()
-            
+
             return f"Pinned file: {filepath}"
 
 
@@ -72,16 +75,16 @@ class UnpinFileTool(Tool):
                 raise ToolError("No active context found.")
 
             pinned = list(context.pinned_files) if context.pinned_files else []
-            
+
             if s_path not in pinned:
-                 # Try relative path matching?
-                 return f"File was not pinned: {filepath}"
+                # Try relative path matching?
+                return f"File was not pinned: {filepath}"
 
             pinned.remove(s_path)
-            context.pinned_files = pinned # type: ignore
+            context.pinned_files = pinned
             session.add(context)
             await session.commit()
-            
+
             return f"Unpinned file: {filepath}"
 
 
@@ -89,9 +92,13 @@ class IndexCodebaseTool(Tool):
     """
     Triggers checking and indexing of the codebase.
     """
+
     name = "index_codebase"
-    description = "Scans the codebase and indexes semantic chunks for search. Use this if you cannot find code usage."
-    
+    description = (
+        "Scans the codebase and indexes semantic chunks for search. "
+        "Use this if you cannot find code usage."
+    )
+
     async def run(self) -> str:
         root = Path(os.getcwd())
         indexer = CodeIndexer(root)

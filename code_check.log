@@ -1,0 +1,163 @@
+E501 Line too long (138 > 100)
+   --> services/agent/src/core/core/service.py:174:101
+    |
+172 | …         AgentMessage(
+173 | …             role="system",
+174 | …             content=f"## PINNED FILES (Active Context)\nThe following files are pinned to your context:\n\n{combined_pinned}",
+    |                                                                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+175 | …         )
+176 | …     )
+    |
+
+E501 Line too long (130 > 100)
+  --> services/agent/src/core/tests/test_agent_scenarios.py:56:101
+   |
+54 | …
+55 | …
+56 | …al (implicitly handled if not mocked, but let's assume supervisor uses same LLM?)
+   |                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+57 | …this plan...". Since we share one MockLLM, we need to queue logic carefully or make MockLLM smarter.
+58 | …es in order.
+   |
+
+E501 Line too long (149 > 100)
+  --> services/agent/src/core/tests/test_agent_scenarios.py:57:101
+   |
+55 | …
+56 | …citly handled if not mocked, but let's assume supervisor uses same LLM?)
+57 | …...". Since we share one MockLLM, we need to queue logic carefully or make MockLLM smarter.
+   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+58 | …er.
+59 | …
+   |
+
+E501 Line too long (102 > 100)
+  --> services/agent/src/core/tests/test_agent_scenarios.py:84:101
+   |
+82 |     # Let's mock the session or use an in-memory sqlite if possible?
+83 |     # Our `AgentService.handle_request` requires `session: AsyncSession`.
+84 |     # Let's create a dummy AsyncMock for the session since we don't test DB persistence here strictly,
+   |                                                                                                     ^^
+85 |     # OR we use a real in-memory SQLite if `core.db.engine` allows.
+86 |     # Given the constraints, let's use `unittest.mock.AsyncMock` for session.
+   |
+
+E501 Line too long (109 > 100)
+  --> services/agent/src/core/tests/test_agent_scenarios.py:95:101
+   |
+94 |     # This is getting complex to mock fully without a real DB fixture.
+95 |     # Strategy: Mock `session.get` to return a dummy Conversation, `session.execute` to return dummy Context.
+   |                                                                                                     ^^^^^^^^^
+96 |
+97 |     # Mock Context retrieval
+   |
+
+E501 Line too long (112 > 100)
+   --> services/agent/src/core/tests/test_agent_scenarios.py:125:101
+    |
+123 |     # We really should have an in-memory SQLITE fixture.
+124 |     # But for now, let's try to mock the specific calls `handle_request` makes.
+125 |     # Or better: Add a `db_session` fixture that uses `sqlite+aiosqlite:///:memory:` (requires `aiosqlite` dep).
+    |                                                                                                     ^^^^^^^^^^^^
+126 |     # Checking pyproject.toml -> `asyncpg` is used. `aiosqlite` not listed.
+127 |     # We can't use sqlite easily.
+    |
+
+E501 Line too long (114 > 100)
+   --> services/agent/src/core/tests/test_agent_scenarios.py:129:101
+    |
+127 |     # We can't use sqlite easily.
+128 |
+129 |     # Fallback: Mock `session.execute` to return object with `.scalars().all()` returning empty list (no history).
+    |                                                                                                     ^^^^^^^^^^^^^^
+130 |     mock_result = MagicMock()
+131 |     mock_result.scalar_one_or_none.return_value = None  # For session lookup -> triggers new session
+    |
+
+E501 Line too long (113 > 100)
+  --> services/agent/src/core/tools/context_management.py:17:101
+   |
+16 |     name = "pin_file"
+17 |     description = "Pin a file to the active context so it is always available to the agent. Args: filepath (str)"
+   |                                                                                                     ^^^^^^^^^^^^^
+18 |
+19 |     async def run(self, filepath: str) -> str:
+   |
+
+E501 Line too long (118 > 100)
+  --> services/agent/src/core/tools/context_management.py:94:101
+   |
+93 |     name = "index_codebase"
+94 |     description = "Scans the codebase and indexes semantic chunks for search. Use this if you cannot find code usage."
+   |                                                                                                     ^^^^^^^^^^^^^^^^^^
+95 |
+96 |     async def run(self) -> str:
+   |
+
+E501 Line too long (110 > 100)
+  --> services/agent/src/core/tools/search_code.py:13:101
+   |
+11 |     description = (
+12 |         "Semantically search the codebase for relevant snippets. "
+13 |         "Useful for finding definitions, usage examples, and understanding code without knowing exact paths. "
+   |                                                                                                     ^^^^^^^^^^
+14 |         "Args: query (str)"
+15 |     )
+   |
+
+S324 Probable use of insecure hash functions in `hashlib`: `md5`
+  --> services/agent/src/modules/indexer/ingestion.py:34:16
+   |
+33 |     def _calculate_hash(self, content: str) -> str:
+34 |         return hashlib.md5(content.encode("utf-8")).hexdigest()
+   |                ^^^^^^^^^^^
+35 |
+36 |     async def _file_needs_update(self, file_path: Path, content_hash: str) -> bool:
+   |
+
+B905 `zip()` without an explicit `strict=` parameter
+   --> services/agent/src/modules/indexer/ingestion.py:123:45
+    |
+121 |         # Prepare Points
+122 |         points = []
+123 |         for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
+    |                                             ^^^^^^^^^^^^^^^^^^^^
+124 |             # Add extra metadata
+125 |             payload = chunk
+    |
+help: Add explicit value for parameter `strict=`
+
+S324 Probable use of insecure hash functions in `hashlib`: `md5`
+   --> services/agent/src/modules/indexer/ingestion.py:132:24
+    |
+130 |             # but we are deleting old chunks anyway so random UUID or hash-based UUID is fine.
+131 |             # Using hash of content + index for stability.
+132 |             point_id = hashlib.md5((content_hash + str(i)).encode()).hexdigest()
+    |                        ^^^^^^^^^^^
+133 |
+134 |             points.append(
+    |
+
+E501 Line too long (104 > 100)
+  --> services/agent/tests/phase5_demo.py:36:101
+   |
+34 |         print("\n[2] Searching Codebase...")
+35 |         req_search = {
+36 |             "prompt": "Search for the Context model definition in models.py. What fields does it have?",
+   |                                                                                                     ^^^^
+37 |             "metadata": {"routing_decision": "AGENTIC"},
+38 |         }
+   |
+
+Found 14 errors.
+No fixes available (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+
+[1m🚀 Starting Quality Assurance Checks...[0m
+   Root: /home/magnus/dev/ai-agent-platform
+   Mode: Local
+
+[94m[1m==> Running Global Linters[0m
+[93mℹ️  Ruff: Auto-fix enabled[0m
+[94m$ /home/magnus/.cache/pypoetry/virtualenvs/ai-agent-platform-hIn861qG-py3.12/bin/python -m ruff check --fix . --config /home/magnus/dev/ai-agent-platform/services/agent/pyproject.toml[0m
+  (cwd: /home/magnus/dev/ai-agent-platform)
+[91m❌ Command failed with exit code 1[0m

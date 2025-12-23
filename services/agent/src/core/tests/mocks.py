@@ -4,7 +4,7 @@ import json
 from collections.abc import Iterable
 from typing import Any
 
-from core.core.litellm_client import LiteLLMClient, LiteLLMError
+from core.core.litellm_client import LiteLLMClient
 from shared.models import AgentMessage
 
 
@@ -25,7 +25,7 @@ class MockLLMClient(LiteLLMClient):
     async def generate(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
         """Return the next response from the queue."""
         self.call_history.append(list(messages))
-        
+
         if self._response_index >= len(self.responses):
             # Default fallback if we run out of mocks
             return "Mock response: I have no more programmed responses."

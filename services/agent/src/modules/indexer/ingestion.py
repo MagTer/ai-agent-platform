@@ -26,12 +26,12 @@ class CodeIndexer:
     def _get_gitignore_spec(self) -> pathspec.PathSpec | None:
         gitignore_path = self.root_path / ".gitignore"
         if gitignore_path.exists():
-            with open(gitignore_path, "r", encoding="utf-8") as f:
+            with open(gitignore_path, encoding="utf-8") as f:
                 return pathspec.PathSpec.from_lines("gitwildmatch", f)
         return None
 
     def _calculate_hash(self, content: str) -> str:
-        return hashlib.md5(content.encode("utf-8")).hexdigest()
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     async def _file_needs_update(self, file_path: Path, content_hash: str) -> bool:
         """
@@ -61,10 +61,13 @@ class CodeIndexer:
             return True  # No record exists
 
         # If record exists, check hash
-        existing_hash = res[0].payload.get("file_hash")
+        payload = res[0].payload
+        if not payload:
+            return True
+        existing_hash = payload.get("file_hash")
         return existing_hash != content_hash
 
-    async def _delete_old_chunks(self, file_path: Path):
+    async def _delete_old_chunks(self, file_path: Path) -> None:
         """
         Delete all chunks associated with this file before re-indexing.
         """
@@ -82,10 +85,10 @@ class CodeIndexer:
             ),
         )
 
-    async def index_file(self, file_path: Path):
+    async def index_file(self, file_path: Path) -> None:
         try:
             # Read Content
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
         except UnicodeDecodeError:
             logger.warning(f"Skipping binary or non-utf8 file: {file_path}")
@@ -117,16 +120,16 @@ class CodeIndexer:
 
         # Prepare Points
         points = []
-        for i, (chunk, vector) in enumerate(zip(chunks, vectors)):
+        for i, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
             # Add extra metadata
             payload = chunk
             payload["file_hash"] = content_hash
             payload["source"] = "codebase"
-            
-            # Create a deterministic ID based on hash + index to allow partial overwrites if needed, 
+
+            # Create a deterministic ID based on hash + index to allow partial overwrites if needed,
             # but we are deleting old chunks anyway so random UUID or hash-based UUID is fine.
             # Using hash of content + index for stability.
-            point_id = hashlib.md5((content_hash + str(i)).encode()).hexdigest()
+            point_id = hashlib.sha256((content_hash + str(i)).encode()).hexdigest()
 
             points.append(
                 models.PointStruct(
@@ -144,34 +147,47 @@ class CodeIndexer:
             )
             logger.info(f"Indexed {len(points)} chunks for {file_path}")
 
-    async def scan_and_index(self):
+    async def scan_and_index(self) -> None:
         spec = self._get_gitignore_spec()
-        
+
         # Always exclude .git, .venv, __pycache__
         # If no gitignore, we should ideally have some defaults
-        
+
         for root, dirs, files in os.walk(self.root_path):
             root_path = Path(root)
-            
+
             # Modify dirs in-place to skip hidden/ignored directories
             # (Basic check)
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("__pycache__", "node_modules", ".venv", "env")]
+            dirs[:] = [
+                d
+                for d in dirs
+                if not d.startswith(".")
+                and d not in ("__pycache__", "node_modules", ".venv", "env")
+            ]
 
             for file in files:
                 if file.startswith("."):
                     continue
-                
+
                 file_path = root_path / file
                 rel_path = file_path.relative_to(self.root_path)
 
                 if spec and spec.match_file(rel_path):
                     continue
 
-                if file_path.suffix not in (".py", ".md", ".txt", ".yml", ".yaml", ".json", ".toml"):
+                if file_path.suffix not in (
+                    ".py",
+                    ".md",
+                    ".txt",
+                    ".yml",
+                    ".yaml",
+                    ".json",
+                    ".toml",
+                ):
                     # Limit to text files we care about for now
                     continue
 
                 await self.index_file(file_path)
 
-    async def close(self):
+    async def close(self) -> None:
         await self.client.close()

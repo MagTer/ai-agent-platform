@@ -69,7 +69,7 @@ class RAGManager:
 
             query_filter = None
             if filters:
-                conditions = []
+                conditions: list[Any] = []
                 for key, value in filters.items():
                     conditions.append(
                         models.FieldCondition(key=key, match=models.MatchValue(value=value))
@@ -98,18 +98,18 @@ class RAGManager:
 
                 if not uri or not text or vec is None:
                     continue
-                
+
                 # Reconstruct doc object
                 doc_info = {
-                    "uri": uri, # Generic URI
-                    "url": payload.get("url"), # Keep explicit if present
+                    "uri": uri,  # Generic URI
+                    "url": payload.get("url"),  # Keep explicit if present
                     "filepath": payload.get("filepath"),
                     "text": text,
                     "score": p.score,
                     "source": payload.get("source", "memory"),
                     # Include other metadata
                     "name": payload.get("name"),
-                    "type": payload.get("type")
+                    "type": payload.get("type"),
                 }
 
                 docs.append(doc_info)

@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 from __future__ import annotations
 
 import sys
@@ -41,16 +42,17 @@ def mock_memory_store(mock_settings):
 from core.tools import ToolRegistry
 from core.tools.filesystem import ReadFileTool
 
+
 @pytest.fixture
 def mock_agent_service(mock_litellm, mock_settings, mock_memory_store):
     # Register core tools for testing
     from pathlib import Path
+
     registry = ToolRegistry([ReadFileTool(base_path=Path("/"))])
-    
+
     return AgentService(
         settings=mock_settings,
         litellm=mock_litellm,
         memory=mock_memory_store,
         tool_registry=registry,
     )
-

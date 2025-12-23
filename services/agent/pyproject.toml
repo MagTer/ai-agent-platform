@@ -101,7 +101,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 # Robustness
 ignore_missing_imports = false 
-files = ["src/core", "src/orchestrator", "src/interfaces", "src/stack"]
+files = ["src/core", "src/orchestrator", "src/interfaces", "src/stack", "src/modules"]
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]

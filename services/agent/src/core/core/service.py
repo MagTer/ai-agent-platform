@@ -171,7 +171,10 @@ class AgentService:
                 history.append(
                     AgentMessage(
                         role="system",
-                        content=f"## PINNED FILES (Active Context)\nThe following files are pinned to your context:\n\n{combined_pinned}",
+                        content=(
+                            f"## PINNED FILES (Active Context)\n"
+                            f"The following files are pinned to your context:\n\n{combined_pinned}"
+                        ),
                     )
                 )
 

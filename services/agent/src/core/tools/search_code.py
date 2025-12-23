@@ -1,5 +1,5 @@
-from modules.rag import RAGManager
 from core.tools.base import Tool, ToolError
+from modules.rag import RAGManager
 
 
 class SearchCodeBaseTool(Tool):
@@ -10,8 +10,8 @@ class SearchCodeBaseTool(Tool):
     name = "search_codebase"
     description = (
         "Semantically search the codebase for relevant snippets. "
-        "Useful for finding definitions, usage examples, and understanding code without knowing exact paths. "
-        "Args: query (str)"
+        "Useful for finding definitions, usage examples, and understanding code "
+        "without knowing exact paths. Args: query (str)"
     )
 
     def __init__(self) -> None:
@@ -35,7 +35,7 @@ class SearchCodeBaseTool(Tool):
                 if name:
                     header += f" ({snippet_type}: {name})"
                 header += f" (Score: {score:.2f})"
-                
+
                 output.append(header)
                 output.append("```python")
                 output.append(text)
