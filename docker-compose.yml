@@ -73,5 +73,17 @@ services:
       timeout: 5s
       retries: 10
 
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
+    environment:
+      - OPENAI_API_BASE_URL=http://agent:8000/v1
+    volumes:
+      - open-webui:/app/backend/data
+    depends_on:
+      - agent
+
 volumes:
   postgres_data:
+  open-webui:

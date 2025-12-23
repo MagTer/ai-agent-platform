@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 from modules.embedder import get_embedder
 from qdrant_client import AsyncQdrantClient
+from qdrant_client.http import models
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,9 @@ class RAGManager:
             candidates.remove(best_i)
         return selected
 
-    async def retrieve(self, query: str, top_k: int | None = None) -> list[dict[str, Any]]:
+    async def retrieve(
+        self, query: str, top_k: int | None = None, filters: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         k = top_k or self.top_k
         try:
             vecs = self.embedder.embed([query])
@@ -64,11 +67,20 @@ class RAGManager:
                 return []
             qvec = np.array(vecs[0], dtype=np.float32)
 
+            query_filter = None
+            if filters:
+                conditions = []
+                for key, value in filters.items():
+                    conditions.append(
+                        models.FieldCondition(key=key, match=models.MatchValue(value=value))
+                    )
+                query_filter = models.Filter(must=conditions)
+
             # Helper to search
-            # We assume collection exists. In a full implementation we might want to check/create.
             res = await self.client.search(  # type: ignore
                 collection_name=self.collection_name,
                 query_vector=qvec.tolist(),
+                query_filter=query_filter,
                 limit=max(k * 3, k),
                 with_payload=True,
                 with_vectors=True,
@@ -79,27 +91,41 @@ class RAGManager:
 
             for p in res:
                 payload = p.payload or {}
-                url = payload.get("url")
+                # Support both 'url' (web) and 'filepath' (code)
+                uri = payload.get("url") or payload.get("filepath")
                 text = payload.get("text")
                 vec = p.vector
 
-                if not url or not text or vec is None:
+                if not uri or not text or vec is None:
                     continue
+                
+                # Reconstruct doc object
+                doc_info = {
+                    "uri": uri, # Generic URI
+                    "url": payload.get("url"), # Keep explicit if present
+                    "filepath": payload.get("filepath"),
+                    "text": text,
+                    "score": p.score,
+                    "source": payload.get("source", "memory"),
+                    # Include other metadata
+                    "name": payload.get("name"),
+                    "type": payload.get("type")
+                }
 
-                docs.append({"url": url, "text": text, "score": p.score, "source": "memory"})
+                docs.append(doc_info)
                 dvecs.append(np.array(vec, dtype=np.float32))
 
             if not docs:
                 return []
 
-            # Dedup by URL
+            # Dedup by URI (filepath or url)
             seen = set()
             uniq_docs = []
             uniq_vecs = []
             for d, v in zip(docs, dvecs, strict=False):
-                if d["url"] in seen:
+                if d["uri"] in seen:
                     continue
-                seen.add(d["url"])
+                seen.add(d["uri"])
                 uniq_docs.append(d)
                 uniq_vecs.append(v)
 
