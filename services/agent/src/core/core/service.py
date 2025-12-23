@@ -147,8 +147,36 @@ class AgentService:
         steps: list[dict[str, Any]] = []
         request_metadata: dict[str, Any] = dict(request.metadata or {})
         # Inject CWD from conversation
+        # Inject CWD from conversation
         if db_conversation.current_cwd:
             request_metadata["cwd"] = db_conversation.current_cwd
+
+        # 3.1. Inject Pinned Files (Active Context)
+        if db_context.pinned_files:
+            from pathlib import Path  # Lazy import or move to top
+
+            pinned_content = []
+            for pf in db_context.pinned_files:
+                try:
+                    p = Path(pf)
+                    if p.exists() and p.is_file():
+                        # Limit size? For now, read full.
+                        # Adding filename header
+                        pinned_content.append(f"### FILE: {pf}\n{p.read_text(encoding='utf-8')}")
+                except Exception as e:
+                    LOGGER.warning(f"Failed to read pinned file {pf}: {e}")
+
+            if pinned_content:
+                combined_pinned = "\n\n".join(pinned_content)
+                history.append(
+                    AgentMessage(
+                        role="system",
+                        content=(
+                            f"## PINNED FILES (Active Context)\n"
+                            f"The following files are pinned to your context:\n\n{combined_pinned}"
+                        ),
+                    )
+                )
 
         planner = PlannerAgent(self._litellm, model_name=self._settings.litellm_model)
         plan_supervisor = PlanSupervisorAgent()

@@ -40,6 +40,8 @@ sqlalchemy = "^2.0.45"
 asyncpg = "^0.31.0"
 alembic = "^1.17.2"
 beautifulsoup4 = "^4.14.3"
+langchain-text-splitters = "^1.1.0"
+pathspec = "^0.12.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "9.0.0"
@@ -99,7 +101,7 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 # Robustness
 ignore_missing_imports = false 
-files = ["src/core", "src/orchestrator", "src/interfaces", "src/stack"]
+files = ["src/core", "src/orchestrator", "src/interfaces", "src/stack", "src/modules"]
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]

@@ -18,6 +18,7 @@ class Context(Base):
     name: Mapped[str] = mapped_column(String, unique=True, index=True)
     type: Mapped[str] = mapped_column(String)  # e.g. 'git_repo', 'devops'
     config: Mapped[dict[str, Any]] = mapped_column(JSONB, default={})
+    pinned_files: Mapped[list[str]] = mapped_column(JSONB, default=list)
     default_cwd: Mapped[str] = mapped_column(String)
 
     conversations = relationship(
