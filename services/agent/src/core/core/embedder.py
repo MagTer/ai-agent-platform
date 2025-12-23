@@ -3,7 +3,6 @@ import logging
 from collections.abc import Sequence
 
 import httpx
-
 from modules.embedder import get_embedder
 
 

@@ -30,9 +30,8 @@ class CalculatorTool(Tool):
         "required": ["expression"],
     }
 
-
     def __init__(self) -> None:
-        self.operators = {
+        self.operators: dict[Any, Any] = {
             ast.Add: operator.add,
             ast.Sub: operator.sub,
             ast.Mult: operator.mul,
@@ -54,7 +53,7 @@ class CalculatorTool(Tool):
     def _eval_expr(self, expr: str) -> float | int:
         return self._eval(ast.parse(expr, mode="eval").body)
 
-    def _eval(self, node: Any) -> float | int:
+    def _eval(self, node: Any) -> Any:
         if isinstance(node, ast.Num):  # <number>
             return node.n
         elif isinstance(node, ast.Constant):  # <number> (Python 3.8+)

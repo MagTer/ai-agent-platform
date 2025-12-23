@@ -106,7 +106,7 @@ files = ["src/core", "src/orchestrator", "src/interfaces", "src/stack", "src/mod
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = ["typer", "typer.*", "yaml"]
+module = ["typer", "typer.*", "yaml", "aiogram", "aiogram.*"]
 ignore_errors = true
 ignore_missing_imports = true
 

@@ -93,7 +93,8 @@ class Dispatcher:
         2. CHAT: General conversation (LLM Classified).
         3. AGENTIC: Complex task (LLM Classified fallback).
 
-        Also handles Conversation resolution and persistence if db_session and agent_service are provided.
+        Also handles Conversation resolution and persistence if db_session and
+        agent_service are provided.
         """
         stripped_message = message.strip()
         request_id = str(uuid.uuid4())
@@ -126,14 +127,16 @@ class Dispatcher:
                         platform_id=platform_id,
                         context_id=context.id,
                         current_cwd=context.default_cwd,
-                        conversation_metadata={}
+                        conversation_metadata={},
                     )
                     db_session.add(new_conv)
                     await db_session.flush()
                     conversation_id = str(new_conv.id)
-                    LOGGER.info(f"Created new conversation {conversation_id} for platform {platform}:{platform_id}")
+                    LOGGER.info(f"New convo {conversation_id} for {platform}:{platform_id}")
                 else:
-                    LOGGER.warning("Default context not found. Passing UUID to AgentService to bootstrap.")
+                    LOGGER.warning(
+                        "Default context not found. Passing UUID to AgentService to bootstrap."
+                    )
                     conversation_id = str(uuid.uuid4())
 
         # 1. Check Explicit Skills (Slash Commands) -> FAST_PATH
@@ -219,13 +222,11 @@ class Dispatcher:
             metadata = {
                 "routing_decision": decision,
                 "platform": platform,
-                "platform_id": platform_id
+                "platform_id": platform_id,
             }
 
             agent_req = AgentRequest(
-                prompt=message,
-                conversation_id=conversation_id,
-                metadata=metadata
+                prompt=message, conversation_id=conversation_id, metadata=metadata
             )
 
             # AgentService handles persistence and execution
@@ -236,5 +237,5 @@ class Dispatcher:
             request_id=request_id,
             original_message=message,
             decision=decision,
-            response=response_text
+            response=response_text,
         )
