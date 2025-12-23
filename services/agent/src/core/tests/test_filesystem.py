@@ -107,3 +107,46 @@ class TestFilesystemTools:
         output = await tool.run("../outside.txt")
         assert "Error:" in output
         assert "outside the sandbox" in output
+
+    # --- EditFileTool Tests ---
+
+    @pytest.mark.asyncio
+    async def test_edit_file_success(self) -> None:
+        """Verify successful search and replace."""
+        from core.tools.filesystem import EditFileTool
+
+        content = "line1\nline2\nline3"
+        self.create_file("edit.txt", content)
+
+        tool = EditFileTool(base_path=str(self.base_path))
+        target = "line2"
+        replacement = "line2_modified"
+
+        output = await tool.run("edit.txt", target=target, replacement=replacement)
+        assert "Success" in output
+
+        # Verify content
+        new_content = (self.base_path / "edit.txt").read_text(encoding="utf-8")
+        assert new_content == "line1\nline2_modified\nline3"
+
+    @pytest.mark.asyncio
+    async def test_edit_file_not_found(self) -> None:
+        """Verify error when target is missing."""
+        from core.tools.filesystem import EditFileTool
+
+        self.create_file("edit.txt", "content")
+        tool = EditFileTool(base_path=str(self.base_path))
+
+        output = await tool.run("edit.txt", target="missing", replacement="foo")
+        assert "Error: Target block not found" in output
+
+    @pytest.mark.asyncio
+    async def test_edit_file_ambiguous(self) -> None:
+        """Verify error when multiple matches found."""
+        from core.tools.filesystem import EditFileTool
+
+        self.create_file("edit.txt", "repeat\nrepeat")
+        tool = EditFileTool(base_path=str(self.base_path))
+
+        output = await tool.run("edit.txt", target="repeat", replacement="foo")
+        assert "Error: Target block found 2 times" in output
