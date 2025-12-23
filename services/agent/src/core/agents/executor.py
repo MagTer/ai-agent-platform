@@ -230,9 +230,18 @@ class StepExecutorAgent:
                     "error",
                 )
         output_text = str(output)
-        tool_messages.append(
-            AgentMessage(role="system", content=f"Tool {step.tool} output:\n{output_text}")
-        )
+
+        # Phase 4: Integration Feedback
+        # If output is error, append a hint to the system message
+        msg_content = f"Tool {step.tool} output:\n{output_text}"
+        if output_text.startswith("Error:"):
+            msg_content += (
+                "\n\nSYSTEM HINT: The last tool call failed. "
+                "Analyze the error above. If it is a syntax error, fix the code. "
+                "If it is a logic error, adjust your plan args."
+            )
+
+        tool_messages.append(AgentMessage(role="system", content=msg_content))
         trace_ctx = TraceContext(**current_trace_ids())
         log_event(
             ToolCallEvent(

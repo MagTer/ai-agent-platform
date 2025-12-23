@@ -156,22 +156,66 @@ class EditFileTool(Tool):
         # Let's simple count occurrences.
         count = content.count(target)
 
-        if count == 0:
-            # Fallback: Try ignoring trailing whitespace on lines?
-            # For strict mode requested: Return Error.
-            return (
-                "Error: Target block not found in file. "
-                "Ensure exact match including whitespace and indentation."
-            )
-
         if count > 1:
             return (
                 f"Error: Target block found {count} times. "
                 "Provide a more unique target block (add surrounding lines)."
             )
 
-        # Single match - safer to use replace
-        new_content = content.replace(target, replacement, 1)
+        if count == 1:
+            # Single match - safer to use replace
+            new_content = content.replace(target, replacement, 1)
+        else:
+            # Fallback: Fuzzy Line Matching
+            # 1. Split into lines
+            content_lines = content.splitlines(keepends=True)
+            target_lines = target.splitlines(keepends=True)
+
+            # 2. Normalize (strip whitespace)
+            norm_content = [line.strip() for line in content_lines]
+            norm_target = [line.strip() for line in target_lines]
+
+            # Remove empty strings from target (ignore purely empty lines in target?)
+            # Actually, keeping structural empty lines is important for matching blocks.
+            # But let's assume 'strip()' makes empty line '' which matches '' in file.
+
+            # 3. Sliding window search
+            n_target = len(norm_target)
+            if n_target == 0:
+                return "Error: Target block is empty."
+
+            matches = []
+            for i in range(len(norm_content) - n_target + 1):
+                if norm_content[i : i + n_target] == norm_target:
+                    matches.append(i)
+
+            if len(matches) == 0:
+                return (
+                    "Error: Target block not found in file (even with fuzzy matching). "
+                    "Ensure the logic and sequence of lines is correct."
+                )
+            if len(matches) > 1:
+                return (
+                    f"Error: Target block found {len(matches)} times via fuzzy matching. "
+                    "Provide a more unique target block (add surrounding lines)."
+                )
+
+            # 4. Replace
+            start_idx = matches[0]
+            end_idx = start_idx + n_target
+
+            # Reconstruct content
+            # Keep lines before match
+            prefix = "".join(content_lines[:start_idx])
+            # Keep lines after match
+            suffix = "".join(content_lines[end_idx:])
+
+            # Determine indentation from the *first* matched line in content?
+            # Or just use raw replacement?
+            # If we rely on fuzzy match, we ignore indentation differences.
+            # But the user provided `replacement` string might assume some indentation.
+            # The standard behavior is usually replacing with provided replacement exactly.
+            new_content = prefix + replacement + suffix
 
         try:
             target_path.write_text(new_content, encoding="utf-8")

@@ -150,3 +150,44 @@ class TestFilesystemTools:
 
         output = await tool.run("edit.txt", target="repeat", replacement="foo")
         assert "Error: Target block found 2 times" in output
+
+    @pytest.mark.asyncio
+    async def test_edit_file_fuzzy_success(self) -> None:
+        """Test fuzzy matching handles whitespace differences."""
+        from core.tools.filesystem import EditFileTool
+
+        file_path = "fuzzy.txt"
+        original_content = "def foo():\n    print('hello')\n    return True\n"
+        self.create_file(file_path, original_content)
+
+        tool = EditFileTool(base_path=str(self.base_path))
+
+        # Target: different indentation/whitespace in target query
+        # Sequence of non-empty lines must match structure
+        target_block = "  def foo():\n \t   print('hello')\n    return True\n"
+
+        replacement = "def bar():\n    return False\n"
+
+        result = await tool.run(file_path, target_block, replacement)
+
+        assert "Success" in result
+        content = (self.base_path / file_path).read_text(encoding="utf-8")
+        assert content == replacement
+
+    @pytest.mark.asyncio
+    async def test_edit_file_fuzzy_fail_structure(self) -> None:
+        """Test fuzzy matching fails if line structure differs (extra lines)."""
+        from core.tools.filesystem import EditFileTool
+
+        file_path = "structure.txt"
+        original_content = "line1\nline2"
+        self.create_file(file_path, original_content)
+
+        tool = EditFileTool(base_path=str(self.base_path))
+
+        # Target has extra newline "structure"
+        target = "line1\n\nline2"
+        result = await tool.run(file_path, target, "repl")
+
+        # Should fail because normalized lines count wont match if logic splits lines
+        assert "Error: Target block not found" in result
