@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
 from core.core.config import Settings, get_settings
-from core.diagnostics.service import DiagnosticsService, TraceSpan
+from core.diagnostics.service import DiagnosticsService, TestResult, TraceSpan
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,14 +25,18 @@ async def get_traces(
     return service.get_recent_traces(limit)
 
 
+@router.post("/run", response_model=list[TestResult])
+async def run_diagnostics(
+    service: DiagnosticsService = Depends(get_diagnostics_service),
+) -> list[TestResult]:
+    return await service.run_diagnostics()
+
+
 @router.get("/", response_class=HTMLResponse)
 async def diagnostics_dashboard(
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> str:
     # MVP Dashboard HTML
-    # Pre-fetch traces to render initial view (or fetch via JS)
-    # We will fetch via JS for valid interactive feeling
-
     html_content = """
 <!DOCTYPE html>
 <html lang="en">
@@ -66,6 +70,20 @@ async def diagnostics_dashboard(
         
         button.refresh { float: right; padding: 8px 16px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; }
         button.refresh:hover { background: #2980b9; }
+
+        /* Health Grid */
+        .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; margin-top: 20px; }
+        .health-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border-left: 5px solid #ddd; }
+        .health-card.ok { border-left-color: #2ecc71; }
+        .health-card.fail { border-left-color: #e74c3c; }
+        .health-card h3 { margin: 0 0 10px 0; font-size: 16px; color: #333; }
+        .health-stat { font-size: 24px; font-weight: bold; }
+        .health-meta { font-size: 12px; color: #777; margin-top: 5px; }
+        .error-msg { color: #e74c3c; font-size: 12px; margin-top: 5px; word-break: break-word; }
+
+        .btn-primary { background: #3498db; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        .btn-primary:hover { background: #2980b9; }
+        .btn-primary:disabled { background: #bdc3c7; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -84,9 +102,13 @@ async def diagnostics_dashboard(
         
         <div id="health" class="panel">
             <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <h3>System Health</h3>
-                <p>Status: <span class="status-ok">ONLINE</span></p>
-                <p><a href="/healthz" target="_blank">View Raw Health JSON</a></p>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h3>System Components</h3>
+                    <button class="btn-primary" onclick="runDiagnostics()" id="btnRun">Run Diagnostics</button>
+                </div>
+                <div id="health-grid" class="health-grid">
+                    <p style="color: #777;">Click "Run Diagnostics" to probe system components.</p>
+                </div>
             </div>
         </div>
         
@@ -119,6 +141,42 @@ async def diagnostics_dashboard(
             const index = tabId === 'health' ? 0 : 1;
             document.querySelectorAll('.tab')[index].classList.add('active');
             document.getElementById(tabId).classList.add('active');
+        }
+
+        async function runDiagnostics() {
+            const btn = document.getElementById('btnRun');
+            const grid = document.getElementById('health-grid');
+            
+            btn.disabled = true;
+            btn.innerText = "Running...";
+            grid.innerHTML = '<p>Probing services...</p>';
+            
+            try {
+                const response = await fetch('/diagnostics/run', { method: 'POST' });
+                const results = await response.json();
+                
+                grid.innerHTML = '';
+                results.forEach(res => {
+                    const statusClass = res.status === 'ok' ? 'ok' : 'fail';
+                    const statusIcon = res.status === 'ok' ? '✅' : '❌';
+                    const errorHtml = res.message ? `<div class="error-msg">${res.message}</div>` : '';
+                    
+                    const card = document.createElement('div');
+                    card.className = `health-card ${statusClass}`;
+                    card.innerHTML = `
+                        <h3>${res.component}</h3>
+                        <div class="health-stat">${statusIcon} ${res.status.toUpperCase()}</div>
+                        <div class="health-meta">${res.latency_ms.toFixed(0)} ms</div>
+                        ${errorHtml}
+                    `;
+                    grid.appendChild(card);
+                });
+            } catch (e) {
+                grid.innerHTML = `<p style="color: red">Failed to run diagnostics: ${e}</p>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Run Diagnostics";
+            }
         }
 
         async function loadTraces() {

@@ -92,3 +92,38 @@ def test_malformed_json_resilience(diagnostics_service, temp_span_file):
     assert len(traces) == 2
     assert traces[0].name == "valid_2"
     assert traces[1].name == "valid"
+
+
+@pytest.mark.asyncio
+async def test_run_diagnostics(diagnostics_service):
+    import httpx
+    import respx
+
+    # Mock settings URLs
+    settings = diagnostics_service._settings
+    settings.litellm_api_base = "http://litellm:4000"
+    settings.qdrant_url = "http://qdrant:6333"
+    settings.embedder_url = "http://embedder:8082"
+
+    with respx.mock(base_url=None) as router:
+        # Mock successful responses
+        router.get("http://ollama:11434/api/tags").mock(return_value=httpx.Response(200))
+        router.get("http://qdrant:6333/collections").mock(return_value=httpx.Response(200))
+        router.get("http://litellm:4000/health/liveness").mock(return_value=httpx.Response(200))
+        router.get("http://embedder:8082/health").mock(
+            return_value=httpx.Response(500)
+        )  # Simulate failure
+
+        results = await diagnostics_service.run_diagnostics()
+
+    assert len(results) == 4
+
+    # Check Ollama (OK)
+    ollama = next(r for r in results if r.component == "Ollama")
+    assert ollama.status == "ok"
+    assert ollama.latency_ms >= 0
+
+    # Check Embedder (Fail)
+    embedder = next(r for r in results if r.component == "Embedder")
+    assert embedder.status == "fail"
+    assert "500" in (embedder.message or "")
