@@ -17,7 +17,10 @@ def test_calculator():
         req = urllib.request.Request(  # noqa: S310
             url,
             data=json.dumps(data).encode("utf-8"),
-            headers={"Content-Type": "application/json", "Authorization": "Bearer sk-dummy"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer sk-dummy",
+            },
         )
         with urllib.request.urlopen(req) as response:  # noqa: S310
             result = json.load(response)

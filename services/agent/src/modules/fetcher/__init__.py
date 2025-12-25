@@ -106,7 +106,12 @@ class WebFetcher:
             if len(text) > self.max_chars:
                 text = text[: self.max_chars] + "\n...\n"
 
-            data = {"url": url, "ok": True, "text": text, "html_truncated": raw_html[:20000]}
+            data = {
+                "url": url,
+                "ok": True,
+                "text": text,
+                "html_truncated": raw_html[:20000],
+            }
             self._cache_set(url, data)
             return data
         except Exception as e:
@@ -117,7 +122,12 @@ class WebFetcher:
 
     async def search(self, query: str, k: int = 5, lang: str = "en") -> dict[str, Any]:
         url = self.searxng_url.rstrip("/") + "/search"
-        params: dict[str, Any] = {"q": query, "format": "json", "language": lang, "safesearch": 1}
+        params: dict[str, Any] = {
+            "q": query,
+            "format": "json",
+            "language": lang,
+            "safesearch": 1,
+        }
         try:
             r = await self.http_client.get(url, params=params, timeout=self.request_timeout)
             r.raise_for_status()
@@ -186,7 +196,9 @@ class WebFetcher:
 
         try:
             response = await acompletion(
-                model=model, messages=[{"role": "user", "content": prompt}], temperature=0
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0,
             )
             return response.choices[0].message.content
         except Exception as e:

@@ -7,7 +7,12 @@ def test_clock():
     url = "http://localhost:8000/v1/chat/completions"
     data = {
         "model": "local/llama3-en",
-        "messages": [{"role": "user", "content": "What time is it right now? Use the clock tool."}],
+        "messages": [
+            {
+                "role": "user",
+                "content": "What time is it right now? Use the clock tool.",
+            }
+        ],
         "stream": False,
     }
 
@@ -17,7 +22,10 @@ def test_clock():
         req = urllib.request.Request(  # noqa: S310
             url,
             data=json.dumps(data).encode("utf-8"),
-            headers={"Content-Type": "application/json", "Authorization": "Bearer sk-dummy"},
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer sk-dummy",
+            },
         )
         with urllib.request.urlopen(req) as response:  # noqa: S310
             result = json.load(response)

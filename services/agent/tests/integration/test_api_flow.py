@@ -71,7 +71,10 @@ async def test_chat_completions_basic_flow():
         "model": "local/llama3-en",
         "messages": [{"role": "user", "content": "/help"}],
         "stream": False,
-        "metadata": {"platform": "integration_test", "platform_id": "test_runner_slash"},
+        "metadata": {
+            "platform": "integration_test",
+            "platform_id": "test_runner_slash",
+        },
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:

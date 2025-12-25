@@ -59,7 +59,10 @@ class RAGManager:
         return selected
 
     async def retrieve(
-        self, query: str, top_k: int | None = None, filters: dict[str, Any] | None = None
+        self,
+        query: str,
+        top_k: int | None = None,
+        filters: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         k = top_k or self.top_k
         try:

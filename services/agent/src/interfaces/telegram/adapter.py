@@ -66,32 +66,23 @@ class TelegramAdapter(PlatformAdapter):
         try:
             async with AsyncSessionLocal() as session:
                 # Delegate to Dispatcher with explicit Platform context
-                result = await self.dispatcher.route_message(
+                # Delegate to Dispatcher with explicit Platform context
+                full_response = ""
+                async for chunk in self.dispatcher.stream_message(
                     session_id=chat_id,  # Temporary ID, logic uses platform_id
                     message=text,
                     platform="telegram",
                     platform_id=chat_id,
                     db_session=session,
                     agent_service=self.agent_service,
-                )
-                LOGGER.info(f"Routing decision: {result.decision}")
+                ):
+                    if chunk["type"] == "content" and chunk["content"]:
+                        full_response += chunk["content"]
+                    elif chunk["type"] == "error" and chunk["content"]:
+                        full_response += f"\nError: {chunk['content']}"
 
-                if result.response:
-                    await self.send_message(chat_id, result.response)
-                elif result.decision == "FAST_PATH" and result.plan:
-                    # Fast Path might not return response text if Dispatcher didn't execute it?
-                    # My Dispatcher update only executes if (agent_service and db_session)
-                    # But FastPath returns EARLY in Dispatcher (Logic #2).
-                    # So FastPath currently generates a Plan but doesn't execute it in Dispatcher.
-
-                    # The Dispatcher logic for FastPath returns DispatchResult(plan=...).
-                    # Logic #4 (Execution) is after Intent Classification.
-                    # So FastPath is NOT executed by Dispatcher.
-
-                    # I should probably update Dispatcher to execute FastPath too?
-                    # OR handle it, but for this refactor, let's assume FastPath is rare/handled.
-                    # I will just log for now.
-                    pass
+                if full_response:
+                    await self.send_message(chat_id, full_response)
 
         except Exception as e:
             LOGGER.error(f"Error handling Telegram message: {e}")

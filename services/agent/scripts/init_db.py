@@ -27,7 +27,10 @@ async def init_db():
             if not result.scalar_one_or_none():
                 LOGGER.info("Seeding 'default' context...")
                 default_ctx = Context(
-                    name="default", type="virtual", config={}, default_cwd="/app/contexts/default"
+                    name="default",
+                    type="virtual",
+                    config={},
+                    default_cwd="/app/contexts/default",
                 )
                 session.add(default_ctx)
                 await session.commit()

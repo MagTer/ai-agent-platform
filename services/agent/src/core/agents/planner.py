@@ -212,7 +212,9 @@ class PlannerAgent:
                     except ValidationError as exc:
                         exc_msg = str(exc)
                         LOGGER.warning(
-                            "Planner generated invalid JSON schema: %s - %s", candidate, exc
+                            "Planner generated invalid JSON schema: %s - %s",
+                            candidate,
+                            exc,
                         )
                 else:
                     exc_msg = "Could not extract valid JSON object from response."
@@ -244,7 +246,8 @@ class PlannerAgent:
                             [
                                 AgentMessage(role="assistant", content=plan_text),
                                 AgentMessage(
-                                    role="user", content=f"Still invalid. Error:\n{exc_msg}"
+                                    role="user",
+                                    content=f"Still invalid. Error:\n{exc_msg}",
                                 ),
                             ]
                         )
