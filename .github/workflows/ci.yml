@@ -13,6 +13,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'poetry'
+          cache-dependency-path: services/agent/poetry.lock
       - uses: abatilo/actions-poetry@v3
         with:
           poetry-version: 1.8.2
