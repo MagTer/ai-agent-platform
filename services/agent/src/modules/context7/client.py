@@ -68,7 +68,7 @@ class Context7Client:
             )
             if not self._session:
                 raise RuntimeError("Failed to create MCP ClientSession")
-                
+
             await self._session.initialize()
             LOGGER.info("Connected to Context7 MCP server.")
         except Exception as e:
