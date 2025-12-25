@@ -93,6 +93,10 @@ class Settings(BaseModel):
         default=None,
         description="URL for the Context7 Model Context Protocol (MCP) server.",
     )
+    context7_api_key: str | None = Field(
+        default=None,
+        description="API Key for Context7 service (required for @upstash/context7-mcp).",
+    )
 
     tools_config_path: Path = Field(
         default=Path("config/tools.yaml"),
