@@ -6,11 +6,12 @@ import shutil
 from contextlib import AsyncExitStack
 from typing import Any
 
+from mcp.client.session import ClientSession
+from mcp.client.stdio import StdioServerParameters, stdio_client
+
 from core.core.config import get_settings
 from core.db.models import McpTool
 from core.observability.tracing import start_span
-from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
 
 LOGGER = logging.getLogger(__name__)
 
