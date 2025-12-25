@@ -1,10 +1,13 @@
+import asyncio
 import json
 import logging
+import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from pydantic import BaseModel
 
 from core.core.config import Settings
@@ -23,10 +26,123 @@ class TraceSpan(BaseModel):
     attributes: dict[str, Any]
 
 
+class TestResult(BaseModel):
+    component: str
+    status: str  # "ok" | "fail"
+    latency_ms: float
+    message: str | None = None
+
+
 class DiagnosticsService:
     def __init__(self, settings: Settings):
         self._settings = settings
         self._trace_log_path = Path(str(settings.trace_span_log_path or "data/spans.jsonl"))
+
+    async def run_diagnostics(self) -> list[TestResult]:
+        """Run functional health checks on system components."""
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            results = await asyncio.gather(
+                self._check_ollama(client),
+                self._check_qdrant(client),
+                self._check_litellm(client),
+                self._check_embedder(client),
+            )
+        return list(results)
+
+    async def _check_ollama(self, client: httpx.AsyncClient) -> TestResult:
+        # Default Ollama is host:11434 usually.
+        # We can infer from settings, but config splits litellm from ollama.
+        # Docker usually uses 'ollama:11434'.
+        url = "http://ollama:11434/api/tags"
+        start = time.perf_counter()
+        try:
+            resp = await client.get(url)
+            latency = (time.perf_counter() - start) * 1000
+            if resp.status_code == 200:
+                return TestResult(component="Ollama", status="ok", latency_ms=latency)
+            return TestResult(
+                component="Ollama",
+                status="fail",
+                latency_ms=latency,
+                message=f"Status {resp.status_code}",
+            )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="Ollama",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    async def _check_qdrant(self, client: httpx.AsyncClient) -> TestResult:
+        url = f"{self._settings.qdrant_url}/collections"
+        start = time.perf_counter()
+        try:
+            resp = await client.get(url)
+            latency = (time.perf_counter() - start) * 1000
+            if resp.status_code == 200:
+                return TestResult(component="Qdrant", status="ok", latency_ms=latency)
+            return TestResult(
+                component="Qdrant",
+                status="fail",
+                latency_ms=latency,
+                message=f"Status {resp.status_code}",
+            )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="Qdrant",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    async def _check_litellm(self, client: httpx.AsyncClient) -> TestResult:
+        url = f"{self._settings.litellm_api_base}/health/liveness"
+        start = time.perf_counter()
+        try:
+            resp = await client.get(url)
+            latency = (time.perf_counter() - start) * 1000
+            if resp.status_code == 200:
+                return TestResult(component="LiteLLM", status="ok", latency_ms=latency)
+            return TestResult(
+                component="LiteLLM",
+                status="fail",
+                latency_ms=latency,
+                message=f"Status {resp.status_code}",
+            )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="LiteLLM",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    async def _check_embedder(self, client: httpx.AsyncClient) -> TestResult:
+        url = f"{self._settings.embedder_url}/health"
+        start = time.perf_counter()
+        try:
+            resp = await client.get(url)
+            latency = (time.perf_counter() - start) * 1000
+            if resp.status_code == 200:
+                return TestResult(component="Embedder", status="ok", latency_ms=latency)
+            return TestResult(
+                component="Embedder",
+                status="fail",
+                latency_ms=latency,
+                message=f"Status {resp.status_code}",
+            )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="Embedder",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
 
     def get_recent_traces(self, limit: int = 50) -> list[TraceSpan]:
         """
