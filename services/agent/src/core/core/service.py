@@ -6,6 +6,18 @@ import logging
 import uuid
 from typing import Any
 
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    Plan,
+    PlanStep,
+    RoutingDecision,
+    StepResult,
+)
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.agents import (
     PlannerAgent,
     PlanSupervisorAgent,
@@ -25,17 +37,6 @@ from core.observability.tracing import current_trace_ids, start_span
 from core.system_commands import handle_system_command
 from core.tools import ToolRegistry
 from core.tools.base import ToolConfirmationError
-from shared.models import (
-    AgentMessage,
-    AgentRequest,
-    AgentResponse,
-    Plan,
-    PlanStep,
-    RoutingDecision,
-    StepResult,
-)
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from .memory import MemoryRecord
 

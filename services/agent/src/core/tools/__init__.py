@@ -1,5 +1,7 @@
 """Tools available to the agent."""
 
+from modules.context7 import Context7GetDocsTool, Context7SearchTool
+
 from .azure_devops import AzureDevOpsTool
 from .base import Tool, ToolError
 from .context_management import IndexCodebaseTool, PinFileTool, UnpinFileTool
@@ -26,4 +28,6 @@ __all__ = [
     "PinFileTool",
     "UnpinFileTool",
     "IndexCodebaseTool",
+    "Context7SearchTool",
+    "Context7GetDocsTool",
 ]

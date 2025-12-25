@@ -4,6 +4,7 @@ from typing import Any
 from aiogram import Bot
 from aiogram import Dispatcher as TelegramDispatcher
 from aiogram.types import Message
+
 from core.core.service import AgentService
 from core.db.engine import AsyncSessionLocal
 from interfaces.base import PlatformAdapter

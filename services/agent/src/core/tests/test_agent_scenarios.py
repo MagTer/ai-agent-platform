@@ -4,9 +4,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from shared.models import AgentRequest
+
 from core.core.service import AgentService
 from core.tests.mocks import MockLLMClient
-from shared.models import AgentRequest
 
 
 @pytest.mark.asyncio

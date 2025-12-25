@@ -4,9 +4,10 @@ import logging
 import shlex
 from typing import TYPE_CHECKING, Any
 
-from core.db.models import Conversation, Session
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.db.models import Conversation, Session
 
 if TYPE_CHECKING:
     from core.core.service import AgentService

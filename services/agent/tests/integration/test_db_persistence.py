@@ -2,9 +2,10 @@ import os
 import uuid
 
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
 from core.db.models import Base, Context, Conversation, Message
 from core.db.models import Session as AgentSession
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 # Use Postgres for testing (requires docker-compose up postgres)
 TEST_DB_URL = os.getenv(

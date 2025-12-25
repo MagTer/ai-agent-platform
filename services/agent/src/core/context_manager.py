@@ -5,10 +5,11 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from core.core.config import Settings
-from core.db.models import Context
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.core.config import Settings
+from core.db.models import Context
 
 LOGGER = logging.getLogger(__name__)
 

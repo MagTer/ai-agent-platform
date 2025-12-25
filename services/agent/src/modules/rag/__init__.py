@@ -3,9 +3,10 @@ import os
 from typing import Any
 
 import numpy as np
-from modules.embedder import get_embedder
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
+
+from modules.embedder import get_embedder
 
 logger = logging.getLogger(__name__)
 

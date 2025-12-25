@@ -1,10 +1,11 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from core.context_manager import ContextManager
 from core.core.config import Settings
 from core.db.models import Context
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.fixture

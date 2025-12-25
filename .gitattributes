@@ -1,34 +1,15 @@
-# Normalize line endings for a Linux-first repo, with Windows-friendly overrides
+# Enforce LF for all files
+* text=auto eol=lf
 
-# Default: LF for all text files
-* text eol=lf
-
-# Windows-host scripts that are commonly edited/run on Windows
-*.ps1 text eol=crlf
-*.bat text eol=crlf
-*.cmd text eol=crlf
-
-# Explicit LF for common project files
-*.sh text eol=lf
-Dockerfile* text eol=lf
-*.dockerfile text eol=lf
-*.yml text eol=lf
-*.yaml text eol=lf
+# Explicitly for python
 *.py text eol=lf
-*.md text eol=lf
-*.txt text eol=lf
-*.json text eol=lf
-*.ts text eol=lf
-*.js text eol=lf
-*.css text eol=lf
-*.html text eol=lf
 
-# Keep these as-is (binary)
-*.png -text
-*.jpg -text
-*.jpeg -text
-*.gif -text
-*.pdf -text
-*.zip -text
-*.tgz -text
-*.gz -text
+# Explicitly for shell scripts
+*.sh text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

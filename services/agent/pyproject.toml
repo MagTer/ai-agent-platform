@@ -66,6 +66,10 @@ extend-exclude = [
     "openwebui",
     ".venv",
 ]
+src = ["src"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "modules", "orchestrator", "interfaces", "stack"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "N"]
