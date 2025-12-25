@@ -1,6 +1,6 @@
 """Tools available to the agent."""
 
-from modules.context7 import Context7SearchTool, Context7GetDocsTool
+from modules.context7 import Context7GetDocsTool, Context7SearchTool
 
 from .azure_devops import AzureDevOpsTool
 from .base import Tool, ToolError
