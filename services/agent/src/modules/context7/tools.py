@@ -1,4 +1,3 @@
-
 import logging
 
 from core.tools.base import Tool
@@ -6,6 +5,7 @@ from core.tools.base import Tool
 from .client import get_context7_client
 
 LOGGER = logging.getLogger(__name__)
+
 
 class Context7SearchTool(Tool):
     name = "context7_search_libraries"
@@ -21,7 +21,7 @@ class Context7SearchTool(Tool):
             # Map our clean arg 'query' to the underlying tool arg 'libraryName'
             # The Context7 tool is named 'resolve-library-id'
             result = await client.call_tool("resolve-library-id", {"libraryName": query})
-            
+
             # Result content is usually a list of TextContent objects
             content_list = result.content
             output = ""
@@ -33,6 +33,7 @@ class Context7SearchTool(Tool):
             LOGGER.exception("Context7 search failed")
             return f"Error searching libraries: {str(e)}"
 
+
 class Context7GetDocsTool(Tool):
     name = "context7_get_docs"
     description = (
@@ -42,26 +43,18 @@ class Context7GetDocsTool(Tool):
     )
 
     async def run(
-        self, 
-        library_id: str, 
-        mode: str = "code", 
-        topic: str | None = None,
-        page: int = 1
+        self, library_id: str, mode: str = "code", topic: str | None = None, page: int = 1
     ) -> str:
         client = await get_context7_client()
         try:
             # underlying tool: 'get-library-docs'
             # args: context7CompatibleLibraryID, mode, topic, page
-            args = {
-                "context7CompatibleLibraryID": library_id,
-                "mode": mode,
-                "page": page
-            }
+            args = {"context7CompatibleLibraryID": library_id, "mode": mode, "page": page}
             if topic:
                 args["topic"] = topic
 
             result = await client.call_tool("get-library-docs", args)
-            
+
             content_list = result.content
             output = ""
             for item in content_list:

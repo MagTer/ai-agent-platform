@@ -6,13 +6,15 @@ import shutil
 from contextlib import AsyncExitStack
 from typing import Any
 
-from core.core.config import get_settings
-from core.db.models import McpTool
-from core.observability.tracing import start_span
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
+from core.core.config import get_settings
+from core.db.models import McpTool
+from core.observability.tracing import start_span
+
 LOGGER = logging.getLogger(__name__)
+
 
 class Context7Client:
     """
@@ -51,8 +53,8 @@ class Context7Client:
             env={
                 **os.environ,
                 "CONTEXT7_API_KEY": api_key or "",
-                "PATH": os.environ.get("PATH", "")
-            }
+                "PATH": os.environ.get("PATH", ""),
+            },
         )
 
         LOGGER.info("Starting Context7 MCP server via npx...")
@@ -78,9 +80,9 @@ class Context7Client:
     async def list_tools(self) -> list[McpTool]:
         if not self._session:
             await self.connect()
-        
+
         if not self._session:
-             return []
+            return []
 
         result = await self._session.list_tools()
         return [McpTool(**tool.model_dump()) for tool in result.tools]
@@ -88,7 +90,7 @@ class Context7Client:
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         if not self._session:
             await self.connect()
-            
+
         if not self._session:
             raise RuntimeError("Context7 Client not connected.")
 
@@ -96,7 +98,9 @@ class Context7Client:
             LOGGER.info("Calling Context7 tool: %s", name)
             return await self._session.call_tool(name, arguments=arguments)
 
+
 _CLIENT_INSTANCE: Context7Client | None = None
+
 
 async def get_context7_client() -> Context7Client:
     global _CLIENT_INSTANCE
