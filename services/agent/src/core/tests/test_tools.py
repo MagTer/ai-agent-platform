@@ -194,7 +194,11 @@ async def test_web_fetch_tool_raises_on_error_response(
     monkeypatch.setenv("CACHE_DIR", str(tmp_path))
 
     mock_fetcher = AsyncMock()
-    mock_fetcher.fetch.return_value = {"url": "https://example.com", "ok": False, "error": "boom"}
+    mock_fetcher.fetch.return_value = {
+        "url": "https://example.com",
+        "ok": False,
+        "error": "boom",
+    }
 
     with patch("core.tools.web_fetch.get_fetcher", return_value=mock_fetcher):
         tool = WebFetchTool(base_url="http://ignored")

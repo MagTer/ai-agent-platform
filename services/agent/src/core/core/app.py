@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
 from core.observability.tracing import configure_tracing
+from interfaces.http.diagnostics import router as diagnostics_router
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
 from ..tools.loader import load_tool_registry
@@ -98,7 +99,8 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                 response.body_iterator = response_stream_wrapper()
             elif hasattr(response, "body"):
                 span.set_attribute(
-                    "http.response.body", response.body.decode("utf-8", errors="replace")
+                    "http.response.body",
+                    response.body.decode("utf-8", errors="replace"),
                 )
         except Exception:
             LOGGER.warning("Failed to capture response body", exc_info=True)
@@ -109,8 +111,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
     litellm_client = LiteLLMClient(settings)
     memory_store = MemoryStore(settings)
-    litellm_client = LiteLLMClient(settings)
-    memory_store = MemoryStore(settings)
+    # Correcting duplicate lines from original if they were present
+    # litellm_client = LiteLLMClient(settings)
+    # memory_store = MemoryStore(settings)
 
     # Load native tools from configuration
     tool_registry = load_tool_registry(settings.tools_config_path)
@@ -188,7 +191,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         except Exception as exc:  # pragma: no cover - defensive branch
             LOGGER.exception("Agent processing failed")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-        message_metadata = dict(response.metadata)
+        message_metadata = dict(response.metadata or {})
         message_metadata["steps"] = response.steps
         choice = ChatCompletionChoice(
             index=0,
@@ -201,7 +204,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         )
         return ChatCompletionResponse(
             id=response.conversation_id,
-            created=int(response.created_at.timestamp()),
+            created=int(response.created_at.timestamp()) if response.created_at else 0,
             model=request.model,
             choices=[choice],
             steps=response.steps,
@@ -249,6 +252,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     app.include_router(openwebui_router)
+    app.include_router(diagnostics_router)
     return app
 
 

@@ -30,7 +30,13 @@ async def test_generate_clean_json(planner, mock_litellm, base_request):
         {
             "description": "Plan",
             "steps": [
-                {"id": "1", "label": "s1", "executor": "agent", "action": "memory", "args": {}}
+                {
+                    "id": "1",
+                    "label": "s1",
+                    "executor": "agent",
+                    "action": "memory",
+                    "args": {},
+                }
             ],
         }
     )
@@ -50,7 +56,13 @@ async def test_generate_markdown_block(planner, mock_litellm, base_request):
         {
             "description": "Plan",
             "steps": [
-                {"id": "1", "label": "s1", "executor": "agent", "action": "memory", "args": {}}
+                {
+                    "id": "1",
+                    "label": "s1",
+                    "executor": "agent",
+                    "action": "memory",
+                    "args": {},
+                }
             ],
         }
     )

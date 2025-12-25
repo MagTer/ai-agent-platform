@@ -138,7 +138,8 @@ class StepExecutorAgent:
 
                     tool_messages.append(
                         AgentMessage(
-                            role="system", content=f"Tool {step.tool} output:\n{output_text}"
+                            role="system",
+                            content=f"Tool {step.tool} output:\n{output_text}",
                         )
                     )
                     # Trace
@@ -226,7 +227,11 @@ class StepExecutorAgent:
                 output = await tool.run(**run_args)
             except TypeError as exc:
                 return (
-                    {"name": step.tool, "status": "error", "reason": f"Invalid arguments: {exc}"},
+                    {
+                        "name": step.tool,
+                        "status": "error",
+                        "reason": f"Invalid arguments: {exc}",
+                    },
                     tool_messages,
                     "error",
                 )

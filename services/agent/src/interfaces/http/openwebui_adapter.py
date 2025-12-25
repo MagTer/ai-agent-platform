@@ -1,4 +1,3 @@
-import asyncio
 import json
 import logging
 import time
@@ -9,7 +8,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from shared.models import AgentMessage, AgentRequest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.core.config import Settings, get_settings
@@ -19,9 +17,8 @@ from core.core.service import AgentService
 from core.db.engine import get_db
 from core.tools.loader import load_tool_registry
 from interfaces.base import PlatformAdapter
-from orchestrator.dispatcher import Dispatcher, DispatchResult
+from orchestrator.dispatcher import Dispatcher
 from orchestrator.skill_loader import SkillLoader
-from orchestrator.utils import render_skill_prompt
 
 LOGGER = logging.getLogger(__name__)
 
@@ -102,191 +99,102 @@ async def chat_completions(
 ) -> Any:
     """
     OpenAI-compatible endpoint for Open WebUI.
-    Routes requests via the Dispatcher.
+    Routes requests via the Dispatcher and streams responses.
     """
     # 1. Extract latest user message
     user_message = ""
-    history_messages = []
     for msg in request.messages:
         if msg.role == "user":
             user_message = msg.content
-        history_messages.append(AgentMessage(role=msg.role, content=msg.content))
 
     if not user_message:
         raise HTTPException(status_code=400, detail="No user message found.")
 
     # Use provided conversation_id or generate new one
-    session_id = request.metadata.get("conversation_id") if request.metadata else None
+    session_id = (request.metadata or {}).get("conversation_id")
     if not session_id:
         session_id = str(uuid.uuid4())
 
-    # 2. Route Message
-    dispatch_result = await dispatcher.route_message(session_id, user_message)
+    # 2. Execute & Stream
+    # We now enforce streaming or at least async generation for all requests
+    # If request.stream is False, we should accumulate (MVP: just stream anyway or error?).
+    # OpenAI allows stream=False.
+    # The requirement says "Streaming-First", so we'll implement the streaming response.
+    # OpenWebUI usually requests stream=True.
 
-    # 3. Execute & Stream
-    if request.stream:
-        return StreamingResponse(
-            stream_response_generator(
-                dispatch_result,
-                request.model,
-                agent_service,
-                history_messages,
-                dispatcher,
-                session,
-            ),
-            media_type="text/event-stream",
-        )
-    else:
-        # Non-streaming response handling
-        # This path is less critical for the current refactor focus but should be updated
-        # to support the Plan injection if present.
-        # For now, let's focus on streaming as that's what OpenWebUI uses.
-
-        # We will mock a quick response for non-streaming if needed or reuse the logic.
-        # For simplicity, we call handle_request appropriately.
-
-        agent_req = AgentRequest(
-            prompt=user_message,
-            conversation_id=session_id,
-            messages=history_messages,
-        )
-
-        if dispatch_result.plan:
-            # Inject the plan into metadata so AgentService picks it up
-            if not agent_req.metadata:
-                agent_req.metadata = {}
-            agent_req.metadata["plan"] = dispatch_result.plan.model_dump()
-
-        elif dispatch_result.skill_name:
-            # Logic for skill: render prompt and replace
-            skill = dispatcher.skill_loader.skills.get(dispatch_result.skill_name)
-            if skill:
-                # We need to parse params again or pass them in DispatchResult
-                # Simplification: pass raw args if DispatchResult held them
-                # For now, re-parse or ignore arguments for this legacy path
-                agent_req.prompt = render_skill_prompt(skill, {})
-
-        response = await agent_service.handle_request(agent_req, session=session)
-        content = response.response
-
-        return {
-            "id": f"chatcmpl-{uuid.uuid4()}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": request.model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": "stop",
-                }
-            ],
-        }
+    return StreamingResponse(
+        stream_response_generator(
+            session_id, user_message, request.model, dispatcher, session, agent_service
+        ),
+        media_type="text/event-stream",
+    )
 
 
 async def stream_response_generator(
-    dispatch_result: DispatchResult,
+    session_id: str,
+    message: str,
     model_name: str,
-    agent_service: AgentService,
-    history: list[AgentMessage],
     dispatcher: Dispatcher,
-    session: AsyncSession,
+    db_session: AsyncSession,
+    agent_service: AgentService,
 ) -> AsyncGenerator[str, None]:
     """
-    Generates SSE events compatible with OpenAI API.
+    Generates SSE events compatible with OpenAI API from AgentChunks.
     """
     chunk_id = f"chatcmpl-{uuid.uuid4()}"
     created = int(time.time())
 
+    # Initial ACK
+    yield _format_chunk(chunk_id, created, model_name, "")
+
     try:
-        yield _format_chunk(chunk_id, created, model_name, "")  # Initial ack
+        async for agent_chunk in dispatcher.stream_message(
+            session_id=session_id,
+            message=message,
+            platform="web",  # defaulting to web
+            platform_id=None,
+            db_session=db_session,
+            agent_service=agent_service,
+        ):
+            chunk_type = agent_chunk["type"]
+            content = agent_chunk.get("content")
 
-        agent_req = AgentRequest(
-            prompt=dispatch_result.original_message,
-            conversation_id=None,  # Will be generated if None, or we could pass it
-            messages=history,
-            metadata={"routing_decision": dispatch_result.decision},
-        )
+            if chunk_type == "content" and content:
+                yield _format_chunk(chunk_id, created, model_name, content)
 
-        # Handle Fast Path (Plan exists)
-        if dispatch_result.plan:
-            yield _format_chunk(chunk_id, created, model_name, "**Fast Path Active**\n\n")
-            if agent_req.metadata is None:
-                agent_req.metadata = {}
-            agent_req.metadata["plan"] = dispatch_result.plan.model_dump()
+            elif chunk_type == "thinking" and content:
+                # Format thoughts as blockquotes or distinct text
+                # OpenWebUI might support <thought> tags but generic markdown is safer
+                formatted = f"\n> *{content}*\n\n"
+                yield _format_chunk(chunk_id, created, model_name, formatted)
 
-        # Handle Legacy Skill
-        elif dispatch_result.skill_name:
-            skill = dispatcher.skill_loader.skills.get(dispatch_result.skill_name)
-            if skill:
-                # Naive param parsing or empty
-                system_prompt = render_skill_prompt(skill, {})
-                agent_req.prompt = system_prompt
-                yield _format_chunk(
-                    chunk_id,
-                    created,
-                    model_name,
-                    f"**Executing Skill**: {skill.name}\n\n",
-                )
-
-        # Execute
-        # AgentService.handle_request will use the injected plan if present
-        # Note: This is a blocking call. Real streaming would require AgentService to yield events.
-        # For now, we simulate streaming of the "Thought Process" (Steps) then the Answer.
-        response = await agent_service.handle_request(agent_req, session=session)
-
-        # 1. Stream Steps as "Thoughts" block
-        if response.steps:
-            yield _format_chunk(chunk_id, created, model_name, "**Thinking Process:**\n\n")
-            for step in response.steps:
-                # Format step based on type
-                step_type = step.get("type", "unknown")
-                if step_type == "plan" and step.get("plan"):
-                    # Show Plan Summary
-                    plan_desc = step["plan"].get("description", "Plan Created")
-                    yield _format_chunk(chunk_id, created, model_name, f"> **Plan**: {plan_desc}\n")
-                elif step_type == "plan_step":  # Step Execution
-                    status = step.get("status", "unknown")
-                    icon = "✅" if status == "ok" else "⏳" if status == "in_progress" else "❌"
-                    label = step.get("label") or step.get("tool") or "Action"
-                    yield _format_chunk(chunk_id, created, model_name, f"> {icon} {label}\n")
-                    if step.get("result"):
-                        # Show small snippet of result if relevant
-                        output = str(step["result"].get("output", ""))
-                        if output:
-                            snippet = (output[:50] + "...") if len(output) > 50 else output
-                            yield _format_chunk(
-                                chunk_id, created, model_name, f">   *Result: {snippet}*\n"
-                            )
-                elif step_type == "tool_call":  # Ad-hoc tool call
+            elif chunk_type == "tool_start":
+                # Maybe show tool call?
+                tool_call = agent_chunk.get("tool_call")
+                if tool_call:
                     yield _format_chunk(
-                        chunk_id, created, model_name, f"> 🛠️ Executed {step.get('name')}\n"
+                        chunk_id,
+                        created,
+                        model_name,
+                        f"`Tool Call: {tool_call.get('name', 'unknown')}`\n",
                     )
 
-            yield _format_chunk(chunk_id, created, model_name, "\n---\n\n")
+            elif chunk_type == "tool_output":
+                output = content
+                if output:
+                    snippet = (output[:100] + "...") if len(output) > 100 else output
+                    yield _format_chunk(
+                        chunk_id, created, model_name, f"\n**Output**: {snippet}\n\n"
+                    )
 
-        full_response_text = response.response
-
-        # 2. Stream Final Answer
-        words = full_response_text.split(" ")
-        for i, word in enumerate(words):
-            text_chunk = word + " " if i < len(words) - 1 else word
-            yield _format_chunk(chunk_id, created, model_name, text_chunk)
-            await asyncio.sleep(0.01)  # Faster simulation
+            elif chunk_type == "error":
+                yield _format_chunk(chunk_id, created, model_name, f"\n**Error**: {content}\n")
 
     except Exception as e:
-        LOGGER.error(f"Error during generation: {e}")
-        yield _format_chunk(chunk_id, created, model_name, f"\n\nError: {str(e)}")
+        LOGGER.error(f"Error during streaming: {e}")
+        yield _format_chunk(chunk_id, created, model_name, f"\n\nSystem Error: {str(e)}")
 
     # Final chunk
-    final_chunk = {
-        "id": chunk_id,
-        "object": "chat.completion.chunk",
-        "created": created,
-        "model": model_name,
-        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
-    }
-    yield f"data: {json.dumps(final_chunk)}\n\n"
     yield "data: [DONE]\n\n"
 
 

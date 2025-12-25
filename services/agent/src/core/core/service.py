@@ -396,14 +396,20 @@ class AgentService:
 
                     step_entry.update(
                         status="confirmation_required",
-                        result={"reason": "confirmation_required", "tool": exc.tool_name},
+                        result={
+                            "reason": "confirmation_required",
+                            "tool": exc.tool_name,
+                        },
                     )
 
                     return await responder.finalize(
                         completion=msg_content,
                         conversation_id=conversation_id,
                         messages=history_with_tools
-                        + [user_message, AgentMessage(role="system", content=msg_content)],
+                        + [
+                            user_message,
+                            AgentMessage(role="system", content=msg_content),
+                        ],
                         steps=steps,
                         metadata={
                             "status": "confirmation_required",

@@ -128,21 +128,44 @@ class _FileSpanExporter(SpanExporter):
         records = []
         for span in spans:
             ctx = span.get_span_context()
+            parent = getattr(span, "parent", None)
+
+            # reliable timestamp conversion (ns to ISO or ms)
+            start_ns = getattr(span, "start_time", 0) or 0
+            end_ns = getattr(span, "end_time", 0) or 0
+
+            duration_ms = (end_ns - start_ns) / 1e6 if end_ns and start_ns else 0.0
+            start_iso = datetime.utcfromtimestamp(start_ns / 1e9).isoformat() if start_ns else None
+
+            # Status extraction
+            status_obj = getattr(span, "status", None)
+            status_code = getattr(status_obj, "status_code", None)
+            status_name = getattr(status_code, "name", "UNSET") if status_code else "UNSET"
+
             record = {
                 "name": getattr(span, "name", "unknown"),
                 "context": {
                     "trace_id": format(getattr(ctx, "trace_id", 0), "032x"),
                     "span_id": format(getattr(ctx, "span_id", 0), "016x"),
+                    "parent_id": (
+                        format(getattr(parent, "span_id", 0), "016x") if parent else None
+                    ),
                 },
                 "kind": getattr(getattr(span, "kind", None), "name", "INTERNAL"),
                 "attributes": dict(getattr(span, "attributes", {}) or {}),
-                "start_time": getattr(span, "start_time", None),
-                "end_time": getattr(span, "end_time", None),
+                "start_time": start_iso,
+                "end_time": (
+                    datetime.utcfromtimestamp(end_ns / 1e9).isoformat() if end_ns else None
+                ),
+                "duration_ms": duration_ms,
+                "status": status_name,
             }
             records.append(record)
+
         with self._path.open("a", encoding="utf-8") as fp:
             for record in records:
                 fp.write(json.dumps(record) + "\n")
+
         if _OTEL_AVAILABLE:
             return _otel_trace.Status(_otel_trace.StatusCode.OK)
         return None

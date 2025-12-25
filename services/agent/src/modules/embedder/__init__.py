@@ -27,7 +27,8 @@ class Embedder:
 
     def _load_model(self) -> None:
         model_name = os.getenv(
-            "EMBEDDER_MODEL_NAME", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+            "EMBEDDER_MODEL_NAME",
+            "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         )
         if SentenceTransformer is None:
             logger.error("sentence-transformers not installed.")

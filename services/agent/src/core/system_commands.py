@@ -53,7 +53,10 @@ async def handle_system_command(
 
 
 async def _handle_init(
-    args: list[str], service: "AgentService", session: AsyncSession, conversation_id: str
+    args: list[str],
+    service: "AgentService",
+    session: AsyncSession,
+    conversation_id: str,
 ) -> str:
     """
     Usage: /init <name> <type> [<key>=<value> ...]
@@ -94,7 +97,10 @@ async def _handle_init(
 
 
 async def _handle_switch(
-    args: list[str], service: "AgentService", session: AsyncSession, conversation_id: str
+    args: list[str],
+    service: "AgentService",
+    session: AsyncSession,
+    conversation_id: str,
 ) -> str:
     """
     Usage: /switch <name>

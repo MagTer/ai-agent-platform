@@ -43,13 +43,21 @@ class Context7GetDocsTool(Tool):
     )
 
     async def run(
-        self, library_id: str, mode: str = "code", topic: str | None = None, page: int = 1
+        self,
+        library_id: str,
+        mode: str = "code",
+        topic: str | None = None,
+        page: int = 1,
     ) -> str:
         client = await get_context7_client()
         try:
             # underlying tool: 'get-library-docs'
             # args: context7CompatibleLibraryID, mode, topic, page
-            args = {"context7CompatibleLibraryID": library_id, "mode": mode, "page": page}
+            args = {
+                "context7CompatibleLibraryID": library_id,
+                "mode": mode,
+                "page": page,
+            }
             if topic:
                 args["topic"] = topic
 
