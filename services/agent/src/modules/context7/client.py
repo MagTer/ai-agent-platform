@@ -10,7 +10,7 @@ from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from core.core.config import get_settings
-from core.db.models import McpTool
+from core.models.mcp import McpTool
 from core.observability.tracing import start_span
 
 LOGGER = logging.getLogger(__name__)
@@ -66,6 +66,9 @@ class Context7Client:
             self._session = await self._exit_stack.enter_async_context(
                 ClientSession(read_stream, write_stream)
             )
+            if not self._session:
+                raise RuntimeError("Failed to create MCP ClientSession")
+                
             await self._session.initialize()
             LOGGER.info("Connected to Context7 MCP server.")
         except Exception as e:
