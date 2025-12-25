@@ -9,6 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
 
       - uses: actions/setup-python@v5
         with:
@@ -16,6 +24,13 @@ jobs:
       - uses: abatilo/actions-poetry@v3
         with:
           poetry-version: 1.8.2
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ hashFiles('services/agent/poetry.lock') }}
+          restore-keys: |
+            poetry-${{ runner.os }}-
       - name: Configure Poetry
         run: poetry config virtualenvs.create false
 
