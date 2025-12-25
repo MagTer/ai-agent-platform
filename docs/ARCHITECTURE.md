@@ -21,6 +21,10 @@ graph TD
         F --> H[Memory / RAG]
         F --> I[Tools / Capabilities]
         F --> J[LLM Client]
+        I --> K[Internal Modules]
+        K --> L[WebFetch]
+        K --> M[Embedder]
+        K --> N[Context7]
     end
 ```
 
