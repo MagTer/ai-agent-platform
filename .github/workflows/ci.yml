@@ -10,14 +10,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: abatilo/actions-poetry@v3
-        with:
-          poetry-version: 1.8.2
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'poetry'
-          cache-dependency-path: services/agent/poetry.lock
+      - uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: 1.8.2
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ hashFiles('services/agent/poetry.lock') }}
+          restore-keys: |
+            poetry-${{ runner.os }}-
       - name: Configure Poetry
         run: poetry config virtualenvs.create false
 
