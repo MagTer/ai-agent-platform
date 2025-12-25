@@ -1,11 +1,12 @@
 import os
 from pathlib import Path
 
+from sqlalchemy import select
+
 from core.db.engine import AsyncSessionLocal
 from core.db.models import Context
 from core.tools.base import Tool, ToolError
 from modules.indexer import CodeIndexer
-from sqlalchemy import select
 
 
 class PinFileTool(Tool):

@@ -10,6 +10,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import pytest
+
 from core.core.config import Settings
 from core.core.memory import MemoryStore
 from core.core.service import AgentService

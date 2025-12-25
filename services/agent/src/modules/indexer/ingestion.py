@@ -6,10 +6,11 @@ from pathlib import Path
 # from pathspec import PathSpec
 # from pathspec.patterns import GitWildMatchPattern
 import pathspec
-from modules.embedder import get_embedder
-from modules.indexer.code_splitter import CodeSplitter
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
+
+from modules.embedder import get_embedder
+from modules.indexer.code_splitter import CodeSplitter
 
 logger = logging.getLogger(__name__)
 

@@ -7,14 +7,15 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
-from core.db.engine import get_db
-from core.observability.tracing import configure_tracing
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from interfaces.http.openwebui_adapter import router as openwebui_router
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.db.engine import get_db
+from core.observability.tracing import configure_tracing
+from interfaces.http.openwebui_adapter import router as openwebui_router
 
 from ..tools.loader import load_tool_registry
 from ..tools.mcp_loader import load_mcp_tools
