@@ -3,7 +3,7 @@
 ## Today
 - **Conversational agent API**: `/v1/agent` accepts a prompt, optional `conversation_id`, and metadata to drive tool usage. `/v1/chat/completions` exposes the same orchestrated flow via the OpenAI schema so Open WebUI can consume structured responses with embedded metadata.
 - **Local reasoning**: LiteLLM proxies to Ollama-hosted Qwen 2.5 models for English and Swedish presets.
-- **Web research tool**: the `web_fetch` tool calls the Webfetch microservice to blend search and memory before LiteLLM completion.
+- **Web research tool**: the `web_fetch` tool calls the internal WebFetch module to blend search and memory before LiteLLM completion.
 - **Semantic memory**: Qdrant stores embeddings for retrieval-augmented prompts; SQLite tracks conversation metadata for continuity.
 
 See `config/tools.yaml` for the runtime tool registry and `docs/architecture/03_tools.md` for testing guidance.

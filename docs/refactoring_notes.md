@@ -10,9 +10,11 @@ All service components are now located in the `services/` directory:
 
 - **`services/agent`**: The core Python application (FastAPI, Orchestrator).
   - Contains `src/`, `Dockerfile`, and `pyproject.toml`.
-- **`services/embedder`**: The sentence-transformer service.
-- **`services/fetcher`**: The web-fetch/scraping service.
-- **`services/ragproxy`**: The RAG proxy service.
+  - **`services/agent/src/modules/`**: Now contains consolidated capabilities:
+      - `embedder`: Sentence-transformer logic.
+      - `webfetch`: Web-fetch/scraping logic.
+      - `ragproxy`: RAG proxy logic.
+      - `context7`: Context management logic.
 - **`services/litellm`**, **`services/qdrant`**, etc.: Configuration directories for supporting services.
 
 ## Gemini CLI Integration

@@ -35,16 +35,12 @@ def _ensure_text(value: str | bytes | None) -> str:
 
 DEFAULT_MODELS = ["llama3.1:8b"]
 DEFAULT_LOG_SERVICES = [
-    "webfetch",
     "n8n",
     "litellm",
     "ollama",
     "openwebui",
     "qdrant",
     "searxng",
-    "embedder",
-    "ragproxy",
-    "context7",
 ]
 
 
@@ -123,13 +119,6 @@ HEALTH_TARGETS: list[HealthTarget] = [
         "mode": "http",
     },
     {
-        "name": "webfetch",
-        "container": "webfetch",
-        "port": 8081,
-        "path": "/health",
-        "mode": "http",
-    },
-    {
         "name": "qdrant",
         "container": "qdrant",
         "port": 6333,
@@ -137,32 +126,11 @@ HEALTH_TARGETS: list[HealthTarget] = [
         "mode": "http",
     },
     {
-        "name": "embedder",
-        "container": "embedder",
-        "port": 8082,
-        "path": "/health",
-        "mode": "http",
-    },
-    {
-        "name": "ragproxy",
-        "container": "ragproxy",
-        "port": 4080,
-        "path": "/health",
-        "mode": "exec",
-    },
-    {
         "name": "openwebui",
         "container": "openwebui",
         "port": 8080,
         "path": "/",
         "mode": "http",
-    },
-    {
-        "name": "Context7",
-        "container": "context7",
-        "port": 8080,
-        "path": "/sse",
-        "mode": "exec",
     },
 ]
 
@@ -264,24 +232,10 @@ def up(
             "timeout": 60.0,
         },
         {
-            "name": "Webfetch",
-            "container": "webfetch",
-            "port": 8081,
-            "path": "/health",
-            "timeout": 60.0,
-        },
-        {
             "name": "Qdrant",
             "container": "qdrant",
             "port": 6333,
             "path": "/healthz",
-            "timeout": 60.0,
-        },
-        {
-            "name": "Embedder",
-            "container": "embedder",
-            "port": 8082,
-            "path": "/health",
             "timeout": 60.0,
         },
     ]
@@ -320,14 +274,6 @@ def up(
         port=8080,
         path="/",
         timeout=30,
-    )
-    _wait_for_service(
-        name="Context7",
-        container="context7",
-        port=8080,
-        path="/",
-        timeout=30,
-        mode="exec",
     )
 
     status = compose.run_compose(["ps"], extra_files=overrides)

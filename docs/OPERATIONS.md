@@ -61,14 +61,9 @@ curl -s http://localhost:8000/healthz | jq
 # Qdrant
 curl -s http://localhost:6333/collections | jq '.result | keys'
 
-# Webfetch
-curl -s http://localhost:8081/health | jq
-
 # Phoenix (LLM Observability)
 curl -s http://localhost:6006 | head -n 5
 
-# Embedder
-curl -s http://localhost:8082/health | jq
 ```
 
 > LiteLLM is still covered by Docker Compose healthchecks and `python -m stack status`.

@@ -3,16 +3,12 @@
 The retrieval stack enriches language model prompts with curated context before
 producing a final answer. It spans five services and a shared vector store:
 
-- **webfetch** – fetches and summarises web pages, optionally powered by
+- **webfetch** – internal module that fetches and summarises web pages, optionally powered by
   SearxNG for metasearch queries.
-- **indexer** – CLI utility that orchestrates bulk ingestion, chunking, and
-  vector upserts into Qdrant.
-- **embedder** – FastAPI service that exposes `/embed` for deterministic
-  sentence-transformer embeddings.
+- **indexer** – CLI utility that orchestrates bulk ingestion, chunking, and vector upserts into Qdrant.
+- **embedder** – internal module that exposes embeddings for deterministic sentence-transformer embeddings.
 - **qdrant** – vector database that stores chunk payloads alongside embeddings.
-- **ragproxy** – user-facing chat completion proxy that retrieves memories,
-  applies Maximal Marginal Relevance (MMR), and forwards augmented prompts to
-  LiteLLM.
+- **ragproxy** – internal module that retrieves memories, applies Maximal Marginal Relevance (MMR), and forwards augmented prompts.
 
 The agent itself can call `web_fetch` or directly query Qdrant, but the contract
 below describes the primary ingest → embed → store → retrieve → re-rank →
@@ -69,19 +65,15 @@ future ragproxy calls to surface them without repeating the crawl.
 
 ## Component Interfaces
 
-### Embedder API
+### Embedder Module
+- Exposes internal functions for embeddings.
+- Previously exposed `POST /embed` (now internal).
 
-- `GET /health` → `{ "ok": true, "model": "..." }`
-- `POST /embed` → accepts an `inputs` list of strings and optional `normalize`
-  flag. Responses include `vectors`, `normalize`, and `dim`. Downstream services
-  assume 384-dimensional cosine-normalised outputs.
 
-### Ragproxy API
+### Ragproxy Module
+- Intercepts requests internally to inject context.
+- Previously exposed `POST /v1/chat/completions`.
 
-- `POST /v1/chat/completions` mirrors the OpenAI schema. Selecting a model that
-  starts with `rag/` enables retrieval. All other models are forwarded directly
-  to LiteLLM without modification.
-- `GET /health` → `{ "ok": true }`
 
 ### Qdrant Usage
 
@@ -94,12 +86,10 @@ future ragproxy calls to surface them without repeating the crawl.
 
 ### SearxNG & Webfetch
 
-- `webfetch` proxies SearxNG via `GET /search` when `SEARXNG_URL` is configured.
+- `webfetch` module proxies SearxNG via `GET /search` calls internally when `SEARXNG_URL` is configured.
   Search results feed summarisation jobs that in turn populate Qdrant.
-- Direct content extraction uses `POST /extract` (batch HTML retrieval) and
-  `POST /summarize` (LiteLLM-backed synthesis). Refer to
-  [`fetcher/app.py`](../../fetcher/app.py) for the specific endpoints exposed to
-  agent tools.
+- Direct content extraction uses internal classes.
+
 
 ## Configuration
 
