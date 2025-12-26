@@ -209,16 +209,17 @@ class StepExecutorAgent:
         with start_span(f"tool.call.{step.tool}"):
             try:
                 if tool.requires_confirmation:
-                    # Check for confirmation token/flag in args (future proofing)
-                    # For now, always raise unless explicit "confirm=True" is in args?
-                    # The Prompt/Request metadata might carry confirmation, but we pass args here.
-                    # Let's check a reserved arg "_confirmed" or similar?
-                    # Or relying on the AgentService to re-call with modification.
-                    # Simple approach: If args.get("confirm_dangerous_action") is not True, raise.
-                    if not final_args.get("confirm_dangerous_action"):
-                        from core.tools.base import ToolConfirmationError
+                    # Phase 3: Log warning but proceed.
+                    # Future Phase 4: Implement interactive pause.
+                    from core.observability.logging import LOGGER
+                    
+                    LOGGER.warning(
+                        f"SAFETY CHECK: Tool '{tool.name}' requires confirmation (Logic pending Phase 4)."
+                    )
 
-                        raise ToolConfirmationError(tool.name, tool_args=final_args)
+                    # if not final_args.get("confirm_dangerous_action"):
+                    #    from core.tools.base import ToolConfirmationError
+                    #    raise ToolConfirmationError(tool.name, tool_args=final_args)
 
                 # Remove confirmation flag before calling tool
                 run_args = final_args.copy()

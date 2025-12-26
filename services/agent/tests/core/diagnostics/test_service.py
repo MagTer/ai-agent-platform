@@ -114,9 +114,14 @@ async def test_run_diagnostics(diagnostics_service):
             return_value=httpx.Response(500)
         )  # Simulate failure
 
+        # Mock OpenWebUI probe (Self)
+        router.get("http://127.0.0.1:8000/v1/models").mock(
+            return_value=httpx.Response(200, json={"object": "list", "data": [{"id": "model-1"}]})
+        )
+
         results = await diagnostics_service.run_diagnostics()
 
-    assert len(results) == 4
+    assert len(results) == 5
 
     # Check Ollama (OK)
     ollama = next(r for r in results if r.component == "Ollama")

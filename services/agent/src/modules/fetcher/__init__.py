@@ -36,12 +36,17 @@ class WebFetcher:
         self.searxng_url = os.getenv("SEARXNG_URL", "http://searxng:8080")
         self.request_timeout = int(os.getenv("FETCHER_REQUEST_TIMEOUT", "15"))
         self.max_chars = int(os.getenv("FETCHER_MAX_CHARS", "12000"))
-        self.cache_dir = Path(os.getenv("CACHE_DIR", "/app/.cache"))
+        # Respect CACHE_DIR or default to user home cache. Fallback to /app/.cache for legacy Docker.
+        default_cache = Path(os.getenv("HOME", "/root")) / ".cache" / "agent-fetcher"
+        if os.access("/app", os.W_OK):
+             default_cache = Path("/app/.cache")
+             
+        self.cache_dir = Path(os.getenv("CACHE_DIR", str(default_cache)))
         self.cache_ttl = int(os.getenv("CACHE_TTL", "86400"))
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.http_client = httpx.AsyncClient()
-        self.rag_manager = RAGManager()  # Internal RAG
+        self.http_client = httpx.AsyncClient(follow_redirects=True)
+        self.rag_manager = None
 
         # Simple Rate Limiting
         self._hits: deque[float] = deque()
@@ -50,7 +55,8 @@ class WebFetcher:
 
     async def close(self) -> None:
         await self.http_client.aclose()
-        await self.rag_manager.close()
+        if self.rag_manager:
+            await self.rag_manager.close()
 
     def _check_rate_limit(self) -> None:
         now = time.time()
@@ -128,27 +134,30 @@ class WebFetcher:
             "language": lang,
             "safesearch": 1,
         }
-        try:
-            r = await self.http_client.get(url, params=params, timeout=self.request_timeout)
-            r.raise_for_status()
-            data = r.json()
-            results = []
-            for item in data.get("results", [])[:k]:
-                results.append(
-                    {
-                        "title": item.get("title"),
-                        "url": item.get("url"),
-                        "snippet": item.get("content") or item.get("snippet"),
-                    }
-                )
-            return {"query": query, "results": results}
-        except Exception as e:
-            logger.error(f"SearxNG failed: {e}")
-            return {"query": query, "results": []}
+        # Let exceptions propagate to the Tool for better visibility
+        r = await self.http_client.get(url, params=params, timeout=self.request_timeout)
+        r.raise_for_status()
+        data = r.json()
+        results = []
+        for item in data.get("results", [])[:k]:
+            results.append(
+                {
+                    "title": item.get("title"),
+                    "url": item.get("url"),
+                    "snippet": item.get("content") or item.get("snippet"),
+                }
+            )
+        return {"query": query, "results": results}
+
+    async def p_search(self, query: str, k: int = 5) -> dict[str, Any]:
+         return await self.search(query, k=k)
 
     async def research(
         self, query: str, k: int = 5, model: str = "gpt-3.5-turbo"
     ) -> dict[str, Any]:
+        if not self.rag_manager:
+            self.rag_manager = RAGManager()
+
         # 1. Parallel: Search Web + Search Memory
         search_task = asyncio.create_task(self.search(query, k=k))
         mem_task = asyncio.create_task(self.rag_manager.retrieve(query, top_k=k))

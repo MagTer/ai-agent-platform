@@ -64,6 +64,11 @@ class Settings(BaseModel):
         description="Vector dimensionality used when creating the Qdrant collection.",
     )
 
+    searxng_url: HttpUrl = Field(
+        default=cast(HttpUrl, "http://searxng:8080"),
+        description="Base URL for the SearXNG search engine.",
+    )
+
     sqlite_state_path: Path = Field(
         default=Path("data/agent_state.sqlite"),
         description="Path to the SQLite database used for metadata.",
