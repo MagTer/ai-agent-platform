@@ -26,17 +26,13 @@ You are a specialized assistant. Your task is to...
 | :--- | :--- | :--- | :--- |
 | `name` | string | Yes | Unique identifier for the skill. Used for routing (e.g., `/unique-skill-id`). |
 | `description` | string | Yes | Used for help listings and semantic routing intent matching. |
-| `inputs` | list | No | A list of input parameters the skill expects. |
+| `variables` | list | No | A list of input parameters the skill expects. |
 | `permission` | string | No | Access level required (default: `read`). |
-| `tools` | list | No | A list of tool names allowed for this skill (e.g., `['web_fetch']`). |
+| `tools` | list | No | A list of exact tool names allowed for this skill (e.g., `['web_fetch']`). Defaults to empty list. |
 
 ## Input Field Schema
 
-Each item in the `inputs` list can have:
-
-*   `name` (string): The variable name to be injected into the prompt.
-*   `required` (boolean): Whether the user must provide this input.
-*   `description` (string): Help text for the argument.
+Each item in the `variables` list is a string representing the variable name to be injected into the prompt.
 
 ## Example
 
@@ -46,13 +42,9 @@ Each item in the `inputs` list can have:
 ---
 name: "daily-briefing"
 description: "Generates a morning summary of emails and tasks"
-tools:
-  - "web_fetch"
-  - "calendar_tool"
-inputs:
-  - name: focus_area
-    required: false
-    description: "Specific project or topic to focus on (e.g., 'marketing')"
+tools: ["web_fetch", "calendar_tool"]
+variables:
+  - focus_area
 permission: "read"
 ---
 You are a briefing assistant.

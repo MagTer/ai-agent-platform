@@ -10,21 +10,19 @@ graph TD
     end
 
     subgraph Orchestrator
-        B --> D{Dispatcher}
-        D -->|Skill Intent| E[Skill Loader]
-        D -->|General Chat| F[Core Engine]
-        E -->|Load .md| G[Skill Registry]
-        G -->|Execute| F
+        B --> D[Agent Service]
+        D -->|Plan| E[Planner Agent]
+        E -->|Delegate| F[Skill Delegate]
+        F -->|Load .md| G[Skill Loader]
+        F -->|Execute| H[Worker Agent]
     end
 
     subgraph Core Engine
-        F --> H[Memory / RAG]
-        F --> I[Tools / Capabilities]
-        F --> J[LLM Client]
-        I --> K[Internal Modules]
-        K --> L[WebFetch]
-        K --> M[Embedder]
-        K --> N[Context7]
+        D -.->|Direct Answer| I[LLM Client]
+        H --> J[Tools / Capabilities]
+        H --> I
+        J --> K[WebFetch]
+        J --> L[Embedder]
     end
 ```
 
@@ -35,9 +33,9 @@ graph TD
     *   Handles authentication, request validation, and response formatting.
     *   Example: `src/interfaces/http/openwebui_adapter.py` converts OpenAI-compatible requests into internal `AgentRequest` objects.
 
-2.  **Orchestrator Layer (`src/orchestrator`)**:
-    *   Manages the "Brain" of the agent.
-    *   **Dispatcher**: Decides whether a user message is a command (Skill) or a conversation (General Chat).
+2.  **Orchestrator Layer (`src/orchestrator` / `src/core/agents`)**:
+    *   **Planner Agent**: The high-level reasoning engine that breaks down user requests into a JSON plan.
+    *   **Skill Delegate**: A specialized tool (`consult_expert`) that instantiates "Worker Agents" for specific domains.
     *   **Skill Loader**: Scans and loads file-based capabilities from the `skills/` directory.
 
 3.  **Core Engine (`src/core`)**:
@@ -49,8 +47,8 @@ graph TD
 
 Skills are defined as **Markdown files** with YAML Frontmatter, located in the `skills/` directory.
 
-*   **Definition**: A skill wraps a prompt template and execution parameters.
+*   **Definition**: A skill wraps a prompt template, execution parameters, and **allowed tools**.
 *   **Discovery**: The `SkillLoader` scans `skills/` at startup.
-*   **Routing**: The `Dispatcher` matches user input against skill triggers (e.g., explicit commands like `/briefing` or semantic intent).
+*   **Execution**: The `Planner Agent` delegates tasks to skills via the `consult_expert` tool. Each skill runs as an isolated Worker Agent loop.
 
 For detailed skill format, see [SKILLS_FORMAT.md](SKILLS_FORMAT.md).
