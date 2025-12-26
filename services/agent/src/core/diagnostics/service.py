@@ -36,6 +36,16 @@ class TestResult(BaseModel):
     message: str | None = None
 
 
+class TraceGroup(BaseModel):
+    trace_id: str
+    root: TraceSpan
+    spans: list[TraceSpan]
+    total_duration_ms: float
+    start_time: datetime
+    snippet: str
+    status: str  # "OK" | "ERR"
+
+
 class DiagnosticsService:
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -313,35 +323,30 @@ class DiagnosticsService:
                 message=str(e),
             )
 
-    def get_recent_traces(self, limit: int = 500) -> list[TraceSpan]:
+    def get_recent_traces(self, limit: int = 1000) -> list[TraceGroup]:
         """
-        Efficiently read the last N lines from the trace log and return parsed spans.
+        Read log, group by trace_id, and return valid trace groups.
         """
         if not self._trace_log_path.exists():
             LOGGER.warning(f"Trace log not found at {self._trace_log_path}")
             return []
 
-        spans: list[TraceSpan] = []
-
+        # 1. Read Raw Spans
+        raw_spans: list[TraceSpan] = []
         try:
-            # Efficiently read last N lines using deque
             with self._trace_log_path.open("r", encoding="utf-8") as f:
-                # deque(f, limit) keeps only the last 'limit' lines in memory
                 last_lines = deque(f, maxlen=limit)
 
             for line in last_lines:
                 try:
                     data = json.loads(line)
                     context = data.get("context", {})
-
-                    # Parse timestamp (already ISO or raw?)
-                    # Tracing export now writes ISO string for start_time
                     start_str = data.get("start_time")
-                    start_dt = datetime.fromisoformat(start_str) if start_str else None
+                    start_dt = datetime.fromisoformat(start_str) if start_str else datetime.utcnow()
 
                     span = TraceSpan(
-                        trace_id=context.get("trace_id", ""),
-                        span_id=context.get("span_id", ""),
+                        trace_id=context.get("trace_id", "unknown"),
+                        span_id=context.get("span_id", "unknown"),
                         parent_id=context.get("parent_id"),
                         name=data.get("name", "unknown"),
                         start_time=start_dt,
@@ -349,15 +354,66 @@ class DiagnosticsService:
                         status=data.get("status", "UNSET"),
                         attributes=data.get("attributes", {}),
                     )
-                    spans.append(span)
-                except (json.JSONDecodeError, ValueError) as e:
-                    LOGGER.warning(f"Failed to parse trace log line: {e}")
+                    raw_spans.append(span)
+                except (json.JSONDecodeError, ValueError):
                     continue
-
         except Exception as e:
             LOGGER.error(f"Error reading trace log: {e}")
+            return []
 
-        # Return reversed so newest keys are top (if read order is oldest-first)
-        # deque(f) reads whole file. Order is oldest -> newest.
-        # We usually want dashboard to show Newest First.
-        return list(reversed(spans))
+        # 2. Group by Trace ID
+        groups: dict[str, list[TraceSpan]] = {}
+        for span in raw_spans:
+            if span.trace_id not in groups:
+                groups[span.trace_id] = []
+            groups[span.trace_id].append(span)
+
+        # 3. Construct TraceGroups
+        trace_groups: list[TraceGroup] = []
+        for trace_id, spans in groups.items():
+            # Sort chronologically
+            spans.sort(key=lambda x: x.start_time or datetime.min)
+            
+            # Find Root (no parent or first in time)
+            root = next((s for s in spans if not s.parent_id), spans[0])
+            
+            # Filter Logic: discard orphans if strictly required, 
+            # but for now we accept best-effort roots
+            
+            # Calc Stats
+            start_time = root.start_time or datetime.utcnow()
+            # approximate total duration
+            end_times = [
+                (s.start_time or start_time).timestamp() * 1000 + s.duration_ms for s in spans
+            ]
+            trace_end = max(end_times) if end_times else start_time.timestamp() * 1000
+            total_duration = trace_end - (start_time.timestamp() * 1000)
+
+            # Status
+            status = "OK"
+            if any(s.status in ("ERROR", "fail") for s in spans):
+                status = "ERR"
+
+            # Snippet
+            snippet = root.name
+            attrs = root.attributes
+            if "prompt" in attrs:
+                snippet = str(attrs["prompt"])[:60]
+            elif "http.request.body" in attrs:
+                snippet = str(attrs["http.request.body"])[:60]
+            elif "message" in attrs:
+                snippet = str(attrs["message"])[:60]
+            
+            trace_groups.append(TraceGroup(
+                trace_id=trace_id,
+                root=root,
+                spans=spans,
+                total_duration_ms=max(0.0, total_duration),
+                start_time=start_time,
+                snippet=snippet,
+                status=status
+            ))
+
+        # 4. Sort by Newest First
+        trace_groups.sort(key=lambda g: g.start_time, reverse=True)
+        return trace_groups
