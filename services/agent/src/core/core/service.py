@@ -179,7 +179,7 @@ class AgentService:
                     )
                 )
 
-        planner = PlannerAgent(self._litellm, model_name=self._settings.litellm_model)
+        planner = PlannerAgent(self._litellm, model_name="planner")
         plan_supervisor = PlanSupervisorAgent()
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
         step_supervisor = StepSupervisorAgent()
@@ -505,7 +505,17 @@ class AgentService:
     async def list_models(self) -> Any:
         """Proxy LiteLLM's `/v1/models` response."""
 
-        return await self._litellm.list_models()
+        return {
+            "data": [
+                {
+                    "id": "ai-agent",
+                    "object": "model",
+                    "created": 1700000000,
+                    "owned_by": "system",
+                }
+            ],
+            "object": "list",
+        }
 
     async def get_history(self, conversation_id: str, session: AsyncSession) -> list[AgentMessage]:
         """Retrieve the conversation history from the database."""
