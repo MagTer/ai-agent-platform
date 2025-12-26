@@ -139,6 +139,33 @@ class LiteLLMClient:
         """Ask the model to emit a plan."""
         return await self.generate(messages, model=model)
 
+    async def run_with_tools(
+        self,
+        messages: Iterable[AgentMessage],
+        tools: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        """Run completion with tool definitions and return full response object."""
+        payload: dict[str, Any] = {
+            "model": model or self._settings.litellm_model,
+            "messages": [message.model_dump() for message in messages],
+            "tools": tools,
+            "tool_choice": "auto",
+        }
+
+        try:
+            response = await self._client.post(
+                "/v1/chat/completions",
+                json=payload,
+                headers=self._build_headers(),
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]
+        except httpx.HTTPError as exc:
+            raise LiteLLMError(f"Tool completion failed: {exc}") from exc
+
     async def list_models(self) -> Any:
         """Return the raw body from LiteLLM's `/v1/models` endpoint."""
 

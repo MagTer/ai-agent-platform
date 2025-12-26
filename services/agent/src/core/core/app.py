@@ -126,6 +126,12 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     # Load native tools from configuration
     tool_registry = load_tool_registry(settings.tools_config_path)
 
+    # Inject Orchestration Tools
+    from core.tools.skill_delegate import SkillDelegateTool
+
+    delegate_tool = SkillDelegateTool(litellm_client, tool_registry)
+    tool_registry.register(delegate_tool)
+
     service_instance = service or AgentService(
         settings=settings,
         litellm=litellm_client,
