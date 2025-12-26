@@ -21,9 +21,10 @@ class SkillDelegateTool(Tool):
 
     name = "consult_expert"
     description = (
-        "Delegate a specific task to a domain expert. "
-        "Required for: Web Search, File Operations, Coding, Math, etc. "
-        "Args: skill='name_of_skill', goal='what to do'"
+        "Delegates a task to a specialized worker persona. "
+        "`skill` MUST be an existing markdown filename (e.g., 'researcher', "
+        "'requirements_engineer') available in the system. "
+        "Do not pass atomic tool names here."
     )
     category = "orchestration"
 

@@ -25,7 +25,7 @@ from core.agents import (
     StepExecutorAgent,
     StepSupervisorAgent,
 )
-from core.command_loader import list_commands
+from core.command_loader import get_registry_index
 from core.context_manager import ContextManager
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
@@ -308,11 +308,13 @@ class AgentService:
                     # But SkillDelegateTool is 'orchestration'.
 
                 tool_descriptions = self._describe_tools(target_tools)
+                available_skills_text = get_registry_index()
 
                 plan = await planner.generate(
                     request,
                     history=history_with_tools,
                     tool_descriptions=tool_descriptions,
+                    available_skills_text=available_skills_text,
                 )
                 plan = await plan_supervisor.review(plan)
 
@@ -704,13 +706,6 @@ class AgentService:
                 elif hasattr(tool, "schema"):
                     info["schema"] = tool.schema
                 tool_list.append(info)
-
-        # 2. Skills (Markdown Commands)
-        skills = list_commands()
-        for skill in skills:
-            if allowlist is not None and skill["name"] not in allowlist:
-                continue
-            tool_list.append(skill)
 
         return tool_list
 
