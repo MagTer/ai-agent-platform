@@ -157,8 +157,11 @@ class EditFileTool(Tool):
         count = content.count(target)
 
         if count == 0:
-            return "Error: Target snippet not found in file. Ensure exact match (including whitespace)."
-        
+            return (
+                "Error: Target snippet not found in file. "
+                "Ensure exact match (including whitespace)."
+            )
+
         if count > 1:
             return (
                 f"Error: Target block found {count} times. "

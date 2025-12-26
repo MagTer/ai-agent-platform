@@ -36,17 +36,18 @@ class WebFetcher:
         self.searxng_url = os.getenv("SEARXNG_URL", "http://searxng:8080")
         self.request_timeout = int(os.getenv("FETCHER_REQUEST_TIMEOUT", "15"))
         self.max_chars = int(os.getenv("FETCHER_MAX_CHARS", "12000"))
-        # Respect CACHE_DIR or default to user home cache. Fallback to /app/.cache for legacy Docker.
+        # Respect CACHE_DIR or default to user home cache.
+        # Fallback to /app/.cache for legacy Docker.
         default_cache = Path(os.getenv("HOME", "/root")) / ".cache" / "agent-fetcher"
         if os.access("/app", os.W_OK):
-             default_cache = Path("/app/.cache")
-             
+            default_cache = Path("/app/.cache")
+
         self.cache_dir = Path(os.getenv("CACHE_DIR", str(default_cache)))
         self.cache_ttl = int(os.getenv("CACHE_TTL", "86400"))
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.http_client = httpx.AsyncClient(follow_redirects=True)
-        self.rag_manager = None
+        self.rag_manager: RAGManager | None = None
 
         # Simple Rate Limiting
         self._hits: deque[float] = deque()
@@ -150,7 +151,7 @@ class WebFetcher:
         return {"query": query, "results": results}
 
     async def p_search(self, query: str, k: int = 5) -> dict[str, Any]:
-         return await self.search(query, k=k)
+        return await self.search(query, k=k)
 
     async def research(
         self, query: str, k: int = 5, model: str = "gpt-3.5-turbo"

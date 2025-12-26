@@ -114,14 +114,40 @@ async def test_run_diagnostics(diagnostics_service):
             return_value=httpx.Response(500)
         )  # Simulate failure
 
+        # New Checks Mocks
+        router.get("http://searxng:8080").mock(return_value=httpx.Response(200))  # SearXNG
+        router.get("http://www.google.com").mock(return_value=httpx.Response(200))  # Internet
+
         # Mock OpenWebUI probe (Self)
         router.get("http://127.0.0.1:8000/v1/models").mock(
             return_value=httpx.Response(200, json={"object": "list", "data": [{"id": "model-1"}]})
         )
 
-        results = await diagnostics_service.run_diagnostics()
+        # Mock Postgres (using patch since it's not HTTP)
+        # We need to patch 'core.diagnostics.service.engine.connect'
+        with pytest.MonkeyPatch.context() as m:
+            from unittest.mock import AsyncMock, MagicMock
 
-    assert len(results) == 5
+            mock_conn = AsyncMock()
+            mock_conn.execute = AsyncMock()
+            mock_connect = MagicMock()
+            mock_connect.return_value.__aenter__.return_value = mock_conn
+
+            # Patch the engine imported in service.py
+            # Note: test imports DiagnosticsService, which imports engine.
+            # We must patch 'core.diagnostics.service.engine'
+            m.setattr("core.diagnostics.service.engine.connect", mock_connect)
+
+            # Also Workspace check touches filesystem.
+            # tmp_path fixture is not used by default settings.
+            # We can rely on default Settings looking for 'contexts' dir.
+            # Ideally we mock or ensure it exists.
+            # For unit test, simpler to mock Path info or ensure dir exists.
+            (Path("contexts")).mkdir(exist_ok=True)
+
+            results = await diagnostics_service.run_diagnostics()
+
+    assert len(results) == 9
 
     # Check Ollama (OK)
     ollama = next(r for r in results if r.component == "Ollama")

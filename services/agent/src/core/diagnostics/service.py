@@ -9,12 +9,11 @@ from typing import Any
 
 import httpx
 from pydantic import BaseModel
-
+from sqlalchemy import text
 
 from core.core.config import Settings
-from core.core.embedder import EmbedderClient, EmbedderError
+from core.core.embedder import EmbedderClient
 from core.db.engine import engine
-from sqlalchemy import text
 
 LOGGER = logging.getLogger(__name__)
 
@@ -135,7 +134,8 @@ class DiagnosticsService:
         embedder = EmbedderClient(str(self._settings.embedder_url))
         start = time.perf_counter()
         try:
-            # We don't use 'client' passed in because EmbedderClient manages its own HTTP/Local switching
+            # We don't use 'client' passed in because EmbedderClient
+            # manages its own HTTP/Local switching
             await embedder.embed_one("ping")
             latency = (time.perf_counter() - start) * 1000
             return TestResult(component="Embedder", status="ok", latency_ms=latency)
@@ -153,26 +153,36 @@ class DiagnosticsService:
         # By default we listen on settings.port (8000).
         # We need to hit localhost:{port}/v1/models
         # This assumes the diagnostics service runs inside the same process/container as the API.
-        
+
         # NOTE: self._settings.host might be 0.0.0.0, we should target localhost or 127.0.0.1
         port = self._settings.port
         url = f"http://127.0.0.1:{port}/v1/models"
-        
+
         start = time.perf_counter()
         try:
             resp = await client.get(url)
             latency = (time.perf_counter() - start) * 1000
-            
+
             if resp.status_code == 200:
                 try:
                     data = resp.json()
                     # Validate OpenAI format: {"object": "list", "data": [...]}
                     if data.get("object") != "list":
-                        return TestResult(component="OpenWebUI API", status="fail", latency_ms=latency, message="Invalid JSON: Missing object='list'")
-                    
+                        return TestResult(
+                            component="OpenWebUI API",
+                            status="fail",
+                            latency_ms=latency,
+                            message="Invalid JSON: Missing object='list'",
+                        )
+
                     if not isinstance(data.get("data"), list):
-                        return TestResult(component="OpenWebUI API", status="fail", latency_ms=latency, message="Invalid JSON: 'data' is not a list")
-                        
+                        return TestResult(
+                            component="OpenWebUI API",
+                            status="fail",
+                            latency_ms=latency,
+                            message="Invalid JSON: 'data' is not a list",
+                        )
+
                     if not data["data"]:
                         # It's technically valid to have empty models, but suspicious for our agent.
                         # Let's warn or pass? Pass is fine, but let's note it.
@@ -180,7 +190,12 @@ class DiagnosticsService:
 
                     return TestResult(component="OpenWebUI API", status="ok", latency_ms=latency)
                 except json.JSONDecodeError:
-                     return TestResult(component="OpenWebUI API", status="fail", latency_ms=latency, message="Invalid JSON response")
+                    return TestResult(
+                        component="OpenWebUI API",
+                        status="fail",
+                        latency_ms=latency,
+                        message="Invalid JSON response",
+                    )
 
             return TestResult(
                 component="OpenWebUI API",
@@ -272,7 +287,7 @@ class DiagnosticsService:
                     latency_ms=0.0,
                     message=f"Contexts dir missing: {path}",
                 )
-            
+
             # Try writing a temp file
             test_file = path / ".health_check"
             try:
@@ -291,7 +306,7 @@ class DiagnosticsService:
             return TestResult(component="Workspace", status="ok", latency_ms=latency)
 
         except Exception as e:
-             return TestResult(
+            return TestResult(
                 component="Workspace",
                 status="fail",
                 latency_ms=(time.perf_counter() - start) * 1000,

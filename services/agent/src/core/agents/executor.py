@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import time
 from typing import Any, Literal, cast
 
@@ -15,6 +16,8 @@ from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
 from core.tools import ToolRegistry
+
+LOGGER = logging.getLogger(__name__)
 
 
 class StepExecutorAgent:
@@ -211,10 +214,10 @@ class StepExecutorAgent:
                 if tool.requires_confirmation:
                     # Phase 3: Log warning but proceed.
                     # Future Phase 4: Implement interactive pause.
-                    from core.observability.logging import LOGGER
-                    
+
                     LOGGER.warning(
-                        f"SAFETY CHECK: Tool '{tool.name}' requires confirmation (Logic pending Phase 4)."
+                        f"SAFETY CHECK: Tool '{tool.name}' requires confirmation "
+                        "(Logic pending Phase 4)."
                     )
 
                     # if not final_args.get("confirm_dangerous_action"):
