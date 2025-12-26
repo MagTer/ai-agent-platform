@@ -53,7 +53,7 @@ async def diagnostics_dashboard(
         .brand { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 8px; }
         
         /* Layout */
-        .layout { display: flex; flex: 1; overflow: hidden; }
+        .layout { display: flex; flex: 1; overflow: hidden; flex-direction: row; } /* Explicit row */
         
         /* Sidebar */
         .sidebar { width: var(--sidebar-w); background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
@@ -99,7 +99,7 @@ async def diagnostics_dashboard(
         .bg-def { background: #9ca3af; }
 
         /* Health Grid Styles */
-        .health-screen { padding: 20px; overflow-y: auto; width: 100%; box-sizing: border-box; }
+        .health-screen { padding: 20px; overflow-y: auto; width: 100%; box-sizing: border-box; display: none; }
         .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 20px; }
         
         .health-card { background: white; padding: 20px; border-radius: 8px; border: 1px solid var(--border); border-top-width: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: transform 0.1s; }
@@ -128,13 +128,14 @@ async def diagnostics_dashboard(
         .close-drawer { cursor: pointer; font-size: 20px; color: var(--text-muted); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
         .close-drawer:hover { background: #f3f4f6; }
         
-        .screen { display: none; height: 100%; flex-direction: column; }
-        .screen.active { display: flex; }
+        .screen { display: none; height: 100%; } /* Removed flex-direction column force */
         
         .tab-nav { display: flex; gap: 24px; font-size: 13px; font-weight: 500; height: 100%; }
         .nav-item { display: flex; align-items: center; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); transition: all 0.2s; padding: 0 4px; }
         .nav-item:hover { color: var(--primary); }
         .nav-item.active { border-bottom-color: var(--primary); color: var(--primary); }
+
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -152,7 +153,7 @@ async def diagnostics_dashboard(
     </div>
 
     <!-- Trace Screen -->
-    <div class="layout screen active" id="view-traces">
+    <div class="layout screen" id="view-traces" style="display:flex">
         <div class="sidebar">
             <div class="sidebar-header">
                 <span>RECENT REQUESTS</span>
@@ -183,13 +184,10 @@ async def diagnostics_dashboard(
                     <div class="waterfall-canvas" id="waterfall"></div>
                 </div>
 
-                <div class="props-panel" id="propsPanel">
+                <div class="props-panel" id="propsPanel" style="display:none"> <!-- Keeping raw HTML logic simpler -->
                     <div class="props-header">
                         <span>Properties</span>
                         <span style="cursor:pointer" onclick="toggleProps()">▼</span>
-                    </div>
-                    <div class="props-content">
-                        <pre class="props-pre" id="propsPre">Select a span to view attributes.</pre>
                     </div>
                 </div>
             </div>
@@ -229,7 +227,16 @@ async def diagnostics_dashboard(
         let currentTab = 'traces';
 
         // --- Init ---
-        // Verify we are loading traces on boot
+        // Global scope helpers for onclick
+        window.switchTab = switchTab;
+        window.refreshCurrent = refreshCurrent;
+        window.runHealthChecks = runHealthChecks;
+        window.selectTrace = selectTrace;
+        window.showProps = showProps;
+        window.closeDrawer = closeDrawer;
+        window.toggleProps = toggleProps;
+
+        // Auto Load
         loadTraces();
 
         function switchTab(tab) {
@@ -238,9 +245,15 @@ async def diagnostics_dashboard(
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             document.getElementById(`tab-${tab}`).classList.add('active');
             
-            // View Updates
-            document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
-            document.getElementById(`view-${tab}`).classList.add('active');
+            // View Logic: Handle Display Modes
+            document.querySelectorAll('.screen').forEach(el => el.style.display = 'none');
+            
+            const view = document.getElementById(`view-${tab}`);
+            if(tab === 'traces') {
+                view.style.display = 'flex'; // Traces needs flex row
+            } else {
+                view.style.display = 'block'; // Health needs block
+            }
         }
 
         function refreshCurrent() {
@@ -251,7 +264,7 @@ async def diagnostics_dashboard(
         // --- Trace Logic ---
         async function loadTraces() {
             const list = document.getElementById('reqList');
-            list.innerHTML = '<div style="padding:20px; text-align:center; color:#999">Loading traces...</div>';
+            if(list) list.innerHTML = '<div style="padding:20px; text-align:center; color:#999">Loading...</div>';
             
             try {
                 const res = await fetch('/diagnostics/traces?limit=1000');
@@ -259,16 +272,16 @@ async def diagnostics_dashboard(
                 traceGroups = await res.json();
                 renderList();
             } catch (e) {
-                list.innerHTML = `<div style="padding:20px; color:red">Error: ${e}</div>`;
+                if(list) list.innerHTML = `<div style="padding:20px; color:red">Error: ${e}</div>`;
             }
         }
-        
-        // ... (Keep existing renderList, selectTrace, renderWaterfall, showDetails as is, just ensure renderList logic matches)
-        // Re-implementing critical parts simplified for the replacement
 
         function renderList() {
             const list = document.getElementById('reqList');
-            document.getElementById('trace-count').innerText = traceGroups.length;
+            if(!list) return;
+            const countEl = document.getElementById('trace-count');
+            if(countEl) countEl.innerText = traceGroups.length;
+            
             list.innerHTML = '';
 
             traceGroups.forEach((g, idx) => {
@@ -298,14 +311,17 @@ async def diagnostics_dashboard(
 
         function selectTrace(idx) {
             document.querySelectorAll('.req-card').forEach(c => c.classList.remove('active'));
-            document.getElementById(`card-${idx}`).classList.add('active');
+            const card = document.getElementById(`card-${idx}`);
+            if(card) card.classList.add('active');
             
             const g = traceGroups[idx];
+            if(!g) return;
+
             document.getElementById('emptyState').classList.add('hidden');
             document.getElementById('detailView').classList.remove('hidden');
             
-            document.getElementById('dTitle').innerText = g.snippet;
-            document.getElementById('dId').innerText = g.trace_id;
+            document.getElementById('dTitle').innerText = g.snippet || 'Unknown';
+            document.getElementById('dId').innerText = g.trace_id || 'N/A';
             document.getElementById('dTime').innerText = new Date(g.start_time).toLocaleString();
             document.getElementById('dDur').innerText = `${g.total_duration_ms.toFixed(0)} ms`;
             
@@ -314,8 +330,14 @@ async def diagnostics_dashboard(
 
         function renderWaterfall(g) {
             const container = document.getElementById('waterfall');
+            if(!container) return;
             container.innerHTML = '';
             
+            if(!g.spans || g.spans.length === 0) {
+                container.innerHTML = '<div style="padding:20px;color:#999">No spans found.</div>';
+                return;
+            }
+
             const totalDur = Math.max(g.total_duration_ms, 1);
             const baseTime = new Date(g.start_time).getTime();
 
@@ -327,11 +349,11 @@ async def diagnostics_dashboard(
                 const width = Math.max((span.duration_ms / totalDur) * 100, 0.5);
                 
                 let bg = 'bg-def';
-                const name = span.name.toLowerCase();
-                const type = span.attributes['type'] || '';
+                const name = (span.name || '').toLowerCase();
+                const type = (span.attributes && span.attributes['type']) || '';
                 
                 if (name.includes('completion') || name.includes('litellm') || type === 'ai') bg = 'bg-ai';
-                else if (name.includes('tool') || span.attributes['tool.name']) bg = 'bg-tool';
+                else if (name.includes('tool') || (span.attributes && span.attributes['tool.name'])) bg = 'bg-tool';
                 else if (name.includes('postgres') || name.includes('db')) bg = 'bg-db';
                 if (span.status === 'ERROR' || span.status === 'fail') bg = 'bg-err';
 
@@ -343,39 +365,34 @@ async def diagnostics_dashboard(
                 bar.style.left = `${left}%`;
                 bar.style.width = `${width}%`;
                 bar.innerText = span.name;
-                bar.onclick = () => showProps(span); // Use showProps to populate panel
+                bar.onclick = () => showProps(span); 
                 
                 row.appendChild(bar);
                 container.appendChild(row);
             });
-             document.getElementById('propsPre').innerText = 'Select a span to view attributes.';
         }
 
         function showProps(span) {
-             // For drawer or panel? The UI uses a bottom props-panel in layout above, but prompt mentions drawer.
-             // The CSS above defines .drawer. Let's use drawer for detail if the layout implies it.
-             // Wait, the previous replacement implemented a "Props Panel" at bottom.
-             // Current CSS defines BOTH Props Panel AND Drawer.
-             // Let's use the Drawer for full details as it's cleaner.
              const content = document.getElementById('drawerContent');
+             if(!content) return;
              content.innerHTML = `
                 <div style="margin-bottom:12px">
-                    <div style="font-weight:600; font-size:16px">${span.name}</div>
+                    <div style="font-weight:600; font-size:16px">${escapeHtml(span.name)}</div>
                     <div style="color:#666; font-size:12px">${span.span_id}</div>
                 </div>
                 <pre>${JSON.stringify(span, null, 2)}</pre>
              `;
-             document.getElementById('attrDrawer').classList.add('open');
+             const drawer = document.getElementById('attrDrawer');
+             if(drawer) drawer.classList.add('open');
         }
 
         function closeDrawer() {
-            document.getElementById('attrDrawer').classList.remove('open');
+            const drawer = document.getElementById('attrDrawer');
+            if(drawer) drawer.classList.remove('open');
         }
         
         function toggleProps() {
-             // Keeps existing panel logic just in case
-             const panel = document.getElementById('propsPanel');
-             panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+             // NOOP - Drawer replaced panel
         }
 
         // --- Health Logic ---
@@ -383,17 +400,16 @@ async def diagnostics_dashboard(
             const btn = document.getElementById('btnRunHealth');
             const grid = document.getElementById('healthGrid');
             
-            btn.disabled = true;
-            btn.innerHTML = `<span style="opacity:0.7">Running Checks...</span>`;
+            if(btn) btn.disabled = true;
+            if(btn) btn.innerHTML = `<span style="opacity:0.7">Running Checks...</span>`;
             
-            // Optimistic UI for grid
-            grid.innerHTML = '<div style="grid-column:1/-1; padding:40px; text-align:center; color:#666;">Probing services (this may take 5-10s)...</div>';
+            if(grid) grid.innerHTML = '<div style="grid-column:1/-1; padding:40px; text-align:center; color:#666;">Probing services (this may take 5-10s)...</div>';
 
             try {
                 const res = await fetch('/diagnostics/run', { method: 'POST' });
                 const results = await res.json();
                 
-                grid.innerHTML = '';
+                if(grid) grid.innerHTML = '';
                 results.forEach(r => {
                     const statusClass = r.status === 'ok' ? 'ok' : 'fail';
                     const latency = r.latency_ms.toFixed(0);
@@ -402,7 +418,7 @@ async def diagnostics_dashboard(
                     card.className = `health-card ${statusClass}`;
                     card.innerHTML = `
                         <div class="hc-header">
-                            <h3 class="hc-title">${r.component}</h3>
+                            <h3 class="hc-title">${escapeHtml(r.component)}</h3>
                             <span class="hc-badge ${statusClass}">${r.status.toUpperCase()}</span>
                         </div>
                         <div class="hc-stat" style="color:${r.status === 'ok' ? '#059669' : '#dc2626'}">
@@ -411,21 +427,15 @@ async def diagnostics_dashboard(
                         <div class="hc-meta">Latency: ${latency} ms</div>
                         ${r.message ? `<div class="hc-error">${escapeHtml(r.message)}</div>` : ''}
                     `;
-                    grid.appendChild(card);
+                    if(grid) grid.appendChild(card);
                 });
                 
             } catch (e) {
-                grid.innerHTML = `<div style="color:red; grid-column:1/-1; text-align:center">Client Error: ${e}</div>`;
+                if(grid) grid.innerHTML = `<div style="color:red; grid-column:1/-1; text-align:center">Client Error: ${e}</div>`;
             } finally {
-                btn.disabled = false;
-                btn.innerText = "Run Integration Tests";
+                if(btn) btn.disabled = false;
+                if(btn) btn.innerText = "Run Integration Tests";
             }
-        }
-
-        function runHealth() {
-             // Legacy button support
-             switchTab('health');
-             runHealthChecks(); // Auto-run?
         }
         
         function escapeHtml(str) {
