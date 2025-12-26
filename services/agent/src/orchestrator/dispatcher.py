@@ -347,6 +347,22 @@ class Dispatcher:
                             "tool_call": None,
                             "metadata": step,
                         }
+                    elif step_type == "plan_step":
+                        # Yield Step Start
+                        yield {
+                            "type": "step_start",
+                            "content": step.get("label") or f"Step {step.get('id')}",
+                            "tool_call": None,
+                            "metadata": step,
+                        }
+                        # If meaningful tool use, yield tool_start
+                        if step.get("action") == "tool" and step.get("tool"):
+                            yield {
+                                "type": "tool_start",
+                                "content": None,
+                                "tool_call": {"name": step.get("tool")},
+                                "metadata": step,
+                            }
                     elif step_type == "tool":
                         yield {
                             "type": "tool_output",
