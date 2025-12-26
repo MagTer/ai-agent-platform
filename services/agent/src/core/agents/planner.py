@@ -110,7 +110,7 @@ class PlannerAgent:
                 '      "args": { "url": "https://google.com" } },\n'
                 '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
                 '      "action": "completion", \n'
-                '      "args": { "model": "ollama/llama3.1:8b" } }\n'
+                '      "args": { "model": "agentchat" } }\n'
                 "  ]\n"
                 "}\n\n"
                 "User: 'What time is it?'\n"

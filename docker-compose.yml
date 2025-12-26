@@ -23,6 +23,8 @@ services:
     volumes:
       - ./services/litellm/config.yaml:/app/config.yaml
     command: [ "--config", "/app/config.yaml", "--port", "4000" ]
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     depends_on:
       - ollama
     networks:
@@ -98,9 +100,10 @@ services:
     ports:
       - "${SEARXNG_PORT:-8080}:8080"
     volumes:
-      - ./services/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ./services/searxng/settings.yml:/etc/searxng/settings.yml
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_SECRET: "super-secret-key-fix-diagnostics-123"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
       interval: 10s

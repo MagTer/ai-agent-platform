@@ -62,11 +62,15 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         if not span.is_recording():
             return await call_next(request)
 
+        path = request.url.path
+        skip_body = path.startswith(("/diagnostics", "/health", "/metrics", "/v1/agent/history"))
+
         # Capture request body
         try:
             body = await request.body()
-            if body:
-                span.set_attribute("http.request.body", body.decode("utf-8", errors="replace"))
+            if body and not skip_body:
+                text = body.decode("utf-8", errors="replace")
+                span.set_attribute("http.request.body", text[:2000])
 
             # Re-seed the body for downstream consumers
             async def receive() -> dict[str, Any]:
@@ -77,6 +81,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             LOGGER.warning("Failed to capture request body", exc_info=True)
 
         response = await call_next(request)
+
+        if skip_body:
+            return response
 
         # Capture response body
         # Note: This reads streaming responses which might have performance impact
@@ -94,13 +101,14 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                     # After stream is consumed
                     if chunks:
                         full_body = b"".join(chunks).decode("utf-8", errors="replace")
-                        span.set_attribute("http.response.body", full_body)
+                        span.set_attribute("http.response.body", full_body[:2000])
 
                 response.body_iterator = response_stream_wrapper()
             elif hasattr(response, "body"):
+                text_body = response.body.decode("utf-8", errors="replace")
                 span.set_attribute(
                     "http.response.body",
-                    response.body.decode("utf-8", errors="replace"),
+                    text_body[:2000],
                 )
         except Exception:
             LOGGER.warning("Failed to capture response body", exc_info=True)
