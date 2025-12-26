@@ -71,9 +71,17 @@ class DiagnosticsService:
                 )
         except Exception as e:
             LOGGER.error(f"Diagnostics runner crashed: {e}")
-            return [TestResult(component="Diagnostics Runner", status="fail", latency_ms=0, message=str(e))]
+            return [
+                TestResult(
+                    component="Diagnostics Runner",
+                    status="fail",
+                    latency_ms=0,
+                    message=str(e),
+                )
+            ]
 
-        # Filter out exceptions if any slipped through (though helpers catch Exception)
+        # Filter out exceptions if any slipped through
+        # (though helpers catch Exception)
         final_results: list[TestResult] = []
         for r in results:
             if isinstance(r, TestResult):
@@ -81,10 +89,10 @@ class DiagnosticsService:
             elif isinstance(r, Exception):
                 final_results.append(
                     TestResult(
-                        component="Unknown", 
-                        status="fail", 
-                        latency_ms=0, 
-                        message=f"Unhandled Error: {r}"
+                        component="Unknown",
+                        status="fail",
+                        latency_ms=0,
+                        message=f"Unhandled Error: {r}",
                     )
                 )
         return final_results
@@ -395,13 +403,13 @@ class DiagnosticsService:
         for trace_id, spans in groups.items():
             # Sort chronologically
             spans.sort(key=lambda x: x.start_time or datetime.min)
-            
+
             # Find Root (no parent or first in time)
             root = next((s for s in spans if not s.parent_id), spans[0])
-            
-            # Filter Logic: discard orphans if strictly required, 
+
+            # Filter Logic: discard orphans if strictly required,
             # but for now we accept best-effort roots
-            
+
             # Calc Stats
             start_time = root.start_time or datetime.utcnow()
             # approximate total duration
@@ -425,16 +433,18 @@ class DiagnosticsService:
                 snippet = str(attrs["http.request.body"])[:60]
             elif "message" in attrs:
                 snippet = str(attrs["message"])[:60]
-            
-            trace_groups.append(TraceGroup(
-                trace_id=trace_id,
-                root=root,
-                spans=spans,
-                total_duration_ms=max(0.0, total_duration),
-                start_time=start_time,
-                snippet=snippet,
-                status=status
-            ))
+
+            trace_groups.append(
+                TraceGroup(
+                    trace_id=trace_id,
+                    root=root,
+                    spans=spans,
+                    total_duration_ms=max(0.0, total_duration),
+                    start_time=start_time,
+                    snippet=snippet,
+                    status=status,
+                )
+            )
 
         # 4. Sort by Newest First
         trace_groups.sort(key=lambda g: g.start_time, reverse=True)

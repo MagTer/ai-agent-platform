@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
 from core.core.config import Settings, get_settings
-from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup, TraceSpan
+from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
 
 LOGGER = logging.getLogger(__name__)
 

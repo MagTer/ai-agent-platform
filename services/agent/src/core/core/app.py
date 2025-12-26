@@ -69,7 +69,8 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         try:
             body = await request.body()
             if body and not skip_body:
-                span.set_attribute("http.request.body", body.decode("utf-8", errors="replace")[:2000])
+                text = body.decode("utf-8", errors="replace")
+                span.set_attribute("http.request.body", text[:2000])
 
             # Re-seed the body for downstream consumers
             async def receive() -> dict[str, Any]:
@@ -104,9 +105,10 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
                 response.body_iterator = response_stream_wrapper()
             elif hasattr(response, "body"):
+                text_body = response.body.decode("utf-8", errors="replace")
                 span.set_attribute(
                     "http.response.body",
-                    response.body.decode("utf-8", errors="replace")[:2000],
+                    text_body[:2000],
                 )
         except Exception:
             LOGGER.warning("Failed to capture response body", exc_info=True)
