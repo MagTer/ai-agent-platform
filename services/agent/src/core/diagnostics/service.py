@@ -313,7 +313,7 @@ class DiagnosticsService:
                 message=str(e),
             )
 
-    def get_recent_traces(self, limit: int = 50) -> list[TraceSpan]:
+    def get_recent_traces(self, limit: int = 500) -> list[TraceSpan]:
         """
         Efficiently read the last N lines from the trace log and return parsed spans.
         """
