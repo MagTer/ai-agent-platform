@@ -51,6 +51,19 @@ class SkillLoader:
         LOGGER.info(f"Loaded {len(self.skills)} skills.")
         return self.skills
 
+    def get_registry_index(self) -> str:
+        """Return a bulleted list of available skills for the prompt."""
+        if not self.skills:
+            self.load_skills()
+
+        if not self.skills:
+            return "(No skills loaded)"
+
+        lines = []
+        for name, skill in self.skills.items():
+            lines.append(f"• [{name}]: {skill.description}")
+        return "\n".join(lines)
+
     def _parse_skill_file(self, file_path: str) -> Skill | None:
         with open(file_path, encoding="utf-8") as f:
             content = f.read()

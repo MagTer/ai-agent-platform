@@ -31,6 +31,7 @@ class PlannerAgent:
         *,
         history: list[AgentMessage],
         tool_descriptions: list[dict[str, Any]],
+        available_skills_text: str = "",
     ) -> Plan:
         """Return a :class:`Plan` describing execution steps."""
 
@@ -72,6 +73,7 @@ class PlannerAgent:
                 "You are an ORCHESTRATOR, not a worker. You CANNOT perform tasks directly \n"
                 "(e.g., searching the web, writing code, reading files).\n"
                 "You MUST delegate work to Domain Experts using the `consult_expert` tool.\n\n"
+                f"### AVAILABLE SKILLS (Roles)\n{available_skills_text}\n\n"
                 "### RESPONSE FORMAT (Strict JSON Only)\n"
                 "You must output a single JSON object. No conversational text.\n"
                 "{\n"
@@ -88,17 +90,20 @@ class PlannerAgent:
                 "  ]\n"
                 "}\n\n"
                 "### RULES\n"
-                "1. **NO GUESSING**: If you need information, delegate to `web_search` skill.\n"
-                "2. **STRICT ARGS**: Use exactly the arguments defined in the \n"
+                "1. **NO GUESSING**: If you need information, delegate to a SKILL\n"
+                "   from the list above.\n"
+                "2. **CRITICAL**: The `skill` argument for `consult_expert`\n"
+                "   MUST be one of the exact 'Role' keys listed in 'AVAILABLE SKILLS'.\n"
+                "   DO NOT put tool names (like 'web_search', 'python', 'google')\n"
+                "   as the skill name.\n"
+                "   Example: call `consult_expert(skill='researcher')`,\n"
+                "   NOT `confirm_expert(skill='web_search')`.\n"
+                "3. **STRICT ARGS**: Use exactly the arguments defined in the \n"
                 "   'Available Tools' list.\n"
-                "3. **FINAL STEP**: Must be `action: completion` (executor: litellm) \n"
+                "4. **FINAL STEP**: Must be `action: completion` (executor: litellm) \n"
                 "   to answer the user.\n"
-                "4. **MEMORY**: Use `action: memory` (args: { 'query': '...' }) \n"
+                "5. **MEMORY**: Use `action: memory` (args: { 'query': '...' }) \n"
                 "   to find context if needed.\n"
-                "5. **DELEGATION**: Use `actions: tool, tool: consult_expert` \n"
-                "   with `skill='skill_name'` and `goal='specific instructions'`. \n"
-                "   Available skills are NOT listed as tools, assume they exist for: \n"
-                "   web_search, file_ops, coding, reasoning.\n"
                 "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n\n"
                 "### EXAMPLES\n"
                 "User: 'Research python 3.12'\n"
@@ -108,7 +113,7 @@ class PlannerAgent:
                 '  "steps": [\n'
                 '    { "id": "1", "label": "Research", "executor": "agent", \n'
                 '      "action": "tool", "tool": "consult_expert", \n'
-                '      "args": { "skill": "web_search", \n'
+                '      "args": { "skill": "researcher", \n'
                 '                "goal": "Find features of Python 3.12" } },\n'
                 '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
                 '      "action": "completion" }\n'

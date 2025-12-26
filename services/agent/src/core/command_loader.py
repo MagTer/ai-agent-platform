@@ -11,6 +11,18 @@ DEFAULT_SKILLS_PATH = Path(__file__).parent.parent.parent.parent.parent / "skill
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(DEFAULT_SKILLS_PATH)))
 
 
+def get_registry_index() -> str:
+    """Return a bulleted list of available skills for the prompt."""
+    skills = list_commands()
+    if not skills:
+        return "(No skills loaded)"
+
+    lines = []
+    for s in skills:
+        lines.append(f"• [{s['name']}]: {s.get('description', 'No description')}")
+    return "\n".join(lines)
+
+
 def list_commands() -> list[dict[str, Any]]:
     """List all available commands/skills by scanning SKILLS_DIR recursively."""
     commands = []
