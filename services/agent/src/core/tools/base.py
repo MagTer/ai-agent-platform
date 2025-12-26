@@ -24,6 +24,7 @@ class Tool(ABC):
 
     name: str
     description: str
+    category: str = "domain"
     requires_confirmation: bool = False
 
     @abstractmethod

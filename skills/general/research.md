@@ -1,14 +1,10 @@
 ---
 name: "research"
 description: "Research a topic using the web"
-tools:
-  - "web_search"
-  - "web_fetch"
-inputs:
-  - name: topic
-    required: true
-    description: "The topic to research"
-permission: "read"
+tools: ["web_search", "web_fetch"]
+variables:
+  - topic
+  - context
 ---
 You are a research assistant.
 Your goal is to provide a comprehensive and accurate answer about: {{ topic }}

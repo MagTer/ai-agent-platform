@@ -295,7 +295,19 @@ class AgentService:
                 # If we want skills to be visible, we need to load them.
                 # I'll add a TODO or basic loading.
 
-                tool_descriptions = self._describe_tools(allowlist)
+                target_tools = allowlist
+                if not target_tools:
+                    # Enforce Orchestrator-Worker Pattern:
+                    # Planner only gets "orchestration" tools by default.
+                    target_tools = {
+                        t.name
+                        for t in self._tool_registry.tools()
+                        if getattr(t, "category", "domain") == "orchestration"
+                    }
+                    # Ensure basics are present if categorized differently
+                    # But SkillDelegateTool is 'orchestration'.
+
+                tool_descriptions = self._describe_tools(target_tools)
 
                 plan = await planner.generate(
                     request,

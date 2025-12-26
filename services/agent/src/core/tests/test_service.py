@@ -49,7 +49,7 @@ class MockLiteLLMClient(LiteLLMClient):
 
     async def generate(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
         sequence = list(messages)
-        return "response: " + sequence[-1].content
+        return "response: " + (sequence[-1].content or "")
 
 
 class DummyMemory:

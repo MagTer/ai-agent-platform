@@ -29,21 +29,20 @@ The embedder endpoint (`AGENT_EMBEDDER_URL`) is used whenever the memory store i
 
 1. FastAPI receives either a JSON-native `AgentRequest` at `/v1/agent` or an
    OpenAI-compatible payload at `/v1/chat/completions` (used by Open WebUI).
-2. **Dispatcher (Orchestrator)**: The request is intercepted by the `Dispatcher`.
-   - If the message starts with a command (e.g., `/briefing`), it matches against loaded **Skills**.
-   - If matched, the Skill is executed (rendering the prompt and invoking the agent).
-   - If no command is found, it is routed as a **General Chat** request.
-3. `AgentService` (for General Chat) fetches the latest conversation history from `StateStore`, unless
-   the request provides an explicit message list (the OpenAI route does this), and
-   retrieves semantic memories from `MemoryStore` (which converts the query via
-   the embedder service before searching Qdrant).
-4. Tool metadata is evaluated. Allowed tools execute (via the registry) and their
-   results are injected as system messages for the upcoming completion.
-5. LiteLLM is called with a composed message list. Errors are surfaced as 500 responses.
-6. The new prompt is persisted to Qdrant and the incremental user/assistant
-   messages are recorded in SQLite for observability.
-7. `AgentResponse` is returned to the caller with the conversation ID and `tool_results`
-   so clients can audit executed actions.
+2. **AgentService** initializes the request context.
+3. **Planner Agent (Orchestrator)**: The `PlannerAgent` analyzes the user input and generates a JSON execution plan.
+    - It does **not** execute tasks directly.
+    - It delegates domain-specific work using the `consult_expert` tool.
+4. **Execution Loop**:
+    - The `AgentService` iterates through the plan steps.
+    - **Skill Delegation**: If a step calls `consult_expert`, the `SkillDelegateTool` is invoked.
+        - It loads the specified Skill (Markdown) from `skills/`.
+        - It initializes a sub-agent (Worker) with a restricted toolset defined in the Skill.
+        - The Worker executes the task in a ReAct loop.
+    - **Standard Tools**: Simple tools (if any are allowed to the Planner) are executed directly.
+5. **Completion**:
+   - The final step of the plan is typically a `completion` action, where the LLM synthesizes the results into a natural language response.
+6. The `AgentResponse` is returned to the caller, including the full `steps` trace for UI visualization.
 
 ## Orchestrating with a planning agent
 

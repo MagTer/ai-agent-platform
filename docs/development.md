@@ -33,16 +33,16 @@ The platform supports a modular skill system. To add a new capability:
     ---
     name: "my-skill"
     description: "Description of what this skill does"
-    inputs:
-      - name: input_variable
-        required: true
+    variables:
+      - input_variable
+    tools: ["web_search"]
     permission: "read"
     ---
     ```
 
 3.  **Write the Prompt Template** below the frontmatter. You can use Jinja2-style placeholders (e.g., `{{ input_variable }}`).
 
-The `SkillLoader` will automatically discover this file on startup. You can trigger it via the Dispatcher.
+The `SkillLoader` will automatically discover this file on startup. The `Planner Agent` will automatically use it if appropriate for the user's request.
 
 ## Automation Utilities
 
