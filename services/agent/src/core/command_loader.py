@@ -97,6 +97,12 @@ def load_command(name: str, args: dict[str, Any]) -> tuple[dict[str, Any], str]:
         if missing:
             raise ValueError(f"Missing required arguments for command '{name}': {missing}")
 
+    # Ensure tools list exists (Security: Default to empty/read-only if undefined)
+    if "tools" not in metadata:
+        # Default to empty list for specific scoping, or a safe subset.
+        # As per requirement: "safe default"
+        metadata["tools"] = []
+
     # Rendering
     template = Template(body_template)
     # safe_substitute avoids crashing on missing variables not in the required list

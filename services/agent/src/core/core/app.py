@@ -312,7 +312,7 @@ def _build_agent_request_from_chat(request: ChatCompletionRequest) -> AgentReque
     )
 
     return AgentRequest(
-        prompt=prompt_message.content,
+        prompt=prompt_message.content or "",
         conversation_id=conversation_id,
         metadata=metadata or None,
         messages=history or None,

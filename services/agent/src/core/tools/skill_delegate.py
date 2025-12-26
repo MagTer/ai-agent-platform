@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 from shared.models import AgentMessage
 
@@ -42,25 +43,22 @@ class SkillDelegateTool(Tool):
             return f"Error loading skill '{skill}': {e}"
 
         # 2. Resolve Tools
-        allowed_names = metadata.get("tools")
+        allowed_names = metadata.get("tools", [])
         worker_tools = []
 
-        if allowed_names:
-            # Explicit allowable list
-            for name in allowed_names:
-                t = self._registry.get(name)
-                if t:
-                    worker_tools.append(t)
-        else:
-            # Default: All DOMAIN tools
-            for t in self._registry.tools():
-                if getattr(t, "category", "domain") == "domain":
-                    worker_tools.append(t)
+        # Security: Only allow tools explicitly listed in the skill definition.
+        # If 'tools' is empty, the worker has NO tools.
+        for name in allowed_names:
+            t = self._registry.get(name)
+            if t:
+                worker_tools.append(t)
+            else:
+                LOGGER.warning(f"Skill '{skill}' requested missing tool '{name}'")
 
         # 3. Build LiteLLM Tool Definitions
         tool_schemas = []
         for t in worker_tools:
-            info = {
+            info: dict[str, Any] = {
                 "type": "function",
                 "function": {
                     "name": t.name,
