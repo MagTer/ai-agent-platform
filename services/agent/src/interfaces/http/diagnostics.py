@@ -98,31 +98,61 @@ async def diagnostics_dashboard(
         .bg-err { background: #ef4444; }
         .bg-def { background: #9ca3af; }
 
-        /* Properties Panel */
-        .props-panel { height: 300px; border-top: 1px solid var(--border); background: #fff; display: flex; flex-direction: column; }
-        .props-header { padding: 10px 20px; background: #f9fafb; border-bottom: 1px solid var(--border); font-weight: 600; font-size: 12px; text-transform: uppercase; color: var(--text-muted); display: flex; justify-content: space-between; }
-        .props-content { flex: 1; overflow: auto; padding: 0; }
-        .props-pre { margin: 0; padding: 20px; font-family: 'Menlo', 'Monaco', monospace; font-size: 12px; line-height: 1.5; color: #374151; }
+        /* Health Grid Styles */
+        .health-screen { padding: 20px; overflow-y: auto; width: 100%; box-sizing: border-box; }
+        .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; margin-top: 20px; }
         
-        .btn { border: 1px solid var(--border); background: white; padding: 6px 12px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; transition: background 0.1s; }
-        .btn:hover { background: #f3f4f6; }
-        .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
-        .btn-primary:hover { background: #1d4ed8; }
+        .health-card { background: white; padding: 20px; border-radius: 8px; border: 1px solid var(--border); border-top-width: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: transform 0.1s; }
+        .health-card:hover { transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        
+        .health-card.ok { border-top-color: var(--success); }
+        .health-card.fail { border-top-color: var(--error); }
+        
+        .hc-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px; }
+        .hc-title { font-weight: 600; font-size: 14px; margin: 0; }
+        .hc-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; }
+        .hc-badge.ok { background: #d1fae5; color: #065f46; }
+        .hc-badge.fail { background: #fee2e2; color: #991b1b; }
+        
+        .hc-stat { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+        .hc-meta { font-size: 11px; color: var(--text-muted); }
+        .hc-error { color: var(--error); font-size: 12px; margin-top: 8px; background: #fef2f2; padding: 8px; border-radius: 4px; border: 1px solid #fecaca; }
 
-        .hidden { display: none !important; }
+        /* Drawer for Details */
+        .drawer { position: fixed; right: -450px; top: 57px; bottom: 0; width: 450px; background: white; border-left: 1px solid var(--border); box-shadow: -4px 0 15px rgba(0,0,0,0.05); transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); z-index: 100; display: flex; flex-direction: column; }
+        .drawer.open { right: 0; }
+        
+        .drawer-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fff; }
+        .drawer-content { flex: 1; overflow-y: auto; padding: 20px; background: #f9fafb; }
+        .drawer pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto; font-family: 'Menlo', monospace; }
+        .close-drawer { cursor: pointer; font-size: 20px; color: var(--text-muted); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
+        .close-drawer:hover { background: #f3f4f6; }
+        
+        .screen { display: none; height: 100%; flex-direction: column; }
+        .screen.active { display: flex; }
+        
+        .tab-nav { display: flex; gap: 24px; font-size: 13px; font-weight: 500; height: 100%; }
+        .nav-item { display: flex; align-items: center; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); transition: all 0.2s; padding: 0 4px; }
+        .nav-item:hover { color: var(--primary); }
+        .nav-item.active { border-bottom-color: var(--primary); color: var(--primary); }
     </style>
 </head>
 <body>
     <div class="header">
         <div class="brand">🚀 Agent Flight Recorder</div>
+        
+        <div class="tab-nav">
+            <div id="tab-traces" class="nav-item active" onclick="switchTab('traces')">Trace Waterfall</div>
+            <div id="tab-health" class="nav-item" onclick="switchTab('health')">System Health</div>
+        </div>
+
         <div style="display:flex; gap:10px">
-            <button class="btn" onclick="runHealth()">Check Health</button>
-            <button class="btn btn-primary" onclick="loadTraces()">Refresh</button>
+            <button class="btn btn-primary" onclick="refreshCurrent()">Refresh</button>
         </div>
     </div>
 
-    <div class="layout">
-        <!-- Sidebar -->
+    <!-- Trace Screen -->
+    <div class="layout screen active" id="view-traces">
         <div class="sidebar">
             <div class="sidebar-header">
                 <span>RECENT REQUESTS</span>
@@ -133,7 +163,6 @@ async def diagnostics_dashboard(
             </div>
         </div>
 
-        <!-- Main Area -->
         <div class="main">
             <div id="emptyState" class="empty-state">
                 <div style="font-size:40px; margin-bottom:10px">👋</div>
@@ -167,21 +196,75 @@ async def diagnostics_dashboard(
         </div>
     </div>
 
+    <!-- Health Screen -->
+    <div class="screen health-screen" id="view-health">
+        <div style="max-width: 1200px; margin: 0 auto; width: 100%;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <h2 style="margin:0; font-size:20px;">System Health</h2>
+                    <div style="color:var(--text-muted); font-size:13px; margin-top:4px">Run integration tests to verify platform components.</div>
+                </div>
+                <button class="btn btn-primary" id="btnRunHealth" onclick="runHealthChecks()">Run Integration Tests</button>
+            </div>
+            
+            <div class="health-grid" id="healthGrid">
+                <div style="grid-column: 1/-1; padding:40px; text-align:center; color:var(--text-muted); border: 2px dashed var(--border); border-radius:8px;">
+                    Click "Run Integration Tests" to start probing.
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Drawer -->
+    <div class="drawer" id="attrDrawer">
+        <div class="drawer-header">
+            <h3 style="margin:0; font-size:14px;">Span Details</h3>
+            <div class="close-drawer" onclick="closeDrawer()">&times;</div>
+        </div>
+        <div class="drawer-content" id="drawerContent"></div>
+    </div>
+
     <script>
         let traceGroups = [];
+        let currentTab = 'traces';
 
+        // --- Init ---
+        // Verify we are loading traces on boot
+        loadTraces();
+
+        function switchTab(tab) {
+            currentTab = tab;
+            // Nav Updates
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(`tab-${tab}`).classList.add('active');
+            
+            // View Updates
+            document.querySelectorAll('.screen').forEach(el => el.classList.remove('active'));
+            document.getElementById(`view-${tab}`).classList.add('active');
+        }
+
+        function refreshCurrent() {
+            if(currentTab === 'traces') loadTraces();
+            else runHealthChecks();
+        }
+
+        // --- Trace Logic ---
         async function loadTraces() {
             const list = document.getElementById('reqList');
-            list.innerHTML = '<div style="padding:20px; text-align:center; color:#999">Loading...</div>';
+            list.innerHTML = '<div style="padding:20px; text-align:center; color:#999">Loading traces...</div>';
             
             try {
                 const res = await fetch('/diagnostics/traces?limit=1000');
+                if(!res.ok) throw new Error("API " + res.status);
                 traceGroups = await res.json();
                 renderList();
             } catch (e) {
                 list.innerHTML = `<div style="padding:20px; color:red">Error: ${e}</div>`;
             }
         }
+        
+        // ... (Keep existing renderList, selectTrace, renderWaterfall, showDetails as is, just ensure renderList logic matches)
+        // Re-implementing critical parts simplified for the replacement
 
         function renderList() {
             const list = document.getElementById('reqList');
@@ -221,9 +304,8 @@ async def diagnostics_dashboard(
             document.getElementById('emptyState').classList.add('hidden');
             document.getElementById('detailView').classList.remove('hidden');
             
-            // Header
             document.getElementById('dTitle').innerText = g.snippet;
-            document.getElementById('dId').innerText = `TRACE: ${g.trace_id}`;
+            document.getElementById('dId').innerText = g.trace_id;
             document.getElementById('dTime').innerText = new Date(g.start_time).toLocaleString();
             document.getElementById('dDur').innerText = `${g.total_duration_ms.toFixed(0)} ms`;
             
@@ -244,7 +326,6 @@ async def diagnostics_dashboard(
                 const left = (offset / totalDur) * 100;
                 const width = Math.max((span.duration_ms / totalDur) * 100, 0.5);
                 
-                // Color Logic
                 let bg = 'bg-def';
                 const name = span.name.toLowerCase();
                 const type = span.attributes['type'] || '';
@@ -252,7 +333,6 @@ async def diagnostics_dashboard(
                 if (name.includes('completion') || name.includes('litellm') || type === 'ai') bg = 'bg-ai';
                 else if (name.includes('tool') || span.attributes['tool.name']) bg = 'bg-tool';
                 else if (name.includes('postgres') || name.includes('db')) bg = 'bg-db';
-                
                 if (span.status === 'ERROR' || span.status === 'fail') bg = 'bg-err';
 
                 const row = document.createElement('div');
@@ -263,40 +343,95 @@ async def diagnostics_dashboard(
                 bar.style.left = `${left}%`;
                 bar.style.width = `${width}%`;
                 bar.innerText = span.name;
-                bar.onclick = () => showProps(span);
+                bar.onclick = () => showProps(span); // Use showProps to populate panel
                 
                 row.appendChild(bar);
                 container.appendChild(row);
             });
-            
-            // Reset props
-            document.getElementById('propsPre').innerText = 'Select a span to view attributes.';
+             document.getElementById('propsPre').innerText = 'Select a span to view attributes.';
         }
 
         function showProps(span) {
-            document.getElementById('propsPre').innerText = JSON.stringify(span, null, 2);
+             // For drawer or panel? The UI uses a bottom props-panel in layout above, but prompt mentions drawer.
+             // The CSS above defines .drawer. Let's use drawer for detail if the layout implies it.
+             // Wait, the previous replacement implemented a "Props Panel" at bottom.
+             // Current CSS defines BOTH Props Panel AND Drawer.
+             // Let's use the Drawer for full details as it's cleaner.
+             const content = document.getElementById('drawerContent');
+             content.innerHTML = `
+                <div style="margin-bottom:12px">
+                    <div style="font-weight:600; font-size:16px">${span.name}</div>
+                    <div style="color:#666; font-size:12px">${span.span_id}</div>
+                </div>
+                <pre>${JSON.stringify(span, null, 2)}</pre>
+             `;
+             document.getElementById('attrDrawer').classList.add('open');
         }
 
+        function closeDrawer() {
+            document.getElementById('attrDrawer').classList.remove('open');
+        }
+        
         function toggleProps() {
-            const panel = document.getElementById('propsPanel');
-            if (panel.style.height === '40px') panel.style.height = '300px';
-            else panel.style.height = '40px';
+             // Keeps existing panel logic just in case
+             const panel = document.getElementById('propsPanel');
+             panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
         }
 
-        async function runHealth() {
+        // --- Health Logic ---
+        async function runHealthChecks() {
+            const btn = document.getElementById('btnRunHealth');
+            const grid = document.getElementById('healthGrid');
+            
+            btn.disabled = true;
+            btn.innerHTML = `<span style="opacity:0.7">Running Checks...</span>`;
+            
+            // Optimistic UI for grid
+            grid.innerHTML = '<div style="grid-column:1/-1; padding:40px; text-align:center; color:#666;">Probing services (this may take 5-10s)...</div>';
+
             try {
-               await fetch('/diagnostics/run', {method:'POST'});
-               alert("Health checks triggered (check logs/response)");
-            } catch(e) { alert(e); }
+                const res = await fetch('/diagnostics/run', { method: 'POST' });
+                const results = await res.json();
+                
+                grid.innerHTML = '';
+                results.forEach(r => {
+                    const statusClass = r.status === 'ok' ? 'ok' : 'fail';
+                    const latency = r.latency_ms.toFixed(0);
+                    
+                    const card = document.createElement('div');
+                    card.className = `health-card ${statusClass}`;
+                    card.innerHTML = `
+                        <div class="hc-header">
+                            <h3 class="hc-title">${r.component}</h3>
+                            <span class="hc-badge ${statusClass}">${r.status.toUpperCase()}</span>
+                        </div>
+                        <div class="hc-stat" style="color:${r.status === 'ok' ? '#059669' : '#dc2626'}">
+                            ${r.status === 'ok' ? 'ONLINE' : 'OFFLINE'}
+                        </div>
+                        <div class="hc-meta">Latency: ${latency} ms</div>
+                        ${r.message ? `<div class="hc-error">${escapeHtml(r.message)}</div>` : ''}
+                    `;
+                    grid.appendChild(card);
+                });
+                
+            } catch (e) {
+                grid.innerHTML = `<div style="color:red; grid-column:1/-1; text-align:center">Client Error: ${e}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "Run Integration Tests";
+            }
         }
 
+        function runHealth() {
+             // Legacy button support
+             switchTab('health');
+             runHealthChecks(); // Auto-run?
+        }
+        
         function escapeHtml(str) {
             if(!str) return '';
             return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
-
-        // Init
-        loadTraces();
     </script>
 </body>
 </html>

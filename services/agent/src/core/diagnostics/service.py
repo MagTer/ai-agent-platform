@@ -53,19 +53,41 @@ class DiagnosticsService:
 
     async def run_diagnostics(self) -> list[TestResult]:
         """Run functional health checks on system components."""
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            results = await asyncio.gather(
-                self._check_ollama(client),
-                self._check_qdrant(client),
-                self._check_litellm(client),
-                self._check_embedder(client),
-                self._check_openwebui_interface(client),
-                self._check_postgres(),
-                self._check_searxng(client),
-                self._check_internet(client),
-                self._check_workspace(),
-            )
-        return list(results)
+        results: list[TestResult | BaseException] = []
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                # Use return_exceptions=True so one crash doesn't kill the batch
+                results = await asyncio.gather(
+                    self._check_ollama(client),
+                    self._check_qdrant(client),
+                    self._check_litellm(client),
+                    self._check_embedder(client),
+                    self._check_openwebui_interface(client),
+                    self._check_postgres(),
+                    self._check_searxng(client),
+                    self._check_internet(client),
+                    self._check_workspace(),
+                    return_exceptions=True,
+                )
+        except Exception as e:
+            LOGGER.error(f"Diagnostics runner crashed: {e}")
+            return [TestResult(component="Diagnostics Runner", status="fail", latency_ms=0, message=str(e))]
+
+        # Filter out exceptions if any slipped through (though helpers catch Exception)
+        final_results: list[TestResult] = []
+        for r in results:
+            if isinstance(r, TestResult):
+                final_results.append(r)
+            elif isinstance(r, Exception):
+                final_results.append(
+                    TestResult(
+                        component="Unknown", 
+                        status="fail", 
+                        latency_ms=0, 
+                        message=f"Unhandled Error: {r}"
+                    )
+                )
+        return final_results
 
     async def _check_ollama(self, client: httpx.AsyncClient) -> TestResult:
         # Default Ollama is host:11434 usually.
@@ -117,7 +139,7 @@ class DiagnosticsService:
             )
 
     async def _check_litellm(self, client: httpx.AsyncClient) -> TestResult:
-        url = f"{str(self._settings.litellm_api_base).rstrip('/')}/health"
+        url = f"{str(self._settings.litellm_api_base).rstrip('/')}/health/liveness"
         start = time.perf_counter()
         try:
             resp = await client.get(url)
