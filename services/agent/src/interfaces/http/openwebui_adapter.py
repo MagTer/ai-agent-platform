@@ -165,19 +165,19 @@ async def stream_response_generator(
             elif chunk_type == "thinking" and content:
                 # Format thoughts as blockquotes or distinct text
                 # OpenWebUI might support <thought> tags but generic markdown is safer
-                formatted = f"\n> 🧠 *Thinking: {content}*\n\n"
+                formatted = f"\n> 🧠 *{content}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "step_start":
                 # Provide visibility into the plan
-                formatted = f"\n> 📋 **Plan Step:** {content}\n\n"
+                formatted = f"\n> 📋 **Step:** {content}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "tool_start":
                 # Maybe show tool call?
                 tool_call = agent_chunk.get("tool_call")
                 if tool_call:
-                    formatted = f"\n> 🛠️ **Using Tool:** `{tool_call.get('name', 'unknown')}`...\n\n"
+                    formatted = f"\n> 🛠️ **Tool:** `{tool_call.get('name', 'unknown')}`...\n\n"
                     yield _format_chunk(
                         chunk_id,
                         created,

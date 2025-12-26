@@ -1,5 +1,5 @@
 ---
-name: "research"
+name: "researcher"
 description: "Research a topic using the web"
 tools: ["web_search", "web_fetch"]
 variables:
