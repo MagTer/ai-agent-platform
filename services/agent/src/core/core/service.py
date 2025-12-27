@@ -1,9 +1,10 @@
-"""High level agent orchestration."""
-
 from __future__ import annotations
 
+import contextlib
 import logging
 import uuid
+from collections.abc import AsyncGenerator
+from datetime import datetime
 from typing import Any
 
 from shared.models import (
@@ -21,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.agents import (
     PlannerAgent,
     PlanSupervisorAgent,
-    ResponseAgent,
     StepExecutorAgent,
     StepSupervisorAgent,
 )
@@ -65,8 +65,10 @@ class AgentService:
         self._tool_registry = tool_registry or ToolRegistry([])
         self.context_manager = ContextManager(settings)
 
-    async def handle_request(self, request: AgentRequest, session: AsyncSession) -> AgentResponse:
-        """Process an :class:`AgentRequest` and return an :class:`AgentResponse`."""
+    async def execute_stream(
+        self, request: AgentRequest, session: AsyncSession
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute request and yield intermediate events."""
         conversation_id = request.conversation_id or str(uuid.uuid4())
         LOGGER.info("Processing prompt for conversation %s", conversation_id)
 
@@ -95,31 +97,22 @@ class AgentService:
             await session.flush()
 
         # 2. System Command Interceptor
-        # We allow system commands to bypass session creation if they don't need history?
-        # Actually /init and /switch don't need session history, but they might log.
-        # Let's handle them here.
         sys_output = await handle_system_command(request.prompt, self, session, conversation_id)
         if sys_output:
             await session.commit()
-            return AgentResponse(
-                response=sys_output,
-                conversation_id=conversation_id,
-                messages=[AgentMessage(role="assistant", content=sys_output)],
-                metadata={"system_command": True},
-            )
+            yield {
+                "type": "content",
+                "content": sys_output,
+                "metadata": {"system_command": True},
+            }
+            return
 
         # 3. Resolve Active Context
-        # Refresh conversation in case system command changed it (though we return above,
-        # future commands might chain? No, return above.)
-        # If we didn't return, context is stable.
         db_context = await session.get(Context, db_conversation.context_id)
         if not db_context:
-            # Should not happen due to FK constraints but safe check
             LOGGER.warning("Context missing for conversation %s", conversation_id)
-            # Recover to default?
-            return AgentResponse(
-                response="Error: Context missing.", conversation_id=conversation_id
-            )
+            yield {"type": "error", "content": "Error: Context missing."}
+            return
 
         # 4. Get active session
         session_stmt = select(Session).where(
@@ -144,25 +137,30 @@ class AgentService:
 
         history = [AgentMessage(role=msg.role, content=msg.content) for msg in db_messages]
 
+        # Inject Current Date as System Context
+        current_date_str = datetime.now().strftime("%Y-%m-%d")
+        history.insert(
+            0,
+            AgentMessage(
+                role="system",
+                content=f"Current Date: {current_date_str}",
+            ),
+        )
+
         # 3. Request Prep
-        steps: list[dict[str, Any]] = []
         request_metadata: dict[str, Any] = dict(request.metadata or {})
-        # Inject CWD from conversation
-        # Inject CWD from conversation
         if db_conversation.current_cwd:
             request_metadata["cwd"] = db_conversation.current_cwd
 
-        # 3.1. Inject Pinned Files (Active Context)
+        # 3.1. Inject Pinned Files
         if db_context.pinned_files:
-            from pathlib import Path  # Lazy import or move to top
+            from pathlib import Path
 
             pinned_content = []
             for pf in db_context.pinned_files:
                 try:
                     p = Path(pf)
                     if p.exists() and p.is_file():
-                        # Limit size? For now, read full.
-                        # Adding filename header
                         pinned_content.append(f"### FILE: {pf}\n{p.read_text(encoding='utf-8')}")
                 except Exception as e:
                     LOGGER.warning(f"Failed to read pinned file {pf}: {e}")
@@ -183,9 +181,8 @@ class AgentService:
         plan_supervisor = PlanSupervisorAgent()
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
         step_supervisor = StepSupervisorAgent()
-        responder = ResponseAgent()
 
-        # Extract routing decision (default to AGENTIC if missing)
+        # Extract routing decision
         routing_decision = request_metadata.get("routing_decision", RoutingDecision.AGENTIC)
         LOGGER.info(f"Handling request with routing decision: {routing_decision}")
 
@@ -197,8 +194,9 @@ class AgentService:
                 "routing_decision": routing_decision,
             },
         ):
-            # Record USER message in memory and DB
+            # Record USER message
             user_message = AgentMessage(role="user", content=request.prompt)
+            history.append(user_message)
             session.add(
                 Message(
                     session_id=db_session.id,
@@ -207,23 +205,10 @@ class AgentService:
                     trace_id=current_trace_ids().get("trace_id"),
                 )
             )
-            # Fix: Don't commit yet, wait for flow? Or commit incrementally?
-            # Ideally transaction commits at end of request scope in FastAPI,
-            # but we might want to checkpoint.
-            # For now rely on flush for IDs, commit happens at app closure or explicitly if needed.
-            # But wait, session is passed from Depends(get_db).
-            # FastAPI usually handles commit if no error?
-            # Or we must commit. AsyncSession dependency usually yields session.
-            # I will flush to be safe for visibility in same transaction.
 
             # If CHAT:
             if routing_decision == RoutingDecision.CHAT:
-                # Direct LLM call
-                completion_text = await self._litellm.generate(history + [user_message])
-
-                assistant_message = AgentMessage(role="assistant", content=completion_text)
-
-                # DB Persist
+                completion_text = await self._litellm.generate(history)
                 session.add(
                     Message(
                         session_id=db_session.id,
@@ -232,83 +217,49 @@ class AgentService:
                         trace_id=current_trace_ids().get("trace_id"),
                     )
                 )
+                await session.commit()
 
-                # Add a 'completion' step trace for visibility
-                completion_step: dict[str, Any] = {
+                # Yield completion step
+                yield {
                     "type": "completion",
                     "provider": "litellm",
                     "model": self._settings.litellm_model,
                     "status": "ok",
                     "trace": current_trace_ids(),
                 }
-                steps.append(completion_step)
+                yield {"type": "content", "content": completion_text}
+                return
 
-                await session.commit()  # Save state
-
-                return await responder.finalize(
-                    completion=completion_text,
-                    conversation_id=conversation_id,
-                    messages=history + [user_message, assistant_message],
-                    steps=steps,
-                    metadata=request_metadata,
-                )
-
-            # AGENTIC (or FAST_PATH with injected plan)
+            # AGENTIC
             metadata_tool_results = await self._execute_tools(request_metadata)
-            all_tool_results = list(metadata_tool_results)
             for tool_res in metadata_tool_results:
-                entry = self._tool_result_entry(tool_res, source="metadata")
-                entry.update(current_trace_ids())
-                steps.append(entry)
+                yield {
+                    "type": "tool_output",
+                    "content": tool_res.get("output"),
+                    "tool_call": {"name": tool_res.get("name")},
+                    "metadata": tool_res,
+                }
 
             history_with_tools = list(history)
             for tool_res in metadata_tool_results:
                 if tool_res.get("status") == "ok" and tool_res.get("output"):
                     msg_content = f"Tool {tool_res['name']} output:\n{tool_res['output']}"
                     history_with_tools.append(AgentMessage(role="system", content=msg_content))
-                    # Persist implicit tool outputs from metadata?
-                    # Probably yes, as system messages to keep context?
-                    # For now, I will NOT persist metadata-injected tool results to DB history
-                    # unless we decide they are part of permanent record.
-                    # "history" variable implies previous turns.
-                    # "history_with_tools" is transient for this turn.
-                    # I'll stick to that.
-
-            # Check for Command (Skill) in metadata or Prompt?
-            # Check for Command (Skill) in metadata or Prompt?
-            # Implementation Plan says: "Integrate CommandLoader...
-            # Check if a requested tool matches a .md skill."
-            # The Planner decides tools.
-            # If the planner outputs a tool that is a SKILL, the Executor needs to know.
-            # But here we are generating the plan.
 
             if request_metadata.get("plan"):
                 LOGGER.info("Using injected plan from metadata")
                 plan = Plan(**request_metadata["plan"])
             else:
                 allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
-
-                # Merged Tools: Registry + Skills?
-                # "Command System: ... dynamic loading of versioned commands (skills)..."
-                # I should probably list available skills and add them to tool_descriptions?
-                # For Phase 2, let's keep it simple: Planner sees registry tools.
-                # If we want skills to be visible, we need to load them.
-                # I'll add a TODO or basic loading.
-
-                target_tools = allowlist
-                if not target_tools:
-                    # Enforce Orchestrator-Worker Pattern:
-                    # Planner only gets "orchestration" tools by default.
-                    target_tools = {
-                        t.name
-                        for t in self._tool_registry.tools()
-                        if getattr(t, "category", "domain") == "orchestration"
-                    }
-                    # Ensure basics are present if categorized differently
-                    # But SkillDelegateTool is 'orchestration'.
-
+                target_tools = allowlist or {
+                    t.name
+                    for t in self._tool_registry.tools()
+                    if getattr(t, "category", "domain") == "orchestration"
+                }
                 tool_descriptions = self._describe_tools(target_tools)
                 available_skills_text = get_registry_index()
+
+                yield {"type": "thinking", "content": "Generating plan..."}
 
                 plan = await planner.generate(
                     request,
@@ -320,84 +271,64 @@ class AgentService:
 
             if not plan.steps:
                 plan = self._fallback_plan(request.prompt)
-            request_metadata["plan"] = plan.model_dump()
-            steps.append(
-                {
-                    "type": "plan",
-                    "status": "created",
-                    "description": plan.description,
-                    "plan": plan.model_dump(),
-                    **current_trace_ids(),
-                }
-            )
+
+            yield {
+                "type": "plan",
+                "status": "created",
+                "description": plan.description,
+                "plan": plan.model_dump(),
+                **current_trace_ids(),
+            }
 
             prompt_history = list(history_with_tools)
-            plan_tool_results: list[dict[str, Any]] = []
             completion_text = ""
             completion_provider = "litellm"
             completion_model = self._settings.litellm_model
-            completion_step_id: str | None = None
 
-            # Execute Plan
             for plan_step in plan.steps:
-                step_entry: dict[str, Any] = {
-                    "type": "plan_step",
-                    "id": plan_step.id,
-                    "label": plan_step.label,
-                    "action": plan_step.action,
-                    "executor": plan_step.executor,
-                    "tool": plan_step.tool,
-                    "status": "in_progress",
-                    "trace": current_trace_ids(),
+                yield {
+                    "type": "step_start",
+                    "content": plan_step.label,
+                    "metadata": {
+                        "id": plan_step.id,
+                        "action": plan_step.action,
+                        "tool": plan_step.tool,
+                        "executor": plan_step.executor,
+                        "args": plan_step.args,
+                    },
                 }
-                steps.append(step_entry)
 
-                # Executor Run
-                # Does executor support Skills?
-                # StepExecutor needs to support "command" action or "tool" action
-                # that maps to a skill.
-                # If plan_step.action == "tool", check if tool is in registry.
-                # If not in registry, check CommandLoader?
-                # The current StepExecutor uses `_tool_registry`.
-                # I should update StepExecutor to support skills OR handle it here?
-                # "Integrate CommandLoader... execute as a one-off LLM call..."
-                # Use `CommandLoader.load_command(name, args)`.
+                if plan_step.action == "tool":
+                    yield {
+                        "type": "tool_start",
+                        "content": None,
+                        "tool_call": {"name": plan_step.tool},
+                        "metadata": {"id": plan_step.id},
+                    }
 
-                # Intercept tool actions for Skills here?
-                # Or inside StepExecutor?
-                # Creating a "SkillTool" wrapper is cleanest.
-                # But StepExecutor is separate class.
-                # For this refactor, I will modify StepExecutor to use CommandLoader.
-                # Wait, I cannot modify StepExecutor in this chunk.
-                # I will handle it here: If executor.run fails or if I pre-check.
-                # Better: Modify StepExecutor later.
-                # Current StepExecutor agent imports tool registry.
-                # I can inject a "SkillAwareToolRegistry" or just update StepExecutor.
-                # I'll stick to standard tools for now, and handle explicit skill integration
-                # in next chunk if needed.
-                # Update: Implementation Plan said "Integrate CommandLoader...
-                # AgentService will merge ToolRegistry and CommandLoader".
-
+                step_execution_result: StepResult | None = None
                 try:
-                    step_execution_result: StepResult = await executor.run(
+                    # Stream execution
+                    async for event in executor.run_stream(
                         plan_step,
                         request=request,
                         conversation_id=conversation_id,
                         prompt_history=prompt_history,
-                    )
-                except ToolConfirmationError as exc:
-                    LOGGER.info(
-                        f"Step {plan_step.id} paused for confirmation of tool {exc.tool_name}"
-                    )
-                    msg_content = (
-                        f"Action paused. Tool '{exc.tool_name}' requires "
-                        "confirmation to proceed.\n"
-                        f"Arguments: {exc.tool_args}\n"
-                        "Please reply with 'CONFIRM' to execute this action, "
-                        "or provide new instructions."
-                    )
+                    ):
+                        if event["type"] == "content":
+                            yield {"type": "content", "content": event["content"]}
+                        elif event["type"] == "result":
+                            step_execution_result = event["result"]
 
-                    # Log system message
+                    if not step_execution_result:
+                        raise ValueError("Executor failed to yield a result")
+
+                except ToolConfirmationError as exc:
+                    LOGGER.info(f"Step {plan_step.id} paused for confirmation")
+                    msg_content = (
+                        f"Action paused. Tool '{exc.tool_name}' requires confirmation.\n"
+                        f"Arguments: {exc.tool_args}\nReply 'CONFIRM' to proceed."
+                    )
                     session.add(
                         Message(
                             session_id=db_session.id,
@@ -407,47 +338,48 @@ class AgentService:
                         )
                     )
                     await session.commit()
-
-                    step_entry.update(
-                        status="confirmation_required",
-                        result={
-                            "reason": "confirmation_required",
-                            "tool": exc.tool_name,
-                        },
-                    )
-
-                    return await responder.finalize(
-                        completion=msg_content,
-                        conversation_id=conversation_id,
-                        messages=history_with_tools
-                        + [
-                            user_message,
-                            AgentMessage(role="system", content=msg_content),
-                        ],
-                        steps=steps,
-                        metadata={
-                            "status": "confirmation_required",
-                            "tool": exc.tool_name,
-                            "args": exc.tool_args,
-                        },
-                    )
+                    yield {
+                        "type": "content",
+                        "content": msg_content,
+                        "metadata": {"status": "confirmation_required"},
+                    }
+                    return
 
                 decision = await step_supervisor.review(plan_step, step_execution_result.status)
-                step_entry.update(
-                    status=step_execution_result.status,
-                    result=step_execution_result.result,
-                    decision=decision,
-                    trace=current_trace_ids(),
-                )
+                if plan_step.action == "tool":
+                    chunk_type = "tool_output"
+                    tool_call = {"name": plan_step.tool}
+                else:
+                    chunk_type = "thinking"
+                    tool_call = None
+
+                # Enriched metadata for legacy compatibility
+                meta = {
+                    "status": step_execution_result.status,
+                    "decision": decision,
+                    "id": plan_step.id,
+                    "action": plan_step.action,
+                    "tool": plan_step.tool,
+                    "name": plan_step.tool,
+                    "executor": plan_step.executor,
+                    "output": str(step_execution_result.result.get("output") or ""),
+                }
+
+                yield {
+                    "type": chunk_type,
+                    "content": str(
+                        step_execution_result.result.get("output") or step_execution_result.status
+                    ),
+                    "tool_call": tool_call,
+                    "metadata": meta,
+                }
+
                 prompt_history.extend(step_execution_result.messages)
                 if plan_step.action == "tool":
-                    plan_tool_results.append(step_execution_result.result)
-                    # Persist Tool output to DB?
-                    # As 'tool' role message.
                     session.add(
                         Message(
                             session_id=db_session.id,
-                            role="tool",  # or system?
+                            role="tool",
                             content=str(step_execution_result.result.get("output", "")),
                             trace_id=current_trace_ids().get("trace_id"),
                         )
@@ -457,31 +389,12 @@ class AgentService:
                     completion_text = step_execution_result.result.get("completion", "")
                     completion_provider = plan_step.provider or completion_provider
                     completion_model = step_execution_result.result.get("model", completion_model)
-                    completion_step_id = plan_step.id
                     break
 
             if not completion_text:
-                completion_text = await self._litellm.generate(prompt_history + [user_message])
-                completion_step_id = completion_step_id or (
-                    plan.steps[-1].id if plan.steps else None
-                )
+                yield {"type": "thinking", "content": "Generating final answer..."}
+                completion_text = await self._litellm.generate(prompt_history)
 
-            tool_results = list(all_tool_results) + plan_tool_results
-            if tool_results:
-                request_metadata["tool_results"] = tool_results
-
-            assistant_message = AgentMessage(role="assistant", content=completion_text)
-            final_completion_step_entry: dict[str, Any] = {
-                "type": "completion",
-                "provider": completion_provider,
-                "model": completion_model,
-                "status": "ok",
-                "plan_step_id": completion_step_id,
-                **current_trace_ids(),
-            }
-            steps.append(final_completion_step_entry)
-
-            # Persist Final Answer
             session.add(
                 Message(
                     session_id=db_session.id,
@@ -490,20 +403,16 @@ class AgentService:
                     trace_id=current_trace_ids().get("trace_id"),
                 )
             )
-
             await self._memory.add_records(
                 [MemoryRecord(conversation_id=conversation_id, text=request.prompt)]
             )
-
             await session.commit()
 
-            response = await responder.finalize(
-                completion=completion_text,
-                conversation_id=conversation_id,
-                messages=history_with_tools + [user_message, assistant_message],
-                steps=steps,
-                metadata=request_metadata,
-            )
+            yield {
+                "type": "content",
+                "content": completion_text,
+                "metadata": {"provider": completion_provider, "model": completion_model},
+            }
 
             log_event(
                 SupervisorDecision(
@@ -514,7 +423,117 @@ class AgentService:
                 )
             )
 
-            return response
+            # Yield updated history for legacy compatibility
+            # Convert internal AgentMessage objects to dict or keep as is?
+            # get_history returns AgentMessage objects.
+            # We have 'prompt_history' + 'assistant_msg'.
+            # Reconstruct full history:
+            final_history = list(prompt_history)
+            final_history.append(AgentMessage(role="assistant", content=completion_text))
+            # Add records was done in DB.
+            yield {"type": "history_snapshot", "messages": final_history}
+
+    async def handle_request(self, request: AgentRequest, session: AsyncSession) -> AgentResponse:
+        """Process an :class:`AgentRequest` and return an :class:`AgentResponse`."""
+        # Backward compatibility wrapper
+        steps = []
+        response_text = ""
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+
+        # Metadata copy to support updates
+        response_metadata = dict(request.metadata or {})
+        messages = []
+
+        # Stateful aggregation
+        current_step = None
+
+        async for chunk in self.execute_stream(request, session):
+            c_type = chunk.get("type")
+
+            if c_type == "content":
+                response_text = chunk.get("content", "")
+
+            # Collect Plan
+            elif c_type == "plan":
+                steps.append(chunk)
+                # Inject plan into metadata for legacy tests
+                if "plan" in chunk:
+                    response_metadata["plan"] = chunk["plan"]
+
+            # Map step_start back to legacy 'plan_step'
+            elif c_type == "step_start":
+                meta = chunk.get("metadata", {})
+                legacy_step = {
+                    "type": "plan_step",
+                    "id": meta.get("id"),
+                    "label": chunk.get("content"),
+                    "action": meta.get("action"),
+                    "tool": meta.get("tool"),
+                    "executor": meta.get("executor"),
+                    "args": meta.get("args"),
+                    "result": {},  # Initialize result container
+                }
+                steps.append(legacy_step)
+                current_step = legacy_step
+
+            # Capture output/result into the current step
+            elif c_type == "tool_output":
+                # Restore legacy tool_results in metadata
+                if "tool_results" not in response_metadata:
+                    response_metadata["tool_results"] = []
+                response_metadata["tool_results"].append(chunk.get("metadata"))
+
+                if current_step:
+                    # Update the result of the current step
+                    current_step["result"] = {
+                        "status": chunk.get("metadata", {}).get("status", "ok"),
+                        "output": chunk.get("content"),
+                        "decision": chunk.get("metadata", {}).get("decision"),
+                        # "completion": ... if needed
+                    }
+                else:
+                    # Agentic flow: append as a tool step
+                    steps.append(
+                        {
+                            "type": "tool",
+                            "name": chunk.get("metadata", {}).get("name"),
+                            "tool": chunk.get("metadata", {}).get("name"),
+                            "output": chunk.get("content"),
+                            "status": chunk.get("metadata", {}).get("status"),
+                            "metadata": chunk.get("metadata"),
+                        }
+                    )
+
+            elif c_type == "thinking":
+                if current_step:
+                    current_step["result"] = {
+                        "status": chunk.get("metadata", {}).get("status", "ok"),
+                        "output": chunk.get("content"),
+                        "decision": chunk.get("metadata", {}).get("decision"),
+                    }
+
+            # Collect explicit legacy types
+            elif c_type in ["tool", "completion"]:
+                steps.append(chunk)
+
+            # Capture history snapshot
+            elif c_type == "history_snapshot":
+                messages = chunk.get("messages", [])
+
+        # Fallback if no history snapshot (e.g. error or empty stream)
+        if not messages:
+            # Try DB fetch (might fail in mocks, so catch generic)
+            # Try DB fetch (might fail in mocks, so catch generic)
+            with contextlib.suppress(Exception):
+                messages = await self.get_history(conversation_id, session)
+
+        return AgentResponse(
+            response=response_text,
+            conversation_id=conversation_id,
+            steps=steps,
+            metadata=response_metadata,
+            messages=messages,
+        )
 
     async def list_models(self) -> Any:
         """Proxy LiteLLM's `/v1/models` response."""
@@ -728,6 +747,3 @@ class AgentService:
             for key, value in raw_args.items()
             if key not in {"tool_args", "allowed_tools"}
         }
-
-
-__all__ = ["AgentService"]

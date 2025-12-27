@@ -196,9 +196,16 @@ class Dispatcher:
         # 3. Intent Classification
         system_prompt = (
             "You are a router. Classify user input as 'CHAT' "
-            "(greetings, simple chit-chat) "
-            "or 'TASK' (actions, tools, planning, analyzing files, searching, verifying facts). "
-            "If the user asks to check, verify, or search, MUST return TASK. "
+            "(greetings, simple chit-chat, questions about you) "
+            "or 'TASK' (actions, tools, planning, analyzing files, "
+            "searching, verifying facts, research). "
+            "CRITICAL RULES:\n"
+            "1. If the user asks to check, verify, search, or research, "
+            "MUST return TASK.\n"
+            "2. If the user asks for 'current' info or time-sensitive data, "
+            "MUST return TASK.\n"
+            "3. If the user implies using a tool (like 'check logs', "
+            "'run tests'), MUST return TASK.\n"
             "Reply ONLY with the word CHAT or TASK."
         )
 
@@ -230,9 +237,19 @@ class Dispatcher:
 
             # Stream response
             full_content = ""
-            async for chunk in self.litellm.stream_chat(
-                messages=history + [AgentMessage(role="user", content=stripped_message)]
-            ):
+            # Inject Date Context for CHAT
+            from datetime import datetime
+
+            now = datetime.now().strftime("%Y-%m-%d %H:%M")
+            year = datetime.now().year
+            system_msg = AgentMessage(
+                role="system", content=f"Current Date: {now}. You are live in {year}."
+            )
+
+            chat_messages = [system_msg] + history
+            chat_messages.append(AgentMessage(role="user", content=stripped_message))
+
+            async for chunk in self.litellm.stream_chat(messages=chat_messages):
                 yield chunk
                 if chunk["type"] == "content" and chunk["content"]:
                     full_content += chunk["content"]
@@ -325,43 +342,65 @@ class Dispatcher:
         request = AgentRequest(prompt=prompt, conversation_id=conversation_id, metadata=metadata)
 
         try:
-            # We simulate "thinking" before calling the blocking service
-            yield {
-                "type": "thinking",
-                "content": "Processing task...",
-                "tool_call": None,
-                "metadata": None,
-            }
+            # Stream events from AgentService
+            async for chunk in agent_service.execute_stream(request, session=db_session):
 
-            # BLOCKING CALL - Limitation of current AgentService
-            response = await agent_service.handle_request(request, session=db_session)
+                # Normalize chunk to AgentChunk
+                # AgentService yields dicts that look like AgentChunks mostly
+                # We need to ensure types match what OpenWebUI adapter expects
 
-            # Replay steps as chunks
-            if response.steps:
-                for step in response.steps:
-                    step_type = step.get("type")
-                    if step_type == "plan":
-                        yield {
-                            "type": "thinking",
-                            "content": f"Plan: {step.get('description')}",
-                            "tool_call": None,
-                            "metadata": step,
-                        }
-                    elif step_type == "tool":
-                        yield {
-                            "type": "tool_output",
-                            "content": step.get("output"),
-                            "tool_call": {"name": step.get("name")},
-                            "metadata": step,
-                        }
+                c_type = chunk.get("type", "content")
 
-            # Yield final answer
-            yield {
-                "type": "content",
-                "content": response.response,
-                "tool_call": None,
-                "metadata": {"done": True},
-            }
+                if c_type == "plan":
+                    yield {
+                        "type": "thinking",
+                        "content": f"Plan: {chunk.get('description')}",
+                        "tool_call": None,
+                        "metadata": chunk,
+                    }
+                elif c_type == "step_start":
+                    yield {
+                        "type": "step_start",
+                        "content": chunk.get("content"),
+                        "tool_call": None,
+                        "metadata": chunk.get("metadata"),
+                    }
+                elif c_type == "tool_start":
+                    yield {
+                        "type": "tool_start",
+                        "content": None,
+                        "tool_call": chunk.get("tool_call"),
+                        "metadata": chunk.get("metadata"),
+                    }
+                elif c_type == "tool_output":
+                    yield {
+                        "type": "tool_output",
+                        "content": chunk.get("content"),
+                        "tool_call": chunk.get("tool_call"),
+                        "metadata": chunk.get("metadata"),
+                    }
+                elif c_type == "content":
+                    yield {
+                        "type": "content",
+                        "content": chunk.get("content"),
+                        "tool_call": None,
+                        "metadata": chunk.get("metadata"),
+                    }
+                elif c_type == "thinking":
+                    yield {
+                        "type": "thinking",
+                        "content": chunk.get("content"),
+                        "tool_call": None,
+                        "metadata": chunk.get("metadata"),
+                    }
+                else:
+                    # Fallback
+                    yield {
+                        "type": "thinking",
+                        "content": f"Event: {c_type}",
+                        "tool_call": None,
+                        "metadata": chunk,
+                    }
 
         except Exception as e:
             LOGGER.exception("Agent execution failed")

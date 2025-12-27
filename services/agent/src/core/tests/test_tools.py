@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -24,6 +25,17 @@ class MockLiteLLMClient:
         model: str | None = None,
     ) -> str:
         return "ok"
+
+    async def stream_chat(
+        self,
+        messages: list[AgentMessage] | list[dict[str, str]],
+        model: str | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = "ok"
+        yield chunk
 
     async def plan(
         self,

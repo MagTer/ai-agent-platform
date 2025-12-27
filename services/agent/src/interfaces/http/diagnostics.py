@@ -261,6 +261,55 @@ async def diagnostics_dashboard(
             else runHealthChecks();
         }
 
+        // --- Helpers ---
+        function extractUserIntent(span) {
+            if (!span || !span.attributes) return "System Action";
+            
+            // 1. Try body parsing
+            const body = span.attributes['http.request.body'] || span.attributes['body'] || span.attributes['payload'];
+            if (body) {
+                try {
+                    let obj = typeof body === 'string' ? JSON.parse(body) : body;
+                    // OpenAI Format
+                    if (obj.messages && Array.isArray(obj.messages)) {
+                        const lastUser = obj.messages.filter(m => m.role === 'user').pop();
+                        if (lastUser) return lastUser.content;
+                    }
+                    // Direct Prompt
+                    if (obj.prompt) return obj.prompt;
+                    if (obj.query) return obj.query;
+                } catch (e) {
+                    // Fallback for non-JSON strings that look like questions
+                    if (typeof body === 'string' && body.length > 5) return body;
+                }
+            }
+            
+            // 2. Fallback to name/method
+            return span.name || "Unknown Request";
+        }
+
+        function formatSpanName(span) {
+            if (!span) return 'Unknown';
+            const name = span.name || '';
+            const attrs = span.attributes || {};
+            
+            if (name.startsWith('executor.step_run')) {
+                const stepId = attrs['step'] || attrs['step_id'] || '';
+                return `👣 Plan Step ${stepId}`;
+            }
+            if (name.includes('llm.call') || attrs['type'] === 'ai') {
+                const model = attrs['model'] || 'AI';
+                return `🧠 AI Generation (${model})`;
+            }
+            if (name.includes('tool') || attrs['tool.name']) {
+                return `🛠️ Tool: ${attrs['tool.name'] || name}`;
+            }
+            if (name.includes('postgres') || name.includes('db')) {
+                return `💾 Database`;
+            }
+            return name;
+        }
+
         // --- Trace Logic ---
         async function loadTraces() {
             const list = document.getElementById('reqList');
@@ -294,12 +343,15 @@ async def diagnostics_dashboard(
                 const dur = (g.total_duration_ms / 1000).toFixed(2) + 's';
                 const statusType = g.status === 'ERR' ? 'err' : 'ok';
                 
+                // NEW: Use intent extractor
+                const intent = extractUserIntent(g.root);
+                
                 el.innerHTML = `
                     <div class="req-top">
                         <span class="req-status ${statusType}"></span>
                         <span class="req-time">${time}</span>
                     </div>
-                    <div class="req-query">${escapeHtml(g.snippet)}</div>
+                    <div class="req-query" style="font-weight:600; color:#1f2937">${escapeHtml(intent)}</div>
                     <div class="req-meta">
                         <span class="badge">${dur}</span>
                         <span class="badge">${g.spans.length} spans</span>
@@ -320,7 +372,8 @@ async def diagnostics_dashboard(
             document.getElementById('emptyState').classList.add('hidden');
             document.getElementById('detailView').classList.remove('hidden');
             
-            document.getElementById('dTitle').innerText = g.snippet || 'Unknown';
+            // NEW: Use intent as title
+            document.getElementById('dTitle').innerText = extractUserIntent(g.root);
             document.getElementById('dId').innerText = g.trace_id || 'N/A';
             document.getElementById('dTime').innerText = new Date(g.start_time).toLocaleString();
             document.getElementById('dDur').innerText = `${g.total_duration_ms.toFixed(0)} ms`;
@@ -349,13 +402,16 @@ async def diagnostics_dashboard(
                 const width = Math.max((span.duration_ms / totalDur) * 100, 0.5);
                 
                 let bg = 'bg-def';
-                const name = (span.name || '').toLowerCase();
+                const rawName = (span.name || '').toLowerCase();
                 const type = (span.attributes && span.attributes['type']) || '';
                 
-                if (name.includes('completion') || name.includes('litellm') || type === 'ai') bg = 'bg-ai';
-                else if (name.includes('tool') || (span.attributes && span.attributes['tool.name'])) bg = 'bg-tool';
-                else if (name.includes('postgres') || name.includes('db')) bg = 'bg-db';
+                if (rawName.includes('completion') || rawName.includes('litellm') || type === 'ai') bg = 'bg-ai';
+                else if (rawName.includes('tool') || (span.attributes && span.attributes['tool.name'])) bg = 'bg-tool';
+                else if (rawName.includes('postgres') || name.includes('db')) bg = 'bg-db';
                 if (span.status === 'ERROR' || span.status === 'fail') bg = 'bg-err';
+
+                // NEW: Use formatted name
+                const niceName = formatSpanName(span);
 
                 const row = document.createElement('div');
                 row.className = 'span-row';
@@ -364,7 +420,8 @@ async def diagnostics_dashboard(
                 bar.className = `span-bar ${bg}`;
                 bar.style.left = `${left}%`;
                 bar.style.width = `${width}%`;
-                bar.innerText = span.name;
+                bar.innerText = niceName; 
+                bar.title = `${niceName} (${span.duration_ms.toFixed(0)}ms)`; // Simple tooltip
                 bar.onclick = () => showProps(span); 
                 
                 row.appendChild(bar);
@@ -375,10 +432,15 @@ async def diagnostics_dashboard(
         function showProps(span) {
              const content = document.getElementById('drawerContent');
              if(!content) return;
+             
+             // NEW: Header uses nice name
+             const niceName = formatSpanName(span);
+             
              content.innerHTML = `
                 <div style="margin-bottom:12px">
-                    <div style="font-weight:600; font-size:16px">${escapeHtml(span.name)}</div>
-                    <div style="color:#666; font-size:12px">${span.span_id}</div>
+                    <div style="font-weight:600; font-size:16px">${escapeHtml(niceName)}</div>
+                    <div style="color:#666; font-size:12px; margin-top:4px">ID: ${span.span_id}</div>
+                    <div style="color:#999; font-size:11px">Raw: ${escapeHtml(span.name)}</div>
                 </div>
                 <pre>${JSON.stringify(span, null, 2)}</pre>
              `;
@@ -394,53 +456,12 @@ async def diagnostics_dashboard(
         function toggleProps() {
              // NOOP - Drawer replaced panel
         }
-
-        // --- Health Logic ---
-        async function runHealthChecks() {
-            const btn = document.getElementById('btnRunHealth');
-            const grid = document.getElementById('healthGrid');
-            
-            if(btn) btn.disabled = true;
-            if(btn) btn.innerHTML = `<span style="opacity:0.7">Running Checks...</span>`;
-            
-            if(grid) grid.innerHTML = '<div style="grid-column:1/-1; padding:40px; text-align:center; color:#666;">Probing services (this may take 5-10s)...</div>';
-
-            try {
-                const res = await fetch('/diagnostics/run', { method: 'POST' });
-                const results = await res.json();
-                
-                if(grid) grid.innerHTML = '';
-                results.forEach(r => {
-                    const statusClass = r.status === 'ok' ? 'ok' : 'fail';
-                    const latency = r.latency_ms.toFixed(0);
-                    
-                    const card = document.createElement('div');
-                    card.className = `health-card ${statusClass}`;
-                    card.innerHTML = `
-                        <div class="hc-header">
-                            <h3 class="hc-title">${escapeHtml(r.component)}</h3>
-                            <span class="hc-badge ${statusClass}">${r.status.toUpperCase()}</span>
-                        </div>
-                        <div class="hc-stat" style="color:${r.status === 'ok' ? '#059669' : '#dc2626'}">
-                            ${r.status === 'ok' ? 'ONLINE' : 'OFFLINE'}
-                        </div>
-                        <div class="hc-meta">Latency: ${latency} ms</div>
-                        ${r.message ? `<div class="hc-error">${escapeHtml(r.message)}</div>` : ''}
-                    `;
-                    if(grid) grid.appendChild(card);
-                });
-                
-            } catch (e) {
-                if(grid) grid.innerHTML = `<div style="color:red; grid-column:1/-1; text-align:center">Client Error: ${e}</div>`;
-            } finally {
-                if(btn) btn.disabled = false;
-                if(btn) btn.innerText = "Run Integration Tests";
-            }
-        }
         
         function escapeHtml(str) {
             if(!str) return '';
-            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const s = String(str);
+            if (s.length > 300) return s.substring(0, 300) + '...'; // Truncate long strings for display
+            return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
     </script>
 </body>

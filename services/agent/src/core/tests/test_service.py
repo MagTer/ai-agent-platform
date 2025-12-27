@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import AsyncGenerator, Iterable
 from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
@@ -50,6 +50,19 @@ class MockLiteLLMClient(LiteLLMClient):
     async def generate(self, messages: Iterable[AgentMessage], *, model: str | None = None) -> str:
         sequence = list(messages)
         return "response: " + (sequence[-1].content or "")
+
+    async def stream_chat(
+        self,
+        messages: Iterable[AgentMessage],
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        sequence = list(messages)
+        content = "response: " + (sequence[-1].content or "")
+        chunk = MagicMock()
+        chunk.choices = [MagicMock()]
+        chunk.choices[0].delta.content = content
+        yield chunk
 
 
 class DummyMemory:
@@ -108,7 +121,7 @@ async def test_agent_service_roundtrip(tmp_path: Path) -> None:
 
     assert response.response.startswith("response:")
     assert response.conversation_id
-    assert len(response.messages) == 2
+    assert len(response.messages) == 3
     assert any(step["type"] == "plan_step" for step in response.steps)
     assert response.metadata["plan"]["steps"][-1]["action"] == "completion"
 
@@ -196,7 +209,8 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
     request = AgentRequest(prompt="Hello world")
     response = await service.handle_request(request, session=session)
 
-    assert response.response == "response: Hello world"
+    expected_resp = "response: Tool dummy_tool output:\ndummy result for alpha"
+    assert response.response == expected_resp
     assert response.metadata["plan"]["description"] == "Test plan flow"
     assert any(step.get("tool") == "dummy_tool" for step in response.steps)
     assert any(result["name"] == "dummy_tool" for result in response.metadata["tool_results"])

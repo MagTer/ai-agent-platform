@@ -50,6 +50,7 @@ services:
       SEARXNG_URL: http://searxng:8080
       POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/agent_db}
       LITELLM_BASE_URL: http://litellm:4000
+      SKILLS_DIR: /app/skills
     ports:
       - "8000:8000"
     depends_on:

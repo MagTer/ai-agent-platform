@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -65,9 +66,22 @@ class PlannerAgent:
         except (TypeError, ValueError):
             metadata_text = str(request.metadata)
 
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        today = datetime.now().strftime("%Y-%m-%d")
+        year = datetime.now().year
+
+        system_context = (
+            "SYSTEM CONTEXT:\n"
+            f"- Current Date & Time: {now}\n"
+            f"- Your knowledge cutoff is static, but YOU ARE LIVE in {year}.\n"
+            f"- Treat all retrieved documents dated up to {today} "
+            "as HISTORICAL FACTS, not predictions.\n"
+        )
+
         system_message = AgentMessage(
             role="system",
             content=(
+                f"{system_context}\n"
                 "You are the Planner Agent. Your goal is to orchestrate \n"
                 "a precise JSON execution plan.\n"
                 "You are an ORCHESTRATOR, not a worker. You CANNOT perform tasks directly \n"

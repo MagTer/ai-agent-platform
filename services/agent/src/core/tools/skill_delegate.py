@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from shared.models import AgentMessage
@@ -71,72 +72,93 @@ class SkillDelegateTool(Tool):
             tool_schemas.append(info)
 
         # 4. Worker Loop
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        today = datetime.now().strftime("%Y-%m-%d")
+        year = datetime.now().year
+
+        system_context = (
+            "SYSTEM CONTEXT:\n"
+            f"- Current Date & Time: {now}\n"
+            f"- Your knowledge cutoff is static, but YOU ARE LIVE in {year}.\n"
+            f"- Treat all retrieved documents dated up to {today} "
+            "as HISTORICAL FACTS, not predictions.\n"
+        )
+
         messages = [
-            AgentMessage(role="system", content=system_prompt),
+            AgentMessage(
+                role="system",
+                content=f"{system_context}\n{system_prompt}",
+            ),
             AgentMessage(role="user", content=goal),
         ]
 
         logger_prefix = f"[Worker:{skill}]"
         LOGGER.info(f"{logger_prefix} Starting goal: {goal}")
 
-        # Determine model override from skill metadata?
-        # For now use default.
+        # Import tracing only inside method to avoid circular imports at module level if any
+        # (Though better to import at top if possible, but let's be safe for this specific patch)
+        from core.observability.tracing import start_span
 
         max_turns = 10
 
-        for i in range(max_turns):
-            LOGGER.debug(f"{logger_prefix} Turn {i+1}")
-            try:
-                # Call LLM
-                assistant_data = await self._litellm.run_with_tools(
-                    messages, tools=tool_schemas if tool_schemas else []
-                )
-            except Exception as e:
-                LOGGER.error(f"{logger_prefix} LLM Error: {e}", exc_info=True)
-                return f"Worker Error (LLM): {e}"
-
-            content = assistant_data.get("content")
-            tool_calls = assistant_data.get("tool_calls")
-
-            # Helper to create correct AgentMessage from LiteLLM/OpenAI dict
-            assistant_msg = AgentMessage(role="assistant", content=content, tool_calls=tool_calls)
-            messages.append(assistant_msg)
-
-            # If no tool calls, we assume this is the final answer or a question
-            if not tool_calls:
-                if content:
-                    return content
-                return "Worker produced empty response."
-
-            # Process Tool Calls
-            for tc in tool_calls:
-                func = tc["function"]
-                fname = func["name"]
-                call_id = tc["id"]
-
-                # Parse Args
-                try:
-                    fargs = json.loads(func["arguments"])
-                except json.JSONDecodeError:
-                    fargs = {}
-
-                # Find tool
-                tool_obj = next((t for t in worker_tools if t.name == fname), None)
-
-                output_str = ""
-                if tool_obj:
-                    LOGGER.info(f"{logger_prefix} Executing {fname}")
+        with start_span(f"skill.execution.{skill}", attributes={"goal": goal}):
+            for i in range(max_turns):
+                LOGGER.debug(f"{logger_prefix} Turn {i+1}")
+                with start_span(f"skill.turn.{i+1}"):
                     try:
-                        # Ensure we await the tool run
-                        output_str = str(await tool_obj.run(**fargs))
+                        # Call LLM
+                        assistant_data = await self._litellm.run_with_tools(
+                            messages, tools=tool_schemas if tool_schemas else []
+                        )
                     except Exception as e:
-                        output_str = f"Error: {e}"
-                else:
-                    output_str = f"Error: Tool {fname} not found in worker context."
+                        LOGGER.error(f"{logger_prefix} LLM Error: {e}", exc_info=True)
+                        return f"Worker Error (LLM): {e}"
 
-                # Append Tool Output Message
-                messages.append(
-                    AgentMessage(role="tool", tool_call_id=call_id, name=fname, content=output_str)
-                )
+                    content = assistant_data.get("content")
+                    tool_calls = assistant_data.get("tool_calls")
+
+                    # Log event?
+
+                    assistant_msg = AgentMessage(
+                        role="assistant", content=content, tool_calls=tool_calls
+                    )
+                    messages.append(assistant_msg)
+
+                    if not tool_calls:
+                        if content:
+                            return content
+                        return "Worker produced empty response."
+
+                    for tc in tool_calls:
+                        func = tc["function"]
+                        fname = func["name"]
+                        call_id = tc["id"]
+
+                        with start_span(f"skill.tool.{fname}"):
+                            try:
+                                fargs = json.loads(func["arguments"])
+                            except json.JSONDecodeError:
+                                fargs = {}
+
+                            tool_obj = next((t for t in worker_tools if t.name == fname), None)
+
+                            output_str = ""
+                            if tool_obj:
+                                LOGGER.info(f"{logger_prefix} Executing {fname}")
+                                try:
+                                    output_str = str(await tool_obj.run(**fargs))
+                                except Exception as e:
+                                    output_str = f"Error: {e}"
+                            else:
+                                output_str = f"Error: Tool {fname} not found in worker context."
+
+                            messages.append(
+                                AgentMessage(
+                                    role="tool",
+                                    tool_call_id=call_id,
+                                    name=fname,
+                                    content=output_str,
+                                )
+                            )
 
         return "Worker timed out (max turns reached)."
