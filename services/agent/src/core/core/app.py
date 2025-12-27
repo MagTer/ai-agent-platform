@@ -62,23 +62,35 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         if not span.is_recording():
             return await call_next(request)
 
+        # Set a meaningful name for the trace in the UI
         path = request.url.path
-        skip_body = path.startswith(("/diagnostics", "/health", "/metrics", "/v1/agent/history"))
+        method = request.method
+        if path.startswith("/v1/chat/completions"):
+            span.update_name(f"Agent Chat: {method} {path}")
+        elif path.startswith("/v1/agent"):
+            span.update_name(f"Agent Task: {method} {path}")
+        else:
+            span.update_name(f"API: {method} {path}")
 
-        # Capture request body
-        try:
-            body = await request.body()
-            if body and not skip_body:
-                text = body.decode("utf-8", errors="replace")
-                span.set_attribute("http.request.body", text[:2000])
+        skip_body = path.startswith(
+            ("/diagnostics", "/health", "/metrics", "/v1/agent/history", "/v1/chat/completions")
+        )
 
-            # Re-seed the body for downstream consumers
-            async def receive() -> dict[str, Any]:
-                return {"type": "http.request", "body": body, "more_body": False}
+        if not skip_body:
+            # Capture request body
+            try:
+                body = await request.body()
+                if body:
+                    text = body.decode("utf-8", errors="replace")
+                    span.set_attribute("http.request.body", text[:2000])
 
-            request._receive = receive
-        except Exception:
-            LOGGER.warning("Failed to capture request body", exc_info=True)
+                # Re-seed the body for downstream consumers
+                async def receive() -> dict[str, Any]:
+                    return {"type": "http.request", "body": body, "more_body": False}
+
+                request._receive = receive
+            except Exception:
+                LOGGER.warning("Failed to capture request body", exc_info=True)
 
         response = await call_next(request)
 
@@ -225,7 +237,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             metadata=message_metadata,
         )
 
-    @app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+    @app.post("/v1/agent/chat/completions", response_model=ChatCompletionResponse)
     async def chat_completions(
         request: ChatCompletionRequest,
         svc: AgentService = Depends(get_service),

@@ -52,6 +52,10 @@ All state is hierarchical and persisted in PostgreSQL.
 * **Read-Before-Write:** Always read the file content before applying a diff/edit.
 * **Preserve:** Do not remove comments or existing functionality unless explicitly asked.
 
+### 3.3 Code Editing
+* **Use:** Always use Context7 to get code suggestions before editing.
+
+
 ## 4. TESTING STRATEGY
 We use `pytest`. You are required to maintain the **Testing Pyramid**.
 

@@ -344,7 +344,7 @@ async def diagnostics_dashboard(
                 const statusType = g.status === 'ERR' ? 'err' : 'ok';
                 
                 // NEW: Use intent extractor
-                const intent = extractUserIntent(g.root_span);
+                const intent = extractUserIntent(g.root);
                 
                 el.innerHTML = `
                     <div class="req-top">
@@ -373,7 +373,7 @@ async def diagnostics_dashboard(
             document.getElementById('detailView').classList.remove('hidden');
             
             // NEW: Use intent as title
-            document.getElementById('dTitle').innerText = extractUserIntent(g.root_span);
+            document.getElementById('dTitle').innerText = extractUserIntent(g.root);
             document.getElementById('dId').innerText = g.trace_id || 'N/A';
             document.getElementById('dTime').innerText = new Date(g.start_time).toLocaleString();
             document.getElementById('dDur').innerText = `${g.total_duration_ms.toFixed(0)} ms`;

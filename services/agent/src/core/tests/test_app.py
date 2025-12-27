@@ -121,7 +121,7 @@ async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
         "metadata": {"tools": []},
     }
 
-    response = client.post("/v1/chat/completions", json=payload)
+    response = client.post("/v1/agent/chat/completions", json=payload)
     assert response.status_code == 200
     data = response.json()
     assert data["choices"][0]["message"]["content"].startswith("reply:")
@@ -144,7 +144,7 @@ async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
         ],
     }
 
-    second = client.post("/v1/chat/completions", json=follow_payload)
+    second = client.post("/v1/agent/chat/completions", json=follow_payload)
     assert second.status_code == 200
     follow_data = second.json()
     assert follow_data["id"] == data["id"]

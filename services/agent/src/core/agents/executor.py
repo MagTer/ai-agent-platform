@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 import time
+from collections.abc import AsyncGenerator
 from typing import Any, Literal, cast
 
 from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
@@ -41,6 +42,30 @@ class StepExecutorAgent:
         conversation_id: str,
         prompt_history: list[AgentMessage],
     ) -> StepResult:
+        """Run a step and return the final result (compatibility wrapper)."""
+        async for event in self.run_stream(
+            step,
+            request=request,
+            conversation_id=conversation_id,
+            prompt_history=prompt_history,
+        ):
+            if event["type"] == "result":
+                step_res = event["result"]
+                # Extract fields from the StepResult object
+                return step_res
+
+        # Fallback if stream yields nothing (should not happen)
+        return StepResult(step=step, status="error", result={"error": "No result"}, messages=[])
+
+    async def run_stream(
+        self,
+        step: PlanStep,
+        *,
+        request: AgentRequest,
+        conversation_id: str,
+        prompt_history: list[AgentMessage],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute a step and yield incremental updates (content tokens, etc)."""
         messages: list[AgentMessage] = []
         start_time = time.perf_counter()
 
@@ -52,13 +77,15 @@ class StepExecutorAgent:
             span.set_attribute("executor", str(step.executor))
             span.set_attribute("step", str(step.id))
 
-            # Record arguments (sanitize if needed in future)
             if step.args:
                 span.set_attribute("step.args", str(step.args))
 
             result: dict[str, Any] = {}
+            status = "skipped"
+
             try:
                 if step.executor == "agent" and step.action == "memory":
+                    # ... Memory logic (fast, no streaming needed) ...
                     query = step.args.get("query") or request.prompt
                     limit_value = step.args.get("limit")
                     try:
@@ -70,22 +97,56 @@ class StepExecutorAgent:
                     )
                     for record in records:
                         messages.append(
-                            AgentMessage(role="system", content=f"Context memory: {record.text}")
+                            AgentMessage(
+                                role="system",
+                                content=f"Context memory: {record.text}",
+                            )
                         )
                     result = {"count": len(records)}
                     status = "ok"
+
                 elif step.executor == "agent" and step.action == "tool":
+                    # ... Tool logic ...
                     result, messages, status = await self._run_tool(step, request)
+
                 elif step.executor in {"litellm", "remote"} and step.action == "completion":
-                    completion, model = await self._generate_completion(
-                        step, prompt_history, request
-                    )
-                    result = {"completion": completion, "model": model}
-                    status = "ok"
+                    # STREAMING LOGIC
+                    settings = getattr(self._litellm, "_settings", None)
+                    default_model = getattr(settings, "litellm_model", "agent-model")
+                    model_override = str(step.args.get("model") or default_model)
+
+                    with start_span("llm.call.assistant") as llm_span:
+                        llm_span.set_attribute("model", model_override)
+                        llm_span.set_attribute("step", str(step.id))
+
+                        full_content = []
+
+                        # Streaming call
+                        # We reconstruct the messages list here
+                        msgs_to_send = prompt_history + [
+                            AgentMessage(role="user", content=request.prompt)
+                        ]
+
+                        async for chunk in self._litellm.stream_chat(
+                            msgs_to_send, model=model_override
+                        ):
+                            if chunk["type"] == "content" and chunk["content"]:
+                                full_content.append(chunk["content"])
+                                yield {"type": "content", "content": chunk["content"]}
+                            elif chunk["type"] == "error":
+                                raise Exception(chunk["content"])
+
+                        completion_text = "".join(full_content)
+                        llm_span.set_attribute("llm.output.size", len(completion_text))
+
+                        result = {"completion": completion_text, "model": model_override}
+                        status = "ok"
+
                 else:
                     result = {"reason": "unsupported executor/action"}
                     status = "skipped"
-            except Exception as exc:  # pragma: no cover - defensive
+
+            except Exception as exc:
                 from core.tools.base import ToolConfirmationError
 
                 if isinstance(exc, ToolConfirmationError):
@@ -105,6 +166,7 @@ class StepExecutorAgent:
                 status if status in {"ok", "error", "skipped"} else "ok",
             )
 
+            # Log event happens at the END of the step
             log_event(
                 StepEvent(
                     step_id=step.id,
@@ -116,7 +178,9 @@ class StepExecutorAgent:
                     trace=trace_ctx,
                 )
             )
-            return StepResult(step=step, status=status, result=result, messages=messages)
+
+            step_res = StepResult(step=step, status=status, result=result, messages=messages)
+            yield {"type": "result", "result": step_res}
 
     async def _run_tool(
         self,

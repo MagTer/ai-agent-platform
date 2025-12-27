@@ -172,14 +172,14 @@ async def stream_response_generator(
                 # Provide visibility into the plan
                 # Clean the content to handle dicts/JSON
                 label = _clean_content(content)
-                formatted = f"\n> 📋 **Step:** {label}\n\n"
+                formatted = f"\n\n> 👣 **Plan:** *{label}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "tool_start":
-                # Maybe show tool call?
                 tool_call = agent_chunk.get("tool_call")
                 if tool_call:
-                    formatted = f"\n> 🛠️ **Tool:** `{tool_call.get('name', 'unknown')}`...\n\n"
+                    tool_name = tool_call.get("name", "unknown")
+                    formatted = f"\n> 🛠️ **Tool:** `{tool_name}`\n"
                     yield _format_chunk(
                         chunk_id,
                         created,
@@ -188,11 +188,7 @@ async def stream_response_generator(
                     )
 
             elif chunk_type == "tool_output":
-                # Don't show full output (often huge JSON)
-                # output = content
-                yield _format_chunk(
-                    chunk_id, created, model_name, "\n> ✅ **Tool Finished**\n\n"
-                )
+                yield _format_chunk(chunk_id, created, model_name, "\n> ✅ *Done*\n")
 
             elif chunk_type == "error":
                 formatted = f"\n> ❌ **Error:** {_clean_content(content)}\n\n"
@@ -210,10 +206,10 @@ def _clean_content(content: str | dict | None) -> str:
     """Extract readable text from potentially complex/JSON content."""
     if content is None:
         return "Processing..."
-        
+
     # If it's already a dict, use it directly
     data = content
-    
+
     # If it's a string, try to parse if it looks like JSON
     if isinstance(content, str):
         content = content.strip()
@@ -231,11 +227,11 @@ def _clean_content(content: str | dict | None) -> str:
                 return str(val)
         # Fallback to stringified dict (unlikely to be pretty, but safer)
         return str(data)
-        
+
     if isinstance(content, str):
-         # Just a regular string
-         return content
-         
+        # Just a regular string
+        return content
+
     return str(content)
 
 
