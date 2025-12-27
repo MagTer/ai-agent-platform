@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from shared.models import AgentMessage
@@ -71,8 +72,12 @@ class SkillDelegateTool(Tool):
             tool_schemas.append(info)
 
         # 4. Worker Loop
+        current_date_str = datetime.now().strftime("%Y-%m-%d")
         messages = [
-            AgentMessage(role="system", content=system_prompt),
+            AgentMessage(
+                role="system",
+                content=f"{system_prompt}\nCurrent Date: {current_date_str}",
+            ),
             AgentMessage(role="user", content=goal),
         ]
 

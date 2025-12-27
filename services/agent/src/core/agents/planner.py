@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -65,11 +66,14 @@ class PlannerAgent:
         except (TypeError, ValueError):
             metadata_text = str(request.metadata)
 
+        current_date_str = datetime.now().strftime("%Y-%m-%d")
+
         system_message = AgentMessage(
             role="system",
             content=(
                 "You are the Planner Agent. Your goal is to orchestrate \n"
                 "a precise JSON execution plan.\n"
+                f"Current Date: {current_date_str}\n"
                 "You are an ORCHESTRATOR, not a worker. You CANNOT perform tasks directly \n"
                 "(e.g., searching the web, writing code, reading files).\n"
                 "You MUST delegate work to Domain Experts using the `consult_expert` tool.\n\n"

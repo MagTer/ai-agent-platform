@@ -165,12 +165,14 @@ async def stream_response_generator(
             elif chunk_type == "thinking" and content:
                 # Format thoughts as blockquotes or distinct text
                 # OpenWebUI might support <thought> tags but generic markdown is safer
-                formatted = f"\n> 🧠 *{content}*\n\n"
+                formatted = f"\n> 🧠 *{_clean_content(content)}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "step_start":
                 # Provide visibility into the plan
-                formatted = f"\n> 📋 **Step:** {content}\n\n"
+                # Clean the content to handle dicts/JSON
+                label = _clean_content(content)
+                formatted = f"\n> 📋 **Step:** {label}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "tool_start":
@@ -186,15 +188,14 @@ async def stream_response_generator(
                     )
 
             elif chunk_type == "tool_output":
-                output = content
-                if output:
-                    snippet = (output[:100] + "...") if len(output) > 100 else output
-                    yield _format_chunk(
-                        chunk_id, created, model_name, f"\n**Output**: {snippet}\n\n"
-                    )
+                # Don't show full output (often huge JSON)
+                # output = content
+                yield _format_chunk(
+                    chunk_id, created, model_name, "\n> ✅ **Tool Finished**\n\n"
+                )
 
             elif chunk_type == "error":
-                formatted = f"\n> ❌ **Error:** {content}\n\n"
+                formatted = f"\n> ❌ **Error:** {_clean_content(content)}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
     except Exception as e:
@@ -203,6 +204,39 @@ async def stream_response_generator(
 
     # Final chunk
     yield "data: [DONE]\n\n"
+
+
+def _clean_content(content: str | dict | None) -> str:
+    """Extract readable text from potentially complex/JSON content."""
+    if content is None:
+        return "Processing..."
+        
+    # If it's already a dict, use it directly
+    data = content
+    
+    # If it's a string, try to parse if it looks like JSON
+    if isinstance(content, str):
+        content = content.strip()
+        if content.startswith(("{", "[")):
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError:
+                # Not JSON, use as is (truncated if too long)
+                pass
+
+    if isinstance(data, dict):
+        # Priority list of readable fields
+        for field in ["instruction", "description", "summary", "text", "message"]:
+            if val := data.get(field):
+                return str(val)
+        # Fallback to stringified dict (unlikely to be pretty, but safer)
+        return str(data)
+        
+    if isinstance(content, str):
+         # Just a regular string
+         return content
+         
+    return str(content)
 
 
 def _format_chunk(chunk_id: str, created: int, model: str, content: str) -> str:

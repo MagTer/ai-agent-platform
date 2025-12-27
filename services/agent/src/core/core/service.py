@@ -1,9 +1,8 @@
-"""High level agent orchestration."""
-
 from __future__ import annotations
 
 import logging
 import uuid
+from datetime import datetime
 from typing import Any
 
 from shared.models import (
@@ -143,6 +142,16 @@ class AgentService:
         db_messages = history_result.scalars().all()
 
         history = [AgentMessage(role=msg.role, content=msg.content) for msg in db_messages]
+
+        # Inject Current Date as System Context
+        current_date_str = datetime.now().strftime("%Y-%m-%d")
+        history.insert(
+            0,
+            AgentMessage(
+                role="system",
+                content=f"Current Date: {current_date_str}",
+            ),
+        )
 
         # 3. Request Prep
         steps: list[dict[str, Any]] = []
