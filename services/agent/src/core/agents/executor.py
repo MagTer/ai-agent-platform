@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import time
@@ -107,7 +108,12 @@ class StepExecutorAgent:
 
                 elif step.executor == "agent" and step.action == "tool":
                     # ... Tool logic ...
-                    result, messages, status = await self._run_tool(step, request)
+                    async for tool_event in self._run_tool_gen(step, request):
+                        if tool_event["type"] == "final":
+                            result, messages, status = tool_event["data"]
+                        elif tool_event["type"] == "thinking":
+                            yield {"type": "thinking", "content": tool_event["content"]}
+                            await asyncio.sleep(0) # Yield for flush
 
                 elif step.executor in {"litellm", "remote"} and step.action == "completion":
                     # STREAMING LOGIC
@@ -182,11 +188,11 @@ class StepExecutorAgent:
             step_res = StepResult(step=step, status=status, result=result, messages=messages)
             yield {"type": "result", "result": step_res}
 
-    async def _run_tool(
+    async def _run_tool_gen(
         self,
         step: PlanStep,
         request: AgentRequest,
-    ) -> tuple[dict[str, Any], list[AgentMessage], str]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         tool_messages: list[AgentMessage] = []
 
         # 1. Try Native Tool
@@ -220,26 +226,38 @@ class StepExecutorAgent:
                             trace=trace_ctx,
                         )
                     )
-                    return (
-                        {"name": step.tool, "status": "ok", "output": output_text},
-                        tool_messages,
-                        "ok",
-                    )
+                    yield {
+                        "type": "final",
+                        "data": (
+                            {"name": step.tool, "status": "ok", "output": output_text},
+                            tool_messages,
+                            "ok",
+                        ),
+                    }
+                    return
 
                 except FileNotFoundError:
                     pass  # Fall through to return missing
                 except Exception as e:
-                    return (
-                        {
-                            "name": step.tool,
-                            "status": "error",
-                            "reason": f"Skill execution failed: {e}",
-                        },
-                        tool_messages,
-                        "error",
-                    )
+                    yield {
+                        "type": "final",
+                        "data": (
+                            {
+                                "name": step.tool,
+                                "status": "error",
+                                "reason": f"Skill execution failed: {e}",
+                            },
+                            tool_messages,
+                            "error",
+                        ),
+                    }
+                    return
 
-            return {"name": step.tool, "status": "missing"}, tool_messages, "missing"
+            yield {
+                "type": "final",
+                "data": ({"name": step.tool, "status": "missing"}, tool_messages, "missing"),
+            }
+            return
 
         # Simplified argument unpacking: Trust the plan, with minor legacy fallback
         tool_args = step.args
@@ -253,11 +271,15 @@ class StepExecutorAgent:
         allowlist = step.args.get("allowed_tools") if isinstance(step.args, dict) else None
         if allowlist and step.tool not in allowlist:
             # Legacy guard, mostly for 'router' calls but safe to keep
-            return (
-                {"name": step.tool, "status": "skipped", "reason": "not-allowed"},
-                tool_messages,
-                "skipped",
-            )
+            yield {
+                "type": "final",
+                "data": (
+                    {"name": step.tool, "status": "skipped", "reason": "not-allowed"},
+                    tool_messages,
+                    "skipped",
+                ),
+            }
+            return
 
         # Inject CWD if provided and tool supports it
         cwd = step.args.get("cwd")  # Explicit args take precedence
@@ -292,17 +314,34 @@ class StepExecutorAgent:
                 run_args = final_args.copy()
                 run_args.pop("confirm_dangerous_action", None)
 
-                output = await tool.run(**run_args)
+                output = None
+                if inspect.isasyncgenfunction(tool.run):
+                     output_str = ""
+                     async for chunk in tool.run(**run_args):
+                         if isinstance(chunk, dict) and chunk.get("type") == "thinking":
+                             yield {"type": "thinking", "content": chunk.get("content")}
+                         elif isinstance(chunk, dict) and chunk.get("type") == "result":
+                             output = chunk.get("output")
+                     
+                     if output is None:
+                         output = "No valid output from streaming tool."
+                else:
+                     output = await tool.run(**run_args)
+
             except TypeError as exc:
-                return (
-                    {
-                        "name": step.tool,
-                        "status": "error",
-                        "reason": f"Invalid arguments: {exc}",
-                    },
-                    tool_messages,
-                    "error",
-                )
+                yield {
+                    "type": "final",
+                    "data": (
+                        {
+                            "name": step.tool,
+                            "status": "error",
+                            "reason": f"Invalid arguments: {exc}",
+                        },
+                        tool_messages,
+                        "error",
+                    ),
+                }
+                return
         output_text = str(output)
 
         # Phase 4: Integration Feedback
@@ -326,11 +365,14 @@ class StepExecutorAgent:
                 trace=trace_ctx,
             )
         )
-        return (
-            {"name": step.tool, "status": "ok", "output": output_text},
-            tool_messages,
-            "ok",
-        )
+        yield {
+            "type": "final",
+            "data": (
+                {"name": step.tool, "status": "ok", "output": output_text},
+                tool_messages,
+                "ok",
+            ),
+        }
 
     async def _generate_completion(
         self,

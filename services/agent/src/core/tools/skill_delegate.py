@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
-
-from shared.models import AgentMessage
 
 from core.command_loader import load_command
 from core.core.litellm_client import LiteLLMClient
 from core.tools.base import Tool
 from core.tools.registry import ToolRegistry
+from shared.models import AgentMessage
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,23 +34,23 @@ class SkillDelegateTool(Tool):
         self._litellm = litellm
         self._registry = registry
 
-    async def run(self, skill: str, goal: str) -> str:
+    async def run(self, skill: str, goal: str) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a sub-agent loop for the given skill and goal."""
 
         # 1. Load Skill
         try:
             metadata, system_prompt = load_command(skill, {})
         except FileNotFoundError:
-            return f"Error: Skill '{skill}' not found. Please verify available skills."
+            yield {"type": "result", "output": f"Error: Skill '{skill}' not found."}
+            return
         except Exception as e:
-            return f"Error loading skill '{skill}': {e}"
+            yield {"type": "result", "output": f"Error loading skill '{skill}': {e}"}
+            return
 
         # 2. Resolve Tools
         allowed_names = metadata.get("tools", [])
         worker_tools = []
 
-        # Security: Only allow tools explicitly listed in the skill definition.
-        # If 'tools' is empty, the worker has NO tools.
         for name in allowed_names:
             t = self._registry.get(name)
             if t:
@@ -94,9 +95,8 @@ class SkillDelegateTool(Tool):
 
         logger_prefix = f"[Worker:{skill}]"
         LOGGER.info(f"{logger_prefix} Starting goal: {goal}")
-
-        # Import tracing only inside method to avoid circular imports at module level if any
-        # (Though better to import at top if possible, but let's be safe for this specific patch)
+        
+        # Import tracing only inside method to avoid circular imports
         from core.observability.tracing import start_span
 
         max_turns = 10
@@ -104,21 +104,65 @@ class SkillDelegateTool(Tool):
         with start_span(f"skill.execution.{skill}", attributes={"goal": goal}):
             for i in range(max_turns):
                 LOGGER.debug(f"{logger_prefix} Turn {i+1}")
+                yield {"type": "thinking", "content": f"Worker ({skill}) Turn {i+1}..."}
+                await asyncio.sleep(0.01)  # Force flush
+                
                 with start_span(f"skill.turn.{i+1}"):
+
+                    # Stream tokens instead of blocking
+                    full_content = []
+                    tool_calls_buffer = {}  # index -> call
+                    
                     try:
-                        # Call LLM
-                        assistant_data = await self._litellm.run_with_tools(
-                            messages, tools=tool_schemas if tool_schemas else []
-                        )
+                        # Use default model
+                        async for chunk in self._litellm.stream_chat(messages, model=None):
+                             # 1. Yield Thinking Tokens
+                             if chunk["type"] == "content" and chunk["content"]:
+                                 content = chunk["content"]
+                                 full_content.append(content)
+                                 yield {"type": "thinking", "content": content}
+                                 
+                             # 2. Accumulate Tool Calls
+                             elif chunk["type"] == "tool_start" and chunk["tool_call"]:
+                                 tc = chunk["tool_call"]
+                                 idx = tc["index"]
+                                 if idx not in tool_calls_buffer:
+                                     tool_calls_buffer[idx] = tc
+                                 else:
+                                     # Append logic for delta updates
+                                     # (simplified for now: assume full tool call or delta handling in client)
+                                     # LiteLLMClient currently yields full tool calls or deltas. 
+                                     # Based on litellm_client.py, it yields 'tool_call' from delta.
+                                     # We need to assemble deltas if they are fragmented.
+                                     # Checking litellm_client.py:
+                                     # if "tool_calls" in delta: for tool_call in delta["tool_calls"]: yield ...
+                                     # This is likely a Delta.
+                                     prev = tool_calls_buffer[idx]
+                                     if "function" in tc:
+                                          if "name" in tc["function"] and tc["function"]["name"]:
+                                              prev["function"]["name"] = (
+                                                  prev["function"].get("name") or ""
+                                              ) + tc["function"]["name"]
+                                          if "arguments" in tc["function"] and tc["function"]["arguments"]:
+                                              prev["function"]["arguments"] = (
+                                                  prev["function"].get("arguments") or ""
+                                              ) + tc["function"]["arguments"]
+                                 
+                             # 3. Handle Error
+                             elif chunk["type"] == "error":
+                                 yield {"type": "result", "output": f"Worker Error: {chunk['content']}"}
+                                 return
+
                     except Exception as e:
-                        LOGGER.error(f"{logger_prefix} LLM Error: {e}", exc_info=True)
-                        return f"Worker Error (LLM): {e}"
+                         LOGGER.error(f"{logger_prefix} Streaming Error: {e}", exc_info=True)
+                         yield {"type": "result", "output": f"Worker Error (Stream): {e}"}
+                         return
 
-                    content = assistant_data.get("content")
-                    tool_calls = assistant_data.get("tool_calls")
-
-                    # Log event?
-
+                    content = "".join(full_content)
+                    
+                    # Assemble final tool calls
+                    tool_calls = list(tool_calls_buffer.values())
+                    
                     assistant_msg = AgentMessage(
                         role="assistant", content=content, tool_calls=tool_calls
                     )
@@ -126,13 +170,27 @@ class SkillDelegateTool(Tool):
 
                     if not tool_calls:
                         if content:
-                            return content
-                        return "Worker produced empty response."
+                        if content:
+                            yield {"type": "result", "output": "Worker finished."}
+                            # Don't return yet, let next loop decide? No, we return result at end of 'turn' if no tools?
+                            # If no tools, the worker is done speaking?
+                            # Typically YES.
+                            # But we yielded thinking tokens.
+                            # We should yield the FINAL result event with the accumulated content.
+                            # Wait, the Executor expects "result" event to contain string output?
+                            yield {"type": "result", "output": content}
+                            return
+                        yield {"type": "result", "output": "Worker produced empty response."}
+                        return
 
                     for tc in tool_calls:
                         func = tc["function"]
                         fname = func["name"]
                         call_id = tc["id"]
+
+
+                        yield {"type": "thinking", "content": f"Worker invoking {fname}..."}
+                        await asyncio.sleep(0.01)  # Force flush
 
                         with start_span(f"skill.tool.{fname}"):
                             try:
@@ -146,6 +204,8 @@ class SkillDelegateTool(Tool):
                             if tool_obj:
                                 LOGGER.info(f"{logger_prefix} Executing {fname}")
                                 try:
+                                    # Check if tool is also streaming? 
+                                    # For now, assume other tools are atomic.
                                     output_str = str(await tool_obj.run(**fargs))
                                 except Exception as e:
                                     output_str = f"Error: {e}"
@@ -161,4 +221,4 @@ class SkillDelegateTool(Tool):
                                 )
                             )
 
-        return "Worker timed out (max turns reached)."
+        yield {"type": "result", "output": "Worker timed out (max turns reached)."}

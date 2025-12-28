@@ -7,15 +7,6 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
-from shared.models import (
-    AgentMessage,
-    AgentRequest,
-    AgentResponse,
-    Plan,
-    PlanStep,
-    RoutingDecision,
-    StepResult,
-)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +28,15 @@ from core.observability.tracing import current_trace_ids, start_span
 from core.system_commands import handle_system_command
 from core.tools import ToolRegistry
 from core.tools.base import ToolConfirmationError
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    Plan,
+    PlanStep,
+    RoutingDecision,
+    StepResult,
+)
 
 from .memory import MemoryRecord
 
@@ -261,12 +261,23 @@ class AgentService:
 
                 yield {"type": "thinking", "content": "Generating plan..."}
 
-                plan = await planner.generate(
-                    request,
-                    history=history_with_tools,
-                    tool_descriptions=tool_descriptions,
-                    available_skills_text=available_skills_text,
-                )
+                
+                plan = None
+                if plan is None:
+                    async for event in planner.generate_stream(
+                        request,
+                        history=history_with_tools,
+                        tool_descriptions=tool_descriptions,
+                        available_skills_text=available_skills_text,
+                    ):
+                        if event["type"] == "token":
+                            # Suppress raw JSON streaming as per user request
+                            pass
+                        elif event["type"] == "plan":
+                            plan = event["plan"]
+
+                if plan is None:
+                     raise ValueError("Planner returned no plan")
                 plan = await plan_supervisor.review(plan)
 
             if not plan.steps:
@@ -302,7 +313,7 @@ class AgentService:
                     yield {
                         "type": "tool_start",
                         "content": None,
-                        "tool_call": {"name": plan_step.tool},
+                        "tool_call": {"name": plan_step.tool, "arguments": plan_step.args},
                         "metadata": {"id": plan_step.id},
                     }
 
@@ -317,6 +328,12 @@ class AgentService:
                     ):
                         if event["type"] == "content":
                             yield {"type": "content", "content": event["content"]}
+                        elif event["type"] == "thinking":
+                            yield {
+                                "type": "thinking",
+                                "content": event["content"],
+                                "metadata": {"id": plan_step.id},
+                            }
                         elif event["type"] == "result":
                             step_execution_result = event["result"]
 

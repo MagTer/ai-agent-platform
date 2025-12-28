@@ -163,10 +163,23 @@ async def stream_response_generator(
                 yield _format_chunk(chunk_id, created, model_name, content)
 
             elif chunk_type == "thinking" and content:
-                # Format thoughts as blockquotes or distinct text
-                # OpenWebUI might support <thought> tags but generic markdown is safer
-                formatted = f"\n> 🧠 *{_clean_content(content)}*\n\n"
-                yield _format_chunk(chunk_id, created, model_name, formatted)
+                # Check for streaming flag
+                is_stream = False
+                if agent_chunk.get("metadata") and agent_chunk["metadata"].get("stream"):
+                    is_stream = True
+                
+                if is_stream:
+                    # Just yield content for cleaner token streaming (though WebUI might not render it as nicely inline)
+                    # Ideally we want to stream into a single block. 
+                    # But OpenWebUI receives deltas.
+                    # If we send `> 🧠 ` once, then tokens?
+                    # Hard to coordinate state.
+                    # Fallback: Just send the token as raw content prefixed? No.
+                    # Send as italics?
+                    yield _format_chunk(chunk_id, created, model_name, content)
+                else:
+                    formatted = f"\n> 🧠 *{_clean_content(content)}*\n\n"
+                    yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "step_start":
                 # Provide visibility into the plan

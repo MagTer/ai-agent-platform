@@ -1,19 +1,21 @@
+
 """Planner agent responsible for generating orchestration plans."""
 
 from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
-from shared.models import AgentMessage, AgentRequest, Plan
 
 from core.core.litellm_client import LiteLLMClient
 from core.models.pydantic_schemas import PlanEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
+from shared.models import AgentMessage, AgentRequest, Plan
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,8 +35,37 @@ class PlannerAgent:
         history: list[AgentMessage],
         tool_descriptions: list[dict[str, Any]],
         available_skills_text: str = "",
+        stream_callback: Callable[[str], Any] | None = None,
     ) -> Plan:
-        """Return a :class:`Plan` describing execution steps."""
+        """Return a :class:`Plan` describing execution steps.
+        
+        Backward compatibility wrapper around generate_stream.
+        """
+        last_plan = None
+        async for event in self.generate_stream(
+            request, history=history, tool_descriptions=tool_descriptions, available_skills_text=available_skills_text
+        ):
+            if event["type"] == "plan":
+                last_plan = event["plan"]
+            elif event["type"] == "token" and stream_callback:
+                 try:
+                     await stream_callback(event["content"])
+                 except Exception:
+                     pass
+
+        if not last_plan:
+            raise ValueError("Planner failed to return a plan")
+        return last_plan
+
+    async def generate_stream(
+        self,
+        request: AgentRequest,
+        *,
+        history: list[AgentMessage],
+        tool_descriptions: list[dict[str, Any]],
+        available_skills_text: str = "",
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Generate a plan and yield tokens/results incrementally."""
 
         lines = []
         for entry in tool_descriptions:
@@ -175,10 +206,14 @@ class PlannerAgent:
                 else:
                     msgs = [system_message, user_message] + history_augmentation
 
-                plan_text = await self._litellm.plan(
-                    messages=msgs,
-                    model=model_name,
-                )
+                plan_text_chunks = []
+                async for chunk in self._litellm.stream_chat(msgs, model=model_name):
+                    if chunk["type"] == "content" and chunk["content"]:
+                        content = chunk["content"]
+                        plan_text_chunks.append(content)
+                        yield {"type": "token", "content": content}
+
+                plan_text = "".join(plan_text_chunks)
                 span.set_attribute("llm.output.size", len(plan_text))
                 if model_name:
                     span.set_attribute("llm.model", model_name)
@@ -205,7 +240,8 @@ class PlannerAgent:
                             )
                         )
                         span.set_attribute("plan.step_count", len(plan.steps))
-                        return plan
+                        yield {"type": "plan", "plan": plan}
+                        return
                     except ValidationError as exc:
                         exc_msg = str(exc)
                         LOGGER.warning(
@@ -250,12 +286,14 @@ class PlannerAgent:
                         )
                 else:
                     # Final fallback
-                    return Plan(
+                    final_plan = Plan(
                         steps=[],
                         description=(
                             f"Planner failed after {attempts} attempts. Last error: {exc_msg}"
                         ),
                     )
+                    yield {"type": "plan", "plan": final_plan}
+                    return
 
             raise RuntimeError("Unreachable: Planner loop exited without return")
 
