@@ -1,11 +1,9 @@
 import logging
-import re
 import shlex
 import uuid
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from re import Pattern
-from typing import Any, TypedDict
+from typing import Any
 
 from shared.models import AgentMessage, AgentRequest, Plan, PlanStep, RoutingDecision
 from shared.streaming import AgentChunk
@@ -14,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from utils.template import substitute_variables
 
 from core.core.litellm_client import LiteLLMClient
-from core.db.models import Context, Conversation, Message
+from core.core.routing import registry
+from core.db.models import Context, Conversation, Message, Session
 
 from .skill_loader import SkillLoader
 
@@ -36,40 +35,12 @@ class DispatchResult:
     response: str | None = None  # The final agent response
 
 
-class FastPathEntry(TypedDict, total=False):
-    """Defines the structure for a fast path entry."""
-
-    pattern: Pattern[str]
-    tool: str
-    args: dict[str, Any]
-    arg_mapper: Callable[[re.Match], dict[str, Any]]
-    description: str
-
-
 class Dispatcher:
     def __init__(self, skill_loader: SkillLoader, litellm: LiteLLMClient):
         self.skill_loader = skill_loader
         self.litellm = litellm
         if not self.skill_loader.skills:
             self.skill_loader.load_skills()
-
-        self._fast_paths: list[FastPathEntry] = [
-            {
-                "pattern": re.compile(r"^tänd lampan", re.IGNORECASE),
-                "tool": "home_automation",
-                "args": {"action": "turn_on", "device": "lamp"},
-                "description": "Direct command to turn on the lamp.",
-            },
-            {
-                "pattern": re.compile(r"^/ado\s+(.+)", re.IGNORECASE),
-                "tool": "azure_devops",
-                "arg_mapper": lambda m: self._map_ado_args(m),
-                "description": "Create Azure DevOps work item.",
-            },
-        ]
-
-    def _map_ado_args(self, match: re.Match) -> dict:
-        return {"title": match.group(1), "description": "Created via Fast Path"}
 
     async def stream_message(
         self,
@@ -151,47 +122,47 @@ class Dispatcher:
                 return
 
         # 2. Check Regex Fast Paths
-        for path in self._fast_paths:
-            match = path["pattern"].search(stripped_message)
-            if match:
-                LOGGER.info(f"Fast Path match: {path['description']}")
-                yield {
-                    "type": "thinking",
-                    "content": f"Fast Path: {path['description']}",
-                    "tool_call": None,
-                    "metadata": {"fast_path": path["description"]},
-                }
+        path_match = registry.get_match(stripped_message)
+        if path_match:
+            path, match = path_match
+            LOGGER.info(f"Fast Path match: {path['description']}")
+            yield {
+                "type": "thinking",
+                "content": f"Fast Path: {path['description']}",
+                "tool_call": None,
+                "metadata": {"fast_path": path["description"]},
+            }
 
-                tool_args = path.get("args", {})
-                if "arg_mapper" in path:
-                    tool_args = path["arg_mapper"](match)
+            tool_args = path.get("args", {})
+            if "arg_mapper" in path:
+                tool_args = path["arg_mapper"](match)
 
-                # Create a synthetic plan
-                plan = Plan(
-                    steps=[
-                        PlanStep(
-                            id=str(uuid.uuid4()),
-                            label=f"Fast Path: {path['description']}",
-                            executor="agent",
-                            action="tool",
-                            tool=path["tool"],
-                            args=tool_args,
-                            description=path["description"],
-                        )
-                    ],
-                    description="Fast Path Plan",
-                )
+            # Create a synthetic plan
+            plan = Plan(
+                steps=[
+                    PlanStep(
+                        id=str(uuid.uuid4()),
+                        label=f"Fast Path: {path['description']}",
+                        executor="agent",
+                        action="tool",
+                        tool=path["tool"],
+                        args=tool_args,
+                        description=path["description"],
+                    )
+                ],
+                description="Fast Path Plan",
+            )
 
-                # Execute with injected plan
-                async for chunk in self._stream_agent_execution(
-                    prompt=message,
-                    conversation_id=conversation_id,
-                    db_session=db_session,
-                    agent_service=agent_service,
-                    metadata={"plan": plan.model_dump()},
-                ):
-                    yield chunk
-                return
+            # Execute with injected plan
+            async for chunk in self._stream_agent_execution(
+                prompt=message,
+                conversation_id=conversation_id,
+                db_session=db_session,
+                agent_service=agent_service,
+                metadata={"plan": plan.model_dump()},
+            ):
+                yield chunk
+            return
 
         # 3. Intent Classification
         system_prompt = (
@@ -254,16 +225,41 @@ class Dispatcher:
                 if chunk["type"] == "content" and chunk["content"]:
                     full_content += chunk["content"]
 
-            # Persist if possible
+            # Persist chat history
             if db_session:
-                db_session.add(
-                    Message(session_id=None, role="user", content=message)
-                )  # Simplified, need session ID
-                # We need the persistent session object ID (not just conv ID).
-                # TODO: Fix _resolve_conversation or handle persistence in AgentService.
-                # For now, to avoid duplicating Persistence logic, we skip peristence for CHAT.
-                # Ideally we call agent_service.handle_request but it is blocking.
-                pass
+                try:
+                    # 1. Get or Create Active Session
+                    try:
+                        conv_uuid = uuid.UUID(conversation_id)
+                    except ValueError:
+                        conv_uuid = None
+
+                    if conv_uuid:
+                        stmt = select(Session).where(
+                            Session.conversation_id == conv_uuid, Session.active.is_(True)
+                        )
+                        result = await db_session.execute(stmt)
+                        session_obj = result.scalar_one_or_none()
+
+                        if not session_obj:
+                            session_obj = Session(
+                                id=uuid.uuid4(), conversation_id=conv_uuid, active=True
+                            )
+                            db_session.add(session_obj)
+                            await db_session.flush()
+
+                        # 2. Save Messages
+                        db_session.add(
+                            Message(session_id=session_obj.id, role="user", content=message)
+                        )
+                        db_session.add(
+                            Message(
+                                session_id=session_obj.id, role="assistant", content=full_content
+                            )
+                        )
+                        await db_session.commit()
+                except Exception as e:
+                    LOGGER.error(f"Failed to persist CHAT history: {e}")
 
         else:
             # AGENTIC / TASK
@@ -392,6 +388,13 @@ class Dispatcher:
                         "content": chunk.get("content"),
                         "tool_call": None,
                         "metadata": chunk.get("metadata"),
+                    }
+                elif c_type == "history_snapshot":
+                    yield {
+                        "type": "history_snapshot",
+                        "content": None,
+                        "tool_call": None,
+                        "metadata": chunk,
                     }
                 else:
                     # Fallback

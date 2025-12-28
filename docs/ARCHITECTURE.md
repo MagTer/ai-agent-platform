@@ -26,22 +26,27 @@ graph TD
     end
 ```
 
-## Layers
+## Layers & Dependency Rules
 
-1.  **Interface Layer (`src/interfaces`)**:
-    *   Adapts external protocols to internal data structures.
-    *   Handles authentication, request validation, and response formatting.
-    *   Example: `src/interfaces/http/openwebui_adapter.py` converts OpenAI-compatible requests into internal `AgentRequest` objects.
+The system follows a **Modular Monolith** architecture with a strict unidirectional dependency flow.
 
-2.  **Orchestrator Layer (`src/orchestrator` / `src/core/agents`)**:
-    *   **Planner Agent**: The high-level reasoning engine that breaks down user requests into a JSON plan.
-    *   **Skill Delegate**: A specialized tool (`consult_expert`) that instantiates "Worker Agents" for specific domains.
-    *   **Skill Loader**: Scans and loads file-based capabilities from the `skills/` directory.
+**Directory Structure & Rules (`services/agent/src/`):**
 
-3.  **Core Engine (`src/core`)**:
-    *   The execution runtime.
-    *   Manages LLM interactions (via LiteLLM).
-    *   Handles Tool calling, Memory retrieval (RAG), and State management.
+1.  **`interfaces/`** (Top Level)
+    *   *Purpose:* HTTP API, CLI, Event consumers. Adapts external protocols to internal data structures.
+    *   *Rule:* Can import everything below (`orchestrator`, `modules`, `core`). **NO Business Logic here.**
+
+2.  **`orchestrator/`**
+    *   *Purpose:* Workflows, Task Delegation. Contains the Planner Agent and Skill delegation logic.
+    *   *Rule:* Can import `modules` and `core`.
+
+3.  **`modules/`**
+    *   *Purpose:* Isolated features (RAG, Indexer, Embedder).
+    *   *Rule:* Encapsulated. Can **ONLY** import `core`. **Cannot** import other modules.
+
+4.  **`core/`** (Bottom Level)
+    *   *Purpose:* Database, Models, Config, Observability. The execution runtime.
+    *   *Rule:* **NEVER** import from `interfaces`, `orchestrator`, or `modules`.
 
 ## Skill System
 

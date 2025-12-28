@@ -6,7 +6,16 @@ class AgentChunk(TypedDict):
     Unified schema for streaming chunks from the agent system.
     """
 
-    type: Literal["content", "step_start", "tool_start", "tool_output", "thinking", "error", "done"]
+    type: Literal[
+        "content",
+        "step_start",
+        "tool_start",
+        "tool_output",
+        "thinking",
+        "error",
+        "done",
+        "history_snapshot",
+    ]
     content: str | None
     tool_call: dict[str, Any] | None
     metadata: dict[str, Any] | None

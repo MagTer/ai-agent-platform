@@ -172,14 +172,58 @@ async def stream_response_generator(
                 # Provide visibility into the plan
                 # Clean the content to handle dicts/JSON
                 label = _clean_content(content)
-                formatted = f"\n\n> 👣 **Plan:** *{label}*\n\n"
+                formatted = f"\n\n> 👣 **Step:** *{label}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "tool_start":
                 tool_call = agent_chunk.get("tool_call")
                 if tool_call:
                     tool_name = tool_call.get("name", "unknown")
-                    formatted = f"\n> 🛠️ **Tool:** `{tool_name}`\n"
+                    args = tool_call.get("arguments", {})
+                    # Format args concisely
+                    args_str = ""
+                    skill_name = None
+
+                    try:
+                        # 1. Normalize args to dict if possible
+                        parsed_args = args
+                        if isinstance(args, str):
+                            # Try parsing stringified JSON
+                            args = args.strip()
+                            if args.startswith("{"):
+                                try:
+                                    parsed_args = json.loads(args)
+                                except json.JSONDecodeError:
+                                    pass  # Keep as string
+
+                        # 2. Extract Skill
+                        if tool_name == "consult_expert" and isinstance(parsed_args, dict):
+                            skill_name = parsed_args.get("skill")
+
+                        # 3. Format visual args string
+                        if parsed_args:
+                            if isinstance(parsed_args, dict):
+                                parts = [f"{k}={v}" for k, v in parsed_args.items()]
+                                args_str = ", ".join(parts)
+                            else:
+                                args_str = str(parsed_args)
+
+                        # Truncate if too long
+                        if len(args_str) > 40:
+                            args_str = args_str[:37] + "..."
+
+                        if args_str:
+                            args_str = f"({args_str})"
+
+                    except Exception as e:
+                        LOGGER.warning(f"Error formatting tool args: {e}")
+                        args_str = ""  # Fallback
+
+                    if skill_name:
+                        formatted = f"\n> 🧠 **Using Skill:** `{skill_name}`\n"
+                    else:
+                        formatted = f"\n> 🛠️ **Tool:** `{tool_name}` *{args_str}*\n"
+
                     yield _format_chunk(
                         chunk_id,
                         created,
@@ -188,11 +232,19 @@ async def stream_response_generator(
                     )
 
             elif chunk_type == "tool_output":
-                yield _format_chunk(chunk_id, created, model_name, "\n> ✅ *Done*\n")
+                yield _format_chunk(chunk_id, created, model_name, "\n> ✅ *Finished*\n")
 
             elif chunk_type == "error":
                 formatted = f"\n> ❌ **Error:** {_clean_content(content)}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
+
+            # Explicitly ignore history_snapshot and other internal events
+            elif chunk_type in ["history_snapshot", "plan"]:
+                pass
+
+            else:
+                # Log but do not show unknown events to user to avoid noise
+                LOGGER.debug(f"Ignored chunk type: {chunk_type}")
 
     except Exception as e:
         LOGGER.error(f"Error during streaming: {e}")
