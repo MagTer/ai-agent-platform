@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
+import traceback
 import uuid
 from collections.abc import Iterable
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,6 +59,31 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        """Capture unhandled exceptions and log escape for debugging."""
+        timestamp = datetime.now().isoformat()
+        trace_str = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        error_msg = f"[{timestamp}] CRITICAL: Unhandled exception\n{trace_str}\n" + "-" * 80 + "\n"
+
+        # Log to stderr
+        LOGGER.exception("Unhandled exception")
+
+        # Write to crash log
+        try:
+            log_path = Path("services/agent/last_crash.log")
+            # Ensure directory exists? Usually services/agent exists.
+            # Append mode
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(error_msg)
+        except Exception as log_exc:
+            LOGGER.error(f"Failed to write to crash log: {log_exc}")
+
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal Server Error. Check last_crash.log."},
+        )
 
     @app.middleware("http")
     async def capture_request_response_middleware(request: Request, call_next: Any) -> Any:

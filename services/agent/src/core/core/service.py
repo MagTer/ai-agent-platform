@@ -365,14 +365,22 @@ class AgentService:
                     "output": str(step_execution_result.result.get("output") or ""),
                 }
 
-                yield {
-                    "type": chunk_type,
-                    "content": str(
-                        step_execution_result.result.get("output") or step_execution_result.status
-                    ),
-                    "tool_call": tool_call,
-                    "metadata": meta,
-                }
+                content_str = str(
+                    step_execution_result.result.get("output") or step_execution_result.status
+                )
+
+                # Check for trivial status content
+                is_trivial = False
+                if chunk_type == "thinking" and content_str.lower() in ("ok", "completed step"):
+                    is_trivial = True
+
+                if not is_trivial:
+                    yield {
+                        "type": chunk_type,
+                        "content": content_str,
+                        "tool_call": tool_call,
+                        "metadata": meta,
+                    }
 
                 prompt_history.extend(step_execution_result.messages)
                 if plan_step.action == "tool":
@@ -394,6 +402,12 @@ class AgentService:
             if not completion_text:
                 yield {"type": "thinking", "content": "Generating final answer..."}
                 completion_text = await self._litellm.generate(prompt_history)
+                # Only yield content if we just generated it here
+                yield {
+                    "type": "content",
+                    "content": completion_text,
+                    "metadata": {"provider": completion_provider, "model": completion_model},
+                }
 
             session.add(
                 Message(
@@ -407,12 +421,6 @@ class AgentService:
                 [MemoryRecord(conversation_id=conversation_id, text=request.prompt)]
             )
             await session.commit()
-
-            yield {
-                "type": "content",
-                "content": completion_text,
-                "metadata": {"provider": completion_provider, "model": completion_model},
-            }
 
             log_event(
                 SupervisorDecision(

@@ -16,3 +16,9 @@
 - name: calculator
   type: core.tools.calculator.CalculatorTool
 
+- name: read_file
+  type: core.tools.filesystem.ReadFileTool
+  args:
+    base_path: .
+    max_length: 20000
+

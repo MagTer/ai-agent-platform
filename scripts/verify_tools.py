@@ -1,38 +1,71 @@
-import os
 import sys
+import traceback
 from pathlib import Path
 
-import yaml
-
 # Add src to path
-sys.path.append(os.path.join(os.getcwd(), "services", "agent", "src"))
+# Assuming script is in scripts/
+project_root = Path(__file__).resolve().parent.parent
+sys.path.append(str(project_root / "services" / "agent" / "src"))
+
+try:
+    from core.tools.loader import load_tool_registry
+except ImportError:
+    print("❌ Critical: Could not import core.tools.loader. Check paths.")
+    sys.exit(1)
 
 
 def verify_tools():
+    config_path = project_root / "services/agent/config/tools.yaml"
+    if not config_path.exists():
+        print(f"❌ ERROR: {config_path} does not exist.")
+        return
+
+    print(f"🔍 Verifying tools from {config_path}...")
+
     try:
-        config_path = Path("services/agent/config/tools.yaml")
-        if not config_path.exists():
-            print(f"ERROR: {config_path} does not exist.")
-            return
+        # load_tool_registry attempts to instantiate all tools
+        # We want to capture which ones succeeded and which failed.
+        # But load_tool_registry currently catches exceptions and logs them,
+        # it doesn't return failures explicitly.
+        # However, we can use the ToolRegistry to see what was loaded.
 
-        print(f"Loading tools from {config_path}...")
+        # But to really "verify", we might want to fail the script if tools are missing.
+        # Let's see if we can iterate the YAML ourselves and try strict loading
+        # OR we just rely on load_tool_registry and check the output registry size vs yaml entries.
 
-        # We might need to mock Settings if load_tools_from_config requires it,
-        # but looking at code it usually takes a path or list.
-        # Let's check the signature in a moment, but for now assuming it takes path or dict.
-        # Actually I should check the code for `load_tools_from_config` to be safe.
-        # I'll just read the yaml manually and check the classes if I can't easily import.
+        registry = load_tool_registry(config_path)
+
+        import yaml
 
         with open(config_path) as f:
-            data = yaml.safe_load(f)
+            raw_tools = yaml.safe_load(f) or []
 
-        print("Tools in YAML:")
-        for tool_def in data:
-            print(f" - Name: {tool_def.get('name')}")
-            print(f"   Type: {tool_def.get('type')}")
+        defined_count = len(raw_tools)
+        loaded_count = len(registry._tools)
 
-    except Exception as e:
-        print(f"Error: {e}")
+        print(f"\n📊 Summary: {loaded_count}/{defined_count} tools loaded successfully.")
+
+        failed = False
+        loaded_names = registry._tools.keys()
+
+        for tool_def in raw_tools:
+            name = tool_def.get("name")
+            if name in loaded_names:
+                print(f"✅ {name}: Loaded")
+            else:
+                print(f"❌ {name}: Failed to load")
+                failed = True
+
+        if failed:
+            print("\n⚠️  Some tools failed to load. Check logs for details.")
+            sys.exit(1)
+        else:
+            print("\n✨ All tools verified successfully.")
+
+    except Exception:
+        print("❌ Critical Verification Failure:")
+        traceback.print_exc()
+        sys.exit(1)
 
 
 if __name__ == "__main__":
