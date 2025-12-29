@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from collections import deque
+from collections import Counter, deque
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -50,6 +50,94 @@ class DiagnosticsService:
     def __init__(self, settings: Settings):
         self._settings = settings
         self._trace_log_path = Path(str(settings.trace_span_log_path or "data/spans.jsonl"))
+
+    def get_system_health_metrics(self, window: int = 60) -> dict[str, Any]:
+        """
+        Analyze recent traces to determine system health.
+
+        Args:
+            window: Number of most recent traces to analyze.
+
+        Returns:
+            Dictionary containing health status, metrics, and hotspots.
+        """
+        metrics = {
+            "total_requests": 0,
+            "error_rate": 0.0,
+            "hotspots": {},
+        }
+
+        if not self._trace_log_path.exists():
+            return {"status": "UNKNOWN", "metrics": metrics, "reason": "No trace log found"}
+
+        # Read last N lines efficiently
+        # We read more lines than window size to ensure we capture full traces
+        # Assuming average 10 spans per trace, 3000 lines covers ~300 traces
+        try:
+            with self._trace_log_path.open("r", encoding="utf-8") as f:
+                lines = deque(f, maxlen=3000)
+        except Exception as e:
+            LOGGER.error(f"Failed to read trace log: {e}")
+            return {"status": "UNKNOWN", "metrics": metrics, "reason": f"Read error: {e}"}
+
+        # Process spans
+        recent_traces: dict[str, list[dict]] = {}
+        hotspot_counts: Counter[str] = Counter()
+        error_traces = set()
+
+        # Reverse iterate to get newest first
+        for line in reversed(lines):
+            try:
+                span = json.loads(line)
+                trace_id = span.get("context", {}).get("trace_id")
+                if not trace_id:
+                    continue
+
+                if trace_id not in recent_traces:
+                    if len(recent_traces) >= window:
+                        continue
+                    recent_traces[trace_id] = []
+
+                recent_traces[trace_id].append(span)
+            except json.JSONDecodeError:
+                continue
+
+        # Analyze traces
+        total_requests = len(recent_traces)
+
+        for trace_id, spans in recent_traces.items():
+            has_error = False
+            for span in spans:
+                status = span.get("status", "UNSET")
+                name = span.get("name", "unknown")
+
+                # Check for error status
+                if status in ("ERROR", "fail"):
+                    has_error = True
+                    # Identify hotspot using span name (e.g. tool name)
+                    hotspot_counts[name] += 1
+
+            if has_error:
+                error_traces.add(trace_id)
+
+        error_count = len(error_traces)
+        error_rate = (error_count / total_requests) if total_requests > 0 else 0.0
+
+        status = "HEALTHY"
+        if error_rate > 0.1:
+            status = "DEGRADED"
+        if error_rate > 0.5:
+            status = "UNHEALTHY"
+
+        return {
+            "status": status,
+            "metrics": {
+                "total_requests": total_requests,
+                "error_rate": round(error_rate, 2),
+                "error_count": error_count,
+            },
+            "hotspots": dict(hotspot_counts.most_common(5)),
+        }
 
     async def run_diagnostics(self) -> list[TestResult]:
         """Run functional health checks on system components."""

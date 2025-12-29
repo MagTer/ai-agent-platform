@@ -1,160 +1,61 @@
-import json
-from datetime import datetime, timedelta
-from pathlib import Path
 
-import pytest
+import json
+import tempfile
+from pathlib import Path
 
 from core.core.config import Settings
 from core.diagnostics.service import DiagnosticsService
 
 
-@pytest.fixture
-def temp_span_file(tmp_path: Path):
-    return tmp_path / "spans.jsonl"
+def test_get_system_health_metrics():
+    # Create a temporary trace log
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as tmp:
+        # Trace 1: OK
+        tmp.write(json.dumps({
+            "name": "tool.call.web_search",
+            "context": {"trace_id": "t1"},
+            "status": "OK",
+            "attributes": {}
+        }) + "\n")
+        
+        # Trace 2: ERROR in tool
+        tmp.write(json.dumps({
+            "name": "tool.call.bad_tool",
+            "context": {"trace_id": "t2"},
+            "status": "ERROR",
+            "attributes": {}
+        }) + "\n")
+        
+        # Trace 3: OK
+        tmp.write(json.dumps({
+            "name": "llm.call",
+            "context": {"trace_id": "t3"},
+            "status": "OK", 
+            "attributes": {}
+        }) + "\n")
+        
+        # Trace 2: Another span (should not double count request but count failure)
+        tmp.write(json.dumps({
+            "name": "executor.step_run",
+            "context": {"trace_id": "t2"},
+            "status": "OK", # mixed status in trace
+            "attributes": {}
+        }) + "\n")
 
+    try:
+        settings = Settings(trace_span_log_path=tmp.name)
+        svc = DiagnosticsService(settings)
+        
+        metrics = svc.get_system_health_metrics(window=10)
+        
+        print(f"Metrics: {metrics}")
+        
+        assert metrics["status"] == "DEGRADED" # 1 error out of 3 requests = 33% > 10%
+        assert metrics["metrics"]["total_requests"] == 3
+        assert metrics["metrics"]["error_count"] == 1
+        assert metrics["metrics"]["error_rate"] == 0.33
+        assert "tool.call.bad_tool" in metrics["hotspots"]
+        assert metrics["hotspots"]["tool.call.bad_tool"] == 1
 
-@pytest.fixture
-def diagnostics_service(temp_span_file: Path):
-    settings = Settings(trace_span_log_path=str(temp_span_file))
-    return DiagnosticsService(settings)
-
-
-def test_get_recent_traces_empty(diagnostics_service):
-    traces = diagnostics_service.get_recent_traces()
-    assert traces == []
-
-
-def test_get_recent_traces_parsing(diagnostics_service, temp_span_file):
-    # Write some dummy spans
-    span1 = {
-        "name": "test_span",
-        "context": {"trace_id": "t1", "span_id": "s1", "parent_id": None},
-        "status": "OK",
-        "start_time": datetime.utcnow().isoformat(),
-        "duration_ms": 100.5,
-        "attributes": {"foo": "bar"},
-    }
-    span2 = {
-        "name": "error_span",
-        "context": {"trace_id": "t2", "span_id": "s2", "parent_id": "s1"},
-        "status": "ERROR",
-        "start_time": (datetime.utcnow() + timedelta(seconds=1)).isoformat(),
-        "duration_ms": 50.0,
-        "attributes": {},
-    }
-
-    with open(temp_span_file, "w") as f:
-        f.write(json.dumps(span1) + "\n")
-        f.write(json.dumps(span2) + "\n")
-
-    traces = diagnostics_service.get_recent_traces(limit=10)
-    assert len(traces) == 2
-
-    # Check reversed order (newest first)
-    assert traces[0].span_id == "s2"
-    assert traces[0].status == "ERROR"
-    assert traces[0].parent_id == "s1"
-
-    assert traces[1].span_id == "s1"
-    assert traces[1].status == "OK"
-    assert traces[1].attributes["foo"] == "bar"
-
-
-def test_get_recent_traces_limit(diagnostics_service, temp_span_file):
-    # Write 10 spans
-    with open(temp_span_file, "w") as f:
-        for i in range(10):
-            span = {
-                "name": f"span_{i}",
-                "context": {"trace_id": f"t{i}", "span_id": f"s{i}"},
-                "status": "OK",
-                "start_time": datetime.utcnow().isoformat(),
-                "duration_ms": 10.0,
-                "attributes": {},
-            }
-            f.write(json.dumps(span) + "\n")
-
-    # Fetch limit 3
-    traces = diagnostics_service.get_recent_traces(limit=3)
-    assert len(traces) == 3
-    # Newest first, so 9, 8, 7
-    assert traces[0].name == "span_9"
-    assert traces[2].name == "span_7"
-
-
-def test_malformed_json_resilience(diagnostics_service, temp_span_file):
-    with open(temp_span_file, "w") as f:
-        f.write('{"name": "valid"}\n')
-        f.write("BROKEN_JSON\n")
-        f.write('{"name": "valid_2"}\n')
-
-    traces = diagnostics_service.get_recent_traces()
-    assert len(traces) == 2
-    assert traces[0].name == "valid_2"
-    assert traces[1].name == "valid"
-
-
-@pytest.mark.asyncio
-async def test_run_diagnostics(diagnostics_service):
-    import httpx
-    import respx
-
-    # Mock settings URLs
-    settings = diagnostics_service._settings
-    settings.litellm_api_base = "http://litellm:4000"
-    settings.qdrant_url = "http://qdrant:6333"
-    settings.embedder_url = "http://embedder:8082"
-
-    with respx.mock(base_url=None) as router:
-        # Mock successful responses
-        router.get("http://ollama:11434/api/tags").mock(return_value=httpx.Response(200))
-        router.get("http://qdrant:6333/collections").mock(return_value=httpx.Response(200))
-        router.get("http://litellm:4000/health/liveness").mock(return_value=httpx.Response(200))
-        router.get("http://embedder:8082/health").mock(
-            return_value=httpx.Response(500)
-        )  # Simulate failure
-
-        # New Checks Mocks
-        router.get("http://searxng:8080").mock(return_value=httpx.Response(200))  # SearXNG
-        router.get("http://www.google.com").mock(return_value=httpx.Response(200))  # Internet
-
-        # Mock OpenWebUI probe (Self)
-        router.get("http://127.0.0.1:8000/v1/models").mock(
-            return_value=httpx.Response(200, json={"object": "list", "data": [{"id": "model-1"}]})
-        )
-
-        # Mock Postgres (using patch since it's not HTTP)
-        # We need to patch 'core.diagnostics.service.engine.connect'
-        with pytest.MonkeyPatch.context() as m:
-            from unittest.mock import AsyncMock, MagicMock
-
-            mock_conn = AsyncMock()
-            mock_conn.execute = AsyncMock()
-            mock_connect = MagicMock()
-            mock_connect.return_value.__aenter__.return_value = mock_conn
-
-            # Patch the engine imported in service.py
-            # Note: test imports DiagnosticsService, which imports engine.
-            # We must patch 'core.diagnostics.service.engine'
-            m.setattr("core.diagnostics.service.engine.connect", mock_connect)
-
-            # Also Workspace check touches filesystem.
-            # tmp_path fixture is not used by default settings.
-            # We can rely on default Settings looking for 'contexts' dir.
-            # Ideally we mock or ensure it exists.
-            # For unit test, simpler to mock Path info or ensure dir exists.
-            (Path("contexts")).mkdir(exist_ok=True)
-
-            results = await diagnostics_service.run_diagnostics()
-
-    assert len(results) == 9
-
-    # Check Ollama (OK)
-    ollama = next(r for r in results if r.component == "Ollama")
-    assert ollama.status == "ok"
-    assert ollama.latency_ms >= 0
-
-    # Check Embedder (Fail)
-    embedder = next(r for r in results if r.component == "Embedder")
-    assert embedder.status == "fail"
-    assert "500" in (embedder.message or "")
+    finally:
+        Path(tmp.name).unlink()

@@ -16,7 +16,7 @@ from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
-from core.observability.tracing import current_trace_ids, start_span
+from core.observability.tracing import current_trace_ids, set_span_status, start_span
 from core.tools import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
@@ -341,7 +341,12 @@ class StepExecutorAgent:
 
             # Phase 4: Integration Feedback
             msg_content = f"Tool {step.tool} output:\n{output_text}"
-            if output_text.startswith("Error:"):
+            
+            # Phase 1: Active Observability - Error Interception
+            trace_status = "ok"
+            if output_text.startswith("Error:") or "Traceback (most recent call last)" in output_text:
+                trace_status = "error"
+                set_span_status("ERROR", description=output_text[:200])
                 msg_content += (
                     "\n\nSYSTEM HINT: The last tool call failed. "
                     "Analyze the error above. If it is a syntax error, fix the code. "
@@ -354,7 +359,7 @@ class StepExecutorAgent:
                 ToolCallEvent(
                     name=step.tool or "unknown",
                     args=tool_args,
-                    status="ok",
+                    status=trace_status,
                     output_preview=output_text[:200],
                     trace=trace_ctx,
                 )
@@ -362,9 +367,9 @@ class StepExecutorAgent:
             yield {
                 "type": "final",
                 "data": (
-                    {"name": step.tool, "status": "ok", "output": output_text},
+                    {"name": step.tool, "status": trace_status, "output": output_text},
                     tool_messages,
-                    "ok",
+                    trace_status,
                 ),
             }
 

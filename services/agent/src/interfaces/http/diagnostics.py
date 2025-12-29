@@ -25,6 +25,13 @@ async def get_traces(
     return service.get_recent_traces(limit)
 
 
+@router.get("/metrics")
+async def get_metrics(
+    window: int = 60, service: DiagnosticsService = Depends(get_diagnostics_service)
+) -> dict:
+    return service.get_system_health_metrics(window=window)
+
+
 @router.post("/run", response_model=list[TestResult])
 async def run_diagnostics(
     service: DiagnosticsService = Depends(get_diagnostics_service),

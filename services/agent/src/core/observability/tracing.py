@@ -103,6 +103,11 @@ class _NoOpSpan:
     ) -> None:
         pass
 
+    def set_status(self, status: Any, description: str = "") -> None:
+        self.attributes["status"] = status
+        if description:
+            self.attributes["status_description"] = description
+
 
 class _NoOpTracer:
     def start_as_current_span(self, name: str, *, kind: Any | None = None) -> Any:
@@ -146,9 +151,16 @@ class _FileSpanExporter(SpanExporter):
             start_iso = datetime.utcfromtimestamp(start_ns / 1e9).isoformat() if start_ns else None
 
             # Status extraction
+            status_name = "UNSET"
             status_obj = getattr(span, "status", None)
-            status_code = getattr(status_obj, "status_code", None)
-            status_name = getattr(status_code, "name", "UNSET") if status_code else "UNSET"
+            
+            # OTLP/Real Span
+            if status_obj and hasattr(status_obj, "status_code"):
+                status_code = status_obj.status_code
+                status_name = getattr(status_code, "name", "UNSET")
+            # NoOp Span (Attributes)
+            elif span and hasattr(span, "attributes"):
+                 status_name = str(span.attributes.get("status", "UNSET"))
 
             record = {
                 "name": getattr(span, "name", "unknown"),
@@ -283,6 +295,26 @@ def add_span_event(
         span.add_event(name, attributes=attributes, timestamp=timestamp)
 
 
+def set_span_status(status: str, description: str = "") -> None:
+    """Set the status of the current active span.
+
+    Args:
+        status: One of "OK", "ERROR", "UNSET"
+        description: Optional description of the status (e.g. error message)
+    """
+    trace_api = _otel_trace if _OTEL_AVAILABLE else _NoOpTraceAPI()
+    span = trace_api.get_current_span()
+
+    if _OTEL_AVAILABLE and span:
+        try:
+            status_code = getattr(_otel_trace.StatusCode, status.upper(), _otel_trace.StatusCode.UNSET)
+            span.set_status(_otel_trace.Status(status_code, description=description))
+        except Exception as e:
+            logger.warning(f"Failed to set span status: {e}")
+    elif span and hasattr(span, "set_status"):
+        span.set_status(status, description=description)
+
+
 __all__ = [
     "configure_tracing",
     "get_tracer",
@@ -291,4 +323,5 @@ __all__ = [
     "current_trace_ids",
     "set_span_attributes",
     "add_span_event",
+    "set_span_status",
 ]
