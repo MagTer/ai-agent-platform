@@ -168,25 +168,30 @@ class StepExecutorAgent:
                 if step.tool:
                     try:
                         metadata, rendered_prompt = load_command(step.tool, step.args or {})
-                        
+
                         # --- DYNAMIC ROUTING ---
                         # Use the model defined in skill, or default to 'agentchat'
                         target_model = metadata.get("model", "agentchat")
-                        
+
                         if target_model != "agentchat":
-                            LOGGER.info(f"Routing skill '{step.tool}' to specialized model: {target_model}")
+                            LOGGER.info(
+                                f"Routing skill '{step.tool}' to specialized model: {target_model}"
+                            )
                         # -----------------------
 
                         # Execute Skill via LLM (Streaming)
-                        # The span name is still the same, but we might want to attribute the used model
+                        # The span name is still the same, but we might want to
+                        # attribute the used model
                         with start_span(f"skill.call.{step.tool}"):
                             full_content = []
                             skill_msg = [AgentMessage(role="user", content=rendered_prompt)]
 
                             LOGGER.info(f"Stream Chatting for skill {step.tool}...")
-                            
+
                             # Pass the target_model explicitly
-                            async for chunk in self._litellm.stream_chat(skill_msg, model=target_model):
+                            async for chunk in self._litellm.stream_chat(
+                                skill_msg, model=target_model
+                            ):
                                 if chunk["type"] == "content" and chunk["content"]:
                                     content = chunk["content"]
                                     full_content.append(content)
@@ -226,7 +231,11 @@ class StepExecutorAgent:
                         yield {
                             "type": "final",
                             "data": (
-                                {"name": step.tool, "status": "ok", "output": output_text},
+                                {
+                                    "name": step.tool,
+                                    "status": "ok",
+                                    "output": output_text,
+                                },
                                 tool_messages,
                                 "ok",
                             ),
@@ -255,7 +264,11 @@ class StepExecutorAgent:
                 # If no tool found or FileNotFoundError passed through
                 yield {
                     "type": "final",
-                    "data": ({"name": step.tool, "status": "missing"}, tool_messages, "missing"),
+                    "data": (
+                        {"name": step.tool, "status": "missing"},
+                        tool_messages,
+                        "missing",
+                    ),
                 }
                 return
 
@@ -281,7 +294,11 @@ class StepExecutorAgent:
                 yield {
                     "type": "final",
                     "data": (
-                        {"name": step.tool, "status": "skipped", "reason": "not-allowed"},
+                        {
+                            "name": step.tool,
+                            "status": "skipped",
+                            "reason": "not-allowed",
+                        },
                         tool_messages,
                         "skipped",
                     ),
@@ -326,7 +343,10 @@ class StepExecutorAgent:
                     if inspect.isasyncgenfunction(tool.run):
                         async for chunk in tool.run(**run_args):
                             if isinstance(chunk, dict) and chunk.get("type") == "thinking":
-                                yield {"type": "thinking", "content": chunk.get("content")}
+                                yield {
+                                    "type": "thinking",
+                                    "content": chunk.get("content"),
+                                }
                                 await asyncio.sleep(0.01)  # Force flush
                             elif isinstance(chunk, dict) and chunk.get("type") == "result":
                                 output = chunk.get("output")
@@ -355,10 +375,13 @@ class StepExecutorAgent:
 
             # Phase 4: Integration Feedback
             msg_content = f"Tool {step.tool} output:\n{output_text}"
-            
+
             # Phase 1: Active Observability - Error Interception
             trace_status = "ok"
-            if output_text.startswith("Error:") or "Traceback (most recent call last)" in output_text:
+            if (
+                output_text.startswith("Error:")
+                or "Traceback (most recent call last)" in output_text
+            ):
                 trace_status = "error"
                 set_span_status("ERROR", description=output_text[:200])
                 msg_content += (
@@ -392,7 +415,11 @@ class StepExecutorAgent:
             yield {
                 "type": "final",
                 "data": (
-                    {"name": step.tool, "status": "error", "reason": f"System Crash: {e}"},
+                    {
+                        "name": step.tool,
+                        "status": "error",
+                        "reason": f"System Crash: {e}",
+                    },
                     [],
                     "error",
                 ),

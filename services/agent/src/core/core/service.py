@@ -205,7 +205,7 @@ class AgentService:
                 "routing_decision": routing_decision,
                 "prompt": request.prompt[:500] if request.prompt else "",
             },
-        ) as root_span:
+        ):
             try:
                 # Record USER message
                 user_message = AgentMessage(role="user", content=request.prompt)
@@ -218,7 +218,7 @@ class AgentService:
                         trace_id=current_trace_ids().get("trace_id"),
                     )
                 )
-    
+
                 # If CHAT:
                 if routing_decision == RoutingDecision.CHAT:
                     completion_text = await self._litellm.generate(history)
@@ -231,7 +231,7 @@ class AgentService:
                         )
                     )
                     await session.commit()
-    
+
                     # Yield completion step
                     yield {
                         "type": "completion",
@@ -242,7 +242,7 @@ class AgentService:
                     }
                     yield {"type": "content", "content": completion_text}
                     return
-    
+
                 # AGENTIC
                 request_metadata = request.metadata or {}
                 metadata_tool_results = await self._execute_tools(request_metadata)
@@ -254,13 +254,13 @@ class AgentService:
                         "metadata": tool_res,
                     }
                     await asyncio.sleep(0)  # Force flush
-    
+
                 history_with_tools = list(history)
                 for tool_res in metadata_tool_results:
                     if tool_res.get("status") == "ok" and tool_res.get("output"):
                         msg_content = f"Tool {tool_res['name']} output:\n{tool_res['output']}"
                         history_with_tools.append(AgentMessage(role="system", content=msg_content))
-    
+
                 if request_metadata.get("plan"):
                     LOGGER.info("Using injected plan from metadata")
                     plan = Plan(**request_metadata["plan"])
@@ -273,10 +273,13 @@ class AgentService:
                     }
                     tool_descriptions = self._describe_tools(target_tools)
                     available_skills_text = get_registry_index()
-    
+
                     trace_id = current_trace_ids().get("trace_id", "unknown")
-                    yield {"type": "thinking", "content": f"Generating plan... [TraceID: {trace_id}]"}
-    
+                    yield {
+                        "type": "thinking",
+                        "content": f"Generating plan... [TraceID: {trace_id}]",
+                    }
+
                     plan = None
                     if plan is None:
                         async for event in planner.generate_stream(
@@ -290,20 +293,22 @@ class AgentService:
                                 pass
                             elif event["type"] == "plan":
                                 plan = event["plan"]
-    
+
                     if plan is None:
                         raise ValueError("Planner returned no plan")
                     plan = await plan_supervisor.review(plan)
                     assert plan is not None  # Mypy guard
                     if plan is None:  # Runtime guard
                         raise ValueError("Plan became None after review")
-                    
+
                     # Enrich Trace with Plan Details
-                    set_span_attributes({
-                        "plan.description": plan.description,
-                        "plan.steps_count": len(plan.steps) if plan.steps else 0
-                    })
-    
+                    set_span_attributes(
+                        {
+                            "plan.description": plan.description,
+                            "plan.steps_count": len(plan.steps) if plan.steps else 0,
+                        }
+                    )
+
                     # Bridge gap between plan and execution
                     yield {
                         "type": "thinking",
@@ -316,13 +321,13 @@ class AgentService:
                         },
                     }
                     await asyncio.sleep(0)  # Force flush
-    
+
                 if plan is None:
                     # Should be unreachable due to previous checks
                     raise ValueError("Plan is None before step check")
                 if not plan.steps:
                     plan = self._fallback_plan(request.prompt)
-    
+
                 yield {
                     "type": "plan",
                     "status": "created",
@@ -330,12 +335,12 @@ class AgentService:
                     "plan": plan.model_dump(),
                     **current_trace_ids(),
                 }
-    
+
                 prompt_history = list(history_with_tools)
                 completion_text = ""
                 completion_provider = "litellm"
                 completion_model = self._settings.litellm_model
-    
+
                 for plan_step in plan.steps:
                     yield {
                         "type": "step_start",
@@ -348,15 +353,18 @@ class AgentService:
                             "args": plan_step.args,
                         },
                     }
-    
+
                     if plan_step.action == "tool":
                         yield {
                             "type": "tool_start",
                             "content": None,
-                            "tool_call": {"name": plan_step.tool, "arguments": plan_step.args},
+                            "tool_call": {
+                                "name": plan_step.tool,
+                                "arguments": plan_step.args,
+                            },
                             "metadata": {"id": plan_step.id},
                         }
-    
+
                     step_execution_result: StepResult | None = None
                     try:
                         # Stream execution
@@ -379,15 +387,20 @@ class AgentService:
                                 }
                             elif event["type"] == "result":
                                 step_execution_result = event["result"]
-    
+
                             await asyncio.sleep(0)  # Force flush loop
-    
+
                         if not step_execution_result:
-                            LOGGER.error("Executor failed to yield a result (Stream ended prematurely)")
+                            LOGGER.error(
+                                "Executor failed to yield a result (Stream ended prematurely)"
+                            )
                             # Fallback to prevent crash
-                            yield {"type": "error", "content": "Step execution ended without result."}
+                            yield {
+                                "type": "error",
+                                "content": "Step execution ended without result.",
+                            }
                             return
-    
+
                     except ToolConfirmationError as exc:
                         LOGGER.info(f"Step {plan_step.id} paused for confirmation")
                         msg_content = (
@@ -409,7 +422,7 @@ class AgentService:
                             "metadata": {"status": "confirmation_required"},
                         }
                         return
-    
+
                     decision = await step_supervisor.review(plan_step, step_execution_result.status)
                     if plan_step.action == "tool":
                         chunk_type = "tool_output"
@@ -417,7 +430,7 @@ class AgentService:
                     else:
                         chunk_type = "thinking"
                         tool_call = None
-    
+
                     # Enriched metadata for legacy compatibility
                     meta = {
                         "status": step_execution_result.status,
@@ -429,16 +442,19 @@ class AgentService:
                         "executor": plan_step.executor,
                         "output": str(step_execution_result.result.get("output") or ""),
                     }
-    
+
                     content_str = str(
                         step_execution_result.result.get("output") or step_execution_result.status
                     )
-    
+
                     # Check for trivial status content
                     is_trivial = False
-                    if chunk_type == "thinking" and content_str.lower() in ("ok", "completed step"):
+                    if chunk_type == "thinking" and content_str.lower() in (
+                        "ok",
+                        "completed step",
+                    ):
                         is_trivial = True
-    
+
                     if not is_trivial:
                         yield {
                             "type": chunk_type,
@@ -446,7 +462,7 @@ class AgentService:
                             "tool_call": tool_call,
                             "metadata": meta,
                         }
-    
+
                     prompt_history.extend(step_execution_result.messages)
                     if plan_step.action == "tool":
                         session.add(
@@ -457,13 +473,15 @@ class AgentService:
                                 trace_id=current_trace_ids().get("trace_id"),
                             )
                         )
-    
+
                     if plan_step.action == "completion" and step_execution_result.status == "ok":
                         completion_text = step_execution_result.result.get("completion", "")
                         completion_provider = plan_step.provider or completion_provider
-                        completion_model = step_execution_result.result.get("model", completion_model)
+                        completion_model = step_execution_result.result.get(
+                            "model", completion_model
+                        )
                         break
-    
+
                 if not completion_text:
                     yield {"type": "thinking", "content": "Generating final answer..."}
                     completion_text = await self._litellm.generate(prompt_history)
@@ -471,9 +489,12 @@ class AgentService:
                     yield {
                         "type": "content",
                         "content": completion_text,
-                        "metadata": {"provider": completion_provider, "model": completion_model},
+                        "metadata": {
+                            "provider": completion_provider,
+                            "model": completion_model,
+                        },
                     }
-    
+
                 session.add(
                     Message(
                         session_id=db_session.id,
@@ -486,7 +507,7 @@ class AgentService:
                     [MemoryRecord(conversation_id=conversation_id, text=request.prompt)]
                 )
                 await session.commit()
-    
+
                 log_event(
                     SupervisorDecision(
                         item_id=conversation_id,
@@ -495,7 +516,7 @@ class AgentService:
                         trace=TraceContext(**current_trace_ids()),
                     )
                 )
-    
+
                 # Yield updated history for legacy compatibility
                 # Convert internal AgentMessage objects to dict or keep as is?
                 # get_history returns AgentMessage objects.
@@ -505,7 +526,7 @@ class AgentService:
                 final_history.append(AgentMessage(role="assistant", content=completion_text))
                 # Add records was done in DB.
                 yield {"type": "history_snapshot", "messages": final_history}
-        
+
             except Exception as e:
                 set_span_status("ERROR", str(e))
                 raise e
@@ -720,7 +741,7 @@ class AgentService:
                 LOGGER.exception("Tool %s execution failed", tool_name)
                 # Observability: Capture failure
                 set_span_status("ERROR", str(exc))
-                
+
                 result.update({"status": "error", "error": str(exc)})
                 status = "error"
                 log_event(

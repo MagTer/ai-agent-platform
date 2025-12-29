@@ -236,7 +236,8 @@ class Dispatcher:
 
                     if conv_uuid:
                         stmt = select(Session).where(
-                            Session.conversation_id == conv_uuid, Session.active.is_(True)
+                            Session.conversation_id == conv_uuid,
+                            Session.active.is_(True),
                         )
                         result = await db_session.execute(stmt)
                         session_obj = result.scalar_one_or_none()
@@ -254,7 +255,9 @@ class Dispatcher:
                         )
                         db_session.add(
                             Message(
-                                session_id=session_obj.id, role="assistant", content=full_content
+                                session_id=session_obj.id,
+                                role="assistant",
+                                content=full_content,
                             )
                         )
                         await db_session.commit()

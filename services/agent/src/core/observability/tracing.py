@@ -153,14 +153,14 @@ class _FileSpanExporter(SpanExporter):
             # Status extraction
             status_name = "UNSET"
             status_obj = getattr(span, "status", None)
-            
+
             # OTLP/Real Span
             if status_obj and hasattr(status_obj, "status_code"):
                 status_code = status_obj.status_code
                 status_name = getattr(status_code, "name", "UNSET")
             # NoOp Span (Attributes)
             elif span and hasattr(span, "attributes"):
-                 status_name = str(span.attributes.get("status", "UNSET"))
+                status_name = str(span.attributes.get("status", "UNSET"))
 
             record = {
                 "name": getattr(span, "name", "unknown"),
@@ -307,7 +307,8 @@ def set_span_status(status: str, description: str = "") -> None:
 
     if _OTEL_AVAILABLE and span:
         try:
-            status_code = getattr(_otel_trace.StatusCode, status.upper(), _otel_trace.StatusCode.UNSET)
+            unset_code = _otel_trace.StatusCode.UNSET
+            status_code = getattr(_otel_trace.StatusCode, status.upper(), unset_code)
             span.set_status(_otel_trace.Status(status_code, description=description))
         except Exception as e:
             logger.warning(f"Failed to set span status: {e}")

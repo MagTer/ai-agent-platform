@@ -84,7 +84,7 @@ known-first-party = ["core", "modules", "orchestrator", "interfaces", "stack"]
 select = ["E", "F", "I", "B", "UP", "S", "N"]
 ignore = ["S101", "S104", "B008", "PLR0912", "PLR0915"]
 
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 max-complexity = 18
 
 [tool.black]

@@ -1,0 +1,426 @@
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/core/agents/executor.py:3:1
+   |
+ 1 |   """Step executor agent responsible for performing plan steps."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import asyncio
+ 6 | | import inspect
+ 7 | | import logging
+ 8 | | import time
+ 9 | | from collections.abc import AsyncGenerator
+10 | | from typing import Any, Literal, cast
+11 | |
+12 | | from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
+13 | |
+14 | | from core.command_loader import load_command
+15 | | from core.core.litellm_client import LiteLLMClient
+16 | | from core.core.memory import MemoryStore
+17 | | from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
+18 | | from core.observability.logging import log_event
+19 | | from core.observability.tracing import current_trace_ids, set_span_status, start_span
+20 | | from core.tools import ToolRegistry
+   | |___________________________________^
+21 |
+22 |   LOGGER = logging.getLogger(__name__)
+   |
+help: Organize imports
+
+E501 Line too long (104 > 100)
+   --> src/core/agents/executor.py:192:101
+    |
+191 | …                     # Pass the target_model explicitly
+192 | …                     async for chunk in self._litellm.stream_chat(skill_msg, model=target_model):
+    |                                                                                               ^^^^
+193 | …                         if chunk["type"] == "content" and chunk["content"]:
+194 | …                             content = chunk["content"]
+    |
+
+E501 Line too long (102 > 100)
+   --> src/core/agents/executor.py:364:101
+    |
+362 |             # Phase 1: Active Observability - Error Interception
+363 |             trace_status = "ok"
+364 |             if output_text.startswith("Error:") or "Traceback (most recent call last)" in output_text:
+    |                                                                                                     ^^
+365 |                 trace_status = "error"
+366 |                 set_span_status("ERROR", description=output_text[:200])
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/core/agents/planner.py:3:1
+   |
+ 1 |   """Planner agent responsible for generating orchestration plans."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import json
+ 6 | | import logging
+ 7 | | from collections.abc import AsyncGenerator, Callable
+ 8 | | from datetime import datetime
+ 9 | | from typing import Any
+10 | |
+11 | | from pydantic import ValidationError
+12 | | from shared.models import AgentMessage, AgentRequest, Plan
+13 | |
+14 | | from core.core.litellm_client import LiteLLMClient
+15 | | from core.models.pydantic_schemas import PlanEvent, TraceContext
+16 | | from core.observability.logging import log_event
+17 | | from core.observability.tracing import current_trace_ids, start_span
+   | |____________________________________________________________________^
+18 |
+19 |   LOGGER = logging.getLogger(__name__)
+   |
+help: Organize imports
+
+E501 Line too long (101 > 100)
+   --> src/core/agents/planner.py:156:101
+    |
+154 |                 "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n"
+155 |                 "7. **REQUIRED ARGS**: When calling `consult_expert`, you MUST provide \n"
+156 |                 "   the specific arguments required by that skill (e.g., 'domain' for researcher, \n"
+    |                                                                                                     ^
+157 |                 "   'repo' for git). Do not omit them.\n\n"
+158 |                 "### EXAMPLES\n"
+    |
+
+F841 Local variable `required_vars` is assigned to but never used
+   --> src/core/command_loader.py:106:5
+    |
+105 |     # Validation
+106 |     required_vars = metadata.get("variables", [])
+    |     ^^^^^^^^^^^^^
+107 |
+108 |     # Ensure tools list exists (Security: Default to empty/read-only if undefined)
+    |
+help: Remove assignment to unused variable `required_vars`
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/core/core/litellm_client.py:3:1
+   |
+ 1 |   """Async client for the LiteLLM gateway."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import asyncio
+ 6 | | import json
+ 7 | | import logging
+ 8 | | import time
+ 9 | | from collections.abc import AsyncGenerator, Iterable
+10 | | from typing import Any
+11 | |
+12 | | import httpx
+13 | | from shared.streaming import AgentChunk
+14 | |
+15 | | from core.observability.tracing import add_span_event, set_span_attributes
+16 | |
+17 | | from .config import Settings
+18 | | from .models import AgentMessage
+   | |________________________________^
+19 |
+20 |   LOGGER = logging.getLogger(__name__)
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/core/core/models.py:3:1
+   |
+ 1 |   """Domain models for the agent API."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | from typing import Any
+ 6 | |
+ 7 | | from pydantic import BaseModel, Field
+ 8 | | from shared.models import (
+ 9 | |     AgentMessage,
+10 | |     AgentRequest,
+11 | |     AgentResponse,
+12 | |     HealthStatus,
+13 | |     Plan,
+14 | |     PlanStep,
+15 | | )
+   | |_^
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/core/core/service.py:1:1
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import asyncio
+ 4 | | import contextlib
+ 5 | | import logging
+ 6 | | import uuid
+ 7 | | from collections.abc import AsyncGenerator
+ 8 | | from datetime import datetime
+ 9 | | from typing import Any
+10 | |
+11 | | from shared.models import (
+12 | |     AgentMessage,
+13 | |     AgentRequest,
+14 | |     AgentResponse,
+15 | |     Plan,
+16 | |     PlanStep,
+17 | |     RoutingDecision,
+18 | |     StepResult,
+19 | | )
+20 | | from sqlalchemy import select
+21 | | from sqlalchemy.ext.asyncio import AsyncSession
+22 | |
+23 | | from core.agents import (
+24 | |     PlannerAgent,
+25 | |     PlanSupervisorAgent,
+26 | |     StepExecutorAgent,
+27 | |     StepSupervisorAgent,
+28 | | )
+29 | | from core.command_loader import get_registry_index
+30 | | from core.context_manager import ContextManager
+31 | | from core.core.config import Settings
+32 | | from core.core.litellm_client import LiteLLMClient
+33 | | from core.core.memory import MemoryStore
+34 | | from core.db import Context, Conversation, Message, Session
+35 | | from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
+36 | | from core.observability.logging import log_event
+37 | | from core.observability.tracing import (
+38 | |     current_trace_ids,
+39 | |     set_span_attributes,
+40 | |     set_span_status,
+41 | |     start_span,
+42 | | )
+43 | | from core.system_commands import handle_system_command
+44 | | from core.tools import SkillDelegateTool, ToolRegistry
+45 | | from core.tools.base import ToolConfirmationError
+46 | |
+47 | | from .memory import MemoryRecord
+   | |________________________________^
+48 |
+49 |   LOGGER = logging.getLogger(__name__)
+   |
+help: Organize imports
+
+F841 Local variable `root_span` is assigned to but never used
+   --> src/core/core/service.py:208:14
+    |
+206 |                 "prompt": request.prompt[:500] if request.prompt else "",
+207 |             },
+208 |         ) as root_span:
+    |              ^^^^^^^^^
+209 |             try:
+210 |                 # Record USER message
+    |
+help: Remove assignment to unused variable `root_span`
+
+E501 Line too long (102 > 100)
+   --> src/core/core/service.py:278:101
+    |
+277 |                     trace_id = current_trace_ids().get("trace_id", "unknown")
+278 |                     yield {"type": "thinking", "content": f"Generating plan... [TraceID: {trace_id}]"}
+    |                                                                                                     ^^
+279 |     
+280 |                     plan = None
+    |
+
+E501 Line too long (104 > 100)
+   --> src/core/core/service.py:386:101
+    |
+385 |                         if not step_execution_result:
+386 |                             LOGGER.error("Executor failed to yield a result (Stream ended prematurely)")
+    |                                                                                                     ^^^^
+387 |                             # Fallback to prevent crash
+388 |                             yield {
+    |
+
+E501 Line too long (102 > 100)
+   --> src/core/core/service.py:467:101
+    |
+465 |                         completion_text = step_execution_result.result.get("completion", "")
+466 |                         completion_provider = plan_step.provider or completion_provider
+467 |                         completion_model = step_execution_result.result.get("model", completion_model)
+    |                                                                                                     ^^
+468 |                         break
+    |
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> src/core/tests/mocks.py:1:1
+  |
+1 | / from __future__ import annotations
+2 | |
+3 | | import json
+4 | | from collections.abc import Iterable
+5 | | from typing import Any
+6 | |
+7 | | from shared.models import AgentMessage
+8 | |
+9 | | from core.core.litellm_client import LiteLLMClient
+  | |__________________________________________________^
+  |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/core/tests/test_agent_scenarios.py:1:1
+   |
+ 1 | / import json
+ 2 | | import uuid
+ 3 | | from pathlib import Path
+ 4 | | from typing import Any
+ 5 | |
+ 6 | | import pytest
+ 7 | | from shared.models import AgentRequest
+ 8 | |
+ 9 | | from core.core.service import AgentService
+10 | | from core.tests.mocks import MockLLMClient
+   | |__________________________________________^
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/core/tests/test_service.py:1:1
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import json
+ 4 | | from collections.abc import AsyncGenerator, Iterable
+ 5 | | from pathlib import Path
+ 6 | | from typing import Any, cast
+ 7 | | from unittest.mock import AsyncMock, MagicMock
+ 8 | |
+ 9 | | import pytest
+10 | | from shared.models import AgentMessage, AgentRequest
+11 | |
+12 | | from core.core.config import Settings
+13 | | from core.core.litellm_client import LiteLLMClient
+14 | | from core.core.memory import MemoryRecord, MemoryStore
+15 | | from core.core.service import AgentService
+16 | | from core.db import Context, Conversation
+17 | | from core.tools import ToolRegistry
+18 | | from core.tools.base import Tool
+   | |________________________________^
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/core/tests/test_tools.py:1:1
+   |
+ 1 | / from __future__ import annotations
+ 2 | |
+ 3 | | import json
+ 4 | | from collections.abc import AsyncGenerator
+ 5 | | from pathlib import Path
+ 6 | | from typing import Any, cast
+ 7 | | from unittest.mock import AsyncMock, MagicMock, patch
+ 8 | |
+ 9 | | import pytest
+10 | | from shared.models import AgentMessage, AgentRequest
+11 | |
+12 | | from core.core.config import Settings
+13 | | from core.core.litellm_client import LiteLLMClient
+14 | | from core.core.memory import MemoryStore
+15 | | from core.core.service import AgentService
+16 | | from core.db import Context, Conversation
+17 | | from core.tools import Tool, ToolRegistry, load_tool_registry
+18 | | from core.tools.web_fetch import WebFetchTool
+   | |_____________________________________________^
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/core/tools/skill_delegate.py:3:1
+   |
+ 1 |   """Tool for delegating work to a specialist (sub-agent)."""
+ 2 |
+ 3 | / from __future__ import annotations
+ 4 | |
+ 5 | | import asyncio
+ 6 | | import json
+ 7 | | import logging
+ 8 | | from collections.abc import AsyncGenerator
+ 9 | | from datetime import datetime
+10 | | from typing import Any, cast
+11 | |
+12 | | from shared.models import AgentMessage
+13 | |
+14 | | from core.command_loader import load_command
+15 | | from core.core.litellm_client import LiteLLMClient
+16 | | from core.tools.base import Tool
+17 | | from core.tools.registry import ToolRegistry
+   | |____________________________________________^
+18 |
+19 |   LOGGER = logging.getLogger(__name__)
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> src/orchestrator/dispatcher.py:1:1
+   |
+ 1 | / import logging
+ 2 | | import shlex
+ 3 | | import uuid
+ 4 | | from collections.abc import AsyncGenerator
+ 5 | | from dataclasses import dataclass
+ 6 | | from typing import Any
+ 7 | |
+ 8 | | from shared.models import AgentMessage, AgentRequest, Plan, PlanStep, RoutingDecision
+ 9 | | from shared.streaming import AgentChunk
+10 | | from sqlalchemy import select
+11 | | from sqlalchemy.ext.asyncio import AsyncSession
+12 | | from utils.template import substitute_variables
+13 | |
+14 | | from core.core.litellm_client import LiteLLMClient
+15 | | from core.core.routing import registry
+16 | | from core.db.models import Context, Conversation, Message, Session
+17 | |
+18 | | from .skill_loader import SkillLoader
+   | |_____________________________________^
+19 |
+20 |   LOGGER = logging.getLogger(__name__)
+   |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> src/utils/tests/test_template.py:1:1
+  |
+1 | / import pytest
+2 | | from utils.template import substitute_variables
+  | |_______________________________________________^
+  |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+ --> test_planner.py:1:1
+  |
+1 | / import json
+2 | | from unittest.mock import AsyncMock
+3 | |
+4 | | import pytest
+5 | | from shared.models import AgentRequest
+6 | |
+7 | | from core.agents.planner import PlannerAgent
+8 | | from core.core.litellm_client import LiteLLMClient
+  | |__________________________________________________^
+  |
+help: Organize imports
+
+I001 [*] Import block is un-sorted or un-formatted
+  --> tests/integration/test_streaming_api.py:1:1
+   |
+ 1 | / import json
+ 2 | | from collections.abc import AsyncGenerator
+ 3 | | from typing import Any
+ 4 | | from unittest.mock import AsyncMock
+ 5 | |
+ 6 | | import pytest
+ 7 | | from fastapi.testclient import TestClient
+ 8 | | from shared.models import AgentRequest
+ 9 | |
+10 | | from core.core.app import create_app, get_db, get_service
+   | |_________________________________________________________^
+11 |
+12 |   # Mock Data
+   |
+help: Organize imports
+
+Found 22 errors.
+[*] 14 fixable with the `--fix` option (2 hidden fixes can be enabled with the `--unsafe-fixes` option).

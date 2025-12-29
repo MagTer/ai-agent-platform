@@ -138,7 +138,11 @@ class AzureDevOpsTool(Tool):
 
                 if final_area_path:
                     document.append(
-                        {"op": "add", "path": "/fields/System.AreaPath", "value": final_area_path}
+                        {
+                            "op": "add",
+                            "path": "/fields/System.AreaPath",
+                            "value": final_area_path,
+                        }
                     )
 
                 if final_tags:
@@ -174,7 +178,11 @@ class AzureDevOpsTool(Tool):
                     )
 
                 document.append(
-                    {"op": "add", "path": "/fields/System.Description", "value": full_description}
+                    {
+                        "op": "add",
+                        "path": "/fields/System.Description",
+                        "value": full_description,
+                    }
                 )
 
                 try:
@@ -193,7 +201,11 @@ class AzureDevOpsTool(Tool):
 
                         # Re-construct base doc
                         document = [
-                            {"op": "add", "path": "/fields/System.Title", "value": title},
+                            {
+                                "op": "add",
+                                "path": "/fields/System.Title",
+                                "value": title,
+                            },
                             {
                                 "op": "add",
                                 "path": "/fields/System.Description",

@@ -165,7 +165,10 @@ class SkillDelegateTool(Tool):
                             # Yield final result event with accumulated content.
                             yield {"type": "result", "output": content}
                             return
-                        yield {"type": "result", "output": "Worker produced empty response."}
+                        yield {
+                            "type": "result",
+                            "output": "Worker produced empty response.",
+                        }
                         return
 
                     for tc in tool_calls:
@@ -173,7 +176,10 @@ class SkillDelegateTool(Tool):
                         fname = func["name"]
                         call_id = tc["id"]
 
-                        yield {"type": "thinking", "content": f"Worker invoking {fname}..."}
+                        yield {
+                            "type": "thinking",
+                            "content": f"Worker invoking {fname}...",
+                        }
                         await asyncio.sleep(0.01)  # Force flush
 
                         with start_span(f"skill.tool.{fname}"):
