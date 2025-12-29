@@ -69,14 +69,16 @@ class StepExecutorAgent:
         """Execute a step and yield incremental updates (content tokens, etc)."""
         start_time = time.perf_counter()
 
+        span_name = f"Step: {step.label}" if step.label else f"Step: {step.id}"
         with start_span(
-            f"executor.step_run.{step.id}",
+            span_name,
             attributes={},
         ) as span:
             span.set_attribute("action", str(step.action))
             span.set_attribute("executor", str(step.executor))
             span.set_attribute("step", str(step.id))
 
+            # Always capture args for context
             if step.args:
                 span.set_attribute("step.args", str(step.args))
 

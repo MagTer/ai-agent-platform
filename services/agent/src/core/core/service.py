@@ -34,7 +34,12 @@ from core.core.memory import MemoryStore
 from core.db import Context, Conversation, Message, Session
 from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
-from core.observability.tracing import current_trace_ids, start_span
+from core.observability.tracing import (
+    current_trace_ids,
+    set_span_attributes,
+    set_span_status,
+    start_span,
+)
 from core.system_commands import handle_system_command
 from core.tools import SkillDelegateTool, ToolRegistry
 from core.tools.base import ToolConfirmationError
@@ -198,23 +203,276 @@ class AgentService:
                 "conversation_id": conversation_id,
                 "input_size": len(request.prompt),
                 "routing_decision": routing_decision,
+                "prompt": request.prompt[:500] if request.prompt else "",
             },
-        ):
-            # Record USER message
-            user_message = AgentMessage(role="user", content=request.prompt)
-            history.append(user_message)
-            session.add(
-                Message(
-                    session_id=db_session.id,
-                    role="user",
-                    content=request.prompt,
-                    trace_id=current_trace_ids().get("trace_id"),
+        ) as root_span:
+            try:
+                # Record USER message
+                user_message = AgentMessage(role="user", content=request.prompt)
+                history.append(user_message)
+                session.add(
+                    Message(
+                        session_id=db_session.id,
+                        role="user",
+                        content=request.prompt,
+                        trace_id=current_trace_ids().get("trace_id"),
+                    )
                 )
-            )
-
-            # If CHAT:
-            if routing_decision == RoutingDecision.CHAT:
-                completion_text = await self._litellm.generate(history)
+    
+                # If CHAT:
+                if routing_decision == RoutingDecision.CHAT:
+                    completion_text = await self._litellm.generate(history)
+                    session.add(
+                        Message(
+                            session_id=db_session.id,
+                            role="assistant",
+                            content=completion_text,
+                            trace_id=current_trace_ids().get("trace_id"),
+                        )
+                    )
+                    await session.commit()
+    
+                    # Yield completion step
+                    yield {
+                        "type": "completion",
+                        "provider": "litellm",
+                        "model": self._settings.litellm_model,
+                        "status": "ok",
+                        "trace": current_trace_ids(),
+                    }
+                    yield {"type": "content", "content": completion_text}
+                    return
+    
+                # AGENTIC
+                request_metadata = request.metadata or {}
+                metadata_tool_results = await self._execute_tools(request_metadata)
+                for tool_res in metadata_tool_results:
+                    yield {
+                        "type": "tool_output",
+                        "content": tool_res.get("output"),
+                        "tool_call": {"name": tool_res.get("name")},
+                        "metadata": tool_res,
+                    }
+                    await asyncio.sleep(0)  # Force flush
+    
+                history_with_tools = list(history)
+                for tool_res in metadata_tool_results:
+                    if tool_res.get("status") == "ok" and tool_res.get("output"):
+                        msg_content = f"Tool {tool_res['name']} output:\n{tool_res['output']}"
+                        history_with_tools.append(AgentMessage(role="system", content=msg_content))
+    
+                if request_metadata.get("plan"):
+                    LOGGER.info("Using injected plan from metadata")
+                    plan = Plan(**request_metadata["plan"])
+                else:
+                    allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
+                    target_tools = allowlist or {
+                        t.name
+                        for t in self._tool_registry.tools()
+                        if getattr(t, "category", "domain") == "orchestration"
+                    }
+                    tool_descriptions = self._describe_tools(target_tools)
+                    available_skills_text = get_registry_index()
+    
+                    yield {"type": "thinking", "content": "Generating plan..."}
+    
+                    plan = None
+                    if plan is None:
+                        async for event in planner.generate_stream(
+                            request,
+                            history=history_with_tools,
+                            tool_descriptions=tool_descriptions,
+                            available_skills_text=available_skills_text,
+                        ):
+                            if event["type"] == "token":
+                                # Do not show raw JSON plan to user
+                                pass
+                            elif event["type"] == "plan":
+                                plan = event["plan"]
+    
+                    if plan is None:
+                        raise ValueError("Planner returned no plan")
+                    plan = await plan_supervisor.review(plan)
+                    assert plan is not None  # Mypy guard
+                    if plan is None:  # Runtime guard
+                        raise ValueError("Plan became None after review")
+                    
+                    # Enrich Trace with Plan Details
+                    set_span_attributes({
+                        "plan.description": plan.description,
+                        "plan.steps_count": len(plan.steps) if plan.steps else 0
+                    })
+    
+                    # Bridge gap between plan and execution
+                    yield {
+                        "type": "thinking",
+                        "content": "Plan approved. Starting execution...",
+                        "metadata": {
+                            "step": "init",
+                            "status": "planning_complete",
+                            "stream": False,
+                            "bold": True,
+                        },
+                    }
+                    await asyncio.sleep(0)  # Force flush
+    
+                if plan is None:
+                    # Should be unreachable due to previous checks
+                    raise ValueError("Plan is None before step check")
+                if not plan.steps:
+                    plan = self._fallback_plan(request.prompt)
+    
+                yield {
+                    "type": "plan",
+                    "status": "created",
+                    "description": plan.description,
+                    "plan": plan.model_dump(),
+                    **current_trace_ids(),
+                }
+    
+                prompt_history = list(history_with_tools)
+                completion_text = ""
+                completion_provider = "litellm"
+                completion_model = self._settings.litellm_model
+    
+                for plan_step in plan.steps:
+                    yield {
+                        "type": "step_start",
+                        "content": plan_step.label,
+                        "metadata": {
+                            "id": plan_step.id,
+                            "action": plan_step.action,
+                            "tool": plan_step.tool,
+                            "executor": plan_step.executor,
+                            "args": plan_step.args,
+                        },
+                    }
+    
+                    if plan_step.action == "tool":
+                        yield {
+                            "type": "tool_start",
+                            "content": None,
+                            "tool_call": {"name": plan_step.tool, "arguments": plan_step.args},
+                            "metadata": {"id": plan_step.id},
+                        }
+    
+                    step_execution_result: StepResult | None = None
+                    try:
+                        # Stream execution
+                        async for event in executor.run_stream(
+                            plan_step,
+                            request=request,
+                            conversation_id=conversation_id,
+                            prompt_history=prompt_history,
+                        ):
+                            if event["type"] == "content":
+                                yield {"type": "content", "content": event["content"]}
+                            elif event["type"] == "thinking":
+                                # Fix 2: Merge metadata instead of overwriting
+                                meta = event.get("metadata", {}).copy()
+                                meta["id"] = plan_step.id
+                                yield {
+                                    "type": "thinking",
+                                    "content": event["content"],
+                                    "metadata": meta,
+                                }
+                            elif event["type"] == "result":
+                                step_execution_result = event["result"]
+    
+                            await asyncio.sleep(0)  # Force flush loop
+    
+                        if not step_execution_result:
+                            LOGGER.error("Executor failed to yield a result (Stream ended prematurely)")
+                            # Fallback to prevent crash
+                            yield {"type": "error", "content": "Step execution ended without result."}
+                            return
+    
+                    except ToolConfirmationError as exc:
+                        LOGGER.info(f"Step {plan_step.id} paused for confirmation")
+                        msg_content = (
+                            f"Action paused. Tool '{exc.tool_name}' requires confirmation.\n"
+                            f"Arguments: {exc.tool_args}\nReply 'CONFIRM' to proceed."
+                        )
+                        session.add(
+                            Message(
+                                session_id=db_session.id,
+                                role="system",
+                                content=msg_content,
+                                trace_id=current_trace_ids().get("trace_id"),
+                            )
+                        )
+                        await session.commit()
+                        yield {
+                            "type": "content",
+                            "content": msg_content,
+                            "metadata": {"status": "confirmation_required"},
+                        }
+                        return
+    
+                    decision = await step_supervisor.review(plan_step, step_execution_result.status)
+                    if plan_step.action == "tool":
+                        chunk_type = "tool_output"
+                        tool_call = {"name": plan_step.tool}
+                    else:
+                        chunk_type = "thinking"
+                        tool_call = None
+    
+                    # Enriched metadata for legacy compatibility
+                    meta = {
+                        "status": step_execution_result.status,
+                        "decision": decision,
+                        "id": plan_step.id,
+                        "action": plan_step.action,
+                        "tool": plan_step.tool,
+                        "name": plan_step.tool,
+                        "executor": plan_step.executor,
+                        "output": str(step_execution_result.result.get("output") or ""),
+                    }
+    
+                    content_str = str(
+                        step_execution_result.result.get("output") or step_execution_result.status
+                    )
+    
+                    # Check for trivial status content
+                    is_trivial = False
+                    if chunk_type == "thinking" and content_str.lower() in ("ok", "completed step"):
+                        is_trivial = True
+    
+                    if not is_trivial:
+                        yield {
+                            "type": chunk_type,
+                            "content": content_str,
+                            "tool_call": tool_call,
+                            "metadata": meta,
+                        }
+    
+                    prompt_history.extend(step_execution_result.messages)
+                    if plan_step.action == "tool":
+                        session.add(
+                            Message(
+                                session_id=db_session.id,
+                                role="tool",
+                                content=str(step_execution_result.result.get("output", "")),
+                                trace_id=current_trace_ids().get("trace_id"),
+                            )
+                        )
+    
+                    if plan_step.action == "completion" and step_execution_result.status == "ok":
+                        completion_text = step_execution_result.result.get("completion", "")
+                        completion_provider = plan_step.provider or completion_provider
+                        completion_model = step_execution_result.result.get("model", completion_model)
+                        break
+    
+                if not completion_text:
+                    yield {"type": "thinking", "content": "Generating final answer..."}
+                    completion_text = await self._litellm.generate(prompt_history)
+                    # Only yield content if we just generated it here
+                    yield {
+                        "type": "content",
+                        "content": completion_text,
+                        "metadata": {"provider": completion_provider, "model": completion_model},
+                    }
+    
                 session.add(
                     Message(
                         session_id=db_session.id,
@@ -223,274 +481,33 @@ class AgentService:
                         trace_id=current_trace_ids().get("trace_id"),
                     )
                 )
+                await self._memory.add_records(
+                    [MemoryRecord(conversation_id=conversation_id, text=request.prompt)]
+                )
                 await session.commit()
-
-                # Yield completion step
-                yield {
-                    "type": "completion",
-                    "provider": "litellm",
-                    "model": self._settings.litellm_model,
-                    "status": "ok",
-                    "trace": current_trace_ids(),
-                }
-                yield {"type": "content", "content": completion_text}
-                return
-
-            # AGENTIC
-            request_metadata = request.metadata or {}
-            metadata_tool_results = await self._execute_tools(request_metadata)
-            for tool_res in metadata_tool_results:
-                yield {
-                    "type": "tool_output",
-                    "content": tool_res.get("output"),
-                    "tool_call": {"name": tool_res.get("name")},
-                    "metadata": tool_res,
-                }
-                await asyncio.sleep(0)  # Force flush
-
-            history_with_tools = list(history)
-            for tool_res in metadata_tool_results:
-                if tool_res.get("status") == "ok" and tool_res.get("output"):
-                    msg_content = f"Tool {tool_res['name']} output:\n{tool_res['output']}"
-                    history_with_tools.append(AgentMessage(role="system", content=msg_content))
-
-            if request_metadata.get("plan"):
-                LOGGER.info("Using injected plan from metadata")
-                plan = Plan(**request_metadata["plan"])
-            else:
-                allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
-                target_tools = allowlist or {
-                    t.name
-                    for t in self._tool_registry.tools()
-                    if getattr(t, "category", "domain") == "orchestration"
-                }
-                tool_descriptions = self._describe_tools(target_tools)
-                available_skills_text = get_registry_index()
-
-                yield {"type": "thinking", "content": "Generating plan..."}
-
-                plan = None
-                if plan is None:
-                    async for event in planner.generate_stream(
-                        request,
-                        history=history_with_tools,
-                        tool_descriptions=tool_descriptions,
-                        available_skills_text=available_skills_text,
-                    ):
-                        if event["type"] == "token":
-                            # Do not show raw JSON plan to user
-                            pass
-                        elif event["type"] == "plan":
-                            plan = event["plan"]
-
-                if plan is None:
-                    raise ValueError("Planner returned no plan")
-                plan = await plan_supervisor.review(plan)
-                assert plan is not None  # Mypy guard
-                if plan is None:  # Runtime guard
-                    raise ValueError("Plan became None after review")
-
-                # Bridge gap between plan and execution
-                yield {
-                    "type": "thinking",
-                    "content": "Plan approved. Starting execution...",
-                    "metadata": {
-                        "step": "init",
-                        "status": "planning_complete",
-                        "stream": False,
-                        "bold": True,
-                    },
-                }
-                await asyncio.sleep(0)  # Force flush
-
-            if plan is None:
-                # Should be unreachable due to previous checks
-                raise ValueError("Plan is None before step check")
-            if not plan.steps:
-                plan = self._fallback_plan(request.prompt)
-
-            yield {
-                "type": "plan",
-                "status": "created",
-                "description": plan.description,
-                "plan": plan.model_dump(),
-                **current_trace_ids(),
-            }
-
-            prompt_history = list(history_with_tools)
-            completion_text = ""
-            completion_provider = "litellm"
-            completion_model = self._settings.litellm_model
-
-            for plan_step in plan.steps:
-                yield {
-                    "type": "step_start",
-                    "content": plan_step.label,
-                    "metadata": {
-                        "id": plan_step.id,
-                        "action": plan_step.action,
-                        "tool": plan_step.tool,
-                        "executor": plan_step.executor,
-                        "args": plan_step.args,
-                    },
-                }
-
-                if plan_step.action == "tool":
-                    yield {
-                        "type": "tool_start",
-                        "content": None,
-                        "tool_call": {"name": plan_step.tool, "arguments": plan_step.args},
-                        "metadata": {"id": plan_step.id},
-                    }
-
-                step_execution_result: StepResult | None = None
-                try:
-                    # Stream execution
-                    async for event in executor.run_stream(
-                        plan_step,
-                        request=request,
-                        conversation_id=conversation_id,
-                        prompt_history=prompt_history,
-                    ):
-                        if event["type"] == "content":
-                            yield {"type": "content", "content": event["content"]}
-                        elif event["type"] == "thinking":
-                            # Fix 2: Merge metadata instead of overwriting
-                            meta = event.get("metadata", {}).copy()
-                            meta["id"] = plan_step.id
-                            yield {
-                                "type": "thinking",
-                                "content": event["content"],
-                                "metadata": meta,
-                            }
-                        elif event["type"] == "result":
-                            step_execution_result = event["result"]
-
-                        await asyncio.sleep(0)  # Force flush loop
-
-                    if not step_execution_result:
-                        LOGGER.error("Executor failed to yield a result (Stream ended prematurely)")
-                        # Fallback to prevent crash
-                        yield {"type": "error", "content": "Step execution ended without result."}
-                        return
-
-                except ToolConfirmationError as exc:
-                    LOGGER.info(f"Step {plan_step.id} paused for confirmation")
-                    msg_content = (
-                        f"Action paused. Tool '{exc.tool_name}' requires confirmation.\n"
-                        f"Arguments: {exc.tool_args}\nReply 'CONFIRM' to proceed."
+    
+                log_event(
+                    SupervisorDecision(
+                        item_id=conversation_id,
+                        decision="ok",
+                        comments="Conversation complete",
+                        trace=TraceContext(**current_trace_ids()),
                     )
-                    session.add(
-                        Message(
-                            session_id=db_session.id,
-                            role="system",
-                            content=msg_content,
-                            trace_id=current_trace_ids().get("trace_id"),
-                        )
-                    )
-                    await session.commit()
-                    yield {
-                        "type": "content",
-                        "content": msg_content,
-                        "metadata": {"status": "confirmation_required"},
-                    }
-                    return
-
-                decision = await step_supervisor.review(plan_step, step_execution_result.status)
-                if plan_step.action == "tool":
-                    chunk_type = "tool_output"
-                    tool_call = {"name": plan_step.tool}
-                else:
-                    chunk_type = "thinking"
-                    tool_call = None
-
-                # Enriched metadata for legacy compatibility
-                meta = {
-                    "status": step_execution_result.status,
-                    "decision": decision,
-                    "id": plan_step.id,
-                    "action": plan_step.action,
-                    "tool": plan_step.tool,
-                    "name": plan_step.tool,
-                    "executor": plan_step.executor,
-                    "output": str(step_execution_result.result.get("output") or ""),
-                }
-
-                content_str = str(
-                    step_execution_result.result.get("output") or step_execution_result.status
                 )
-
-                # Check for trivial status content
-                is_trivial = False
-                if chunk_type == "thinking" and content_str.lower() in ("ok", "completed step"):
-                    is_trivial = True
-
-                if not is_trivial:
-                    yield {
-                        "type": chunk_type,
-                        "content": content_str,
-                        "tool_call": tool_call,
-                        "metadata": meta,
-                    }
-
-                prompt_history.extend(step_execution_result.messages)
-                if plan_step.action == "tool":
-                    session.add(
-                        Message(
-                            session_id=db_session.id,
-                            role="tool",
-                            content=str(step_execution_result.result.get("output", "")),
-                            trace_id=current_trace_ids().get("trace_id"),
-                        )
-                    )
-
-                if plan_step.action == "completion" and step_execution_result.status == "ok":
-                    completion_text = step_execution_result.result.get("completion", "")
-                    completion_provider = plan_step.provider or completion_provider
-                    completion_model = step_execution_result.result.get("model", completion_model)
-                    break
-
-            if not completion_text:
-                yield {"type": "thinking", "content": "Generating final answer..."}
-                completion_text = await self._litellm.generate(prompt_history)
-                # Only yield content if we just generated it here
-                yield {
-                    "type": "content",
-                    "content": completion_text,
-                    "metadata": {"provider": completion_provider, "model": completion_model},
-                }
-
-            session.add(
-                Message(
-                    session_id=db_session.id,
-                    role="assistant",
-                    content=completion_text,
-                    trace_id=current_trace_ids().get("trace_id"),
-                )
-            )
-            await self._memory.add_records(
-                [MemoryRecord(conversation_id=conversation_id, text=request.prompt)]
-            )
-            await session.commit()
-
-            log_event(
-                SupervisorDecision(
-                    item_id=conversation_id,
-                    decision="ok",
-                    comments="Conversation complete",
-                    trace=TraceContext(**current_trace_ids()),
-                )
-            )
-
-            # Yield updated history for legacy compatibility
-            # Convert internal AgentMessage objects to dict or keep as is?
-            # get_history returns AgentMessage objects.
-            # We have 'prompt_history' + 'assistant_msg'.
-            # Reconstruct full history:
-            final_history = list(prompt_history)
-            final_history.append(AgentMessage(role="assistant", content=completion_text))
-            # Add records was done in DB.
-            yield {"type": "history_snapshot", "messages": final_history}
+    
+                # Yield updated history for legacy compatibility
+                # Convert internal AgentMessage objects to dict or keep as is?
+                # get_history returns AgentMessage objects.
+                # We have 'prompt_history' + 'assistant_msg'.
+                # Reconstruct full history:
+                final_history = list(prompt_history)
+                final_history.append(AgentMessage(role="assistant", content=completion_text))
+                # Add records was done in DB.
+                yield {"type": "history_snapshot", "messages": final_history}
+        
+            except Exception as e:
+                set_span_status("ERROR", str(e))
+                raise e
 
     async def handle_request(self, request: AgentRequest, session: AsyncSession) -> AgentResponse:
         """Process an :class:`AgentRequest` and return an :class:`AgentResponse`."""

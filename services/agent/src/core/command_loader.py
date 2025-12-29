@@ -104,10 +104,6 @@ def load_command(name: str, args: dict[str, Any]) -> tuple[dict[str, Any], str]:
 
     # Validation
     required_vars = metadata.get("variables", [])
-    if required_vars:
-        missing = [v for v in required_vars if v not in args]
-        if missing:
-            raise ValueError(f"Missing required arguments for command '{name}': {missing}")
 
     # Ensure tools list exists (Security: Default to empty/read-only if undefined)
     if "tools" not in metadata:

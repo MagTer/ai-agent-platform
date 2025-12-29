@@ -83,6 +83,8 @@ class DiagnosticsService:
         # Process spans
         recent_traces: dict[str, list[dict]] = {}
         hotspot_counts: Counter[str] = Counter()
+        # Track reasons per hotspot: hotspot_name -> list of error descriptions
+        hotspot_reasons: dict[str, list[str]] = {}
         error_traces = set()
 
         # Reverse iterate to get newest first
@@ -116,6 +118,19 @@ class DiagnosticsService:
                     has_error = True
                     # Identify hotspot using span name (e.g. tool name)
                     hotspot_counts[name] += 1
+                    
+                    # Collect error reason
+                    attributes = span.get("attributes", {})
+                    # Prefer status_description, fall back to "status_description", then "error"
+                    reason = (
+                        attributes.get("status_description") 
+                        or attributes.get("error") 
+                        or "Unknown Error"
+                    )
+                    
+                    if name not in hotspot_reasons:
+                        hotspot_reasons[name] = []
+                    hotspot_reasons[name].append(str(reason))
 
             if has_error:
                 error_traces.add(trace_id)
@@ -129,6 +144,21 @@ class DiagnosticsService:
         if error_rate > 0.5:
             status = "UNHEALTHY"
 
+        # Build Insights
+        insights_hotspots = []
+        for name, count in hotspot_counts.most_common(5):
+            reasons = hotspot_reasons.get(name, [])
+            # Get top 3 reasons
+            top_reasons = [
+                f"{reason} ({cnt})" 
+                for reason, cnt in Counter(reasons).most_common(3)
+            ]
+            insights_hotspots.append({
+                "name": name,
+                "count": count,
+                "top_reasons": top_reasons
+            })
+
         return {
             "status": status,
             "metrics": {
@@ -137,6 +167,9 @@ class DiagnosticsService:
                 "error_count": error_count,
             },
             "hotspots": dict(hotspot_counts.most_common(5)),
+            "insights": {
+                "hotspots": insights_hotspots
+            }
         }
 
     async def run_diagnostics(self) -> list[TestResult]:

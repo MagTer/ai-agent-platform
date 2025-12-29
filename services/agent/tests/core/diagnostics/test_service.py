@@ -23,7 +23,7 @@ def test_get_system_health_metrics():
             "name": "tool.call.bad_tool",
             "context": {"trace_id": "t2"},
             "status": "ERROR",
-            "attributes": {}
+            "attributes": {"error": "Timeout"}
         }) + "\n")
         
         # Trace 3: OK
@@ -56,6 +56,15 @@ def test_get_system_health_metrics():
         assert metrics["metrics"]["error_rate"] == 0.33
         assert "tool.call.bad_tool" in metrics["hotspots"]
         assert metrics["hotspots"]["tool.call.bad_tool"] == 1
+        
+        # Verify Insights
+        assert "insights" in metrics
+        hotspots_list = metrics["insights"]["hotspots"]
+        assert len(hotspots_list) > 0
+        hotspot = next(h for h in hotspots_list if h["name"] == "tool.call.bad_tool")
+        assert hotspot["count"] == 1
+        assert len(hotspot["top_reasons"]) > 0
+        assert "Timeout (1)" in hotspot["top_reasons"] or "Timeout" in hotspot["top_reasons"][0]
 
     finally:
         Path(tmp.name).unlink()
