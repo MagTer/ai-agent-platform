@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from azure.devops.connection import Connection  # type: ignore[import-untyped]
+from azure.devops.connection import Connection
 from msrest.authentication import BasicAuthentication
 
 from .base import Tool

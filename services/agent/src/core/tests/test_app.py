@@ -46,6 +46,27 @@ class MockLiteLLMClient:
             }
         )
 
+    async def stream_chat(
+        self,
+        messages: Iterable[Any],
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[Any, None]:
+        sequence = list(messages)
+        content = (
+            sequence[-1].content if hasattr(sequence[-1], "content") else sequence[-1]["content"]
+        )
+        # Yield mock chunks
+        yield {
+            "type": "content",
+            "content": "reply:" + str(content),
+            "tool_call": None,
+            "metadata": None,
+        }
+
+    async def aclose(self) -> None:
+        pass
+
 
 class DummyMemory:
     def __init__(self) -> None:

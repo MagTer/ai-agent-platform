@@ -57,12 +57,16 @@ class MockLiteLLMClient(LiteLLMClient):
         tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
-        sequence = list(messages)
-        content = "response: " + (sequence[-1].content or "")
-        chunk = MagicMock()
-        chunk.choices = [MagicMock()]
-        chunk.choices[0].delta.content = content
-        yield chunk
+        # Detect if this is a planner call
+        system_msg = next((m for m in messages if m.role == "system"), None)
+
+        if system_msg and "You are the Planner Agent" in (system_msg.content or ""):
+            content = self._plan_output
+        else:
+            sequence = list(messages)
+            content = "response: " + (sequence[-1].content or "")
+
+        yield {"type": "content", "content": content}
 
 
 class DummyMemory:

@@ -1,0 +1,2000 @@
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xe151ca6ac2736433",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.083925Z",
+    "end_time": "2025-12-29T13:32:54.083943Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x53b36243a85c477e",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.162915Z",
+    "end_time": "2025-12-29T13:32:54.162932Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x8404caf333c8d8a5",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.173996Z",
+    "end_time": "2025-12-29T13:32:54.174015Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x2402e80389bf0ca6",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.185369Z",
+    "end_time": "2025-12-29T13:32:54.185416Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xd46cff07184c7d09",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.196649Z",
+    "end_time": "2025-12-29T13:32:54.196669Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x3b394d4ee256b2a4",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.207673Z",
+    "end_time": "2025-12-29T13:32:54.207692Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x4269a5fce1bd83d6",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.219026Z",
+    "end_time": "2025-12-29T13:32:54.219059Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xd4f9e4de93ce5893",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.348614Z",
+    "end_time": "2025-12-29T13:32:54.348637Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xb89c8a7702f66f78",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.359165Z",
+    "end_time": "2025-12-29T13:32:54.359184Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x479af5e195b6fd71",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.370064Z",
+    "end_time": "2025-12-29T13:32:54.370083Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x6ae79e4dd8e24891",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.381070Z",
+    "end_time": "2025-12-29T13:32:54.381089Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x91cbadf097946b55",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.392169Z",
+    "end_time": "2025-12-29T13:32:54.392185Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x304b30141e7b8d1a",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.403192Z",
+    "end_time": "2025-12-29T13:32:54.403212Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xe74964cae6fcc347",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.414131Z",
+    "end_time": "2025-12-29T13:32:54.414151Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x198f32ce90d235b3",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.424956Z",
+    "end_time": "2025-12-29T13:32:54.424972Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xde62d67a31a76fb0",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.485220Z",
+    "end_time": "2025-12-29T13:32:54.485240Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x7acdd01a0294aa3c",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.496780Z",
+    "end_time": "2025-12-29T13:32:54.496800Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x78e2295ecbf3a060",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.507605Z",
+    "end_time": "2025-12-29T13:32:54.507622Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x7dced6ded7721fd2",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.518469Z",
+    "end_time": "2025-12-29T13:32:54.518486Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xb6ba3b67c8b10567",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.529485Z",
+    "end_time": "2025-12-29T13:32:54.529505Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xce574d91cd01d462",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.540510Z",
+    "end_time": "2025-12-29T13:32:54.540530Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x9b7503f28f496e1b",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.551366Z",
+    "end_time": "2025-12-29T13:32:54.551385Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xaf7008722ff59bf7",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.562477Z",
+    "end_time": "2025-12-29T13:32:54.562496Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x596aa1c0c6048357",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.599114Z",
+    "end_time": "2025-12-29T13:32:54.599133Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x2583c1eb56fb30dd",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.609986Z",
+    "end_time": "2025-12-29T13:32:54.610004Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x7d8230d5189754dc",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.620804Z",
+    "end_time": "2025-12-29T13:32:54.620825Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x4190b18f9a50a32d",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.631610Z",
+    "end_time": "2025-12-29T13:32:54.631626Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x6c48ede9a1f33bcc",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.642279Z",
+    "end_time": "2025-12-29T13:32:54.642294Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x0630a447a4b83a2b",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.652978Z",
+    "end_time": "2025-12-29T13:32:54.652995Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x77695d6696a0e5de",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.663844Z",
+    "end_time": "2025-12-29T13:32:54.663863Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xd479d5f91b50ee40",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.674649Z",
+    "end_time": "2025-12-29T13:32:54.674665Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x370dbb278e0c720b",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.761306Z",
+    "end_time": "2025-12-29T13:32:54.761350Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xf11e7db36e97329f",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.772127Z",
+    "end_time": "2025-12-29T13:32:54.772144Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xa3a7b757cd3e9bec",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.782968Z",
+    "end_time": "2025-12-29T13:32:54.782985Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xd2548bd5aaae45fe",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.793752Z",
+    "end_time": "2025-12-29T13:32:54.793769Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xb5bfc63ad5cb85e3",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.804596Z",
+    "end_time": "2025-12-29T13:32:54.804613Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x4263c441a8c829b7",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.815507Z",
+    "end_time": "2025-12-29T13:32:54.815526Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x829b5d8f23494d25",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.826372Z",
+    "end_time": "2025-12-29T13:32:54.826389Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xc520b399b447f6ff",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.837194Z",
+    "end_time": "2025-12-29T13:32:54.837210Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xc52cea34fdd78764",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.951097Z",
+    "end_time": "2025-12-29T13:32:54.951114Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xe7515004660b099f",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.962046Z",
+    "end_time": "2025-12-29T13:32:54.962063Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x86074b8faa3b5c0a",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.972876Z",
+    "end_time": "2025-12-29T13:32:54.972894Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x3895f31991fd0909",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.983674Z",
+    "end_time": "2025-12-29T13:32:54.983691Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x1f62b676b9950941",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:54.994418Z",
+    "end_time": "2025-12-29T13:32:54.994436Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xd1f2bde6a5d2fb9c",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.005457Z",
+    "end_time": "2025-12-29T13:32:55.005476Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xafa0047c2d41b3e6",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.016206Z",
+    "end_time": "2025-12-29T13:32:55.016223Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x4a4fdd235d068b54",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.026944Z",
+    "end_time": "2025-12-29T13:32:55.026960Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x3593a3e60e4070c9",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.073626Z",
+    "end_time": "2025-12-29T13:32:55.073645Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xad2aa20991d6e085",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.084483Z",
+    "end_time": "2025-12-29T13:32:55.084499Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xf313b906c7599915",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.095271Z",
+    "end_time": "2025-12-29T13:32:55.095287Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x703278fd6c34de52",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.105958Z",
+    "end_time": "2025-12-29T13:32:55.105974Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x09f5888c34f59862",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.116655Z",
+    "end_time": "2025-12-29T13:32:55.116673Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x29bf8fc56a2de1e8",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.127542Z",
+    "end_time": "2025-12-29T13:32:55.127559Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xe806f68c2781d591",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.138477Z",
+    "end_time": "2025-12-29T13:32:55.138494Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xf3f0392459b4f95a",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.149296Z",
+    "end_time": "2025-12-29T13:32:55.149314Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xfebac856cda7782b",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.204597Z",
+    "end_time": "2025-12-29T13:32:55.204616Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xee04591fbbf4abcd",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.215127Z",
+    "end_time": "2025-12-29T13:32:55.215165Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xd4e42c4c4b7a0f5a",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.226264Z",
+    "end_time": "2025-12-29T13:32:55.226282Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xc7c9527caf26b352",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.237476Z",
+    "end_time": "2025-12-29T13:32:55.237496Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xb3280ac7bc3beaff",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.248545Z",
+    "end_time": "2025-12-29T13:32:55.248562Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xb33ad49f7e9d2892",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.258871Z",
+    "end_time": "2025-12-29T13:32:55.258890Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xb9ead447b5de5fcc",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.269812Z",
+    "end_time": "2025-12-29T13:32:55.269832Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x9d7f4ab7ffac14ca",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.280719Z",
+    "end_time": "2025-12-29T13:32:55.280738Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x486940e81f2a69c6",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.291716Z",
+    "end_time": "2025-12-29T13:32:55.291734Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x71b0a360b89040a9",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.302598Z",
+    "end_time": "2025-12-29T13:32:55.302617Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xc7b54e4fa91d6563",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.313647Z",
+    "end_time": "2025-12-29T13:32:55.313666Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x8765c9a0c7e70f47",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.324590Z",
+    "end_time": "2025-12-29T13:32:55.324608Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0x56799a8af767426b",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.335655Z",
+    "end_time": "2025-12-29T13:32:55.335676Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}
+{
+    "name": "POST /v1/chat/completions http send",
+    "context": {
+        "trace_id": "0x15a4c814fb8cd0154ddf799e9c2f7ceb",
+        "span_id": "0xec95af42c9791a15",
+        "trace_state": "[]"
+    },
+    "kind": "SpanKind.INTERNAL",
+    "parent_id": "0xc263c9c953c6d7d2",
+    "start_time": "2025-12-29T13:32:55.346618Z",
+    "end_time": "2025-12-29T13:32:55.346636Z",
+    "status": {
+        "status_code": "UNSET"
+    },
+    "attributes": {
+        "asgi.event.type": "http.response.body"
+    },
+    "events": [],
+    "links": [],
+    "resource": {
+        "attributes": {
+            "telemetry.sdk.language": "python",
+            "telemetry.sdk.name": "opentelemetry",
+            "telemetry.sdk.version": "1.39.1",
+            "service.name": "AI Agent Server"
+        },
+        "schema_url": ""
+    }
+}

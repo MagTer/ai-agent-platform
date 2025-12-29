@@ -36,7 +36,7 @@ from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, Trac
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
 from core.system_commands import handle_system_command
-from core.tools import ToolRegistry
+from core.tools import SkillDelegateTool, ToolRegistry
 from core.tools.base import ToolConfirmationError
 
 from .memory import MemoryRecord
@@ -64,6 +64,11 @@ class AgentService:
         self._litellm = litellm
         self._memory = memory
         self._tool_registry = tool_registry or ToolRegistry([])
+
+        # Instantiate and register SkillDelegateTool (requires dependency injection)
+        skill_delegate = SkillDelegateTool(self._litellm, self._tool_registry)
+        self._tool_registry.register(skill_delegate)
+
         self.context_manager = ContextManager(settings)
 
     async def execute_stream(
@@ -232,7 +237,7 @@ class AgentService:
                 return
 
             # AGENTIC
-            request_metadata = request.metadata
+            request_metadata = request.metadata or {}
             metadata_tool_results = await self._execute_tools(request_metadata)
             for tool_res in metadata_tool_results:
                 yield {
@@ -273,7 +278,7 @@ class AgentService:
                         available_skills_text=available_skills_text,
                     ):
                         if event["type"] == "token":
-                            # Suppress raw JSON streaming as per user request
+                            # Do not show raw JSON plan to user
                             pass
                         elif event["type"] == "plan":
                             plan = event["plan"]
@@ -282,6 +287,8 @@ class AgentService:
                     raise ValueError("Planner returned no plan")
                 plan = await plan_supervisor.review(plan)
                 assert plan is not None  # Mypy guard
+                if plan is None:  # Runtime guard
+                    raise ValueError("Plan became None after review")
 
                 # Bridge gap between plan and execution
                 yield {
@@ -296,6 +303,9 @@ class AgentService:
                 }
                 await asyncio.sleep(0)  # Force flush
 
+            if plan is None:
+                # Should be unreachable due to previous checks
+                raise ValueError("Plan is None before step check")
             if not plan.steps:
                 plan = self._fallback_plan(request.prompt)
 
@@ -356,8 +366,13 @@ class AgentService:
                         elif event["type"] == "result":
                             step_execution_result = event["result"]
 
+                        await asyncio.sleep(0)  # Force flush loop
+
                     if not step_execution_result:
-                        raise ValueError("Executor failed to yield a result")
+                        LOGGER.error("Executor failed to yield a result (Stream ended prematurely)")
+                        # Fallback to prevent crash
+                        yield {"type": "error", "content": "Step execution ended without result."}
+                        return
 
                 except ToolConfirmationError as exc:
                     LOGGER.info(f"Step {plan_step.id} paused for confirmation")

@@ -7,7 +7,7 @@ import json
 import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from shared.models import AgentMessage
 
@@ -35,7 +35,7 @@ class SkillDelegateTool(Tool):
         self._litellm = litellm
         self._registry = registry
 
-    async def run(self, skill: str, goal: str) -> AsyncGenerator[dict[str, Any], None]:
+    async def run(self, skill: str, goal: str) -> AsyncGenerator[dict[str, Any], None]:  # type: ignore[override]
         """Execute a sub-agent loop for the given skill and goal."""
 
         # 1. Load Skill
@@ -121,7 +121,11 @@ class SkillDelegateTool(Tool):
                             if chunk["type"] == "content" and chunk["content"]:
                                 content = chunk["content"]
                                 full_content.append(content)
-                                yield {"type": "thinking", "content": content}
+                                yield {
+                                    "type": "thinking",
+                                    "content": content,
+                                    "metadata": {"stream": True},
+                                }
 
                             # 2. Accumulate Tool Calls
                             elif chunk["type"] == "tool_start" and chunk["tool_call"]:
@@ -130,7 +134,9 @@ class SkillDelegateTool(Tool):
                                 if idx not in tool_calls_buffer:
                                     tool_calls_buffer[idx] = tc
                                 else:
-                                    self._merge_tool_calls(tool_calls_buffer, chunk)
+                                    self._merge_tool_calls(
+                                        tool_calls_buffer, cast(dict[str, Any], chunk)
+                                    )
 
                             # 3. Handle Error
                             elif chunk["type"] == "error":

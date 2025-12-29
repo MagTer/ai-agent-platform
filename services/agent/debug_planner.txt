@@ -1,0 +1,4 @@
+1767028747.0880663: Planner full response: 
+1767028747.0891776: Planner full response: 
+1767028747.0908408: Planner full response: 
+1767028781.8846729: Planner full response: {"description": "Test plan flow", "steps": [{"id": "memory-1", "label": "Fetch context", "executor": "agent", "action": "memory", "args": {"query": "Hello world"}}, {"id": "tool-1", "label": "Use dummy helper", "executor": "agent", "action": "tool", "tool": "dummy_tool", "args": {"target": "alpha"}}, {"id": "completion-1", "label": "Compose answer", "executor": "litellm", "action": "completion"}]}

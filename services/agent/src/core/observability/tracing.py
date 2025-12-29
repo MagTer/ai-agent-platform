@@ -95,6 +95,14 @@ class _NoOpSpan:
     def get_span_context(self) -> _NoOpSpanContext:
         return _NoOpSpanContext()
 
+    def add_event(
+        self,
+        name: str,
+        attributes: dict[str, Any] | None = None,
+        timestamp: int | None = None,
+    ) -> None:
+        pass
+
 
 class _NoOpTracer:
     def start_as_current_span(self, name: str, *, kind: Any | None = None) -> Any:
@@ -251,9 +259,36 @@ def current_trace_ids() -> dict[str, str]:
     }
 
 
+def set_span_attributes(attributes: dict[str, Any]) -> None:
+    """Set attributes on the current active span."""
+    trace_api = _otel_trace if _OTEL_AVAILABLE else _NoOpTraceAPI()
+    span = trace_api.get_current_span()
+    if span and hasattr(span, "set_attributes"):
+        span.set_attributes(attributes)
+    elif span and hasattr(span, "set_attribute"):
+        # Fallback for spans that only support single attribute setting
+        for key, value in attributes.items():
+            span.set_attribute(key, value)
+
+
+def add_span_event(
+    name: str,
+    attributes: dict[str, Any] | None = None,
+    timestamp: int | None = None,
+) -> None:
+    """Add an event to the current active span."""
+    trace_api = _otel_trace if _OTEL_AVAILABLE else _NoOpTraceAPI()
+    span = trace_api.get_current_span()
+    if span and hasattr(span, "add_event"):
+        span.add_event(name, attributes=attributes, timestamp=timestamp)
+
+
 __all__ = [
     "configure_tracing",
     "get_tracer",
     "start_span",
+    "start_span",
     "current_trace_ids",
+    "set_span_attributes",
+    "add_span_event",
 ]

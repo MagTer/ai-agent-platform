@@ -10,6 +10,7 @@ from .loader import load_tool_registry
 from .qa import RunLinterTool, RunPytestTool
 from .registry import ToolRegistry
 from .search_code import SearchCodeBaseTool
+from .skill_delegate import SkillDelegateTool
 from .test_runner import TestRunnerTool
 from .tibp_wiki_search import TibpWikiSearchTool
 from .web_fetch import WebFetchTool
@@ -33,5 +34,7 @@ __all__ = [
     "Context7SearchTool",
     "Context7GetDocsTool",
     "TestRunnerTool",
+    "TestRunnerTool",
     "TibpWikiSearchTool",
+    "SkillDelegateTool",
 ]

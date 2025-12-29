@@ -84,7 +84,7 @@ class RAGManager:
 
             # Helper to search
             # 'search' is deprecated/removed in newer clients, use 'query_points'
-            res = await self.client.query_points(  # type: ignore
+            res = await self.client.query_points(
                 collection_name=target_collection,
                 query=qvec.tolist(),
                 query_filter=query_filter,

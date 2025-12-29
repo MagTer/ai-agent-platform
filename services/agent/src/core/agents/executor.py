@@ -152,72 +152,184 @@ class StepExecutorAgent:
         step: PlanStep,
         request: AgentRequest,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        tool_messages: list[AgentMessage] = []
+        LOGGER.info(f"Starting _run_tool_gen for step {step.id} tool={step.tool}")
 
-        # 1. Try Native Tool
-        tool = self._tool_registry.get(step.tool) if self._tool_registry and step.tool else None
+        # Wrapped in try/except to catch any unexpected crashes
+        try:
+            tool_messages: list[AgentMessage] = []
 
-        if not tool:
-            # 2. Try Skill (Markdown Command)
-            if step.tool:
+            # 1. Try Native Tool
+            tool = self._tool_registry.get(step.tool) if self._tool_registry and step.tool else None
+
+            if not tool:
+                # 2. Try Skill (Markdown Command)
+                if step.tool:
+                    try:
+                        metadata, rendered_prompt = load_command(step.tool, step.args or {})
+                        # Execute Skill via LLM (Streaming)
+                        with start_span(f"skill.call.{step.tool}"):
+                            full_content = []
+                            skill_msg = [AgentMessage(role="user", content=rendered_prompt)]
+
+                            LOGGER.info(f"Stream Chatting for skill {step.tool}...")
+                            async for chunk in self._litellm.stream_chat(skill_msg):
+                                if chunk["type"] == "content" and chunk["content"]:
+                                    content = chunk["content"]
+                                    full_content.append(content)
+                                    # Yield thinking tokens for real-time feedback
+                                    yield {
+                                        "type": "thinking",
+                                        "content": content,
+                                        "metadata": {"stream": True},
+                                    }
+                                    # Fix for Ketchup Effect: Force flush
+                                    await asyncio.sleep(0.01)
+                                else:
+                                    # Log debug info about non-content chunks
+                                    if chunk.get("type") != "done":
+                                        LOGGER.debug(f"Skill chunk: {chunk.get('type')}")
+
+                            output_text = "".join(full_content)
+                            LOGGER.info(f"Skill {step.tool} done. Len: {len(output_text)}")
+
+                        tool_messages.append(
+                            AgentMessage(
+                                role="system",
+                                content=f"Tool {step.tool} output:\n{output_text}",
+                            )
+                        )
+                        # Trace
+                        trace_ctx = TraceContext(**current_trace_ids())
+                        log_event(
+                            ToolCallEvent(
+                                name=step.tool,
+                                args=step.args,
+                                status="ok",
+                                output_preview=output_text[:200],
+                                trace=trace_ctx,
+                            )
+                        )
+                        yield {
+                            "type": "final",
+                            "data": (
+                                {"name": step.tool, "status": "ok", "output": output_text},
+                                tool_messages,
+                                "ok",
+                            ),
+                        }
+                        return
+
+                    except FileNotFoundError:
+                        # Fall through to return missing if not found
+                        pass
+                    except Exception as e:
+                        LOGGER.error(f"Skill execution exception: {e}", exc_info=True)
+                        yield {
+                            "type": "final",
+                            "data": (
+                                {
+                                    "name": step.tool,
+                                    "status": "error",
+                                    "reason": f"Skill execution failed: {e}",
+                                },
+                                tool_messages,
+                                "error",
+                            ),
+                        }
+                        return
+
+                # If no tool found or FileNotFoundError passed through
+                yield {
+                    "type": "final",
+                    "data": ({"name": step.tool, "status": "missing"}, tool_messages, "missing"),
+                }
+                return
+
+            # Native Tool Execution
+            # Validates step.args is not None
+            safe_args = step.args or {}  # Fix: Ensure dict for allowlist and CWD checks
+
+            # Simplified argument unpacking: Trust the plan, with minor legacy fallback
+            tool_args = safe_args
+            if (
+                "tool_args" in safe_args
+                and len(safe_args) == 1
+                and isinstance(safe_args.get("tool_args"), dict)
+            ):
+                tool_args = safe_args["tool_args"]
+
+            if tool_args is None:
+                tool_args = {}
+
+            allowlist = safe_args.get("allowed_tools")
+            if allowlist and step.tool not in allowlist:
+                # Legacy guard
+                yield {
+                    "type": "final",
+                    "data": (
+                        {"name": step.tool, "status": "skipped", "reason": "not-allowed"},
+                        tool_messages,
+                        "skipped",
+                    ),
+                }
+                return
+
+            # Inject CWD if provided and tool supports it
+            cwd = safe_args.get("cwd")  # Fix: Use safe_args
+            if not cwd and "cwd" in (request.metadata or {}):
+                cwd = (request.metadata or {}).get("cwd")
+
+            # Defensive copy
+            try:
+                final_args = tool_args.copy()
+            except AttributeError:
+                # Fallback if somehow tool_args is still None or weird
+                LOGGER.warning(f"tool_args was {type(tool_args)} instead of dict. Resetting.")
+                final_args = {}
+
+            if cwd:
+                # Check if tool.run accepts cwd
+                sig = inspect.signature(tool.run)
+                has_cwd = "cwd" in sig.parameters
+                has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                if has_cwd or has_kwargs:
+                    final_args["cwd"] = cwd
+
+            with start_span(f"tool.call.{step.tool}"):
                 try:
-                    metadata, rendered_prompt = load_command(step.tool, step.args or {})
-                    # Execute Skill via LLM (Streaming)
-                    with start_span(f"skill.call.{step.tool}"):
-                        full_content = []
-                        skill_msg = [AgentMessage(role="user", content=rendered_prompt)]
-
-                        async for chunk in self._litellm.stream_chat(skill_msg):
-                            if chunk["type"] == "content" and chunk["content"]:
-                                content = chunk["content"]
-                                full_content.append(content)
-                                # Yield thinking tokens for real-time feedback
-                                yield {
-                                    "type": "thinking",
-                                    "content": content,
-                                    "metadata": {"stream": True},
-                                }
-                                # Add flush ?? The caller (run_stream) does the sleep(0) flush.
-
-                        output_text = "".join(full_content)
-
-                    tool_messages.append(
-                        AgentMessage(
-                            role="system",
-                            content=f"Tool {step.tool} output:\n{output_text}",
+                    if tool.requires_confirmation:
+                        # Phase 3: Log warning but proceed.
+                        LOGGER.warning(
+                            f"SAFETY CHECK: Tool '{tool.name}' requires confirmation "
+                            "(Logic pending Phase 4)."
                         )
-                    )
-                    # Trace
-                    trace_ctx = TraceContext(**current_trace_ids())
-                    log_event(
-                        ToolCallEvent(
-                            name=step.tool,
-                            args=step.args,
-                            status="ok",
-                            output_preview=output_text[:200],
-                            trace=trace_ctx,
-                        )
-                    )
-                    yield {
-                        "type": "final",
-                        "data": (
-                            {"name": step.tool, "status": "ok", "output": output_text},
-                            tool_messages,
-                            "ok",
-                        ),
-                    }
-                    return
 
-                except FileNotFoundError:
-                    pass  # Fall through to return missing
-                except Exception as e:
+                    # Remove confirmation flag before calling tool
+                    run_args = final_args.copy()
+                    run_args.pop("confirm_dangerous_action", None)
+
+                    output = None
+                    if inspect.isasyncgenfunction(tool.run):
+                        async for chunk in tool.run(**run_args):
+                            if isinstance(chunk, dict) and chunk.get("type") == "thinking":
+                                yield {"type": "thinking", "content": chunk.get("content")}
+                                await asyncio.sleep(0.01)  # Force flush
+                            elif isinstance(chunk, dict) and chunk.get("type") == "result":
+                                output = chunk.get("output")
+
+                        if output is None:
+                            output = "No valid output from streaming tool."
+                    else:
+                        output = await tool.run(**run_args)
+
+                except TypeError as exc:
                     yield {
                         "type": "final",
                         "data": (
                             {
                                 "name": step.tool,
                                 "status": "error",
-                                "reason": f"Skill execution failed: {e}",
+                                "reason": f"Invalid arguments: {exc}",
                             },
                             tool_messages,
                             "error",
@@ -225,125 +337,47 @@ class StepExecutorAgent:
                     }
                     return
 
-            yield {
-                "type": "final",
-                "data": ({"name": step.tool, "status": "missing"}, tool_messages, "missing"),
-            }
-            return
+            output_text = str(output)
 
-        # Simplified argument unpacking: Trust the plan, with minor legacy fallback
-        tool_args = step.args
-        if (
-            "tool_args" in step.args
-            and len(step.args) == 1
-            and isinstance(step.args["tool_args"], dict)
-        ):
-            tool_args = step.args["tool_args"]
+            # Phase 4: Integration Feedback
+            msg_content = f"Tool {step.tool} output:\n{output_text}"
+            if output_text.startswith("Error:"):
+                msg_content += (
+                    "\n\nSYSTEM HINT: The last tool call failed. "
+                    "Analyze the error above. If it is a syntax error, fix the code. "
+                    "If it is a logic error, adjust your plan args."
+                )
 
-        allowlist = step.args.get("allowed_tools") if isinstance(step.args, dict) else None
-        if allowlist and step.tool not in allowlist:
-            # Legacy guard, mostly for 'router' calls but safe to keep
+            tool_messages.append(AgentMessage(role="system", content=msg_content))
+            trace_ctx = TraceContext(**current_trace_ids())
+            log_event(
+                ToolCallEvent(
+                    name=step.tool or "unknown",
+                    args=tool_args,
+                    status="ok",
+                    output_preview=output_text[:200],
+                    trace=trace_ctx,
+                )
+            )
             yield {
                 "type": "final",
                 "data": (
-                    {"name": step.tool, "status": "skipped", "reason": "not-allowed"},
+                    {"name": step.tool, "status": "ok", "output": output_text},
                     tool_messages,
-                    "skipped",
+                    "ok",
                 ),
             }
-            return
 
-        # Inject CWD if provided and tool supports it
-        cwd = step.args.get("cwd")  # Explicit args take precedence
-        if not cwd and "cwd" in (request.metadata or {}):
-            cwd = (request.metadata or {}).get("cwd")
-
-        final_args = tool_args.copy()
-        if cwd:
-            # Check if tool.run accepts cwd
-            sig = inspect.signature(tool.run)
-            has_cwd = "cwd" in sig.parameters
-            has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
-            if has_cwd or has_kwargs:
-                final_args["cwd"] = cwd
-
-        with start_span(f"tool.call.{step.tool}"):
-            try:
-                if tool.requires_confirmation:
-                    # Phase 3: Log warning but proceed.
-                    # Future Phase 4: Implement interactive pause.
-
-                    LOGGER.warning(
-                        f"SAFETY CHECK: Tool '{tool.name}' requires confirmation "
-                        "(Logic pending Phase 4)."
-                    )
-
-                    # if not final_args.get("confirm_dangerous_action"):
-                    #    from core.tools.base import ToolConfirmationError
-                    #    raise ToolConfirmationError(tool.name, tool_args=final_args)
-
-                # Remove confirmation flag before calling tool
-                run_args = final_args.copy()
-                run_args.pop("confirm_dangerous_action", None)
-
-                output = None
-                if inspect.isasyncgenfunction(tool.run):
-                    async for chunk in tool.run(**run_args):
-                        if isinstance(chunk, dict) and chunk.get("type") == "thinking":
-                            yield {"type": "thinking", "content": chunk.get("content")}
-                        elif isinstance(chunk, dict) and chunk.get("type") == "result":
-                            output = chunk.get("output")
-
-                    if output is None:
-                        output = "No valid output from streaming tool."
-                else:
-                    output = await tool.run(**run_args)
-
-            except TypeError as exc:
-                yield {
-                    "type": "final",
-                    "data": (
-                        {
-                            "name": step.tool,
-                            "status": "error",
-                            "reason": f"Invalid arguments: {exc}",
-                        },
-                        tool_messages,
-                        "error",
-                    ),
-                }
-                return
-        output_text = str(output)
-
-        # Phase 4: Integration Feedback
-        # If output is error, append a hint to the system message
-        msg_content = f"Tool {step.tool} output:\n{output_text}"
-        if output_text.startswith("Error:"):
-            msg_content += (
-                "\n\nSYSTEM HINT: The last tool call failed. "
-                "Analyze the error above. If it is a syntax error, fix the code. "
-                "If it is a logic error, adjust your plan args."
-            )
-
-        tool_messages.append(AgentMessage(role="system", content=msg_content))
-        trace_ctx = TraceContext(**current_trace_ids())
-        log_event(
-            ToolCallEvent(
-                name=step.tool or "unknown",
-                args=tool_args,
-                status="ok",
-                output_preview=output_text[:200],
-                trace=trace_ctx,
-            )
-        )
-        yield {
-            "type": "final",
-            "data": (
-                {"name": step.tool, "status": "ok", "output": output_text},
-                tool_messages,
-                "ok",
-            ),
-        }
+        except BaseException as e:
+            LOGGER.critical(f"CRITICAL FAILURE in _run_tool_gen: {e}", exc_info=True)
+            yield {
+                "type": "final",
+                "data": (
+                    {"name": step.tool, "status": "error", "reason": f"System Crash: {e}"},
+                    [],
+                    "error",
+                ),
+            }
 
     async def _generate_completion(
         self,
@@ -420,7 +454,8 @@ class StepExecutorAgent:
             full_content = []
 
             # Reconstruct messages list
-            msgs_to_send = prompt_history + [AgentMessage(role="user", content=request.prompt)]
+            # prompt_history already includes the user request from service.py
+            msgs_to_send = prompt_history
 
             async for chunk in self._litellm.stream_chat(msgs_to_send, model=model_override):
                 if chunk["type"] == "content" and chunk["content"]:
@@ -452,7 +487,11 @@ class StepExecutorAgent:
                 step_res = StepResult(step=step, status=status, result=result, messages=messages)
                 yield {"type": "result", "result": step_res}
             elif tool_event["type"] == "thinking":
-                yield {"type": "thinking", "content": tool_event["content"]}
+                yield {
+                    "type": "thinking",
+                    "content": tool_event["content"],
+                    "metadata": tool_event.get("metadata"),
+                }
                 await asyncio.sleep(0)  # Yield for flush
 
 

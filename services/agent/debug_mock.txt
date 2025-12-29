@@ -1,0 +1,59 @@
+1767028641.0519524: Stream Chat called. Messages: ['system', 'user']
+1767028641.052: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028641.0528584: Stream Chat called. Messages: ['system', 'user', 'assistant', 'user']
+1767028641.0528746: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028641.0537722: Stream Chat called. Messages: ['system', 'user', 'assistant', 'user', 'assistant', 'user']
+1767028641.0537853: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028641.0555522: Stream Chat called. Messages: ['system', 'user']
+1767028641.0555673: System content start: Current Date: 2025-12-29
+1767028669.6712115: Stream Chat called. Messages: ['system', 'user']
+1767028669.6712384: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028669.671246: Planner Agent detected! Returning plan.
+1767028669.6718838: Stream Chat called. Messages: ['system', 'user', 'assistant', 'user']
+1767028669.6718972: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028669.6719034: Planner Agent detected! Returning plan.
+1767028669.6723657: Stream Chat called. Messages: ['system', 'user', 'assistant', 'user', 'assistant', 'user']
+1767028669.6723769: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028669.672383: Planner Agent detected! Returning plan.
+1767028669.6730688: Stream Chat called. Messages: ['system', 'user']
+1767028669.6730747: System content start: Current Date: 2025-12-29
+1767028722.5315187: Stream Chat called. Messages: ['system', 'user']
+1767028722.53155: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028722.5315573: Planner Agent detected! Returning plan.
+1767028722.5323513: Stream Chat called. Messages: ['system', 'user', 'assistant', 'user']
+1767028722.532379: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028722.5323863: Planner Agent detected! Returning plan.
+1767028722.532871: Stream Chat called. Messages: ['system', 'user', 'assistant', 'user', 'assistant', 'user']
+1767028722.5328815: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028722.5328877: Planner Agent detected! Returning plan.
+1767028722.53362: Stream Chat called. Messages: ['system', 'user']
+1767028722.5336268: System content start: Current Date: 2025-12-29
+1767028747.0876155: Stream Chat called. Messages: ['system', 'user']
+1767028747.0876513: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028747.0876613: Planner Agent detected! Returning plan.
+1767028747.0885236: Stream Chat called. Messages: ['system', 'user', 'assistant', 'user']
+1767028747.088538: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028747.0885444: Planner Agent detected! Returning plan.
+1767028747.0893598: Stream Chat called. Messages: ['system', 'user', 'assistant', 'user', 'assistant', 'user']
+1767028747.089371: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028747.0893776: Planner Agent detected! Returning plan.
+1767028747.0914764: Stream Chat called. Messages: ['system', 'user']
+1767028747.091483: System content start: Current Date: 2025-12-29
+1767028781.88462: Stream Chat called. Messages: ['system', 'user']
+1767028781.8846517: System content start: SYSTEM CONTEXT:
+- Current Date & Time: 2025-12-29 
+1767028781.8846595: Planner Agent detected! Returning plan.
+1767028781.8853838: Stream Chat called. Messages: ['system', 'user', 'system']
+1767028781.8853922: System content start: Current Date: 2025-12-29

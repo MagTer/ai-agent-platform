@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -159,13 +160,19 @@ async def stream_response_generator(
             chunk_type = agent_chunk["type"]
             content = agent_chunk.get("content")
 
+            await asyncio.sleep(0)  # Force flush per chunk
+
             if chunk_type == "content" and content:
                 yield _format_chunk(chunk_id, created, model_name, content)
 
             elif chunk_type == "thinking" and content:
                 # Check for streaming flag
                 is_stream = False
-                if agent_chunk.get("metadata") and agent_chunk["metadata"].get("stream"):
+                if (
+                    agent_chunk.get("metadata")
+                    and agent_chunk["metadata"]
+                    and agent_chunk["metadata"].get("stream")
+                ):
                     is_stream = True
 
                 if is_stream:
