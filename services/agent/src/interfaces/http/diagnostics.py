@@ -491,6 +491,10 @@ async def diagnostics_dashboard(
              drawer.classList.add('open');
         }
 
+        function closeDrawer() {
+             document.getElementById('attrDrawer').classList.remove('open');
+        }
+
         function extractUserIntent(span) {
             // ... (Same reuse logic as before) ...
             if (!span || !span.attributes) return "System Action";
