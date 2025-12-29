@@ -9,11 +9,12 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
+from shared.models import AgentMessage
+
 from core.command_loader import load_command
 from core.core.litellm_client import LiteLLMClient
 from core.tools.base import Tool
 from core.tools.registry import ToolRegistry
-from shared.models import AgentMessage
 
 LOGGER = logging.getLogger(__name__)
 
@@ -169,7 +170,6 @@ class SkillDelegateTool(Tool):
                     messages.append(assistant_msg)
 
                     if not tool_calls:
-                        if content:
                         if content:
                             yield {"type": "result", "output": "Worker finished."}
                             # Don't return yet, let next loop decide? No, we return result at end of 'turn' if no tools?

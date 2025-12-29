@@ -7,6 +7,15 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    Plan,
+    PlanStep,
+    RoutingDecision,
+    StepResult,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,15 +37,6 @@ from core.observability.tracing import current_trace_ids, start_span
 from core.system_commands import handle_system_command
 from core.tools import ToolRegistry
 from core.tools.base import ToolConfirmationError
-from shared.models import (
-    AgentMessage,
-    AgentRequest,
-    AgentResponse,
-    Plan,
-    PlanStep,
-    RoutingDecision,
-    StepResult,
-)
 
 from .memory import MemoryRecord
 
@@ -271,8 +271,12 @@ class AgentService:
                         available_skills_text=available_skills_text,
                     ):
                         if event["type"] == "token":
-                            # Suppress raw JSON streaming as per user request
-                            pass
+                            # Fix 1: Yield planner tokens
+                            yield {
+                                "type": "thinking",
+                                "content": event["content"],
+                                "metadata": {"stream": True},
+                            }
                         elif event["type"] == "plan":
                             plan = event["plan"]
 
@@ -329,10 +333,13 @@ class AgentService:
                         if event["type"] == "content":
                             yield {"type": "content", "content": event["content"]}
                         elif event["type"] == "thinking":
+                            # Fix 2: Merge metadata instead of overwriting
+                            meta = event.get("metadata", {}).copy()
+                            meta["id"] = plan_step.id
                             yield {
                                 "type": "thinking",
                                 "content": event["content"],
-                                "metadata": {"id": plan_step.id},
+                                "metadata": meta,
                             }
                         elif event["type"] == "result":
                             step_execution_result = event["result"]

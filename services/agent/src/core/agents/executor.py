@@ -203,11 +203,24 @@ class StepExecutorAgent:
             if step.tool:
                 try:
                     metadata, rendered_prompt = load_command(step.tool, step.args or {})
-                    # Execute Skill via LLM (One-off)
+                    # Execute Skill via LLM (Streaming)
                     with start_span(f"skill.call.{step.tool}"):
-                        output_text = await self._litellm.generate(
-                            [AgentMessage(role="user", content=rendered_prompt)]
-                        )
+                        full_content = []
+                        skill_msg = [AgentMessage(role="user", content=rendered_prompt)]
+                        
+                        async for chunk in self._litellm.stream_chat(skill_msg):
+                            if chunk["type"] == "content" and chunk["content"]:
+                                content = chunk["content"]
+                                full_content.append(content)
+                                # Yield thinking tokens for real-time feedback
+                                yield {
+                                    "type": "thinking",
+                                    "content": content,
+                                    "metadata": {"stream": True}
+                                }
+                                # Add flush ?? The caller (run_stream) does the sleep(0) flush.
+                                
+                        output_text = "".join(full_content)
 
                     tool_messages.append(
                         AgentMessage(
@@ -316,15 +329,14 @@ class StepExecutorAgent:
 
                 output = None
                 if inspect.isasyncgenfunction(tool.run):
-                     output_str = ""
-                     async for chunk in tool.run(**run_args):
-                         if isinstance(chunk, dict) and chunk.get("type") == "thinking":
-                             yield {"type": "thinking", "content": chunk.get("content")}
-                         elif isinstance(chunk, dict) and chunk.get("type") == "result":
-                             output = chunk.get("output")
-                     
-                     if output is None:
-                         output = "No valid output from streaming tool."
+                    async for chunk in tool.run(**run_args):
+                        if isinstance(chunk, dict) and chunk.get("type") == "thinking":
+                            yield {"type": "thinking", "content": chunk.get("content")}
+                        elif isinstance(chunk, dict) and chunk.get("type") == "result":
+                            output = chunk.get("output")
+                    
+                    if output is None:
+                        output = "No valid output from streaming tool."
                 else:
                      output = await tool.run(**run_args)
 
