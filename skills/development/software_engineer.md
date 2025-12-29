@@ -1,6 +1,7 @@
 ---
 name: software_engineer
 description: Implements features or fixes bugs using a strict TDD loop. Writes tests first, then code.
+model: coder
 tools:
   - read_file
   - write_to_file

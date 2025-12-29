@@ -9,8 +9,6 @@ import time
 from collections.abc import AsyncGenerator
 from typing import Any, Literal, cast
 
-from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
-
 from core.command_loader import load_command
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
@@ -18,6 +16,7 @@ from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, set_span_status, start_span
 from core.tools import ToolRegistry
+from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
 
 LOGGER = logging.getLogger(__name__)
 
@@ -168,13 +167,25 @@ class StepExecutorAgent:
                 if step.tool:
                     try:
                         metadata, rendered_prompt = load_command(step.tool, step.args or {})
+                        
+                        # --- DYNAMIC ROUTING ---
+                        # Use the model defined in skill, or default to 'agentchat'
+                        target_model = metadata.get("model", "agentchat")
+                        
+                        if target_model != "agentchat":
+                            LOGGER.info(f"Routing skill '{step.tool}' to specialized model: {target_model}")
+                        # -----------------------
+
                         # Execute Skill via LLM (Streaming)
+                        # The span name is still the same, but we might want to attribute the used model
                         with start_span(f"skill.call.{step.tool}"):
                             full_content = []
                             skill_msg = [AgentMessage(role="user", content=rendered_prompt)]
 
                             LOGGER.info(f"Stream Chatting for skill {step.tool}...")
-                            async for chunk in self._litellm.stream_chat(skill_msg):
+                            
+                            # Pass the target_model explicitly
+                            async for chunk in self._litellm.stream_chat(skill_msg, model=target_model):
                                 if chunk["type"] == "content" and chunk["content"]:
                                     content = chunk["content"]
                                     full_content.append(content)
