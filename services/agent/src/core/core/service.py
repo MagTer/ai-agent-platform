@@ -8,15 +8,6 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
-from shared.models import (
-    AgentMessage,
-    AgentRequest,
-    AgentResponse,
-    Plan,
-    PlanStep,
-    RoutingDecision,
-    StepResult,
-)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +34,15 @@ from core.observability.tracing import (
 from core.system_commands import handle_system_command
 from core.tools import SkillDelegateTool, ToolRegistry
 from core.tools.base import ToolConfirmationError
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    Plan,
+    PlanStep,
+    RoutingDecision,
+    StepResult,
+)
 
 from .memory import MemoryRecord
 
@@ -708,11 +708,18 @@ class AgentService:
 
         sanitized_args = call_args if isinstance(call_args, dict) else {}
         with start_span(f"tool.call.{tool_name}"):
+            # Observability: Capture arguments
+            set_span_attributes({"args": str(sanitized_args)})
+
             try:
                 output = await tool.run(**sanitized_args)
                 status = "ok"
+                set_span_status("OK")
             except Exception as exc:  # pragma: no cover - depends on tool implementation
                 LOGGER.exception("Tool %s execution failed", tool_name)
+                # Observability: Capture failure
+                set_span_status("ERROR", str(exc))
+                
                 result.update({"status": "error", "error": str(exc)})
                 status = "error"
                 log_event(

@@ -1,6 +1,7 @@
 ---
 name: requirements_engineer
 description: Expert Product Owner assistant for the TIBP platform. Manages requirements in Azure DevOps with strict human oversight.
+model: agentchat
 tools:
   - tibp_wiki_search
   - azure_devops

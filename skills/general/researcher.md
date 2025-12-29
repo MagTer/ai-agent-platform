@@ -2,6 +2,7 @@
 name: "researcher"
 description: "Research a topic using the web"
 tools: ["web_search", "web_fetch", "write_to_file"]
+model: agentchat
 ---
 You are a research assistant.
 Your goal is to provide a comprehensive and accurate answer to the user's request.

@@ -9,12 +9,12 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
-from shared.models import AgentMessage, AgentRequest, Plan
 
 from core.core.litellm_client import LiteLLMClient
 from core.models.pydantic_schemas import PlanEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
+from shared.models import AgentMessage, AgentRequest, Plan
 
 LOGGER = logging.getLogger(__name__)
 
@@ -151,7 +151,10 @@ class PlannerAgent:
                 "   to answer the user.\n"
                 "5. **MEMORY**: Use `action: memory` (args: { 'query': '...' }) \n"
                 "   to find context if needed.\n"
-                "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n\n"
+                "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n"
+                "7. **REQUIRED ARGS**: When calling `consult_expert`, you MUST provide \n"
+                "   the specific arguments required by that skill (e.g., 'domain' for researcher, \n"
+                "   'repo' for git). Do not omit them.\n\n"
                 "### EXAMPLES\n"
                 "User: 'Research python 3.12'\n"
                 "Plan:\n"
@@ -160,7 +163,7 @@ class PlannerAgent:
                 '  "steps": [\n'
                 '    { "id": "1", "label": "Research", "executor": "agent", \n'
                 '      "action": "tool", "tool": "consult_expert", \n'
-                '      "args": { "skill": "researcher", \n'
+                '      "args": { "skill": "researcher", "domain": "technology", \n'
                 '                "goal": "Find features of Python 3.12" } },\n'
                 '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
                 '      "action": "completion" }\n'
