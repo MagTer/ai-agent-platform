@@ -67,7 +67,6 @@ class StepExecutorAgent:
         prompt_history: list[AgentMessage],
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a step and yield incremental updates (content tokens, etc)."""
-        messages: list[AgentMessage] = []
         start_time = time.perf_counter()
 
         with start_span(
@@ -81,76 +80,39 @@ class StepExecutorAgent:
             if step.args:
                 span.set_attribute("step.args", str(step.args))
 
-            result: dict[str, Any] = {}
             status = "skipped"
+            result: dict[str, Any] = {}
 
             try:
+                # Dispatch based on executor/action
                 if step.executor == "agent" and step.action == "memory":
-                    # ... Memory logic (fast, no streaming needed) ...
-                    query = step.args.get("query") or request.prompt
-                    limit_value = step.args.get("limit")
-                    try:
-                        limit = int(limit_value) if limit_value is not None else 5
-                    except (TypeError, ValueError):
-                        limit = 5
-                    records = await self._memory.search(
-                        str(query), limit=limit, conversation_id=conversation_id
+                    result, status, messages = await self._execute_memory_step(
+                        step, request, conversation_id
                     )
-                    for record in records:
-                        messages.append(
-                            AgentMessage(
-                                role="system",
-                                content=f"Context memory: {record.text}",
-                            )
-                        )
-                    result = {"count": len(records)}
-                    status = "ok"
+                    step_res = StepResult(
+                        step=step, status=status, result=result, messages=messages
+                    )
+                    yield {"type": "result", "result": step_res}
 
                 elif step.executor == "agent" and step.action == "tool":
-                    # ... Tool logic ...
-                    async for tool_event in self._run_tool_gen(step, request):
-                        if tool_event["type"] == "final":
-                            result, messages, status = tool_event["data"]
-                        elif tool_event["type"] == "thinking":
-                            yield {"type": "thinking", "content": tool_event["content"]}
-                            await asyncio.sleep(0) # Yield for flush
+                    async for event in self._execute_tool_step(step, request):
+                        yield event
+                        if event["type"] == "result":
+                            status = event["result"].status
+                            result = event["result"].result
 
                 elif step.executor in {"litellm", "remote"} and step.action == "completion":
-                    # STREAMING LOGIC
-                    settings = getattr(self._litellm, "_settings", None)
-                    default_model = getattr(settings, "litellm_model", "agent-model")
-                    model_override = str(step.args.get("model") or default_model)
-
-                    with start_span("llm.call.assistant") as llm_span:
-                        llm_span.set_attribute("model", model_override)
-                        llm_span.set_attribute("step", str(step.id))
-
-                        full_content = []
-
-                        # Streaming call
-                        # We reconstruct the messages list here
-                        msgs_to_send = prompt_history + [
-                            AgentMessage(role="user", content=request.prompt)
-                        ]
-
-                        async for chunk in self._litellm.stream_chat(
-                            msgs_to_send, model=model_override
-                        ):
-                            if chunk["type"] == "content" and chunk["content"]:
-                                full_content.append(chunk["content"])
-                                yield {"type": "content", "content": chunk["content"]}
-                            elif chunk["type"] == "error":
-                                raise Exception(chunk["content"])
-
-                        completion_text = "".join(full_content)
-                        llm_span.set_attribute("llm.output.size", len(completion_text))
-
-                        result = {"completion": completion_text, "model": model_override}
-                        status = "ok"
+                    async for event in self._execute_completion_step(step, request, prompt_history):
+                        yield event
+                        if event["type"] == "result":
+                            status = event["result"].status
+                            result = event["result"].result
 
                 else:
                     result = {"reason": "unsupported executor/action"}
                     status = "skipped"
+                    step_res = StepResult(step=step, status=status, result=result, messages=[])
+                    yield {"type": "result", "result": step_res}
 
             except Exception as exc:
                 from core.tools.base import ToolConfirmationError
@@ -159,20 +121,22 @@ class StepExecutorAgent:
                     raise exc
                 result = {"error": str(exc)}
                 status = "error"
+                step_res = StepResult(step=step, status=status, result=result, messages=[])
+                yield {"type": "result", "result": step_res}
 
+            # Final observability (Logs/Tracing)
             duration_ms = (time.perf_counter() - start_time) * 1000
             span.set_attribute("latency_ms", duration_ms)
             span.set_attribute("status", status)
             if result:
                 span.set_attribute("step.result", str(result))
-            trace_ctx = TraceContext(**current_trace_ids())
 
+            trace_ctx = TraceContext(**current_trace_ids())
             final_status = cast(
                 Literal["ok", "error", "skipped", "in_progress"],
                 status if status in {"ok", "error", "skipped"} else "ok",
             )
 
-            # Log event happens at the END of the step
             log_event(
                 StepEvent(
                     step_id=step.id,
@@ -184,9 +148,6 @@ class StepExecutorAgent:
                     trace=trace_ctx,
                 )
             )
-
-            step_res = StepResult(step=step, status=status, result=result, messages=messages)
-            yield {"type": "result", "result": step_res}
 
     async def _run_tool_gen(
         self,
@@ -207,7 +168,7 @@ class StepExecutorAgent:
                     with start_span(f"skill.call.{step.tool}"):
                         full_content = []
                         skill_msg = [AgentMessage(role="user", content=rendered_prompt)]
-                        
+
                         async for chunk in self._litellm.stream_chat(skill_msg):
                             if chunk["type"] == "content" and chunk["content"]:
                                 content = chunk["content"]
@@ -216,10 +177,10 @@ class StepExecutorAgent:
                                 yield {
                                     "type": "thinking",
                                     "content": content,
-                                    "metadata": {"stream": True}
+                                    "metadata": {"stream": True},
                                 }
                                 # Add flush ?? The caller (run_stream) does the sleep(0) flush.
-                                
+
                         output_text = "".join(full_content)
 
                     tool_messages.append(
@@ -334,11 +295,11 @@ class StepExecutorAgent:
                             yield {"type": "thinking", "content": chunk.get("content")}
                         elif isinstance(chunk, dict) and chunk.get("type") == "result":
                             output = chunk.get("output")
-                    
+
                     if output is None:
                         output = "No valid output from streaming tool."
                 else:
-                     output = await tool.run(**run_args)
+                    output = await tool.run(**run_args)
 
             except TypeError as exc:
                 yield {
@@ -409,6 +370,91 @@ class StepExecutorAgent:
                 )
             span.set_attribute("llm.output.size", len(completion_text))
             return completion_text, model_override
+
+    async def _execute_memory_step(
+        self,
+        step: PlanStep,
+        request: AgentRequest,
+        conversation_id: str,
+    ) -> tuple[dict[str, Any], str, list[AgentMessage]]:
+        """Execute a memory search step."""
+        messages: list[AgentMessage] = []
+
+        query = step.args.get("query") or request.prompt
+        limit_value = step.args.get("limit")
+        try:
+            limit = int(limit_value) if limit_value is not None else 5
+        except (TypeError, ValueError):
+            limit = 5
+
+        records = await self._memory.search(
+            str(query), limit=limit, conversation_id=conversation_id
+        )
+
+        for record in records:
+            messages.append(
+                AgentMessage(
+                    role="system",
+                    content=f"Context memory: {record.text}",
+                )
+            )
+
+        result = {"count": len(records)}
+        status = "ok"
+        return result, status, messages
+
+    async def _execute_completion_step(
+        self,
+        step: PlanStep,
+        request: AgentRequest,
+        prompt_history: list[AgentMessage],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute a completion step with streaming."""
+        settings = getattr(self._litellm, "_settings", None)
+        default_model = getattr(settings, "litellm_model", "agent-model")
+        model_override = str(step.args.get("model") or default_model)
+
+        with start_span("llm.call.assistant") as llm_span:
+            llm_span.set_attribute("model", model_override)
+            llm_span.set_attribute("step", str(step.id))
+
+            full_content = []
+
+            # Reconstruct messages list
+            msgs_to_send = prompt_history + [AgentMessage(role="user", content=request.prompt)]
+
+            async for chunk in self._litellm.stream_chat(msgs_to_send, model=model_override):
+                if chunk["type"] == "content" and chunk["content"]:
+                    full_content.append(chunk["content"])
+                    yield {"type": "content", "content": chunk["content"]}
+                    await asyncio.sleep(0)  # Yield for flush
+                elif chunk["type"] == "error":
+                    raise Exception(chunk["content"])
+
+            completion_text = "".join(full_content)
+            llm_span.set_attribute("llm.output.size", len(completion_text))
+
+            result = {"completion": completion_text, "model": model_override}
+            status = "ok"
+
+            # Yield final result
+            step_res = StepResult(step=step, status=status, result=result, messages=[])
+            yield {"type": "result", "result": step_res}
+
+    async def _execute_tool_step(
+        self,
+        step: PlanStep,
+        request: AgentRequest,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute a tool step, wrapping the generator."""
+        async for tool_event in self._run_tool_gen(step, request):
+            if tool_event["type"] == "final":
+                result, messages, status = tool_event["data"]
+                step_res = StepResult(step=step, status=status, result=result, messages=messages)
+                yield {"type": "result", "result": step_res}
+            elif tool_event["type"] == "thinking":
+                yield {"type": "thinking", "content": tool_event["content"]}
+                await asyncio.sleep(0)  # Yield for flush
 
 
 __all__ = ["StepExecutorAgent", "StepResult"]

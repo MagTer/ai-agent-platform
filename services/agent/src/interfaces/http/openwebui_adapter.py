@@ -167,11 +167,11 @@ async def stream_response_generator(
                 is_stream = False
                 if agent_chunk.get("metadata") and agent_chunk["metadata"].get("stream"):
                     is_stream = True
-                
+
                 if is_stream:
                     # Just yield content for cleaner token streaming.
                     # (though WebUI might not render it as nicely inline)
-                    # Ideally we want to stream into a single block. 
+                    # Ideally we want to stream into a single block.
                     # But OpenWebUI receives deltas.
                     # If we send `> 🧠 ` once, then tokens?
                     # Hard to coordinate state.

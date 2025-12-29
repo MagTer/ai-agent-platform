@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import uuid
@@ -231,6 +232,7 @@ class AgentService:
                 return
 
             # AGENTIC
+            request_metadata = request.metadata
             metadata_tool_results = await self._execute_tools(request_metadata)
             for tool_res in metadata_tool_results:
                 yield {
@@ -239,6 +241,7 @@ class AgentService:
                     "tool_call": {"name": tool_res.get("name")},
                     "metadata": tool_res,
                 }
+                await asyncio.sleep(0)  # Force flush
 
             history_with_tools = list(history)
             for tool_res in metadata_tool_results:
@@ -261,7 +264,6 @@ class AgentService:
 
                 yield {"type": "thinking", "content": "Generating plan..."}
 
-                
                 plan = None
                 if plan is None:
                     async for event in planner.generate_stream(
@@ -277,8 +279,17 @@ class AgentService:
                             plan = event["plan"]
 
                 if plan is None:
-                     raise ValueError("Planner returned no plan")
+                    raise ValueError("Planner returned no plan")
                 plan = await plan_supervisor.review(plan)
+                assert plan is not None  # Mypy guard
+
+                # Bridge gap between plan and execution
+                yield {
+                    "type": "thinking",
+                    "content": "Plan approved. Starting execution...",
+                    "metadata": {"step": "init", "status": "planning_complete"},
+                }
+                await asyncio.sleep(0)  # Force flush
 
             if not plan.steps:
                 plan = self._fallback_plan(request.prompt)
@@ -591,7 +602,7 @@ class AgentService:
 
         return [AgentMessage(role=msg.role, content=msg.content) for msg in db_messages]
 
-    async def _execute_tools(self, metadata: dict[str, Any]) -> list[dict[str, Any]]:
+    async def _execute_tools(self, metadata: dict[str, Any] | None) -> list[dict[str, Any]]:
         """Execute requested tools and return a structured result list."""
 
         if not metadata:

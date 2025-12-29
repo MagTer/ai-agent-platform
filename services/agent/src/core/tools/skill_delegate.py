@@ -96,7 +96,7 @@ class SkillDelegateTool(Tool):
 
         logger_prefix = f"[Worker:{skill}]"
         LOGGER.info(f"{logger_prefix} Starting goal: {goal}")
-        
+
         # Import tracing only inside method to avoid circular imports
         from core.observability.tracing import start_span
 
@@ -107,66 +107,47 @@ class SkillDelegateTool(Tool):
                 LOGGER.debug(f"{logger_prefix} Turn {i+1}")
                 yield {"type": "thinking", "content": f"Worker ({skill}) Turn {i+1}..."}
                 await asyncio.sleep(0.01)  # Force flush
-                
+
                 with start_span(f"skill.turn.{i+1}"):
 
                     # Stream tokens instead of blocking
                     full_content = []
                     tool_calls_buffer = {}  # index -> call
-                    
+
                     try:
                         # Use default model
                         async for chunk in self._litellm.stream_chat(messages, model=None):
-                             # 1. Yield Thinking Tokens
-                             if chunk["type"] == "content" and chunk["content"]:
-                                 content = chunk["content"]
-                                 full_content.append(content)
-                                 yield {"type": "thinking", "content": content}
-                                 
-                             # 2. Accumulate Tool Calls
-                             elif chunk["type"] == "tool_start" and chunk["tool_call"]:
-                                 tc = chunk["tool_call"]
-                                 idx = tc["index"]
-                                 if idx not in tool_calls_buffer:
-                                     tool_calls_buffer[idx] = tc
-                                 else:
-                                     # Append logic for delta updates
-                                     # (simplified for now: assume full tool call or delta handling in client)
-                                     # LiteLLMClient currently yields full tool calls or deltas. 
-                                     # Based on litellm_client.py, it yields 'tool_call' from delta.
-                                     # We need to assemble deltas if they are fragmented.
-                                     # Checking litellm_client.py:
-                                     # if "tool_calls" in delta: for tool_call in delta["tool_calls"]: yield ...
-                                     # This is likely a Delta.
-                                     prev = tool_calls_buffer[idx]
-                                     if "function" in tc:
-                                          if "name" in tc["function"] and tc["function"].get("name"):
-                                              prev["function"]["name"] = (
-                                                  prev["function"].get("name") or ""
-                                              ) + tc["function"]["name"]
-                                          if (
-                                              "arguments" in tc["function"]
-                                              and tc["function"]["arguments"]
-                                          ):
-                                              prev["function"]["arguments"] = (
-                                                  prev["function"].get("arguments") or ""
-                                              ) + tc["function"]["arguments"]
-                                 
-                             # 3. Handle Error
-                             elif chunk["type"] == "error":
-                                 yield {"type": "result", "output": f"Worker Error: {chunk['content']}"}
-                                 return
+                            # 1. Yield Thinking Tokens
+                            if chunk["type"] == "content" and chunk["content"]:
+                                content = chunk["content"]
+                                full_content.append(content)
+                                yield {"type": "thinking", "content": content}
+
+                            # 2. Accumulate Tool Calls
+                            elif chunk["type"] == "tool_start" and chunk["tool_call"]:
+                                tc = chunk["tool_call"]
+                                idx = tc["index"]
+                                if idx not in tool_calls_buffer:
+                                    tool_calls_buffer[idx] = tc
+                                else:
+                                    self._merge_tool_calls(tool_calls_buffer, chunk)
+
+                            # 3. Handle Error
+                            elif chunk["type"] == "error":
+                                err = f"Worker Error: {chunk['content']}"
+                                yield {"type": "result", "output": err}
+                                return
 
                     except Exception as e:
-                         LOGGER.error(f"{logger_prefix} Streaming Error: {e}", exc_info=True)
-                         yield {"type": "result", "output": f"Worker Error (Stream): {e}"}
-                         return
+                        LOGGER.error(f"{logger_prefix} Stream Err: {e}", exc_info=True)
+                        yield {"type": "result", "output": f"Stream Error: {e}"}
+                        return
 
                     content = "".join(full_content)
-                    
+
                     # Assemble final tool calls
                     tool_calls = list(tool_calls_buffer.values())
-                    
+
                     assistant_msg = AgentMessage(
                         role="assistant", content=content, tool_calls=tool_calls
                     )
@@ -186,7 +167,6 @@ class SkillDelegateTool(Tool):
                         fname = func["name"]
                         call_id = tc["id"]
 
-
                         yield {"type": "thinking", "content": f"Worker invoking {fname}..."}
                         await asyncio.sleep(0.01)  # Force flush
 
@@ -202,7 +182,7 @@ class SkillDelegateTool(Tool):
                             if tool_obj:
                                 LOGGER.info(f"{logger_prefix} Executing {fname}")
                                 try:
-                                    # Check if tool is also streaming? 
+                                    # Check if tool is also streaming?
                                     # For now, assume other tools are atomic.
                                     output_str = str(await tool_obj.run(**fargs))
                                 except Exception as e:
@@ -220,3 +200,22 @@ class SkillDelegateTool(Tool):
                             )
 
         yield {"type": "result", "output": "Worker timed out (max turns reached)."}
+
+    def _merge_tool_calls(self, buffer: dict[int, Any], chunk: dict[str, Any]) -> None:
+        """Merge streaming tool call deltas into the buffer."""
+        tc = chunk["tool_call"]
+        idx = tc["index"]
+
+        # Delta update
+        prev = buffer[idx]
+        if "function" not in tc:
+            return
+
+        func = tc["function"]
+        if "name" in func and func["name"]:
+            prev["function"]["name"] = (prev["function"].get("name") or "") + func["name"]
+
+        if "arguments" in func and func["arguments"]:
+            prev["function"]["arguments"] = (prev["function"].get("arguments") or "") + func[
+                "arguments"
+            ]

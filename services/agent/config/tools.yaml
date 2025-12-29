@@ -1,3 +1,7 @@
+- name: tibp_wiki_search
+  type: core.tools.tibp_wiki_search.TibpWikiSearchTool
+  enabled: true
+
 - name: web_search
   type: core.tools.web_search.WebSearchTool
   args:
@@ -22,3 +26,13 @@
     base_path: .
     max_length: 20000
 
+
+- name: azure_devops
+  type: core.tools.azure_devops.AzureDevOpsTool
+  enabled: true
+  description: "Interacts with Azure DevOps to manage work items."
+
+- name: test_runner
+  type: core.tools.test_runner.TestRunnerTool
+  enabled: true
+  description: "Executes pytest on a specific file or directory. Use this to verify your code changes."

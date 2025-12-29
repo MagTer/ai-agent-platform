@@ -1,4 +1,3 @@
-
 """Planner agent responsible for generating orchestration plans."""
 
 from __future__ import annotations
@@ -38,7 +37,7 @@ class PlannerAgent:
         stream_callback: Callable[[str], Any] | None = None,
     ) -> Plan:
         """Return a :class:`Plan` describing execution steps.
-        
+
         Backward compatibility wrapper around generate_stream.
         """
         last_plan = None
@@ -51,10 +50,10 @@ class PlannerAgent:
             if event["type"] == "plan":
                 last_plan = event["plan"]
             elif event["type"] == "token" and stream_callback:
-                 try:
-                     await stream_callback(event["content"])
-                 except Exception:
-                     pass
+                try:
+                    await stream_callback(event["content"])
+                except Exception as e:
+                    LOGGER.warning("Stream callback failed: %s", e)
 
         if not last_plan:
             raise ValueError("Planner failed to return a plan")

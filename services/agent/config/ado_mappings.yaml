@@ -1,0 +1,13 @@
+defaults:
+  area_path: "TIBP"
+teams:
+  backend:
+    area_path: "TIBP\\Backend"
+  frontend:
+    area_path: "TIBP\\Frontend"
+  data:
+    area_path: "TIBP\\Data"
+  security:
+    area_path: "TIBP\\Architecture\\Security"
+    default_tags: ["Security", "Architecture"]
+    default_type: "User Story"

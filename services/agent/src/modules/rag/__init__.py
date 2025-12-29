@@ -63,8 +63,10 @@ class RAGManager:
         query: str,
         top_k: int | None = None,
         filters: dict[str, Any] | None = None,
+        collection_name: str | None = None,
     ) -> list[dict[str, Any]]:
         k = top_k or self.top_k
+        target_collection = collection_name or self.collection_name
         try:
             vecs = self.embedder.embed([query])
             if not vecs:
@@ -81,9 +83,10 @@ class RAGManager:
                 query_filter = models.Filter(must=conditions)
 
             # Helper to search
-            res = await self.client.search(  # type: ignore
-                collection_name=self.collection_name,
-                query_vector=qvec.tolist(),
+            # 'search' is deprecated/removed in newer clients, use 'query_points'
+            res = await self.client.query_points(  # type: ignore
+                collection_name=target_collection,
+                query=qvec.tolist(),
                 query_filter=query_filter,
                 limit=max(k * 3, k),
                 with_payload=True,
@@ -93,7 +96,7 @@ class RAGManager:
             docs: list[dict[str, Any]] = []
             dvecs: list[np.ndarray] = []
 
-            for p in res:
+            for p in res.points:
                 payload = p.payload or {}
                 # Support both 'url' (web) and 'filepath' (code)
                 uri = payload.get("url") or payload.get("filepath")
@@ -141,6 +144,68 @@ class RAGManager:
         except Exception as e:
             logger.error(f"RAG Retrieval failed: {e}")
             return []
+
+    async def ingest_document(
+        self,
+        content: str,
+        metadata: dict[str, Any],
+        chunk_size: int = 1000,
+        chunk_overlap: int = 200,
+    ) -> int:
+        """
+        Ingest a document into Qdrant.
+        Splits content into chunks, embeds them, and upserts.
+        """
+        if not content:
+            return 0
+
+        # Simple chunking strategy
+        chunks = []
+        start = 0
+        while start < len(content):
+            end = start + chunk_size
+            chunk = content[start:end]
+            chunks.append(chunk)
+            start += chunk_size - chunk_overlap
+
+        if not chunks:
+            return 0
+
+        try:
+            # Embed all chunks
+            embeddings = self.embedder.embed(chunks)
+            if not embeddings:
+                logger.warning("Embedder returned no embeddings")
+                return 0
+
+            points = []
+            import uuid
+
+            for i, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=False)):
+                point_id = str(uuid.uuid4())
+                payload = metadata.copy()
+                payload["text"] = chunk
+                payload["chunk_index"] = i
+
+                points.append(
+                    models.PointStruct(
+                        id=point_id,
+                        vector=vector,
+                        payload=payload,
+                    )
+                )
+
+            # Upsert to Qdrant
+            # Ensure Collection Exists (handled by caller or assumed known)
+
+            await self.client.upsert(collection_name=self.collection_name, points=points)
+
+            logger.info(f"Ingested {len(points)} chunks for doc {metadata.get('uri', 'unknown')}")
+            return len(points)
+
+        except Exception:
+            logger.exception("Failed to ingest document")
+            return 0
 
     async def close(self) -> None:
         await self.client.close()

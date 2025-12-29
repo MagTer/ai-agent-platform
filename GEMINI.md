@@ -65,6 +65,11 @@ wsl -d Ubuntu --cd /home/magnus/dev/ai-agent-platform bash -c "python3 scripts/t
 * **Level 1: Unit Tests** (Fast, Mocked)
     * Use `tmp_path` for file ops. NO network calls.
 
+* **Level 2: Semantic/Golden Master Tests** (Slow, Real)
+    * Run against real/mocked LLM to verify reasoning.
+    * Config: `services/agent/tests/semantic/golden_queries.yaml`
+    * Command: `python services/agent/scripts/run_semantic_eval.py`
+
 ## 5. SELF-CORRECTION & DEBUGGING
 The Agent can debug its own runtime errors.
 * **Crash Logs**: Unhandled exceptions are written to `services/agent/last_crash.log`.
