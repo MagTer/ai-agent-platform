@@ -287,7 +287,12 @@ class AgentService:
                 yield {
                     "type": "thinking",
                     "content": "Plan approved. Starting execution...",
-                    "metadata": {"step": "init", "status": "planning_complete"},
+                    "metadata": {
+                        "step": "init",
+                        "status": "planning_complete",
+                        "stream": False,
+                        "bold": True,
+                    },
                 }
                 await asyncio.sleep(0)  # Force flush
 

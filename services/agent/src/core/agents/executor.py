@@ -86,13 +86,11 @@ class StepExecutorAgent:
             try:
                 # Dispatch based on executor/action
                 if step.executor == "agent" and step.action == "memory":
-                    result, status, messages = await self._execute_memory_step(
-                        step, request, conversation_id
-                    )
-                    step_res = StepResult(
-                        step=step, status=status, result=result, messages=messages
-                    )
-                    yield {"type": "result", "result": step_res}
+                    async for event in self._execute_memory_step(step, request, conversation_id):
+                        yield event
+                        if event["type"] == "result":
+                            status = event["result"].status
+                            result = event["result"].result
 
                 elif step.executor == "agent" and step.action == "tool":
                     async for event in self._execute_tool_step(step, request):
@@ -376,7 +374,7 @@ class StepExecutorAgent:
         step: PlanStep,
         request: AgentRequest,
         conversation_id: str,
-    ) -> tuple[dict[str, Any], str, list[AgentMessage]]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a memory search step."""
         messages: list[AgentMessage] = []
 
@@ -401,7 +399,8 @@ class StepExecutorAgent:
 
         result = {"count": len(records)}
         status = "ok"
-        return result, status, messages
+        step_res = StepResult(step=step, status=status, result=result, messages=messages)
+        yield {"type": "result", "result": step_res}
 
     async def _execute_completion_step(
         self,
