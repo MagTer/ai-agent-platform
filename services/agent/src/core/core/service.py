@@ -271,12 +271,8 @@ class AgentService:
                         available_skills_text=available_skills_text,
                     ):
                         if event["type"] == "token":
-                            # Fix 1: Yield planner tokens
-                            yield {
-                                "type": "thinking",
-                                "content": event["content"],
-                                "metadata": {"stream": True},
-                            }
+                            # Suppress raw JSON streaming as per user request
+                            pass
                         elif event["type"] == "plan":
                             plan = event["plan"]
 

@@ -140,11 +140,14 @@ class SkillDelegateTool(Tool):
                                      # This is likely a Delta.
                                      prev = tool_calls_buffer[idx]
                                      if "function" in tc:
-                                          if "name" in tc["function"] and tc["function"]["name"]:
+                                          if "name" in tc["function"] and tc["function"].get("name"):
                                               prev["function"]["name"] = (
                                                   prev["function"].get("name") or ""
                                               ) + tc["function"]["name"]
-                                          if "arguments" in tc["function"] and tc["function"]["arguments"]:
+                                          if (
+                                              "arguments" in tc["function"]
+                                              and tc["function"]["arguments"]
+                                          ):
                                               prev["function"]["arguments"] = (
                                                   prev["function"].get("arguments") or ""
                                               ) + tc["function"]["arguments"]
@@ -172,12 +175,7 @@ class SkillDelegateTool(Tool):
                     if not tool_calls:
                         if content:
                             yield {"type": "result", "output": "Worker finished."}
-                            # Don't return yet, let next loop decide? No, we return result at end of 'turn' if no tools?
-                            # If no tools, the worker is done speaking?
-                            # Typically YES.
-                            # But we yielded thinking tokens.
-                            # We should yield the FINAL result event with the accumulated content.
-                            # Wait, the Executor expects "result" event to contain string output?
+                            # Yield final result event with accumulated content.
                             yield {"type": "result", "output": content}
                             return
                         yield {"type": "result", "output": "Worker produced empty response."}
