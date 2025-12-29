@@ -406,6 +406,7 @@ async def diagnostics_dashboard(
                     </div>
                     <div class="req-query">${escapeHtml(intent)}</div>
                     <div class="req-meta">
+                         <span class="badge" title="${g.trace_id}" style="font-family:monospace; font-size:10px">${g.trace_id.substring(0,8)}</span>
                          <span class="badge">${(g.total_duration_ms/1000).toFixed(1)}s</span>
                          <span class="badge">${g.spans.length} spans</span>
                     </div>

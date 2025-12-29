@@ -8,6 +8,15 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    Plan,
+    PlanStep,
+    RoutingDecision,
+    StepResult,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,15 +43,6 @@ from core.observability.tracing import (
 from core.system_commands import handle_system_command
 from core.tools import SkillDelegateTool, ToolRegistry
 from core.tools.base import ToolConfirmationError
-from shared.models import (
-    AgentMessage,
-    AgentRequest,
-    AgentResponse,
-    Plan,
-    PlanStep,
-    RoutingDecision,
-    StepResult,
-)
 
 from .memory import MemoryRecord
 
@@ -274,7 +274,8 @@ class AgentService:
                     tool_descriptions = self._describe_tools(target_tools)
                     available_skills_text = get_registry_index()
     
-                    yield {"type": "thinking", "content": "Generating plan..."}
+                    trace_id = current_trace_ids().get("trace_id", "unknown")
+                    yield {"type": "thinking", "content": f"Generating plan... [TraceID: {trace_id}]"}
     
                     plan = None
                     if plan is None:
