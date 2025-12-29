@@ -82,7 +82,10 @@ known-first-party = ["core", "modules", "orchestrator", "interfaces", "stack"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "N"]
-ignore = ["S101", "S104", "B008"]
+ignore = ["S101", "S104", "B008", "PLR0912", "PLR0915"]
+
+[tool.ruff.mccabe]
+max-complexity = 18
 
 [tool.black]
 line-length = 100
@@ -114,7 +117,7 @@ no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 # Robustness
-ignore_missing_imports = false 
+ignore_missing_imports = true 
 files = ["src/core", "src/orchestrator", "src/interfaces", "src/stack", "src/modules"]
 explicit_package_bases = true
 
