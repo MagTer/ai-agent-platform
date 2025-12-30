@@ -148,12 +148,32 @@ async def stream_response_generator(
 ) -> AsyncGenerator[str, None]:
     """
     Generates SSE events compatible with OpenAI API from AgentChunks.
+
+    Uses token batching to reduce the number of SSE events sent to the client.
+    Content tokens are aggregated and flushed based on time interval or buffer size.
     """
     chunk_id = f"chatcmpl-{uuid.uuid4()}"
     created = int(time.time())
 
+    # Token batching configuration
+    batch_interval_sec = 0.05  # Flush every 50ms
+    min_batch_size = 10  # Minimum characters before considering time-based flush
+
     # Initial ACK
     yield _format_chunk(chunk_id, created, model_name, "")
+
+    # Content buffer for batching
+    content_buffer: list[str] = []
+    last_flush_time = time.time()
+
+    async def flush_content_buffer() -> AsyncGenerator[str, None]:
+        """Flush accumulated content buffer if not empty."""
+        nonlocal content_buffer, last_flush_time
+        if content_buffer:
+            batched_content = "".join(content_buffer)
+            content_buffer = []
+            last_flush_time = time.time()
+            yield _format_chunk(chunk_id, created, model_name, batched_content)
 
     try:
         async for agent_chunk in dispatcher.stream_message(
@@ -167,10 +187,11 @@ async def stream_response_generator(
             chunk_type = agent_chunk["type"]
             content = agent_chunk.get("content")
 
-            await asyncio.sleep(0)  # Force flush per chunk
-
             # Debug mode: Show all chunks with raw JSON
             if debug_mode:
+                # Flush any pending content first
+                async for chunk in flush_content_buffer():
+                    yield chunk
                 debug_output = f"\n> 🐛 **[DEBUG]** Chunk Type: `{chunk_type}`\n"
                 debug_output += "> ```json\n"
                 debug_output += f"> {json.dumps(agent_chunk, indent=2)}\n"
@@ -178,9 +199,24 @@ async def stream_response_generator(
                 yield _format_chunk(chunk_id, created, model_name, debug_output)
 
             if chunk_type == "content" and content:
-                yield _format_chunk(chunk_id, created, model_name, content)
+                # Add to buffer instead of yielding immediately
+                content_buffer.append(content)
+
+                # Check if we should flush
+                now = time.time()
+                buffer_size = sum(len(c) for c in content_buffer)
+                time_elapsed = now - last_flush_time
+
+                # Flush if buffer is large enough OR time interval elapsed
+                if buffer_size >= min_batch_size or time_elapsed >= batch_interval_sec:
+                    async for chunk in flush_content_buffer():
+                        yield chunk
+                    await asyncio.sleep(0)  # Allow event loop to process
 
             elif chunk_type == "thinking" and content:
+                # Flush any pending content before thinking output
+                async for chunk in flush_content_buffer():
+                    yield chunk
                 # Check for streaming flag
                 is_stream = False
                 if (
@@ -296,8 +332,15 @@ async def stream_response_generator(
                 LOGGER.debug(f"Ignored chunk type: {chunk_type}")
 
     except Exception as e:
+        # Flush any remaining content before error
+        async for chunk in flush_content_buffer():
+            yield chunk
         LOGGER.error(f"Error during streaming: {e}")
         yield _format_chunk(chunk_id, created, model_name, f"\n\nSystem Error: {str(e)}")
+
+    # Flush any remaining content before DONE
+    async for chunk in flush_content_buffer():
+        yield chunk
 
     # Final chunk
     yield "data: [DONE]\n\n"
