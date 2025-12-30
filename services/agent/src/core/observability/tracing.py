@@ -254,7 +254,7 @@ def start_span(
             span.set_attributes(attributes)
         yield span
         if hasattr(span, "set_attribute"):
-            span.set_attribute("span.end_time", datetime.utcnow().isoformat())
+            span.set_attribute("span.end_time", datetime.now().isoformat())
 
 
 def current_trace_ids() -> dict[str, str]:

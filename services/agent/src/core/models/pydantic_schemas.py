@@ -47,7 +47,9 @@ class ToolCallEvent(BaseModel):
 
 class UserFacingEvent(BaseModel):
     message: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(tz=datetime.now().astimezone().tzinfo)
+    )
     trace: TraceContext | None = None
 
 

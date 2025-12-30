@@ -54,23 +54,20 @@ async def test_run_tool_flow(
 
     # Queue responses:
     # 1. Planner Agent call -> returns plan_json
-    # 2. Plan Supervisor review -> returns approval (implicitly handled if not mocked,
-    #    but let's assume supervisor uses same LLM?)
-    #    Actually supervisor prompts LLM "Review this plan...".
-    #    Since we share one MockLLM, we need to queue logic carefully or make MockLLM smarter.
-    #    For simplicity, let's just queue responses in order.
-    #    Sequence:
-    #    1. Planner -> Plan
-    #    2. Supervisor (Review Plan) -> "looks good" (text)
-    #    3. Step Supervisor (Review Step 1 result) -> "continue" (text) - wait, this might be loop
-    #    4. Responder -> Final Answer
+    # 2. Step Supervisor review (step 1: read_file) -> returns ok decision
+    # 3. Step Supervisor review (step 2: completion) -> returns ok decision
+    # 4. Responder -> Final Answer (though completion step already yields the answer)
+    #
+    # The StepSupervisorAgent now uses LLM for intelligent review,
+    # so we need to queue supervisor responses for each step.
 
-    # To make this robust, MockLLM in real world usually checks prompt content.
-    # For now, let's queue enough "clean" responses.
+    supervisor_ok = json.dumps({"decision": "ok", "reason": "Step executed successfully"})
 
     responses: list[str | dict[str, Any]] = [
         json.dumps(plan_json),  # 1. Planner
-        final_answer,  # 2. Step 2 Execution (Completion)
+        supervisor_ok,  # 2. Supervisor review for step 1 (read_file)
+        final_answer,  # 3. Step 2 Execution (Completion)
+        supervisor_ok,  # 4. Supervisor review for step 2 (completion)
     ]
 
     # Override the mock_litellm responses

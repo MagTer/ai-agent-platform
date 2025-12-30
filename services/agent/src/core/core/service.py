@@ -121,7 +121,11 @@ class AgentService:
         planner = PlannerAgent(self._litellm, model_name="planner")
         plan_supervisor = PlanSupervisorAgent()
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
-        step_supervisor = StepSupervisorAgent()
+        step_supervisor = StepSupervisorAgent(self._litellm, model_name="supervisor")
+
+        # Adaptive execution settings
+        max_replans = 3
+        replans_remaining = max_replans
 
         # Extract routing decision
         routing_decision = request_metadata.get("routing_decision", RoutingDecision.AGENTIC)
@@ -191,30 +195,55 @@ class AgentService:
                         msg_content = f"Tool {tool_res['name']} output:\n{tool_res['output']}"
                         history_with_tools.append(AgentMessage(role="system", content=msg_content))
 
-                if request_metadata.get("plan"):
-                    LOGGER.info("Using injected plan from metadata")
-                    plan = Plan(**request_metadata["plan"])
-                else:
-                    allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
-                    target_tools = allowlist or {
-                        t.name
-                        for t in self._tool_registry.tools()
-                        if getattr(t, "category", "domain") == "orchestration"
-                    }
-                    tool_descriptions = self._describe_tools(target_tools)
-                    available_skills_text = get_registry_index()
+                # Prepare tool descriptions for planning
+                allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
+                target_tools = allowlist or {
+                    t.name
+                    for t in self._tool_registry.tools()
+                    if getattr(t, "category", "domain") == "orchestration"
+                }
+                tool_descriptions = self._describe_tools(target_tools)
+                available_skills_text = get_registry_index()
 
-                    trace_id = current_trace_ids().get("trace_id", "unknown")
-                    yield {
-                        "type": "thinking",
-                        "content": f"Generating plan... [TraceID: {trace_id}]",
-                    }
+                # Initialize variables for adaptive loop
+                prompt_history = list(history_with_tools)
+                completion_text = ""
+                completion_provider = "litellm"
+                completion_model = self._settings.litellm_model
+                execution_complete = False
 
-                    plan = None
-                    if plan is None:
+                # ═══════════════════════════════════════════════════════════════════
+                # ADAPTIVE EXECUTION LOOP
+                # This loop enables re-planning when the supervisor detects issues
+                # ═══════════════════════════════════════════════════════════════════
+                while replans_remaining >= 0 and not execution_complete:
+                    replan_count = max_replans - replans_remaining
+                    set_span_attributes({"replan_count": replan_count})
+
+                    # ─────────────────────────────────────────────────────────────
+                    # PLANNING PHASE
+                    # ─────────────────────────────────────────────────────────────
+                    if request_metadata.get("plan") and replan_count == 0:
+                        LOGGER.info("Using injected plan from metadata")
+                        plan = Plan(**request_metadata["plan"])
+                    else:
+                        trace_id = current_trace_ids().get("trace_id", "unknown")
+                        if replan_count == 0:
+                            yield {
+                                "type": "thinking",
+                                "content": f"Generating plan... [TraceID: {trace_id}]",
+                            }
+                        else:
+                            yield {
+                                "type": "thinking",
+                                "content": f"Re-planning (attempt {replan_count}/{max_replans})...",
+                                "metadata": {"replan": True, "attempt": replan_count},
+                            }
+
+                        plan = None
                         async for event in planner.generate_stream(
                             request,
-                            history=history_with_tools,
+                            history=prompt_history,
                             tool_descriptions=tool_descriptions,
                             available_skills_text=available_skills_text,
                         ):
@@ -224,193 +253,260 @@ class AgentService:
                             elif event["type"] == "plan":
                                 plan = event["plan"]
 
-                    if plan is None:
-                        raise ValueError("Planner returned no plan")
-                    plan = await plan_supervisor.review(plan)
-                    assert plan is not None  # Mypy guard
-                    if plan is None:  # Runtime guard
-                        raise ValueError("Plan became None after review")
+                        if plan is None:
+                            raise ValueError("Planner returned no plan")
+                        plan = await plan_supervisor.review(plan)
+                        assert plan is not None  # Mypy guard
+                        if plan is None:  # Runtime guard
+                            raise ValueError("Plan became None after review")
 
-                    # Enrich Trace with Plan Details
-                    set_span_attributes(
-                        {
-                            "plan.description": plan.description,
-                            "plan.steps_count": len(plan.steps) if plan.steps else 0,
-                        }
-                    )
+                        # Enrich Trace with Plan Details
+                        set_span_attributes(
+                            {
+                                "plan.description": plan.description,
+                                "plan.steps_count": len(plan.steps) if plan.steps else 0,
+                            }
+                        )
 
-                    # Bridge gap between plan and execution
-                    yield {
-                        "type": "thinking",
-                        "content": "Plan approved. Starting execution...",
-                        "metadata": {
-                            "step": "init",
-                            "status": "planning_complete",
-                            "stream": False,
-                            "bold": True,
-                        },
-                    }
-                    await asyncio.sleep(0)  # Force flush
-
-                if plan is None:
-                    # Should be unreachable due to previous checks
-                    raise ValueError("Plan is None before step check")
-                if not plan.steps:
-                    plan = self._fallback_plan(request.prompt)
-
-                yield {
-                    "type": "plan",
-                    "status": "created",
-                    "description": plan.description,
-                    "plan": plan.model_dump(),
-                    **current_trace_ids(),
-                }
-
-                prompt_history = list(history_with_tools)
-                completion_text = ""
-                completion_provider = "litellm"
-                completion_model = self._settings.litellm_model
-
-                for plan_step in plan.steps:
-                    yield {
-                        "type": "step_start",
-                        "content": plan_step.label,
-                        "metadata": {
-                            "id": plan_step.id,
-                            "action": plan_step.action,
-                            "tool": plan_step.tool,
-                            "executor": plan_step.executor,
-                            "args": plan_step.args,
-                        },
-                    }
-
-                    if plan_step.action == "tool":
+                        # Bridge gap between plan and execution
                         yield {
-                            "type": "tool_start",
-                            "content": None,
-                            "tool_call": {
-                                "name": plan_step.tool,
-                                "arguments": plan_step.args,
+                            "type": "thinking",
+                            "content": "Plan approved. Starting execution...",
+                            "metadata": {
+                                "step": "init",
+                                "status": "planning_complete",
+                                "stream": False,
+                                "bold": True,
                             },
-                            "metadata": {"id": plan_step.id},
+                        }
+                        await asyncio.sleep(0)  # Force flush
+
+                    if plan is None:
+                        # Should be unreachable due to previous checks
+                        raise ValueError("Plan is None before step check")
+                    if not plan.steps:
+                        plan = self._fallback_plan(request.prompt)
+
+                    yield {
+                        "type": "plan",
+                        "status": "created",
+                        "description": plan.description,
+                        "plan": plan.model_dump(),
+                        "replan_count": replan_count,
+                        **current_trace_ids(),
+                    }
+
+                    # ─────────────────────────────────────────────────────────────
+                    # EXECUTION PHASE
+                    # ─────────────────────────────────────────────────────────────
+                    needs_replan = False
+
+                    for plan_step in plan.steps:
+                        yield {
+                            "type": "step_start",
+                            "content": plan_step.label,
+                            "metadata": {
+                                "id": plan_step.id,
+                                "action": plan_step.action,
+                                "tool": plan_step.tool,
+                                "executor": plan_step.executor,
+                                "args": plan_step.args,
+                            },
                         }
 
-                    step_execution_result: StepResult | None = None
-                    try:
-                        # Stream execution
-                        async for event in executor.run_stream(
-                            plan_step,
-                            request=request,
-                            conversation_id=conversation_id,
-                            prompt_history=prompt_history,
-                        ):
-                            if event["type"] == "content":
-                                yield {"type": "content", "content": event["content"]}
-                            elif event["type"] == "thinking":
-                                # Fix 2: Merge metadata instead of overwriting
-                                meta = (event.get("metadata") or {}).copy()
-                                meta["id"] = plan_step.id
-                                yield {
-                                    "type": "thinking",
-                                    "content": event["content"],
-                                    "metadata": meta,
-                                }
-                            elif event["type"] == "result":
-                                step_execution_result = event["result"]
-
-                            await asyncio.sleep(0)  # Force flush loop
-
-                        if not step_execution_result:
-                            LOGGER.error(
-                                "Executor failed to yield a result (Stream ended prematurely)"
-                            )
-                            # Fallback to prevent crash
+                        if plan_step.action == "tool":
                             yield {
-                                "type": "error",
-                                "content": "Step execution ended without result.",
+                                "type": "tool_start",
+                                "content": None,
+                                "tool_call": {
+                                    "name": plan_step.tool,
+                                    "arguments": plan_step.args,
+                                },
+                                "metadata": {"id": plan_step.id},
+                            }
+
+                        step_execution_result: StepResult | None = None
+                        try:
+                            # Stream execution
+                            async for event in executor.run_stream(
+                                plan_step,
+                                request=request,
+                                conversation_id=conversation_id,
+                                prompt_history=prompt_history,
+                            ):
+                                if event["type"] == "content":
+                                    yield {"type": "content", "content": event["content"]}
+                                elif event["type"] == "thinking":
+                                    meta = (event.get("metadata") or {}).copy()
+                                    meta["id"] = plan_step.id
+                                    yield {
+                                        "type": "thinking",
+                                        "content": event["content"],
+                                        "metadata": meta,
+                                    }
+                                elif event["type"] == "result":
+                                    step_execution_result = event["result"]
+
+                                await asyncio.sleep(0)  # Force flush loop
+
+                            if not step_execution_result:
+                                LOGGER.error(
+                                    "Executor failed to yield result (Stream ended prematurely)"
+                                )
+                                yield {
+                                    "type": "error",
+                                    "content": "Step execution ended without result.",
+                                }
+                                return
+
+                        except ToolConfirmationError as exc:
+                            LOGGER.info(f"Step {plan_step.id} paused for confirmation")
+                            msg_content = (
+                                f"Action paused. Tool '{exc.tool_name}' requires confirmation.\n"
+                                f"Arguments: {exc.tool_args}\nReply 'CONFIRM' to proceed."
+                            )
+                            session.add(
+                                Message(
+                                    session_id=db_session.id,
+                                    role="system",
+                                    content=msg_content,
+                                    trace_id=current_trace_ids().get("trace_id"),
+                                )
+                            )
+                            await session.commit()
+                            yield {
+                                "type": "content",
+                                "content": msg_content,
+                                "metadata": {"status": "confirmation_required"},
                             }
                             return
 
-                    except ToolConfirmationError as exc:
-                        LOGGER.info(f"Step {plan_step.id} paused for confirmation")
-                        msg_content = (
-                            f"Action paused. Tool '{exc.tool_name}' requires confirmation.\n"
-                            f"Arguments: {exc.tool_args}\nReply 'CONFIRM' to proceed."
+                        # ─────────────────────────────────────────────────────────
+                        # SUPERVISOR REVIEW (Adaptive Execution)
+                        # ─────────────────────────────────────────────────────────
+                        decision, reason = await step_supervisor.review(
+                            plan_step, step_execution_result
                         )
-                        session.add(
-                            Message(
-                                session_id=db_session.id,
-                                role="system",
-                                content=msg_content,
-                                trace_id=current_trace_ids().get("trace_id"),
-                            )
-                        )
-                        await session.commit()
-                        yield {
-                            "type": "content",
-                            "content": msg_content,
-                            "metadata": {"status": "confirmation_required"},
-                        }
-                        return
 
-                    decision = await step_supervisor.review(plan_step, step_execution_result.status)
-                    if plan_step.action == "tool":
-                        chunk_type = "tool_output"
-                        tool_call = {"name": plan_step.tool}
-                    else:
-                        chunk_type = "thinking"
-                        tool_call = None
+                        if plan_step.action == "tool":
+                            chunk_type = "tool_output"
+                            tool_call = {"name": plan_step.tool}
+                        else:
+                            chunk_type = "thinking"
+                            tool_call = None
 
-                    # Enriched metadata for legacy compatibility
-                    meta = {
-                        "status": step_execution_result.status,
-                        "decision": decision,
-                        "id": plan_step.id,
-                        "action": plan_step.action,
-                        "tool": plan_step.tool,
-                        "name": plan_step.tool,
-                        "executor": plan_step.executor,
-                        "output": str(step_execution_result.result.get("output") or ""),
-                    }
-
-                    content_str = str(
-                        step_execution_result.result.get("output") or step_execution_result.status
-                    )
-
-                    # Check for trivial status content
-                    is_trivial = False
-                    if chunk_type == "thinking" and content_str.lower() in (
-                        "ok",
-                        "completed step",
-                    ):
-                        is_trivial = True
-
-                    if not is_trivial:
-                        yield {
-                            "type": chunk_type,
-                            "content": content_str,
-                            "tool_call": tool_call,
-                            "metadata": meta,
+                        # Enriched metadata for legacy compatibility
+                        meta = {
+                            "status": step_execution_result.status,
+                            "decision": decision,
+                            "supervisor_reason": reason,
+                            "id": plan_step.id,
+                            "action": plan_step.action,
+                            "tool": plan_step.tool,
+                            "name": plan_step.tool,
+                            "executor": plan_step.executor,
+                            "output": str(step_execution_result.result.get("output") or ""),
                         }
 
-                    prompt_history.extend(step_execution_result.messages)
-                    if plan_step.action == "tool":
-                        session.add(
-                            Message(
-                                session_id=db_session.id,
-                                role="tool",
-                                content=str(step_execution_result.result.get("output", "")),
-                                trace_id=current_trace_ids().get("trace_id"),
-                            )
+                        content_str = str(
+                            step_execution_result.result.get("output")
+                            or step_execution_result.status
                         )
 
-                    if plan_step.action == "completion" and step_execution_result.status == "ok":
-                        completion_text = step_execution_result.result.get("completion", "")
-                        completion_provider = plan_step.provider or completion_provider
-                        completion_model = step_execution_result.result.get(
-                            "model", completion_model
-                        )
-                        break
+                        # Check for trivial status content
+                        is_trivial = False
+                        if chunk_type == "thinking" and content_str.lower() in (
+                            "ok",
+                            "completed step",
+                        ):
+                            is_trivial = True
+
+                        if not is_trivial:
+                            yield {
+                                "type": chunk_type,
+                                "content": content_str,
+                                "tool_call": tool_call,
+                                "metadata": meta,
+                            }
+
+                        prompt_history.extend(step_execution_result.messages)
+                        if plan_step.action == "tool":
+                            session.add(
+                                Message(
+                                    session_id=db_session.id,
+                                    role="tool",
+                                    content=str(step_execution_result.result.get("output", "")),
+                                    trace_id=current_trace_ids().get("trace_id"),
+                                )
+                            )
+
+                        # ─────────────────────────────────────────────────────────
+                        # HANDLE ADJUST DECISION (Trigger Re-plan)
+                        # ─────────────────────────────────────────────────────────
+                        if decision == "adjust":
+                            LOGGER.warning(
+                                "Supervisor rejected step '%s': %s", plan_step.label, reason
+                            )
+
+                            if replans_remaining > 0:
+                                # Inject feedback for re-planning
+                                feedback_msg = (
+                                    f"Step '{plan_step.label}' failed validation. "
+                                    f"Supervisor feedback: {reason}. "
+                                    "Please generate a new plan to address this issue."
+                                )
+                                prompt_history.append(
+                                    AgentMessage(role="system", content=feedback_msg)
+                                )
+
+                                yield {
+                                    "type": "thinking",
+                                    "content": f"⚠️ Step rejected: {reason}. Re-planning...",
+                                    "metadata": {
+                                        "supervisor_decision": "adjust",
+                                        "reason": reason,
+                                        "replans_remaining": replans_remaining - 1,
+                                    },
+                                }
+
+                                needs_replan = True
+                                replans_remaining -= 1
+                                break  # Exit step loop to trigger re-plan
+                            else:
+                                # Max replans reached, continue with warning
+                                LOGGER.error(
+                                    "Max replans (%d) reached. Continuing despite rejection.",
+                                    max_replans,
+                                )
+                                yield {
+                                    "type": "thinking",
+                                    "content": (
+                                        f"⚠️ Step issue: {reason}. "
+                                        f"Max re-plans ({max_replans}) reached. Continuing..."
+                                    ),
+                                    "metadata": {"max_replans_reached": True},
+                                }
+
+                        # Check for completion step
+                        if (
+                            plan_step.action == "completion"
+                            and step_execution_result.status == "ok"
+                        ):
+                            completion_text = step_execution_result.result.get("completion", "")
+                            completion_provider = plan_step.provider or completion_provider
+                            completion_model = step_execution_result.result.get(
+                                "model", completion_model
+                            )
+                            execution_complete = True
+                            break
+
+                    # If no replan needed and loop completed normally
+                    if not needs_replan:
+                        execution_complete = True
+
+                # ═══════════════════════════════════════════════════════════════════
+                # END ADAPTIVE EXECUTION LOOP
+                # ═══════════════════════════════════════════════════════════════════
 
                 if not completion_text:
                     yield {"type": "thinking", "content": "Generating final answer..."}

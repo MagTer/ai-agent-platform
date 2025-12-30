@@ -33,13 +33,17 @@ The embedder endpoint (`AGENT_EMBEDDER_URL`) is used whenever the memory store i
 3. **Planner Agent (Orchestrator)**: The `PlannerAgent` analyzes the user input and generates a JSON execution plan.
     - It does **not** execute tasks directly.
     - It delegates domain-specific work using the `consult_expert` tool.
-4. **Execution Loop**:
-    - The `AgentService` iterates through the plan steps.
+4. **Adaptive Execution Loop** (with re-planning):
+    - The `AgentService` iterates through the plan steps within an outer re-plan loop.
+    - **Step Execution**: Each step is executed by `StepExecutorAgent`.
+    - **Step Supervision**: After each step, `StepSupervisorAgent` uses an LLM to evaluate if the output satisfies the step's intent.
+        - Detects: empty results, hidden errors, intent mismatches, hallucinations.
+        - Returns `decision` ("ok" or "adjust") with `reason`.
+    - **Re-planning**: If `decision == "adjust"`:
+        - Feedback is injected into the conversation history.
+        - Execution halts and the Planner generates a new plan.
+        - Safety limit: max 3 re-plans to prevent infinite loops.
     - **Skill Delegation**: If a step calls `consult_expert`, the `SkillDelegateTool` is invoked.
-        - It loads the specified Skill (Markdown) from `skills/`.
-        - It initializes a sub-agent (Worker) with a restricted toolset defined in the Skill.
-        - The Worker executes the task in a ReAct loop.
-    - **Standard Tools**: Simple tools (if any are allowed to the Planner) are executed directly.
 5. **Completion**:
    - The final step of the plan is typically a `completion` action, where the LLM synthesizes the results into a natural language response.
 6. The `AgentResponse` is returned to the caller, including the full `steps` trace for UI visualization.
