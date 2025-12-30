@@ -84,28 +84,7 @@ class AgentService:
         LOGGER.info("Processing prompt for conversation %s", conversation_id)
 
         # 1. Ensure Conversation exists (Strict Hierarchy)
-        db_conversation = await session.get(Conversation, conversation_id)
-        if not db_conversation:
-            # MVP: Auto-create attached to 'default' context if new
-            stmt = select(Context).where(Context.name == "default")
-            result = await session.execute(stmt)
-            db_context = result.scalar_one_or_none()
-
-            if not db_context:
-                # Bootstrap default context
-                db_context = await self.context_manager.create_context(
-                    session, "default", "virtual", {}
-                )
-
-            db_conversation = Conversation(
-                id=conversation_id,
-                platform=(request.metadata or {}).get("platform", "api"),
-                platform_id=(request.metadata or {}).get("platform_id", "generic"),
-                context_id=db_context.id,
-                current_cwd=db_context.default_cwd,
-            )
-            session.add(db_conversation)
-            await session.flush()
+        db_conversation = await self._ensure_conversation_exists(session, conversation_id, request)
 
         # 2. System Command Interceptor
         sys_output = await handle_system_command(request.prompt, self, session, conversation_id)
@@ -126,67 +105,18 @@ class AgentService:
             return
 
         # 4. Get active session
-        session_stmt = select(Session).where(
-            Session.conversation_id == conversation_id, Session.active.is_(True)
-        )
-        session_result = await session.execute(session_stmt)
-        db_session = session_result.scalar_one_or_none()
+        db_session = await self._get_or_create_session(session, conversation_id)
 
-        if not db_session:
-            db_session = Session(conversation_id=conversation_id, active=True)
-            session.add(db_session)
-            await session.flush()
+        # 5. Load History
+        history = await self._load_conversation_history(session, db_session)
 
-        # 2. Load History
-        history_stmt = (
-            select(Message)
-            .where(Message.session_id == db_session.id)
-            .order_by(Message.created_at.asc())
-        )
-        history_result = await session.execute(history_stmt)
-        db_messages = history_result.scalars().all()
-
-        history = [AgentMessage(role=msg.role, content=msg.content) for msg in db_messages]
-
-        # Inject Current Date as System Context
-        current_date_str = datetime.now().strftime("%Y-%m-%d")
-        history.insert(
-            0,
-            AgentMessage(
-                role="system",
-                content=f"Current Date: {current_date_str}",
-            ),
-        )
-
-        # 3. Request Prep
+        # 6. Request Prep
         request_metadata: dict[str, Any] = dict(request.metadata or {})
         if db_conversation.current_cwd:
             request_metadata["cwd"] = db_conversation.current_cwd
 
-        # 3.1. Inject Pinned Files
-        if db_context.pinned_files:
-            from pathlib import Path
-
-            pinned_content = []
-            for pf in db_context.pinned_files:
-                try:
-                    p = Path(pf)
-                    if p.exists() and p.is_file():
-                        pinned_content.append(f"### FILE: {pf}\n{p.read_text(encoding='utf-8')}")
-                except Exception as e:
-                    LOGGER.warning(f"Failed to read pinned file {pf}: {e}")
-
-            if pinned_content:
-                combined_pinned = "\n\n".join(pinned_content)
-                history.append(
-                    AgentMessage(
-                        role="system",
-                        content=(
-                            f"## PINNED FILES (Active Context)\n"
-                            f"The following files are pinned to your context:\n\n{combined_pinned}"
-                        ),
-                    )
-                )
+        # 6.1. Inject Pinned Files
+        self._inject_pinned_files(history, db_context.pinned_files)
 
         planner = PlannerAgent(self._litellm, model_name="planner")
         plan_supervisor = PlanSupervisorAgent()
@@ -832,6 +762,149 @@ class AgentService:
                 tool_list.append(info)
 
         return tool_list
+
+    # ────────────────────────────────────────────────────────────────────────────
+    # Helper methods extracted from execute_stream to improve readability
+    # ────────────────────────────────────────────────────────────────────────────
+
+    async def _ensure_conversation_exists(
+        self,
+        session: AsyncSession,
+        conversation_id: str,
+        request: AgentRequest,
+    ) -> Conversation:
+        """Ensure a Conversation exists, creating one if needed.
+
+        Args:
+            session: Database session
+            conversation_id: UUID for the conversation
+            request: The incoming agent request
+
+        Returns:
+            The existing or newly created Conversation
+        """
+        db_conversation = await session.get(Conversation, conversation_id)
+        if db_conversation:
+            return db_conversation
+
+        # Auto-create attached to 'default' context if new
+        stmt = select(Context).where(Context.name == "default")
+        result = await session.execute(stmt)
+        db_context = result.scalar_one_or_none()
+
+        if not db_context:
+            # Bootstrap default context
+            db_context = await self.context_manager.create_context(
+                session, "default", "virtual", {}
+            )
+
+        db_conversation = Conversation(
+            id=conversation_id,
+            platform=(request.metadata or {}).get("platform", "api"),
+            platform_id=(request.metadata or {}).get("platform_id", "generic"),
+            context_id=db_context.id,
+            current_cwd=db_context.default_cwd,
+        )
+        session.add(db_conversation)
+        await session.flush()
+        return db_conversation
+
+    async def _get_or_create_session(
+        self,
+        session: AsyncSession,
+        conversation_id: str,
+    ) -> Session:
+        """Get active session or create a new one.
+
+        Args:
+            session: Database session
+            conversation_id: UUID for the conversation
+
+        Returns:
+            The active Session for this conversation
+        """
+        session_stmt = select(Session).where(
+            Session.conversation_id == conversation_id, Session.active.is_(True)
+        )
+        session_result = await session.execute(session_stmt)
+        db_session = session_result.scalar_one_or_none()
+
+        if not db_session:
+            db_session = Session(conversation_id=conversation_id, active=True)
+            session.add(db_session)
+            await session.flush()
+
+        return db_session
+
+    async def _load_conversation_history(
+        self,
+        session: AsyncSession,
+        db_session: Session,
+    ) -> list[AgentMessage]:
+        """Load message history for a session.
+
+        Args:
+            session: Database session
+            db_session: The active Session
+
+        Returns:
+            List of AgentMessage objects representing conversation history
+        """
+        history_stmt = (
+            select(Message)
+            .where(Message.session_id == db_session.id)
+            .order_by(Message.created_at.asc())
+        )
+        history_result = await session.execute(history_stmt)
+        db_messages = history_result.scalars().all()
+
+        history = [AgentMessage(role=msg.role, content=msg.content) for msg in db_messages]
+
+        # Inject current date as system context
+        current_date_str = datetime.now().strftime("%Y-%m-%d")
+        history.insert(
+            0,
+            AgentMessage(role="system", content=f"Current Date: {current_date_str}"),
+        )
+
+        return history
+
+    def _inject_pinned_files(
+        self,
+        history: list[AgentMessage],
+        pinned_files: list[str] | None,
+    ) -> None:
+        """Inject pinned file contents into the conversation history.
+
+        Args:
+            history: The conversation history to modify in-place
+            pinned_files: List of file paths to inject
+        """
+        if not pinned_files:
+            return
+
+        from pathlib import Path
+
+        pinned_content = []
+        for pf in pinned_files:
+            try:
+                p = Path(pf)
+                if p.exists() and p.is_file():
+                    pinned_content.append(f"### FILE: {pf}\n{p.read_text(encoding='utf-8')}")
+            except Exception as e:
+                LOGGER.warning(f"Failed to read pinned file {pf}: {e}")
+
+        if pinned_content:
+            combined_pinned = "\n\n".join(pinned_content)
+            history.append(
+                AgentMessage(
+                    role="system",
+                    content=(
+                        f"## PINNED FILES (Active Context)\n"
+                        f"The following files are pinned to your context:\n\n{combined_pinned}"
+                    ),
+                )
+            )
 
     @staticmethod
     def _parse_tool_allowlist(raw: Any) -> set[str] | None:

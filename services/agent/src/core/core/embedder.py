@@ -4,7 +4,7 @@ from collections.abc import Sequence
 
 import httpx
 
-from modules.embedder import get_embedder
+from core.providers import get_embedder
 
 
 class EmbedderError(Exception):

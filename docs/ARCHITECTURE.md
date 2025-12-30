@@ -48,6 +48,77 @@ The system follows a **Modular Monolith** architecture with a strict unidirectio
     *   *Purpose:* Database, Models, Config, Observability. The execution runtime.
     *   *Rule:* **NEVER** import from `interfaces`, `orchestrator`, or `modules`.
 
+---
+
+## Protocol-Based Dependency Injection
+
+The `core/` layer uses **Protocol classes** to define interfaces, enabling dependency injection without importing from higher layers.
+
+### Protocols (`core/protocols/`)
+
+| Protocol | Purpose |
+|----------|---------|
+| `EmbedderProtocol` | Text embedding interface |
+| `MemoryProtocol` | Vector memory store interface |
+| `LLMProtocol` | LLM client interface |
+| `ToolProtocol` | Tool execution interface |
+
+### Providers (`core/providers.py`)
+
+Runtime implementations are injected via providers:
+
+```python
+from core.providers import (
+    get_embedder,
+    get_memory_store,
+    get_tool_registry,
+)
+
+# In startup (app.py)
+embedder = get_embedder()
+memory = get_memory_store(embedder)
+```
+
+### Wiring at Startup
+
+All dependency injection happens in `core/core/app.py` during the FastAPI lifespan event:
+
+```python
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    embedder = get_embedder()
+    memory = get_memory_store(embedder)
+    tool_registry = get_tool_registry()
+    # ... inject into services
+```
+
+---
+
+## Observability
+
+### Structured Error Codes (`core/observability/error_codes.py`)
+
+Standardized error codes for AI agent self-diagnosis:
+
+| Category | Examples |
+|----------|----------|
+| `TOOL_*` | NOT_FOUND, EXECUTION_FAILED, TIMEOUT |
+| `LLM_*` | CONNECTION_FAILED, RATE_LIMITED |
+| `DB_*` | CONNECTION_FAILED, QUERY_FAILED |
+| `NET_*` | CONNECTION_REFUSED, TIMEOUT |
+| `RAG_*` | QDRANT_UNAVAILABLE, COLLECTION_NOT_FOUND |
+
+### Machine-Readable Diagnostics
+
+**Endpoint:** `GET /diagnostics/summary`
+
+Returns AI-optimized health report with:
+- `overall_status`: HEALTHY | DEGRADED | CRITICAL
+- `failed_components`: List with error codes and recovery hints
+- `recommended_actions`: Prioritized list of fixes
+
+---
+
 ## Skill System
 
 Skills are defined as **Markdown files** with YAML Frontmatter, located in the `skills/` directory.
@@ -57,3 +128,35 @@ Skills are defined as **Markdown files** with YAML Frontmatter, located in the `
 *   **Execution**: The `Planner Agent` delegates tasks to skills via the `consult_expert` tool. Each skill runs as an isolated Worker Agent loop.
 
 For detailed skill format, see [SKILLS_FORMAT.md](SKILLS_FORMAT.md).
+
+---
+
+## Testing
+
+### Test Pyramid
+
+| Level | Type | Purpose |
+|-------|------|---------|
+| 1 | Unit Tests | Fast, mocked dependencies |
+| 2 | Integration Tests | Real database, mocked LLM |
+| 3 | Semantic Tests | Golden master responses |
+
+### Key Test Files
+
+| File | Coverage |
+|------|----------|
+| `test_skill_delegate.py` | Skill execution flow |
+| `test_openwebui_adapter.py` | HTTP adapter formatting |
+| `test_error_codes.py` | Error classification |
+| `test_agent_scenarios.py` | End-to-end flows |
+| `mocks.py` | `MockLLMClient`, `InMemoryAsyncSession` |
+
+### Running Tests
+
+```bash
+# Unit tests only
+python -m pytest services/agent/src/
+
+# Full quality check
+python scripts/code_check.py
+```

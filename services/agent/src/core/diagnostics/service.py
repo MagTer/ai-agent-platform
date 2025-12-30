@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -5,7 +7,10 @@ import time
 from collections import Counter, deque
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from core.observability.error_codes import ErrorCode
 
 import httpx
 from pydantic import BaseModel
@@ -216,6 +221,137 @@ class DiagnosticsService:
                     )
                 )
         return final_results
+
+    async def get_diagnostics_summary(self) -> dict[str, Any]:
+        """Get a machine-readable diagnostics summary for AI agent consumption.
+
+        Returns a structured report with:
+        - overall_status: HEALTHY | DEGRADED | CRITICAL
+        - failed_components: List of components with failures
+        - recommended_actions: Prioritized list of fixes
+        - component_details: Status of each component
+
+        This format is optimized for AI agent self-diagnosis.
+        """
+        from core.observability.error_codes import ErrorSeverity, get_error_info
+
+        results = await self.run_diagnostics()
+        health_metrics = self.get_system_health_metrics()
+
+        # Classify results
+        failed: list[dict[str, Any]] = []
+        healthy: list[str] = []
+        warnings: list[dict[str, Any]] = []
+
+        for result in results:
+            if result.status == "ok":
+                healthy.append(result.component)
+            else:
+                # Map component to error code
+                error_code = self._map_component_to_error_code(result.component)
+                error_info = get_error_info(error_code)
+
+                failure_info = {
+                    "component": result.component,
+                    "error_code": error_info.code,
+                    "severity": error_info.severity.value,
+                    "message": result.message or error_info.description,
+                    "recovery_hint": error_info.recovery_hint,
+                    "latency_ms": result.latency_ms,
+                }
+
+                if error_info.severity == ErrorSeverity.CRITICAL:
+                    failed.append(failure_info)
+                else:
+                    warnings.append(failure_info)
+
+        # Determine overall status
+        if any(f["severity"] == "critical" for f in failed):
+            overall_status = "CRITICAL"
+        elif failed or health_metrics.get("status") == "UNHEALTHY":
+            overall_status = "DEGRADED"
+        elif warnings or health_metrics.get("status") == "DEGRADED":
+            overall_status = "DEGRADED"
+        else:
+            overall_status = "HEALTHY"
+
+        # Build recommended actions (prioritized)
+        recommended_actions: list[dict[str, Any]] = []
+
+        # Add critical failures first
+        for failure in sorted(failed, key=lambda x: x["latency_ms"]):
+            recommended_actions.append(
+                {
+                    "priority": 1,
+                    "action": failure["recovery_hint"],
+                    "component": failure["component"],
+                    "error_code": failure["error_code"],
+                }
+            )
+
+        # Add warnings
+        for warning in warnings:
+            recommended_actions.append(
+                {
+                    "priority": 2,
+                    "action": warning["recovery_hint"],
+                    "component": warning["component"],
+                    "error_code": warning["error_code"],
+                }
+            )
+
+        # Add hotspot-based recommendations
+        for hotspot in health_metrics.get("insights", {}).get("hotspots", []):
+            if hotspot.get("count", 0) > 2:
+                recommended_actions.append(
+                    {
+                        "priority": 3,
+                        "action": f"Investigate frequent errors in '{hotspot['name']}': "
+                        f"{', '.join(hotspot.get('top_reasons', [])[:2])}",
+                        "component": hotspot["name"],
+                        "error_code": "HOTSPOT_DETECTED",
+                    }
+                )
+
+        return {
+            "overall_status": overall_status,
+            "timestamp": datetime.now().isoformat(),
+            "healthy_components": healthy,
+            "failed_components": failed,
+            "warnings": warnings,
+            "recommended_actions": recommended_actions[:10],  # Limit to top 10
+            "metrics": health_metrics.get("metrics", {}),
+            "component_count": {
+                "total": len(results),
+                "healthy": len(healthy),
+                "failed": len(failed),
+                "warnings": len(warnings),
+            },
+        }
+
+    def _map_component_to_error_code(self, component: str) -> ErrorCode:
+        """Map a component name to an appropriate error code."""
+        from core.observability.error_codes import ErrorCode
+
+        component_lower = component.lower()
+
+        mapping = {
+            "ollama": ErrorCode.LLM_CONNECTION_FAILED,
+            "litellm": ErrorCode.LLM_CONNECTION_FAILED,
+            "qdrant": ErrorCode.RAG_QDRANT_UNAVAILABLE,
+            "postgres": ErrorCode.DB_CONNECTION_FAILED,
+            "embedder": ErrorCode.RAG_EMBEDDING_FAILED,
+            "searxng": ErrorCode.NET_CONNECTION_REFUSED,
+            "internet": ErrorCode.NET_CONNECTION_REFUSED,
+            "workspace": ErrorCode.CONFIG_PERMISSION,
+            "openwebui": ErrorCode.NET_CONNECTION_REFUSED,
+        }
+
+        for key, code in mapping.items():
+            if key in component_lower:
+                return code
+
+        return ErrorCode.UNKNOWN
 
     async def _check_ollama(self, client: httpx.AsyncClient) -> TestResult:
         # Default Ollama is host:11434 usually.

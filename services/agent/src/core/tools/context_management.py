@@ -5,8 +5,8 @@ from sqlalchemy import select
 
 from core.db.engine import AsyncSessionLocal
 from core.db.models import Context
+from core.providers import get_code_indexer_factory
 from core.tools.base import Tool, ToolError
-from modules.indexer import CodeIndexer
 
 
 class PinFileTool(Tool):
@@ -102,7 +102,8 @@ class IndexCodebaseTool(Tool):
 
     async def run(self) -> str:
         root = Path(os.getcwd())
-        indexer = CodeIndexer(root)
+        indexer_class = get_code_indexer_factory()
+        indexer = indexer_class(root)
         try:
             await indexer.scan_and_index()
             return "Indexing completed successfully."

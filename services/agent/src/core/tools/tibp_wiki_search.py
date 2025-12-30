@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from modules.rag import RAGManager
+from core.providers import get_rag_manager
 
 from .base import Tool
 
@@ -23,16 +23,13 @@ class TibpWikiSearchTool(Tool):
         Args:
             query: The search query.
         """
-        rag = RAGManager()
-        try:
-            results = await rag.retrieve(query, top_k=5, collection_name="tibp-wiki")
-            if not results:
-                return "No relevant guidelines found in TIBP Wiki."
+        rag = get_rag_manager()
+        results = await rag.retrieve(query, top_k=5, collection_name="tibp-wiki")
+        if not results:
+            return "No relevant guidelines found in TIBP Wiki."
 
-            output = [f"Found {len(results)} wiki pages:\n"]
-            for r in results:
-                output.append(f"--- [ {r.get('uri')} ] ---\n{r.get('text')}\n")
+        output = [f"Found {len(results)} wiki pages:\n"]
+        for r in results:
+            output.append(f"--- [ {r.get('uri')} ] ---\n{r.get('text')}\n")
 
-            return "\n".join(output)
-        finally:
-            await rag.close()
+        return "\n".join(output)

@@ -1,5 +1,5 @@
+from core.providers import get_rag_manager
 from core.tools.base import Tool, ToolError
-from modules.rag import RAGManager
 
 
 class SearchCodeBaseTool(Tool):
@@ -14,12 +14,10 @@ class SearchCodeBaseTool(Tool):
         "without knowing exact paths. Args: query (str)"
     )
 
-    def __init__(self) -> None:
-        self.rag = RAGManager()
-
     async def run(self, query: str) -> str:
         try:
-            results = await self.rag.retrieve(query, filters={"source": "codebase"})
+            rag = get_rag_manager()
+            results = await rag.retrieve(query, filters={"source": "codebase"})
             if not results:
                 return "No relevant code snippets found."
 
