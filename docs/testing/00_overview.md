@@ -48,8 +48,7 @@ validate the rendered configuration with:
 docker compose -f docker-compose.yml config
 ```
 
-Docker Compose already configures Ollama to use the NVIDIA runtime, so the
-default `docker-compose.yml` works even on GPU hosts. Record the output of any
+The default `docker-compose.yml` works on any Docker host. Record the output of any
 manual smoke tests in pull requests when relevant.
 
 ## Test authoring guidelines

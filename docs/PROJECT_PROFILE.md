@@ -10,7 +10,7 @@ Deliver a local, containerised agent platform with actionable skills, transparen
 - Delivery: Provide complete outputs in each reply—no hidden steps.
 
 ## Non-Functional Constraints
-- Cost: Prefer local LLMs through LiteLLM ➜ Ollama; document any premium usage.
+- Cost: Uses OpenRouter API; document usage and costs.
 - Security: Secrets remain in `.env`; avoid committing credentials or tokens.
 - Portability: Docker Compose orchestrates services; optional cloud packaging comes later.
 - Observability: Health checks and structured logs exposed by the agent and stack CLI.
@@ -19,7 +19,7 @@ Deliver a local, containerised agent platform with actionable skills, transparen
 ## Current Architecture (Python Core)
 - **Client**: Open WebUI (Reasoning, Research, Actions presets) configured to call the FastAPI agent.
 - **Agent**: FastAPI service (`src/agent/`) managing prompts, conversation state (SQLite), and tool execution.
-- **LLM Gateway**: LiteLLM proxies to Ollama-hosted Qwen 2.5 models and optional remote providers.
+- **LLM Gateway**: LiteLLM proxies to OpenRouter (Llama 3.3, DeepSeek).
 - **Memory**: Qdrant stores embeddings; `config/tools.yaml` registers memory-aware tools such as `web_fetch`.
 - **Stack Management**: Typer-based CLI (`python -m stack`) handles Compose lifecycle, health checks, and logs.
 

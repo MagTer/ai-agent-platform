@@ -3,7 +3,7 @@
 The agent service is implemented as a FastAPI application with a layered design:
 
 ```
-AgentRequest -> AgentService -> LiteLLMClient -> LiteLLM Gateway -> Ollama
+AgentRequest -> AgentService -> LiteLLMClient -> LiteLLM Gateway -> OpenRouter
                     |                 |
                     |                 +-> Error handling and retries
                     v

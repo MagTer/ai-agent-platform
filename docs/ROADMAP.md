@@ -8,7 +8,7 @@ Goal: Replace PowerShell/n8n orchestration with FastAPI + Typer.
 Exit criteria:
 - `python -m stack up/down/status` operate idempotently.
 - `/v1/agent` handles basic prompts and persists conversation metadata.
-- Docker Compose stack starts agent, LiteLLM, Ollama, Qdrant, WebUI, and Webfetch.
+- Docker Compose stack starts agent, LiteLLM, Qdrant, WebUI, and SearXNG.
 
 ## Milestone M1 — Tooling Foundation (IN PROGRESS)
 Goal: Expand the agent-native tool layer and document usage.

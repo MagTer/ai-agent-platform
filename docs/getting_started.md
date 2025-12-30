@@ -6,7 +6,7 @@
     ```bash
     cp .env.template .env
     ```
-    > **Note**: The Docker Compose definition configures Ollama to use the NVIDIA runtime by default. Adjust `OLLAMA_VISIBLE_DEVICES` or `OLLAMA_DRIVER_CAPABILITIES` in `.env` if needed.
+    > **Note**: Set your `OPENROUTER_API_KEY` in `.env` before starting.
 
 2.  **Install Python dependencies**
     ```bash

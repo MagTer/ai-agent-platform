@@ -9,7 +9,7 @@ This repository contains a local-optimised AI Agent Platform running on Docker. 
 
 -   **Agent**: FastAPI server with LiteLLM, Qdrant memory, and tool execution.
 -   **Open WebUI**: User interface for chat and agent interaction.
--   **Services**: Ollama (inference), Qdrant (vector DB), LiteLLM (gateway), and more.
+-   **Services**: LiteLLM (OpenRouter gateway), Qdrant (vector DB), SearXNG (search), and more.
 
 ## Quick Links
 

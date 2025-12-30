@@ -1,26 +1,26 @@
 # Architecture Overview
 
-The AI Agent Platform is a self-hosted research and automation environment designed for deterministic local operation. A Python-based agent service built on FastAPI and LiteLLM coordinates tools, memory, and inference providers while Docker Compose delivers consistent deployments.
+The AI Agent Platform is a self-hosted research and automation environment designed for reliable operation. A Python-based agent service built on FastAPI and LiteLLM coordinates tools, memory, and LLM providers while Docker Compose delivers consistent deployments.
 
 ## System Topology
 
 ```
 +-------------------+       +-------------------+       +-------------------+
 |   Open WebUI      | <-->  |  Agent (FastAPI)  | <-->  |     LiteLLM       |
-|  (Reasoning UI)   |       |  Tools + Memory   |       |  Gateway to LLMs  |
+|  (Reasoning UI)   |       |  Tools + Memory   |       |  OpenRouter GW    |
 +-------------------+       +-------------------+       +-------------------+
                                  |            \
                                  |             \
                            +-------------+   +-------------+
-                           |   Qdrant     |   |   SQLite    |
+                           |   Qdrant     |   |  Postgres   |
                            | Vector DB    |   | Conversation|
-                           +-------------+   |   Metadata  |
+                           +-------------+   |   Storage   |
                                               +-------------+
                                  |
                                  v
                            +-------------+
-                           |  Webfetch   |
-                           |  Retrieval  |
+                           |   SearXNG   |
+                           |  Web Search |
                            +-------------+
 ```
 
@@ -34,19 +34,13 @@ The AI Agent Platform is a self-hosted research and automation environment desig
 
 | Service | Role | Default Ports |
 | --- | --- | --- |
-| `agent` | FastAPI orchestration layer (`src/agent/`) exposing `/healthz`, `/v1/agent`, and OpenAI-compatible `/v1/chat/completions`. | `8000` |
+| `agent` | FastAPI orchestration layer exposing `/healthz`, `/v1/agent`, and OpenAI-compatible `/v1/chat/completions`. | `8000` |
 | `stack CLI` | Typer-based helper (`python -m stack`) that wraps Docker Compose for lifecycle management and health reporting. | n/a |
-| `litellm` | Gateway that proxies chat completions to Ollama or remote providers configured in Compose. | `4000` |
-| `ollama` | GPU-capable inference runtime that serves Llama 3.1 8B (via `runtime: nvidia` and the Nvidia driver caps) | `11434` |
+| `litellm` | Gateway that proxies chat completions to OpenRouter. | `4000` |
 | `openwebui` | Web UI for reasoning modes; routes chat traffic through the agent. | `3000 → 8080` |
 | `qdrant` | Vector store that retains semantic memories and RAG content chunks. | `6333` |
-| `embedder` | CPU-bound sentence-transformer service providing deterministic `/embed` vectors. | `8082` |
-| `ragproxy` | Retrieval-aware proxy that injects context and calls LiteLLM when `rag/` models are requested. | `4080` (internal) |
-| `webfetch` | Content retriever, summariser, and ingestion helper used by tools and the indexer CLI. | `8081` |
-| `searxng` | Optional metasearch backend supplying URLs for `webfetch` ingestion. | `8080` |
-
-RAG responsibilities for `embedder`, `ragproxy`, `qdrant`, `webfetch`, and `searxng`
-are described in detail in [`docs/architecture/06_rag.md`](./06_rag.md).
+| `postgres` | Database for conversation and context storage. | `5432` |
+| `searxng` | Metasearch backend supplying URLs for web search. | `8080` |
 
 ## Related Documents
 
@@ -56,21 +50,18 @@ are described in detail in [`docs/architecture/06_rag.md`](./06_rag.md).
 | `02_agent.md` | Agent modules, request lifecycle, and dependency graph. |
 | `03_tools.md` | Tool registry, configuration (`config/tools.yaml`), and testing patterns. |
 | `04_dev_practices.md` | Coding standards, Poetry workflow, linting, and typing. |
-| [`06_rag.md`](./06_rag.md) | Retrieval pipeline (ingest → embed → store → retrieve → re-rank → respond). |
-| [`docs/testing/01_ci.md`](../testing/01_ci.md) | GitHub Actions pipeline (lint, coverage, and compose validation). |
 
 ## Configuration & Data
 
 - `.env` (root) – loaded by both the stack CLI and FastAPI via `python-dotenv`.
 - `config/tools.yaml` – declarative registration of tool classes exposed to the agent.
-- Volumes: `ollama-models` and `qdrant-data` persist models and vector storage.
-- SQLite database defaults to `data/agent_state.sqlite` (mounted into the agent container) for conversation metadata.
+- Volumes: `qdrant-data` and `postgres_data` persist vector and conversation storage.
 
 ## Security Notes
 
 - Secrets remain in the uncommitted `.env` file; sample keys belong in `.env.template`.
 - Internal services communicate over the Docker network; expose only Open WebUI or the agent externally with proper auth.
-- Keep LiteLLM routing rules minimal by default; document any premium provider usage in `docs/architecture/03_tools.md`.
+- OpenRouter API keys should be rotated periodically and kept in `.env`.
 
 ## Update Checklist
 

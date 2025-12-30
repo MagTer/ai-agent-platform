@@ -2,7 +2,6 @@
 
 from .azure_devops import AzureDevOpsTool
 from .base import Tool, ToolError
-from .context_management import IndexCodebaseTool, PinFileTool, UnpinFileTool
 from .filesystem import EditFileTool, ListDirectoryTool, ReadFileTool
 from .loader import load_tool_registry
 from .qa import RunLinterTool, RunPytestTool
@@ -26,9 +25,6 @@ __all__ = [
     "RunPytestTool",
     "RunLinterTool",
     "SearchCodeBaseTool",
-    "PinFileTool",
-    "UnpinFileTool",
-    "IndexCodebaseTool",
     "TestRunnerTool",
     "TibpWikiSearchTool",
     "SkillDelegateTool",
