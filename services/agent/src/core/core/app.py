@@ -102,7 +102,13 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             span.update_name(f"API: {method} {path}")
 
         skip_body = path.startswith(
-            ("/diagnostics", "/health", "/metrics", "/v1/agent/history", "/v1/chat/completions")
+            (
+                "/diagnostics",
+                "/health",
+                "/metrics",
+                "/v1/agent/history",
+                "/v1/chat/completions",
+            )
         )
 
         if not skip_body:

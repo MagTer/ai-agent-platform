@@ -1,0 +1,15 @@
+- id: "basic_reasoning_01"
+  query: "What is the capital of France and what is 5+5?"
+  expected_intents: ["CHAT", "TASK"]
+  must_contain: ["Paris", "10"]
+  forbidden: ["I don't know", "Error"]
+
+- id: "file_analysis_01"
+  query: "Summarize the content of README.md"
+  expected_intents: ["TASK"]
+  tools_expected: ["read_file", "filesystem"]
+
+- id: "chat_greeting_01"
+  query: "Hello, who are you?"
+  expected_intents: ["CHAT"]
+  must_contain: ["Assistant", "AI", "Help"]

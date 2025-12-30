@@ -95,6 +95,19 @@ class _NoOpSpan:
     def get_span_context(self) -> _NoOpSpanContext:
         return _NoOpSpanContext()
 
+    def add_event(
+        self,
+        name: str,
+        attributes: dict[str, Any] | None = None,
+        timestamp: int | None = None,
+    ) -> None:
+        pass
+
+    def set_status(self, status: Any, description: str = "") -> None:
+        self.attributes["status"] = status
+        if description:
+            self.attributes["status_description"] = description
+
 
 class _NoOpTracer:
     def start_as_current_span(self, name: str, *, kind: Any | None = None) -> Any:
@@ -138,9 +151,16 @@ class _FileSpanExporter(SpanExporter):
             start_iso = datetime.utcfromtimestamp(start_ns / 1e9).isoformat() if start_ns else None
 
             # Status extraction
+            status_name = "UNSET"
             status_obj = getattr(span, "status", None)
-            status_code = getattr(status_obj, "status_code", None)
-            status_name = getattr(status_code, "name", "UNSET") if status_code else "UNSET"
+
+            # OTLP/Real Span
+            if status_obj and hasattr(status_obj, "status_code"):
+                status_code = status_obj.status_code
+                status_name = getattr(status_code, "name", "UNSET")
+            # NoOp Span (Attributes)
+            elif span and hasattr(span, "attributes"):
+                status_name = str(span.attributes.get("status", "UNSET"))
 
             record = {
                 "name": getattr(span, "name", "unknown"),
@@ -251,9 +271,58 @@ def current_trace_ids() -> dict[str, str]:
     }
 
 
+def set_span_attributes(attributes: dict[str, Any]) -> None:
+    """Set attributes on the current active span."""
+    trace_api = _otel_trace if _OTEL_AVAILABLE else _NoOpTraceAPI()
+    span = trace_api.get_current_span()
+    if span and hasattr(span, "set_attributes"):
+        span.set_attributes(attributes)
+    elif span and hasattr(span, "set_attribute"):
+        # Fallback for spans that only support single attribute setting
+        for key, value in attributes.items():
+            span.set_attribute(key, value)
+
+
+def add_span_event(
+    name: str,
+    attributes: dict[str, Any] | None = None,
+    timestamp: int | None = None,
+) -> None:
+    """Add an event to the current active span."""
+    trace_api = _otel_trace if _OTEL_AVAILABLE else _NoOpTraceAPI()
+    span = trace_api.get_current_span()
+    if span and hasattr(span, "add_event"):
+        span.add_event(name, attributes=attributes, timestamp=timestamp)
+
+
+def set_span_status(status: str, description: str = "") -> None:
+    """Set the status of the current active span.
+
+    Args:
+        status: One of "OK", "ERROR", "UNSET"
+        description: Optional description of the status (e.g. error message)
+    """
+    trace_api = _otel_trace if _OTEL_AVAILABLE else _NoOpTraceAPI()
+    span = trace_api.get_current_span()
+
+    if _OTEL_AVAILABLE and span:
+        try:
+            unset_code = _otel_trace.StatusCode.UNSET
+            status_code = getattr(_otel_trace.StatusCode, status.upper(), unset_code)
+            span.set_status(_otel_trace.Status(status_code, description=description))
+        except Exception as e:
+            logger.warning(f"Failed to set span status: {e}")
+    elif span and hasattr(span, "set_status"):
+        span.set_status(status, description=description)
+
+
 __all__ = [
     "configure_tracing",
     "get_tracer",
     "start_span",
+    "start_span",
     "current_trace_ids",
+    "set_span_attributes",
+    "add_span_event",
+    "set_span_status",
 ]

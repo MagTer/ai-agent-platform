@@ -7,11 +7,7 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.append(str(project_root / "services" / "agent" / "src"))
 
-try:
-    from core.tools.loader import load_tool_registry
-except ImportError:
-    print("❌ Critical: Could not import core.tools.loader. Check paths.")
-    sys.exit(1)
+from core.tools.loader import load_tool_registry  # noqa: E402
 
 
 def verify_tools():

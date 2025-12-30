@@ -34,22 +34,26 @@ All state is hierarchical and persisted in PostgreSQL.
 * **Context** -> **Conversation** -> **Session** -> **Message**
 * *Constraint:* Every Agent request MUST resolve to an active **Session**.
 
-## 3. CODING STANDARDS (Enforced by `code_check.py`)
+## 📝 CODING STANDARDS
+
+### Philosophy: Strict Types, Pragmatic Logic
+*   **Strict Types:** `mypy` is strict. Always use type hints. No `Any`.
+*   **Pragmatic Logic:** Complexity is allowed if readability is maintained (McCabe < 18).
+*   **No Band-Aids:** Do not use `# noqa` unless absolutely necessary; rely on the relaxed config instead.
 
 ### 3.1 Python Rules
-* **Version:** Python 3.11+
-* **Typing:** STRICT. Explicitly handle `Optional`.
-* **Async:** All I/O is `async/await`. Use `httpx` and `AsyncPG`.
-* **Imports:** Absolute imports only.
+*   **Version:** Python 3.11+
+*   **Async:** All I/O is `async/await`. Use `httpx` and `AsyncPG`.
+*   **Imports:** Absolute imports only.
     * ✅ `from core.db import models`
     * ❌ `from ..core import models`
 
 ### 3.2 Surgical Editing
-* **Read-Before-Write:** Always read the file content before applying a diff/edit.
-* **Preserve:** Do not remove comments or existing functionality unless explicitly asked.
+*   **Read-Before-Write:** Always read the file content before applying a diff/edit.
+*   **Preserve:** Do not remove comments or existing functionality unless explicitly asked.
 
 ### 3.3 Code Editing
-* **Use:** Always use Context7 to get code suggestions before editing.
+*   **Use:** Always use Context7 to get code suggestions before editing.
 
 
 ## 4. TESTING STRATEGY
@@ -64,6 +68,11 @@ wsl -d Ubuntu --cd /home/magnus/dev/ai-agent-platform bash -c "python3 scripts/t
 ### 4.2 Test Layers
 * **Level 1: Unit Tests** (Fast, Mocked)
     * Use `tmp_path` for file ops. NO network calls.
+
+* **Level 2: Semantic/Golden Master Tests** (Slow, Real)
+    * Run against real/mocked LLM to verify reasoning.
+    * Config: `services/agent/tests/semantic/golden_queries.yaml`
+    * Command: `python services/agent/scripts/run_semantic_eval.py`
 
 ## 5. SELF-CORRECTION & DEBUGGING
 The Agent can debug its own runtime errors.

@@ -11,7 +11,7 @@ logging:
 model_list:
   - model_name: planner
     litellm_params:
-      model: openrouter/deepseek/deepseek-v3.2
+      model: openrouter/meta-llama/llama-3.3-70b-instruct
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.3
       max_tokens: 8192
@@ -20,7 +20,7 @@ model_list:
         provider:
           zdr: true
 
-  - model_name: verifier
+  - model_name: supervisor
     litellm_params:
       model: openrouter/deepseek/deepseek-r1
       api_key: os.environ/OPENROUTER_API_KEY
@@ -31,24 +31,13 @@ model_list:
         provider:
           zdr: true
 
-  - model_name: coder
+  - model_name: software_engineer
     litellm_params:
       model: openrouter/deepseek/deepseek-v3.2
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.0
       max_tokens: 8192
       rpm: 100
-      extra_body:
-        provider:
-          zdr: true
-
-  - model_name: chat
-    litellm_params:
-      model: openrouter/deepseek/deepseek-v3.2
-      api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0.7
-      max_tokens: 4096
-      rpm: 60
       extra_body:
         provider:
           zdr: true

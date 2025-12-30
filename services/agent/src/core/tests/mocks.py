@@ -44,3 +44,18 @@ class MockLLMClient(LiteLLMClient):
 
     async def list_models(self) -> Any:
         return {"data": [{"id": "mock-model"}]}
+
+    async def stream_chat(
+        self,
+        messages: Iterable[AgentMessage],
+        tools: list[dict[str, Any]] | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Stream the next response from queue as a single chunk."""
+        content = await self.generate(messages)
+        yield {
+            "type": "content",
+            "content": content,
+            "tool_call": None,
+            "metadata": None,
+        }

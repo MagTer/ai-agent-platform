@@ -24,6 +24,7 @@ backups/
 # Local persistent data (bind mounts)
 .data/
 data/
+services/agent/data/tibp_wiki_export/
 
 # n8n sensitive credentials
 flows/credentials.json

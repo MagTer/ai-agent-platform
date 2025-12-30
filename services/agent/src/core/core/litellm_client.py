@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncGenerator, Iterable
 from typing import Any
 
 import httpx
 from shared.streaming import AgentChunk
+
+from core.observability.tracing import add_span_event, set_span_attributes
 
 from .config import Settings
 from .models import AgentMessage
@@ -50,6 +54,8 @@ class LiteLLMClient:
             "messages": [message.model_dump() for message in messages],
             "stream": True,
         }
+        start_time = time.perf_counter()
+        first_token_received = False
 
         try:
             async with self._client.stream(
@@ -74,8 +80,13 @@ class LiteLLMClient:
                     if not line.startswith("data: "):
                         continue
 
+                    # Force yield to allow event loop to process other tasks (e.g. flushing)
+                    await asyncio.sleep(0)
+
                     data_str = line[6:].strip()
                     if data_str == "[DONE]":
+                        total_latency_ms = (time.perf_counter() - start_time) * 1000
+                        set_span_attributes({"gen_ai.performance.latency_ms": total_latency_ms})
                         yield {
                             "type": "done",
                             "content": None,
@@ -86,28 +97,55 @@ class LiteLLMClient:
 
                     try:
                         data = json.loads(data_str)
-                        delta = data["choices"][0]["delta"]
+                        if "model" in data and data["model"]:
+                            set_span_attributes({"gen_ai.response.model": data["model"]})
+
+                        if "usage" in data and data["usage"]:
+                            usage = data["usage"]
+                            attrs = {}
+                            if "prompt_tokens" in usage:
+                                attrs["gen_ai.usage.prompt_tokens"] = usage["prompt_tokens"]
+                            if "completion_tokens" in usage:
+                                attrs["gen_ai.usage.completion_tokens"] = usage["completion_tokens"]
+                            if "total_tokens" in usage:
+                                attrs["gen_ai.usage.total_tokens"] = usage["total_tokens"]
+                            # OpenRouter sometimes sends cost
+                            if "cost" in usage:
+                                attrs["gen_ai.usage.cost"] = usage["cost"]
+
+                            if attrs:
+                                set_span_attributes(attrs)
 
                         # Handle content
-                        if "content" in delta and delta["content"] is not None:
-                            yield {
-                                "type": "content",
-                                "content": delta["content"],
-                                "tool_call": None,
-                                "metadata": None,
-                            }
+                        if "choices" in data and len(data["choices"]) > 0:
+                            choice = data["choices"][0]
+                            delta = choice.get("delta", {})
 
-                        # Handle tool calls (if supported by LiteLLM/Model)
-                        # Basic support for OpenAI format tool calls
-                        if "tool_calls" in delta and delta["tool_calls"]:
-                            for tool_call in delta["tool_calls"]:
+                            if "content" in delta and delta["content"] is not None:
+                                if not first_token_received:
+                                    ttft_ms = (time.perf_counter() - start_time) * 1000
+                                    set_span_attributes({"gen_ai.performance.ttft_ms": ttft_ms})
+                                    add_span_event("gen_ai.first_token", {"ttft_ms": ttft_ms})
+                                    first_token_received = True
+
                                 yield {
-                                    # or tool_output if it's chunked, simplified for now
-                                    "type": "tool_start",
-                                    "content": None,
-                                    "tool_call": tool_call,
+                                    "type": "content",
+                                    "content": delta["content"],
+                                    "tool_call": None,
                                     "metadata": None,
                                 }
+
+                            # Handle tool calls (if supported by LiteLLM/Model)
+                            # Basic support for OpenAI format tool calls
+                            if "tool_calls" in delta and delta["tool_calls"]:
+                                for tool_call in delta["tool_calls"]:
+                                    yield {
+                                        # or tool_output if it's chunked, simplified for now
+                                        "type": "tool_start",
+                                        "content": None,
+                                        "tool_call": tool_call,
+                                        "metadata": None,
+                                    }
 
                     except json.JSONDecodeError:
                         LOGGER.warning("Failed to decode JSON chunk: %s", data_str)

@@ -6,7 +6,7 @@ import datetime as dt
 from types import SimpleNamespace
 
 try:  # pragma: no cover - dependency availability differs in CI
-    import docker  # type: ignore
+    import docker
 except ImportError:  # pragma: no cover
 
     def _missing_from_env(*_: object, **__: object) -> None:

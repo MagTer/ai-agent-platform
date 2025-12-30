@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import time
@@ -15,7 +16,7 @@ from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
-from core.observability.tracing import current_trace_ids, start_span
+from core.observability.tracing import current_trace_ids, set_span_status, start_span
 from core.tools import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
@@ -66,85 +67,52 @@ class StepExecutorAgent:
         prompt_history: list[AgentMessage],
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a step and yield incremental updates (content tokens, etc)."""
-        messages: list[AgentMessage] = []
         start_time = time.perf_counter()
 
+        span_name = f"Step: {step.label}" if step.label else f"Step: {step.id}"
         with start_span(
-            f"executor.step_run.{step.id}",
+            span_name,
             attributes={},
         ) as span:
             span.set_attribute("action", str(step.action))
             span.set_attribute("executor", str(step.executor))
             span.set_attribute("step", str(step.id))
 
+            # Always capture args for context
             if step.args:
                 span.set_attribute("step.args", str(step.args))
 
-            result: dict[str, Any] = {}
             status = "skipped"
+            result: dict[str, Any] = {}
 
             try:
+                # Dispatch based on executor/action
                 if step.executor == "agent" and step.action == "memory":
-                    # ... Memory logic (fast, no streaming needed) ...
-                    query = step.args.get("query") or request.prompt
-                    limit_value = step.args.get("limit")
-                    try:
-                        limit = int(limit_value) if limit_value is not None else 5
-                    except (TypeError, ValueError):
-                        limit = 5
-                    records = await self._memory.search(
-                        str(query), limit=limit, conversation_id=conversation_id
-                    )
-                    for record in records:
-                        messages.append(
-                            AgentMessage(
-                                role="system",
-                                content=f"Context memory: {record.text}",
-                            )
-                        )
-                    result = {"count": len(records)}
-                    status = "ok"
+                    async for event in self._execute_memory_step(step, request, conversation_id):
+                        yield event
+                        if event["type"] == "result":
+                            status = event["result"].status
+                            result = event["result"].result
 
                 elif step.executor == "agent" and step.action == "tool":
-                    # ... Tool logic ...
-                    result, messages, status = await self._run_tool(step, request)
+                    async for event in self._execute_tool_step(step, request):
+                        yield event
+                        if event["type"] == "result":
+                            status = event["result"].status
+                            result = event["result"].result
 
                 elif step.executor in {"litellm", "remote"} and step.action == "completion":
-                    # STREAMING LOGIC
-                    settings = getattr(self._litellm, "_settings", None)
-                    default_model = getattr(settings, "litellm_model", "agent-model")
-                    model_override = str(step.args.get("model") or default_model)
-
-                    with start_span("llm.call.assistant") as llm_span:
-                        llm_span.set_attribute("model", model_override)
-                        llm_span.set_attribute("step", str(step.id))
-
-                        full_content = []
-
-                        # Streaming call
-                        # We reconstruct the messages list here
-                        msgs_to_send = prompt_history + [
-                            AgentMessage(role="user", content=request.prompt)
-                        ]
-
-                        async for chunk in self._litellm.stream_chat(
-                            msgs_to_send, model=model_override
-                        ):
-                            if chunk["type"] == "content" and chunk["content"]:
-                                full_content.append(chunk["content"])
-                                yield {"type": "content", "content": chunk["content"]}
-                            elif chunk["type"] == "error":
-                                raise Exception(chunk["content"])
-
-                        completion_text = "".join(full_content)
-                        llm_span.set_attribute("llm.output.size", len(completion_text))
-
-                        result = {"completion": completion_text, "model": model_override}
-                        status = "ok"
+                    async for event in self._execute_completion_step(step, request, prompt_history):
+                        yield event
+                        if event["type"] == "result":
+                            status = event["result"].status
+                            result = event["result"].result
 
                 else:
                     result = {"reason": "unsupported executor/action"}
                     status = "skipped"
+                    step_res = StepResult(step=step, status=status, result=result, messages=[])
+                    yield {"type": "result", "result": step_res}
 
             except Exception as exc:
                 from core.tools.base import ToolConfirmationError
@@ -153,20 +121,22 @@ class StepExecutorAgent:
                     raise exc
                 result = {"error": str(exc)}
                 status = "error"
+                step_res = StepResult(step=step, status=status, result=result, messages=[])
+                yield {"type": "result", "result": step_res}
 
+            # Final observability (Logs/Tracing)
             duration_ms = (time.perf_counter() - start_time) * 1000
             span.set_attribute("latency_ms", duration_ms)
             span.set_attribute("status", status)
             if result:
                 span.set_attribute("step.result", str(result))
-            trace_ctx = TraceContext(**current_trace_ids())
 
+            trace_ctx = TraceContext(**current_trace_ids())
             final_status = cast(
                 Literal["ok", "error", "skipped", "in_progress"],
                 status if status in {"ok", "error", "skipped"} else "ok",
             )
 
-            # Log event happens at the END of the step
             log_event(
                 StepEvent(
                     step_id=step.id,
@@ -179,158 +149,285 @@ class StepExecutorAgent:
                 )
             )
 
-            step_res = StepResult(step=step, status=status, result=result, messages=messages)
-            yield {"type": "result", "result": step_res}
-
-    async def _run_tool(
+    async def _run_tool_gen(
         self,
         step: PlanStep,
         request: AgentRequest,
-    ) -> tuple[dict[str, Any], list[AgentMessage], str]:
-        tool_messages: list[AgentMessage] = []
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        LOGGER.info(f"Starting _run_tool_gen for step {step.id} tool={step.tool}")
 
-        # 1. Try Native Tool
-        tool = self._tool_registry.get(step.tool) if self._tool_registry and step.tool else None
+        # Wrapped in try/except to catch any unexpected crashes
+        try:
+            tool_messages: list[AgentMessage] = []
 
-        if not tool:
-            # 2. Try Skill (Markdown Command)
-            if step.tool:
-                try:
-                    metadata, rendered_prompt = load_command(step.tool, step.args or {})
-                    # Execute Skill via LLM (One-off)
-                    with start_span(f"skill.call.{step.tool}"):
-                        output_text = await self._litellm.generate(
-                            [AgentMessage(role="user", content=rendered_prompt)]
-                        )
+            # 1. Try Native Tool
+            tool = self._tool_registry.get(step.tool) if self._tool_registry and step.tool else None
 
-                    tool_messages.append(
-                        AgentMessage(
-                            role="system",
-                            content=f"Tool {step.tool} output:\n{output_text}",
+            if not tool:
+                # 2. Try Skill (Markdown Command)
+                if step.tool:
+                    try:
+                        metadata, rendered_prompt = load_command(step.tool, step.args or {})
+
+                        # --- DYNAMIC ROUTING ---
+                        # Use the model defined in skill, or default to 'agentchat'
+                        target_model = metadata.get("model", "agentchat")
+
+                        if target_model != "agentchat":
+                            LOGGER.info(
+                                f"Routing skill '{step.tool}' to specialized model: {target_model}"
+                            )
+                        # -----------------------
+
+                        # Execute Skill via LLM (Streaming)
+                        # The span name is still the same, but we might want to
+                        # attribute the used model
+                        with start_span(f"skill.call.{step.tool}"):
+                            full_content = []
+                            skill_msg = [AgentMessage(role="user", content=rendered_prompt)]
+
+                            LOGGER.info(f"Stream Chatting for skill {step.tool}...")
+
+                            # Pass the target_model explicitly
+                            async for chunk in self._litellm.stream_chat(
+                                skill_msg, model=target_model
+                            ):
+                                if chunk["type"] == "content" and chunk["content"]:
+                                    content = chunk["content"]
+                                    full_content.append(content)
+                                    # Stream skill output as regular content
+                                    yield {
+                                        "type": "content",
+                                        "content": content,
+                                    }
+                                    # Fix for Ketchup Effect: Force flush
+                                    await asyncio.sleep(0)
+                                else:
+                                    # Log debug info about non-content chunks
+                                    if chunk.get("type") != "done":
+                                        LOGGER.debug(f"Skill chunk: {chunk.get('type')}")
+
+                            output_text = "".join(full_content)
+                            LOGGER.info(f"Skill {step.tool} done. Len: {len(output_text)}")
+
+                        tool_messages.append(
+                            AgentMessage(
+                                role="system",
+                                content=f"Tool {step.tool} output:\n{output_text}",
+                            )
                         )
-                    )
-                    # Trace
-                    trace_ctx = TraceContext(**current_trace_ids())
-                    log_event(
-                        ToolCallEvent(
-                            name=step.tool,
-                            args=step.args,
-                            status="ok",
-                            output_preview=output_text[:200],
-                            trace=trace_ctx,
+                        # Trace
+                        trace_ctx = TraceContext(**current_trace_ids())
+                        log_event(
+                            ToolCallEvent(
+                                name=step.tool,
+                                args=step.args,
+                                status="ok",
+                                output_preview=output_text[:200],
+                                trace=trace_ctx,
+                            )
                         )
-                    )
-                    return (
-                        {"name": step.tool, "status": "ok", "output": output_text},
+                        yield {
+                            "type": "final",
+                            "data": (
+                                {
+                                    "name": step.tool,
+                                    "status": "ok",
+                                    "output": output_text,
+                                },
+                                tool_messages,
+                                "ok",
+                            ),
+                        }
+                        return
+
+                    except FileNotFoundError:
+                        # Fall through to return missing if not found
+                        pass
+                    except Exception as e:
+                        LOGGER.error(f"Skill execution exception: {e}", exc_info=True)
+                        yield {
+                            "type": "final",
+                            "data": (
+                                {
+                                    "name": step.tool,
+                                    "status": "error",
+                                    "reason": f"Skill execution failed: {e}",
+                                },
+                                tool_messages,
+                                "error",
+                            ),
+                        }
+                        return
+
+                # If no tool found or FileNotFoundError passed through
+                yield {
+                    "type": "final",
+                    "data": (
+                        {"name": step.tool, "status": "missing"},
                         tool_messages,
-                        "ok",
-                    )
+                        "missing",
+                    ),
+                }
+                return
 
-                except FileNotFoundError:
-                    pass  # Fall through to return missing
-                except Exception as e:
-                    return (
+            # Native Tool Execution
+            # Validates step.args is not None
+            safe_args = step.args or {}  # Fix: Ensure dict for allowlist and CWD checks
+
+            # Simplified argument unpacking: Trust the plan, with minor legacy fallback
+            tool_args = safe_args
+            if (
+                "tool_args" in safe_args
+                and len(safe_args) == 1
+                and isinstance(safe_args.get("tool_args"), dict)
+            ):
+                tool_args = safe_args["tool_args"]
+
+            if tool_args is None:
+                tool_args = {}
+
+            allowlist = safe_args.get("allowed_tools")
+            if allowlist and step.tool not in allowlist:
+                # Legacy guard
+                yield {
+                    "type": "final",
+                    "data": (
                         {
                             "name": step.tool,
-                            "status": "error",
-                            "reason": f"Skill execution failed: {e}",
+                            "status": "skipped",
+                            "reason": "not-allowed",
                         },
                         tool_messages,
-                        "error",
-                    )
+                        "skipped",
+                    ),
+                }
+                return
 
-            return {"name": step.tool, "status": "missing"}, tool_messages, "missing"
+            # Inject CWD if provided and tool supports it
+            cwd = safe_args.get("cwd")  # Fix: Use safe_args
+            if not cwd and "cwd" in (request.metadata or {}):
+                cwd = (request.metadata or {}).get("cwd")
 
-        # Simplified argument unpacking: Trust the plan, with minor legacy fallback
-        tool_args = step.args
-        if (
-            "tool_args" in step.args
-            and len(step.args) == 1
-            and isinstance(step.args["tool_args"], dict)
-        ):
-            tool_args = step.args["tool_args"]
-
-        allowlist = step.args.get("allowed_tools") if isinstance(step.args, dict) else None
-        if allowlist and step.tool not in allowlist:
-            # Legacy guard, mostly for 'router' calls but safe to keep
-            return (
-                {"name": step.tool, "status": "skipped", "reason": "not-allowed"},
-                tool_messages,
-                "skipped",
-            )
-
-        # Inject CWD if provided and tool supports it
-        cwd = step.args.get("cwd")  # Explicit args take precedence
-        if not cwd and "cwd" in (request.metadata or {}):
-            cwd = (request.metadata or {}).get("cwd")
-
-        final_args = tool_args.copy()
-        if cwd:
-            # Check if tool.run accepts cwd
-            sig = inspect.signature(tool.run)
-            has_cwd = "cwd" in sig.parameters
-            has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
-            if has_cwd or has_kwargs:
-                final_args["cwd"] = cwd
-
-        with start_span(f"tool.call.{step.tool}"):
+            # Defensive copy
             try:
-                if tool.requires_confirmation:
-                    # Phase 3: Log warning but proceed.
-                    # Future Phase 4: Implement interactive pause.
+                final_args = tool_args.copy()
+            except AttributeError:
+                # Fallback if somehow tool_args is still None or weird
+                LOGGER.warning(f"tool_args was {type(tool_args)} instead of dict. Resetting.")
+                final_args = {}
 
-                    LOGGER.warning(
-                        f"SAFETY CHECK: Tool '{tool.name}' requires confirmation "
-                        "(Logic pending Phase 4)."
-                    )
+            if cwd:
+                # Check if tool.run accepts cwd
+                sig = inspect.signature(tool.run)
+                has_cwd = "cwd" in sig.parameters
+                has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                if has_cwd or has_kwargs:
+                    final_args["cwd"] = cwd
 
-                    # if not final_args.get("confirm_dangerous_action"):
-                    #    from core.tools.base import ToolConfirmationError
-                    #    raise ToolConfirmationError(tool.name, tool_args=final_args)
+            with start_span(f"tool.call.{step.tool}"):
+                try:
+                    if tool.requires_confirmation:
+                        # Phase 3: Log warning but proceed.
+                        LOGGER.warning(
+                            f"SAFETY CHECK: Tool '{tool.name}' requires confirmation "
+                            "(Logic pending Phase 4)."
+                        )
 
-                # Remove confirmation flag before calling tool
-                run_args = final_args.copy()
-                run_args.pop("confirm_dangerous_action", None)
+                    # Remove confirmation flag before calling tool
+                    run_args = (final_args or {}).copy()
+                    run_args.pop("confirm_dangerous_action", None)
 
-                output = await tool.run(**run_args)
-            except TypeError as exc:
-                return (
+                    output = None
+                    result_outputs = []  # Collect all result outputs
+                    if inspect.isasyncgenfunction(tool.run):
+                        async for chunk in tool.run(**run_args):
+                            if isinstance(chunk, dict) and chunk.get("type") == "thinking":
+                                yield {
+                                    "type": "thinking",
+                                    "content": chunk.get("content"),
+                                }
+                                await asyncio.sleep(0)  # Force flush
+                            elif isinstance(chunk, dict) and chunk.get("type") == "result":
+                                chunk_output = chunk.get("output")
+                                if chunk_output:
+                                    result_outputs.append(str(chunk_output))
+
+                        # Use all accumulated outputs, joined together
+                        if result_outputs:
+                            output = "\n".join(result_outputs)
+                        elif output is None:
+                            output = "No valid output from streaming tool."
+                    else:
+                        output = await tool.run(**run_args)
+                    output_text = str(output)
+
+                except TypeError as exc:
+                    yield {
+                        "type": "final",
+                        "data": (
+                            {
+                                "name": step.tool,
+                                "status": "error",
+                                "reason": f"Invalid arguments: {exc}",
+                            },
+                            tool_messages,
+                            "error",
+                        ),
+                    }
+                    return
+
+            # Phase 4: Integration Feedback
+            msg_content = f"Tool {step.tool} output:\n{output_text}"
+
+            # Phase 1: Active Observability - Error Interception
+            trace_status = "ok"
+            if (
+                output_text.startswith("Error:")
+                or "Traceback (most recent call last)" in output_text
+            ):
+                trace_status = "error"
+                set_span_status("ERROR", description=output_text[:200])
+                msg_content += (
+                    "\n\nSYSTEM HINT: The last tool call failed. "
+                    "Analyze the error above. If it is a syntax error, fix the code. "
+                    "If it is a logic error, adjust your plan args."
+                )
+
+            tool_messages.append(AgentMessage(role="system", content=msg_content))
+            trace_ctx = TraceContext(**current_trace_ids())
+            log_event(
+                ToolCallEvent(
+                    name=step.tool or "unknown",
+                    args=tool_args,
+                    status=trace_status,
+                    output_preview=output_text[:200],
+                    trace=trace_ctx,
+                )
+            )
+            yield {
+                "type": "final",
+                "data": (
+                    {"name": step.tool, "status": trace_status, "output": output_text},
+                    tool_messages,
+                    trace_status,
+                ),
+            }
+
+        except BaseException as e:
+            LOGGER.critical(f"CRITICAL FAILURE in _run_tool_gen: {e}", exc_info=True)
+            yield {
+                "type": "final",
+                "data": (
                     {
                         "name": step.tool,
                         "status": "error",
-                        "reason": f"Invalid arguments: {exc}",
+                        "reason": f"System Crash: {e}",
                     },
-                    tool_messages,
+                    [],
                     "error",
-                )
-        output_text = str(output)
-
-        # Phase 4: Integration Feedback
-        # If output is error, append a hint to the system message
-        msg_content = f"Tool {step.tool} output:\n{output_text}"
-        if output_text.startswith("Error:"):
-            msg_content += (
-                "\n\nSYSTEM HINT: The last tool call failed. "
-                "Analyze the error above. If it is a syntax error, fix the code. "
-                "If it is a logic error, adjust your plan args."
-            )
-
-        tool_messages.append(AgentMessage(role="system", content=msg_content))
-        trace_ctx = TraceContext(**current_trace_ids())
-        log_event(
-            ToolCallEvent(
-                name=step.tool or "unknown",
-                args=tool_args,
-                status="ok",
-                output_preview=output_text[:200],
-                trace=trace_ctx,
-            )
-        )
-        return (
-            {"name": step.tool, "status": "ok", "output": output_text},
-            tool_messages,
-            "ok",
-        )
+                ),
+            }
 
     async def _generate_completion(
         self,
@@ -355,6 +452,97 @@ class StepExecutorAgent:
                 )
             span.set_attribute("llm.output.size", len(completion_text))
             return completion_text, model_override
+
+    async def _execute_memory_step(
+        self,
+        step: PlanStep,
+        request: AgentRequest,
+        conversation_id: str,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute a memory search step."""
+        messages: list[AgentMessage] = []
+
+        query = step.args.get("query") or request.prompt
+        limit_value = step.args.get("limit")
+        try:
+            limit = int(limit_value) if limit_value is not None else 5
+        except (TypeError, ValueError):
+            limit = 5
+
+        records = await self._memory.search(
+            str(query), limit=limit, conversation_id=conversation_id
+        )
+
+        for record in records:
+            messages.append(
+                AgentMessage(
+                    role="system",
+                    content=f"Context memory: {record.text}",
+                )
+            )
+
+        result = {"count": len(records)}
+        status = "ok"
+        step_res = StepResult(step=step, status=status, result=result, messages=messages)
+        yield {"type": "result", "result": step_res}
+
+    async def _execute_completion_step(
+        self,
+        step: PlanStep,
+        request: AgentRequest,
+        prompt_history: list[AgentMessage],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute a completion step with streaming."""
+        settings = getattr(self._litellm, "_settings", None)
+        default_model = getattr(settings, "litellm_model", "agent-model")
+        model_override = str(step.args.get("model") or default_model)
+
+        with start_span("llm.call.assistant") as llm_span:
+            llm_span.set_attribute("model", model_override)
+            llm_span.set_attribute("step", str(step.id))
+
+            full_content = []
+
+            # Reconstruct messages list
+            # prompt_history already includes the user request from service.py
+            msgs_to_send = prompt_history
+
+            async for chunk in self._litellm.stream_chat(msgs_to_send, model=model_override):
+                if chunk["type"] == "content" and chunk["content"]:
+                    full_content.append(chunk["content"])
+                    yield {"type": "content", "content": chunk["content"]}
+                    await asyncio.sleep(0)  # Yield for flush
+                elif chunk["type"] == "error":
+                    raise Exception(chunk["content"])
+
+            completion_text = "".join(full_content)
+            llm_span.set_attribute("llm.output.size", len(completion_text))
+
+            result = {"completion": completion_text, "model": model_override}
+            status = "ok"
+
+            # Yield final result
+            step_res = StepResult(step=step, status=status, result=result, messages=[])
+            yield {"type": "result", "result": step_res}
+
+    async def _execute_tool_step(
+        self,
+        step: PlanStep,
+        request: AgentRequest,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute a tool step, wrapping the generator."""
+        async for tool_event in self._run_tool_gen(step, request):
+            if tool_event["type"] == "final":
+                result, messages, status = tool_event["data"]
+                step_res = StepResult(step=step, status=status, result=result, messages=messages)
+                yield {"type": "result", "result": step_res}
+            elif tool_event["type"] == "thinking":
+                yield {
+                    "type": "thinking",
+                    "content": tool_event["content"],
+                    "metadata": tool_event.get("metadata"),
+                }
+                await asyncio.sleep(0)  # Yield for flush
 
 
 __all__ = ["StepExecutorAgent", "StepResult"]

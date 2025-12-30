@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
 from typing import Any
 
@@ -33,8 +34,40 @@ class PlannerAgent:
         history: list[AgentMessage],
         tool_descriptions: list[dict[str, Any]],
         available_skills_text: str = "",
+        stream_callback: Callable[[str], Any] | None = None,
     ) -> Plan:
-        """Return a :class:`Plan` describing execution steps."""
+        """Return a :class:`Plan` describing execution steps.
+
+        Backward compatibility wrapper around generate_stream.
+        """
+        last_plan = None
+        async for event in self.generate_stream(
+            request,
+            history=history,
+            tool_descriptions=tool_descriptions,
+            available_skills_text=available_skills_text,
+        ):
+            if event["type"] == "plan":
+                last_plan = event["plan"]
+            elif event["type"] == "token" and stream_callback:
+                try:
+                    await stream_callback(event["content"])
+                except Exception as e:
+                    LOGGER.warning("Stream callback failed: %s", e)
+
+        if not last_plan:
+            raise ValueError("Planner failed to return a plan")
+        return last_plan
+
+    async def generate_stream(
+        self,
+        request: AgentRequest,
+        *,
+        history: list[AgentMessage],
+        tool_descriptions: list[dict[str, Any]],
+        available_skills_text: str = "",
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Generate a plan and yield tokens/results incrementally."""
 
         lines = []
         for entry in tool_descriptions:
@@ -118,7 +151,10 @@ class PlannerAgent:
                 "   to answer the user.\n"
                 "5. **MEMORY**: Use `action: memory` (args: { 'query': '...' }) \n"
                 "   to find context if needed.\n"
-                "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n\n"
+                "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n"
+                "7. **REQUIRED ARGS**: When calling `consult_expert`, you MUST provide \n"
+                "   the specific arguments required by that skill (e.g., 'domain' for \n"
+                "   researcher, 'repo' for git). Do not omit them.\n\n"
                 "### EXAMPLES\n"
                 "User: 'Research python 3.12'\n"
                 "Plan:\n"
@@ -127,7 +163,7 @@ class PlannerAgent:
                 '  "steps": [\n'
                 '    { "id": "1", "label": "Research", "executor": "agent", \n'
                 '      "action": "tool", "tool": "consult_expert", \n'
-                '      "args": { "skill": "researcher", \n'
+                '      "args": { "skill": "researcher", "domain": "technology", \n'
                 '                "goal": "Find features of Python 3.12" } },\n'
                 '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
                 '      "action": "completion" }\n'
@@ -175,10 +211,14 @@ class PlannerAgent:
                 else:
                     msgs = [system_message, user_message] + history_augmentation
 
-                plan_text = await self._litellm.plan(
-                    messages=msgs,
-                    model=model_name,
-                )
+                plan_text_chunks = []
+                async for chunk in self._litellm.stream_chat(msgs, model=model_name):
+                    if chunk["type"] == "content" and chunk["content"]:
+                        content = chunk["content"]
+                        plan_text_chunks.append(content)
+                        yield {"type": "token", "content": content}
+
+                plan_text = "".join(plan_text_chunks)
                 span.set_attribute("llm.output.size", len(plan_text))
                 if model_name:
                     span.set_attribute("llm.model", model_name)
@@ -205,7 +245,8 @@ class PlannerAgent:
                             )
                         )
                         span.set_attribute("plan.step_count", len(plan.steps))
-                        return plan
+                        yield {"type": "plan", "plan": plan}
+                        return
                     except ValidationError as exc:
                         exc_msg = str(exc)
                         LOGGER.warning(
@@ -250,12 +291,14 @@ class PlannerAgent:
                         )
                 else:
                     # Final fallback
-                    return Plan(
+                    final_plan = Plan(
                         steps=[],
                         description=(
                             f"Planner failed after {attempts} attempts. Last error: {exc_msg}"
                         ),
                     )
+                    yield {"type": "plan", "plan": final_plan}
+                    return
 
             raise RuntimeError("Unreachable: Planner loop exited without return")
 
