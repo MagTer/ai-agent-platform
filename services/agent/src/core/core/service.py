@@ -383,10 +383,15 @@ class AgentService:
 
                         # ─────────────────────────────────────────────────────────
                         # SUPERVISOR REVIEW (Adaptive Execution)
+                        # Skip review for completion steps - they're the final answer
                         # ─────────────────────────────────────────────────────────
-                        decision, reason = await step_supervisor.review(
-                            plan_step, step_execution_result
-                        )
+                        if plan_step.action == "completion":
+                            # Completion steps bypass supervision
+                            decision, reason = "ok", "Completion step (skipped review)"
+                        else:
+                            decision, reason = await step_supervisor.review(
+                                plan_step, step_execution_result
+                            )
 
                         if plan_step.action == "tool":
                             chunk_type = "tool_output"
