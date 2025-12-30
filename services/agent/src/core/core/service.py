@@ -378,7 +378,7 @@ class AgentService:
                                 yield {"type": "content", "content": event["content"]}
                             elif event["type"] == "thinking":
                                 # Fix 2: Merge metadata instead of overwriting
-                                meta = event.get("metadata", {}).copy()
+                                meta = (event.get("metadata") or {}).copy()
                                 meta["id"] = plan_step.id
                                 yield {
                                     "type": "thinking",

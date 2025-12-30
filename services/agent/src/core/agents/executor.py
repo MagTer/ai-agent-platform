@@ -195,14 +195,13 @@ class StepExecutorAgent:
                                 if chunk["type"] == "content" and chunk["content"]:
                                     content = chunk["content"]
                                     full_content.append(content)
-                                    # Yield thinking tokens for real-time feedback
+                                    # Stream skill output as regular content
                                     yield {
-                                        "type": "thinking",
+                                        "type": "content",
                                         "content": content,
-                                        "metadata": {"stream": True},
                                     }
                                     # Fix for Ketchup Effect: Force flush
-                                    await asyncio.sleep(0.01)
+                                    await asyncio.sleep(0)
                                 else:
                                     # Log debug info about non-content chunks
                                     if chunk.get("type") != "done":
@@ -336,10 +335,11 @@ class StepExecutorAgent:
                         )
 
                     # Remove confirmation flag before calling tool
-                    run_args = final_args.copy()
+                    run_args = (final_args or {}).copy()
                     run_args.pop("confirm_dangerous_action", None)
 
                     output = None
+                    result_outputs = []  # Collect all result outputs
                     if inspect.isasyncgenfunction(tool.run):
                         async for chunk in tool.run(**run_args):
                             if isinstance(chunk, dict) and chunk.get("type") == "thinking":
@@ -347,14 +347,20 @@ class StepExecutorAgent:
                                     "type": "thinking",
                                     "content": chunk.get("content"),
                                 }
-                                await asyncio.sleep(0.01)  # Force flush
+                                await asyncio.sleep(0)  # Force flush
                             elif isinstance(chunk, dict) and chunk.get("type") == "result":
-                                output = chunk.get("output")
+                                chunk_output = chunk.get("output")
+                                if chunk_output:
+                                    result_outputs.append(str(chunk_output))
 
-                        if output is None:
+                        # Use all accumulated outputs, joined together
+                        if result_outputs:
+                            output = "\n".join(result_outputs)
+                        elif output is None:
                             output = "No valid output from streaming tool."
                     else:
                         output = await tool.run(**run_args)
+                    output_text = str(output)
 
                 except TypeError as exc:
                     yield {
@@ -370,8 +376,6 @@ class StepExecutorAgent:
                         ),
                     }
                     return
-
-            output_text = str(output)
 
             # Phase 4: Integration Feedback
             msg_content = f"Tool {step.tool} output:\n{output_text}"

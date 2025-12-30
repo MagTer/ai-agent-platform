@@ -123,9 +123,15 @@ async def chat_completions(
     # The requirement says "Streaming-First", so we'll implement the streaming response.
     # OpenWebUI usually requests stream=True.
 
+    # Check for debug mode
+    debug_mode = "[DEBUG]" in user_message.upper()
+    if debug_mode:
+        # Strip [DEBUG] prefix from message
+        user_message = user_message.replace("[DEBUG]", "").replace("[debug]", "").strip()
+
     return StreamingResponse(
         stream_response_generator(
-            session_id, user_message, request.model, dispatcher, session, agent_service
+            session_id, user_message, request.model, dispatcher, session, agent_service, debug_mode
         ),
         media_type="text/event-stream",
     )
@@ -138,6 +144,7 @@ async def stream_response_generator(
     dispatcher: Dispatcher,
     db_session: AsyncSession,
     agent_service: AgentService,
+    debug_mode: bool = False,
 ) -> AsyncGenerator[str, None]:
     """
     Generates SSE events compatible with OpenAI API from AgentChunks.
@@ -161,6 +168,14 @@ async def stream_response_generator(
             content = agent_chunk.get("content")
 
             await asyncio.sleep(0)  # Force flush per chunk
+
+            # Debug mode: Show all chunks with raw JSON
+            if debug_mode:
+                debug_output = f"\n> 🐛 **[DEBUG]** Chunk Type: `{chunk_type}`\n"
+                debug_output += "> ```json\n"
+                debug_output += f"> {json.dumps(agent_chunk, indent=2)}\n"
+                debug_output += "> ```\n\n"
+                yield _format_chunk(chunk_id, created, model_name, debug_output)
 
             if chunk_type == "content" and content:
                 yield _format_chunk(chunk_id, created, model_name, content)
@@ -253,15 +268,28 @@ async def stream_response_generator(
                     )
 
             elif chunk_type == "tool_output":
-                yield _format_chunk(chunk_id, created, model_name, "\n> ✅ *Finished*\n")
+                # Check status in metadata to determine success/failure
+                status = (agent_chunk.get("metadata") or {}).get("status", "success")
+                if status == "error":
+                    yield _format_chunk(chunk_id, created, model_name, "\n> ❌ **Tool Failed**\n")
+                else:
+                    yield _format_chunk(chunk_id, created, model_name, "\n> ✅ *Finished*\n")
 
             elif chunk_type == "error":
                 formatted = f"\n> ❌ **Error:** {_clean_content(content)}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
-            # Explicitly ignore history_snapshot and other internal events
+            # Explicitly ignore history_snapshot and other internal events (unless debug mode)
             elif chunk_type in ["history_snapshot", "plan"]:
-                pass
+                if not debug_mode:
+                    pass
+                # In debug mode, these are already shown above
+
+            elif chunk_type == "result":
+                # Skill/tool final output - display as regular content
+                output = agent_chunk.get("output")
+                if output and isinstance(output, str):
+                    yield _format_chunk(chunk_id, created, model_name, output)
 
             else:
                 # Log but do not show unknown events to user to avoid noise

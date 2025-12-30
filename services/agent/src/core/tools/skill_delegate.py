@@ -106,7 +106,7 @@ class SkillDelegateTool(Tool):
             for i in range(max_turns):
                 LOGGER.debug(f"{logger_prefix} Turn {i+1}")
                 yield {"type": "thinking", "content": f"Worker ({skill}) Turn {i+1}..."}
-                await asyncio.sleep(0.01)  # Force flush
+                await asyncio.sleep(0)  # Force flush
 
                 with start_span(f"skill.turn.{i+1}"):
 
@@ -122,9 +122,8 @@ class SkillDelegateTool(Tool):
                                 content = chunk["content"]
                                 full_content.append(content)
                                 yield {
-                                    "type": "thinking",
+                                    "type": "content",
                                     "content": content,
-                                    "metadata": {"stream": True},
                                 }
 
                             # 2. Accumulate Tool Calls
@@ -180,7 +179,7 @@ class SkillDelegateTool(Tool):
                             "type": "thinking",
                             "content": f"Worker invoking {fname}...",
                         }
-                        await asyncio.sleep(0.01)  # Force flush
+                        await asyncio.sleep(0)  # Force flush
 
                         with start_span(f"skill.tool.{fname}"):
                             try:
