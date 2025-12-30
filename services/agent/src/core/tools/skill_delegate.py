@@ -30,13 +30,35 @@ class SkillDelegateTool(Tool):
         "Do not pass atomic tool names here."
     )
     category = "orchestration"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "skill": {
+                "type": "string",
+                "description": "The name of the skill/persona to delegate to (e.g., 'researcher').",
+            },
+            "goal": {
+                "type": "string",
+                "description": "The specific task or goal for the skill to accomplish.",
+            },
+        },
+        "required": ["skill", "goal"],
+    }
 
     def __init__(self, litellm: LiteLLMClient, registry: ToolRegistry) -> None:
         self._litellm = litellm
         self._registry = registry
 
-    async def run(self, skill: str, goal: str) -> AsyncGenerator[dict[str, Any], None]:  # type: ignore[override]
+    async def run(  # type: ignore[override]
+        self,
+        skill: str,
+        goal: str,
+        **kwargs: Any,  # Accept and ignore extra arguments from LLM
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a sub-agent loop for the given skill and goal."""
+        # Log any unexpected extra args for debugging
+        if kwargs:
+            LOGGER.debug(f"Ignoring extra args passed to consult_expert: {list(kwargs.keys())}")
 
         # 1. Load Skill
         try:
