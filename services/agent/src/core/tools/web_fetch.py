@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from modules.fetcher import get_fetcher
+from core.providers import get_fetcher
 
 from .base import Tool, ToolError
 

@@ -39,6 +39,24 @@ async def run_diagnostics(
     return await service.run_diagnostics()
 
 
+@router.get("/summary")
+async def get_diagnostics_summary(
+    service: DiagnosticsService = Depends(get_diagnostics_service),
+) -> dict:
+    """Get a machine-readable diagnostics summary for AI agent consumption.
+
+    Returns a structured report with:
+    - overall_status: HEALTHY | DEGRADED | CRITICAL
+    - failed_components: List of components with failure details and error codes
+    - recommended_actions: Prioritized list of fixes with recovery hints
+    - healthy_components: List of working components
+    - metrics: System health metrics from recent traces
+
+    This endpoint is optimized for AI agent self-diagnosis and automated remediation.
+    """
+    return await service.get_diagnostics_summary()
+
+
 @router.get("/", response_class=HTMLResponse)
 async def diagnostics_dashboard(
     service: DiagnosticsService = Depends(get_diagnostics_service),

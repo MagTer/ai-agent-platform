@@ -188,8 +188,30 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
     @app.on_event("startup")
     async def _startup_mcp_tools() -> None:
-        """Load MCP tools on application startup."""
+        """Load MCP tools and register providers on application startup."""
         import asyncio
+
+        # --- Dependency Injection: Register module implementations ---
+        # This is the ONLY place where modules are wired to core protocols.
+        # Core tools use providers, modules implement protocols.
+        from core.providers import (
+            set_code_indexer_factory,
+            set_embedder,
+            set_fetcher,
+            set_rag_manager,
+        )
+        from modules.embedder import get_embedder as get_module_embedder
+        from modules.fetcher import get_fetcher as get_module_fetcher
+        from modules.indexer import CodeIndexer
+        from modules.rag import RAGManager
+
+        # Register providers
+        set_embedder(get_module_embedder())
+        set_fetcher(get_module_fetcher())
+        set_rag_manager(RAGManager())
+        set_code_indexer_factory(CodeIndexer)
+
+        LOGGER.info("Dependency providers registered")
 
         # Initialize memory store (connect to Qdrant)
         await memory_store.ainit()
