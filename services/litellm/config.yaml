@@ -22,7 +22,7 @@ model_list:
 
   - model_name: supervisor
     litellm_params:
-      model: openrouter/deepseek/deepseek-r1
+      model: openrouter/meta-llama/llama-3.3-70b-instruct
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
       max_tokens: 16384
@@ -44,7 +44,7 @@ model_list:
 
   - model_name: agentchat
     litellm_params:
-      model: openrouter/deepseek/deepseek-v3.2
+      model: openrouter/meta-llama/llama-3.3-70b-instruct
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.5
       max_tokens: 8192

@@ -340,6 +340,7 @@ class StepExecutorAgent:
 
                     output = None
                     result_outputs = []  # Collect all result outputs
+                    content_chunks = []  # Collect content stream
                     if inspect.isasyncgenfunction(tool.run):
                         async for chunk in tool.run(**run_args):
                             if isinstance(chunk, dict) and chunk.get("type") == "thinking":
@@ -348,15 +349,28 @@ class StepExecutorAgent:
                                     "content": chunk.get("content"),
                                 }
                                 await asyncio.sleep(0)  # Force flush
+                            elif isinstance(chunk, dict) and chunk.get("type") == "content":
+                                # Forward content events and collect for final output
+                                if chunk_content := chunk.get("content"):
+                                    content_chunks.append(str(chunk_content))
+                                    yield {
+                                        "type": "content",
+                                        "content": chunk_content,
+                                    }
+                                    await asyncio.sleep(0)  # Force flush
                             elif isinstance(chunk, dict) and chunk.get("type") == "result":
                                 chunk_output = chunk.get("output")
                                 if chunk_output:
                                     result_outputs.append(str(chunk_output))
 
-                        # Use all accumulated outputs, joined together
-                        if result_outputs:
+                        # Prefer collected content stream over result outputs
+                        # Content chunks are the actual skill output (researcher, etc.)
+                        # Result outputs are status messages ("Worker finished.", etc.)
+                        if content_chunks:
+                            output = "".join(content_chunks)
+                        elif result_outputs:
                             output = "\n".join(result_outputs)
-                        elif output is None:
+                        else:
                             output = "No valid output from streaming tool."
                     else:
                         output = await tool.run(**run_args)

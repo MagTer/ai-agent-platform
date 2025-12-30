@@ -94,6 +94,28 @@ async def lifespan(app: FastAPI):
 
 ---
 
+## Adaptive Execution
+
+The agent uses an **Adaptive Execution** pattern where step outputs are semantically evaluated and the system can self-correct by re-planning.
+
+### Step Supervisor (`core/agents/supervisor_step.py`)
+
+After each step execution, `StepSupervisorAgent` uses an LLM to evaluate:
+- **Empty Results**: Did the step return nothing useful?
+- **Hidden Errors**: Are there error messages in the output text?
+- **Intent Mismatch**: Does the output address the step's goal?
+
+Returns: `{"decision": "ok" | "adjust", "reason": "..."}`
+
+### Re-planning Loop
+
+If `decision == "adjust"`:
+1. Feedback is injected into conversation history
+2. Execution halts and Planner generates a new plan
+3. Safety limit: max 3 re-plans to prevent infinite loops
+
+---
+
 ## Observability
 
 ### Structured Error Codes (`core/observability/error_codes.py`)

@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 import traceback
 import uuid
-from collections.abc import Iterable
+from collections.abc import AsyncGenerator, Iterable
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -186,14 +187,17 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         tool_registry=tool_registry,
     )
 
-    @app.on_event("startup")
-    async def _startup_mcp_tools() -> None:
-        """Load MCP tools and register providers on application startup."""
+    # Store service in app state for dependency injection
+    app.state.service = service_instance
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        """Manage application startup and shutdown lifecycle."""
         import asyncio
 
-        # --- Dependency Injection: Register module implementations ---
+        # --- STARTUP ---
+        # Dependency Injection: Register module implementations
         # This is the ONLY place where modules are wired to core protocols.
-        # Core tools use providers, modules implement protocols.
         from core.providers import (
             set_code_indexer_factory,
             set_embedder,
@@ -228,11 +232,19 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
         asyncio.create_task(warm_up_litellm())
 
-    @app.on_event("shutdown")
-    async def _shutdown() -> None:
+        yield  # Application runs here
+
+        # --- SHUTDOWN ---
         await litellm_client.aclose()
 
+    # Assign lifespan to app
+    app.router.lifespan_context = lifespan
+
     def get_service() -> AgentService:
+        """Return a singleton agent service instance."""
+
+        return service_instance
+
         """Return a singleton agent service instance."""
 
         return service_instance
