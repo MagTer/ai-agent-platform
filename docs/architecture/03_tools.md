@@ -180,11 +180,10 @@ result = await registry.get("web_fetch").run("https://example.com")
 
 `integration_checks.py` (in `scripts/`) walks the stack to ensure each tier responds, covering:
 
-1. Direct Ollama `/v1/chat/completions` + `/v1/models`.
-2. LiteLLM `/v1/chat/completions` proxy.
-3. Agent `/v1/agent` (verifying the plan contains a completion step).
-4. Qdrant `/collections` to confirm the vector database is up.
-5. Agent-invoked memory work (the plan contains a `memory` step) to prove the agent can reach Qdrant indirectly.
+1. LiteLLM `/v1/chat/completions` proxy to OpenRouter.
+2. Agent `/v1/agent` (verifying the plan contains a completion step).
+3. Qdrant `/collections` to confirm the vector database is up.
+4. Agent-invoked memory work (the plan contains a `memory` step).
 
 Run it from the repo root with the stack running:
 
@@ -192,4 +191,5 @@ Run it from the repo root with the stack running:
 python -m poetry run python scripts/integration_checks.py
 ```
 
-The helper now verifies the Ollama `/v1/models` response contains the single `llama3.1:8b` model and that LiteLLM only asks for the configured `local/llama3-en` backend before running `/v1/chat/completions`. You can override the shared model via `PRIMARY_MODEL` (Ollama) or `LITELLM_MODEL` (LiteLLM) when you swap to a different local backend, raise `INTEGRATION_TIMEOUT` (default `300s`) if completions routinely take longer, and tune `INTEGRATION_RETRY_DELAY` (default `10s`) to give LLMs time to warm up. You can still override the service URLs (`OLLAMA_URL`, `LITELLM_URL`, `AGENT_URL`, `QDRANT_URL`) when ports differ or you run the helper inside a container (point them at hostnames like `http://ollama:11434`). If Swedish responses are required, run the translator tool after the English completion or route the final answer through OpenRouter so the agent stays on the fast English model internally.
+You can override the service URLs (`LITELLM_URL`, `AGENT_URL`, `QDRANT_URL`) when ports differ.
+

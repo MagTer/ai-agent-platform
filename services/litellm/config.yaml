@@ -13,7 +13,7 @@ model_list:
     litellm_params:
       model: openrouter/meta-llama/llama-3.3-70b-instruct
       api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0.3
+      temperature: 0.1
       max_tokens: 8192
       rpm: 60
       extra_body:
@@ -46,7 +46,7 @@ model_list:
     litellm_params:
       model: openrouter/meta-llama/llama-3.3-70b-instruct
       api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0.5
+      temperature: 0.3
       max_tokens: 8192
       rpm: 60
       extra_body:

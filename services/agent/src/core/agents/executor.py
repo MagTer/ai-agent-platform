@@ -327,16 +327,7 @@ class StepExecutorAgent:
 
             with start_span(f"tool.call.{step.tool}"):
                 try:
-                    if tool.requires_confirmation:
-                        # Phase 3: Log warning but proceed.
-                        LOGGER.warning(
-                            f"SAFETY CHECK: Tool '{tool.name}' requires confirmation "
-                            "(Logic pending Phase 4)."
-                        )
-
-                    # Remove confirmation flag before calling tool
                     run_args = (final_args or {}).copy()
-                    run_args.pop("confirm_dangerous_action", None)
 
                     output = None
                     result_outputs = []  # Collect all result outputs

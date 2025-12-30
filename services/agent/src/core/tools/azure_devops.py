@@ -209,10 +209,8 @@ class AzureDevOpsTool(Tool):
                     ):
                         LOGGER.warning("AC field failed, appending to description.")
                         full_description += f"\n<h3>Acceptance Criteria</h3>\n{acceptance_criteria}"
-                        # Rebuild doc without AC field logic
-                        # (simplified for brevity, should re-apply Tags/Area)
 
-                        # Re-construct base doc
+                        # Rebuild doc without AC field - re-apply ALL fields
                         document = [
                             {
                                 "op": "add",
@@ -239,6 +237,22 @@ class AzureDevOpsTool(Tool):
                                     "op": "add",
                                     "path": "/fields/System.Tags",
                                     "value": "; ".join(final_tags),
+                                }
+                            )
+                        if start_date:
+                            document.append(
+                                {
+                                    "op": "add",
+                                    "path": "/fields/Microsoft.VSTS.Scheduling.StartDate",
+                                    "value": start_date,
+                                }
+                            )
+                        if target_date:
+                            document.append(
+                                {
+                                    "op": "add",
+                                    "path": "/fields/Microsoft.VSTS.Scheduling.TargetDate",
+                                    "value": target_date,
                                 }
                             )
 

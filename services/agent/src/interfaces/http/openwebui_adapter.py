@@ -237,18 +237,21 @@ async def stream_response_generator(
                     # Send as italics?
                     yield _format_chunk(chunk_id, created, model_name, content)
                 else:
-                    formatted = f"\n> 🧠 *{_clean_content(content)}*\n\n"
+                    role = (agent_chunk.get("metadata") or {}).get("role", "Agent")
+                    formatted = f"\n🧠 **{role}:** *{_clean_content(content)}*\n\n"
                     yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "step_start":
                 # Provide visibility into the plan
                 # Clean the content to handle dicts/JSON
                 label = _clean_content(content)
-                formatted = f"\n\n> 👣 **Step:** *{label}*\n\n"
+                role = (agent_chunk.get("metadata") or {}).get("role", "Executor")
+                formatted = f"\n\n👣 **{role}:** *{label}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "tool_start":
                 tool_call = agent_chunk.get("tool_call")
+                role = (agent_chunk.get("metadata") or {}).get("role", "Executor")
                 if tool_call:
                     tool_name = tool_call.get("name", "unknown")
                     args = tool_call.get("arguments", {})
@@ -292,9 +295,9 @@ async def stream_response_generator(
                         args_str = ""  # Fallback
 
                     if skill_name:
-                        formatted = f"\n> 🧠 **Using Skill:** `{skill_name}`\n"
+                        formatted = f"\n🧠 **{role}:** Using Skill `{skill_name}`\n"
                     else:
-                        formatted = f"\n> 🛠️ **Tool:** `{tool_name}` *{args_str}*\n"
+                        formatted = f"\n🛠️ **{role}:** `{tool_name}` *{args_str}*\n"
 
                     yield _format_chunk(
                         chunk_id,
@@ -305,14 +308,17 @@ async def stream_response_generator(
 
             elif chunk_type == "tool_output":
                 # Check status in metadata to determine success/failure
-                status = (agent_chunk.get("metadata") or {}).get("status", "success")
+                meta = agent_chunk.get("metadata") or {}
+                status = meta.get("status", "success")
+                role = meta.get("role", "Executor")
                 if status == "error":
-                    yield _format_chunk(chunk_id, created, model_name, "\n> ❌ **Tool Failed**\n")
+                    msg = f"\n❌ **{role}:** Failed\n"
                 else:
-                    yield _format_chunk(chunk_id, created, model_name, "\n> ✅ *Finished*\n")
+                    msg = f"\n✅ **{role}:** Done\n"
+                yield _format_chunk(chunk_id, created, model_name, msg)
 
             elif chunk_type == "error":
-                formatted = f"\n> ❌ **Error:** {_clean_content(content)}\n\n"
+                formatted = f"\n❌ **Error:** {_clean_content(content)}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             # Explicitly ignore history_snapshot and other internal events (unless debug mode)

@@ -1,21 +1,4 @@
 services:
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ./data/ollama:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    restart: always
-    networks:
-      - default
-
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     ports:
@@ -25,8 +8,6 @@ services:
     command: [ "--config", "/app/config.yaml", "--port", "4000" ]
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-    depends_on:
-      - ollama
     networks:
       - default
 

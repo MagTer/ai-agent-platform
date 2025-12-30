@@ -110,15 +110,20 @@ class TestChunkTypeHandling:
         assert data["choices"][0]["delta"]["content"] == "Hello"
 
     def test_thinking_chunk_formatting(self) -> None:
-        """Test thinking chunk produces expected format."""
-        # Thinking chunks are formatted with emoji and italics
-        chunk: dict[str, Any] = {"type": "thinking", "content": "Analyzing the problem"}
+        """Test thinking chunk produces expected format with role prefix."""
+        # Thinking chunks are formatted with icon first, then role prefix
+        chunk: dict[str, Any] = {
+            "type": "thinking",
+            "content": "Analyzing the problem",
+            "metadata": {"role": "Planner"},
+        }
         content = chunk.get("content", "")
-        formatted = f"\n> 🧠 *{_clean_content(content)}*\n\n"
+        role = (chunk.get("metadata") or {}).get("role", "Agent")
+        formatted = f"\n🧠 **{role}:** *{_clean_content(content)}*\n\n"
 
         result = _format_chunk("id", 0, "model", formatted)
         data = json.loads(result[6:-2])
-        assert "🧠" in data["choices"][0]["delta"]["content"]
+        assert "🧠 **Planner:**" in data["choices"][0]["delta"]["content"]
         assert "Analyzing the problem" in data["choices"][0]["delta"]["content"]
 
     def test_tool_output_success_formatting(self) -> None:
@@ -155,35 +160,37 @@ class TestChunkTypeHandling:
         assert error_message in data["choices"][0]["delta"]["content"]
 
     def test_step_start_formatting(self) -> None:
-        """Test step start chunk formatting."""
+        """Test step start chunk formatting with role prefix."""
         label = "Reading file"
-        formatted = f"\n\n> 👣 **Step:** *{label}*\n\n"
+        role = "Executor"
+        formatted = f"\n\n👣 **{role}:** *{label}*\n\n"
 
         result = _format_chunk("id", 0, "model", formatted)
         data = json.loads(result[6:-2])
-        assert "👣" in data["choices"][0]["delta"]["content"]
-        assert "Step" in data["choices"][0]["delta"]["content"]
+        assert "👣 **Executor:**" in data["choices"][0]["delta"]["content"]
         assert label in data["choices"][0]["delta"]["content"]
 
     def test_tool_start_formatting(self) -> None:
-        """Test tool start chunk formatting."""
+        """Test tool start chunk formatting with role prefix."""
         tool_name = "web_search"
         args_str = "(query=test)"
-        formatted = f"\n> 🛠️ **Tool:** `{tool_name}` *{args_str}*\n"
+        role = "Executor"
+        formatted = f"\n🛠️ **{role}:** `{tool_name}` *{args_str}*\n"
 
         result = _format_chunk("id", 0, "model", formatted)
         data = json.loads(result[6:-2])
-        assert "🛠️" in data["choices"][0]["delta"]["content"]
+        assert "🛠️ **Executor:**" in data["choices"][0]["delta"]["content"]
         assert tool_name in data["choices"][0]["delta"]["content"]
 
     def test_skill_start_formatting(self) -> None:
-        """Test skill (consult_expert) formatting."""
+        """Test skill (consult_expert) formatting with role prefix."""
         skill_name = "researcher"
-        formatted = f"\n> 🧠 **Using Skill:** `{skill_name}`\n"
+        role = "Executor"
+        formatted = f"\n🧠 **{role}:** Using Skill `{skill_name}`\n"
 
         result = _format_chunk("id", 0, "model", formatted)
         data = json.loads(result[6:-2])
-        assert "🧠" in data["choices"][0]["delta"]["content"]
+        assert "🧠 **Executor:**" in data["choices"][0]["delta"]["content"]
         assert "Using Skill" in data["choices"][0]["delta"]["content"]
         assert skill_name in data["choices"][0]["delta"]["content"]
 

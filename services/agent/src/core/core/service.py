@@ -232,12 +232,17 @@ class AgentService:
                             yield {
                                 "type": "thinking",
                                 "content": f"Generating plan... [TraceID: {trace_id}]",
+                                "metadata": {"role": "Planner"},
                             }
                         else:
                             yield {
                                 "type": "thinking",
                                 "content": f"Re-planning (attempt {replan_count}/{max_replans})...",
-                                "metadata": {"replan": True, "attempt": replan_count},
+                                "metadata": {
+                                    "role": "Planner",
+                                    "replan": True,
+                                    "attempt": replan_count,
+                                },
                             }
 
                         plan = None
@@ -273,6 +278,7 @@ class AgentService:
                             "type": "thinking",
                             "content": "Plan approved. Starting execution...",
                             "metadata": {
+                                "role": "Supervisor",
                                 "step": "init",
                                 "status": "planning_complete",
                                 "stream": False,
@@ -306,6 +312,7 @@ class AgentService:
                             "type": "step_start",
                             "content": plan_step.label,
                             "metadata": {
+                                "role": "Executor",
                                 "id": plan_step.id,
                                 "action": plan_step.action,
                                 "tool": plan_step.tool,
@@ -322,7 +329,7 @@ class AgentService:
                                     "name": plan_step.tool,
                                     "arguments": plan_step.args,
                                 },
-                                "metadata": {"id": plan_step.id},
+                                "metadata": {"role": "Executor", "id": plan_step.id},
                             }
 
                         step_execution_result: StepResult | None = None
@@ -468,6 +475,7 @@ class AgentService:
                                     "type": "thinking",
                                     "content": f"⚠️ Step rejected: {reason}. Re-planning...",
                                     "metadata": {
+                                        "role": "Supervisor",
                                         "supervisor_decision": "adjust",
                                         "reason": reason,
                                         "replans_remaining": replans_remaining - 1,
@@ -489,7 +497,7 @@ class AgentService:
                                         f"⚠️ Step issue: {reason}. "
                                         f"Max re-plans ({max_replans}) reached. Continuing..."
                                     ),
-                                    "metadata": {"max_replans_reached": True},
+                                    "metadata": {"role": "Supervisor", "max_replans_reached": True},
                                 }
 
                         # Check for completion step
@@ -514,7 +522,11 @@ class AgentService:
                 # ═══════════════════════════════════════════════════════════════════
 
                 if not completion_text:
-                    yield {"type": "thinking", "content": "Generating final answer..."}
+                    yield {
+                        "type": "thinking",
+                        "content": "Generating final answer...",
+                        "metadata": {"role": "Executor"},
+                    }
                     completion_text = await self._litellm.generate(prompt_history)
                     # Only yield content if we just generated it here
                     yield {
