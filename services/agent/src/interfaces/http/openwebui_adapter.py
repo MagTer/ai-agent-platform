@@ -179,8 +179,8 @@ async def stream_response_generator(
         async for agent_chunk in dispatcher.stream_message(
             session_id=session_id,
             message=message,
-            platform="web",  # defaulting to web
-            platform_id=None,
+            platform="openwebui",
+            platform_id=session_id,  # Link OpenWebUI sessions to persistent Conversation
             db_session=db_session,
             agent_service=agent_service,
         ):
