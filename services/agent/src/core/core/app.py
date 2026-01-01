@@ -232,6 +232,29 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
         asyncio.create_task(warm_up_litellm())
 
+        # Database retention cleanup - runs on startup and daily
+        async def retention_cleanup_loop() -> None:
+            """Run retention cleanup on startup, then daily."""
+            from core.db.engine import AsyncSessionLocal
+            from core.db.retention import run_retention_cleanup
+
+            # Initial cleanup on startup (after short delay)
+            await asyncio.sleep(30)  # Wait for DB to be fully ready
+
+            while True:
+                try:
+                    async with AsyncSessionLocal() as session:
+                        results = await run_retention_cleanup(session)
+                        LOGGER.info(f"Daily retention cleanup: {results}")
+                except Exception as e:
+                    LOGGER.error(f"Retention cleanup failed: {e}")
+
+                # Sleep for 24 hours
+                await asyncio.sleep(24 * 60 * 60)
+
+        asyncio.create_task(retention_cleanup_loop())
+        LOGGER.info("Retention cleanup scheduled (startup + daily)")
+
         yield  # Application runs here
 
         # --- SHUTDOWN ---
