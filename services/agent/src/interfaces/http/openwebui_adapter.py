@@ -111,10 +111,25 @@ async def chat_completions(
     if not user_message:
         raise HTTPException(status_code=400, detail="No user message found.")
 
-    # Use provided conversation_id or generate new one
-    session_id = (request.metadata or {}).get("conversation_id")
+    # Use provided conversation_id from various OpenWebUI sources
+    # OpenWebUI may send it in different fields depending on version
+    metadata = request.metadata or {}
+    session_id = (
+        metadata.get("conversation_id")
+        or metadata.get("chat_id")  # Some OpenWebUI versions use chat_id
+        or metadata.get("session_id")
+        or getattr(request, "chat_id", None)  # Direct field on request
+    )
+
     if not session_id:
+        # Fallback: Generate new UUID (will break context across messages!)
         session_id = str(uuid.uuid4())
+        LOGGER.warning(
+            f"No conversation_id in request, generated new: {session_id}. "
+            f"Metadata keys: {list(metadata.keys())}"
+        )
+    else:
+        LOGGER.info(f"Using session_id from request: {session_id}")
 
     # 2. Execute & Stream
     # We now enforce streaming or at least async generation for all requests

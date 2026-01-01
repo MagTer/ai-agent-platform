@@ -204,7 +204,11 @@ class Dispatcher:
             # Fetch history
             history = []
             if agent_service and db_session:
+                LOGGER.info(
+                    f"CHAT: Fetching history for conversation_id={conversation_id}"
+                )
                 history = await agent_service.get_history(conversation_id, db_session)
+                LOGGER.info(f"CHAT: Retrieved {len(history)} messages from history")
 
             # Stream response
             full_content = ""
@@ -284,10 +288,14 @@ class Dispatcher:
     ) -> str:
         """Helper to resolve conversation ID."""
         if not db_session:
+            LOGGER.debug(f"No db_session, returning session_id={session_id}")
             return session_id
 
         conversation_id = session_id
         if platform_id:
+            LOGGER.info(
+                f"Resolving conversation: platform={platform}, platform_id={platform_id}"
+            )
             stmt = select(Conversation).where(
                 Conversation.platform == platform,
                 Conversation.platform_id == platform_id,
@@ -296,6 +304,7 @@ class Dispatcher:
             conversation = result.scalar_one_or_none()
             if conversation:
                 conversation_id = str(conversation.id)
+                LOGGER.info(f"Found existing conversation: {conversation_id}")
             else:
                 # Create logic (simplified from original)
                 # We assume generic 'default' context exists or we create raw
@@ -314,6 +323,9 @@ class Dispatcher:
                 db_session.add(new_conv)
                 await db_session.flush()
                 conversation_id = str(new_conv.id)
+                LOGGER.info(f"Created new conversation: {conversation_id}")
+        else:
+            LOGGER.warning(f"No platform_id provided, using session_id={session_id}")
         return conversation_id
 
     async def _stream_agent_execution(
