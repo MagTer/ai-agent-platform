@@ -693,10 +693,17 @@ class AgentService:
 
     async def get_history(self, conversation_id: str, session: AsyncSession) -> list[AgentMessage]:
         """Retrieve the conversation history from the database."""
+        # Convert string to UUID for proper comparison with Session.conversation_id
+        try:
+            conv_uuid = uuid.UUID(conversation_id)
+        except ValueError:
+            LOGGER.warning(f"Invalid conversation_id format: {conversation_id}")
+            return []
+
         stmt = (
             select(Message)
             .join(Session)
-            .where(Session.conversation_id == conversation_id)
+            .where(Session.conversation_id == conv_uuid)
             .order_by(Message.created_at.asc())
         )
         result = await session.execute(stmt)
