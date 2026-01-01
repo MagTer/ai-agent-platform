@@ -40,16 +40,31 @@ You have UP TO 10 tool calls available. Use them wisely:
 
 ## OUTPUT FORMAT
 
-### Summary
-[High-level 2-3 sentence answer]
+Your response MUST follow this structure:
+
+### Research Summary
+[High-level 2-3 sentence answer to the user's question]
+
+### Search Process
+Document your search attempts for transparency:
+- **Query 1**: "[exact query]" → [X results, brief assessment: useful/not useful]
+- **Query 2**: "[exact query]" → [X results, brief assessment]
+(Include all search attempts, even failed ones)
+
+### Sources Consulted
+For each URL fetched, describe what you extracted:
+- [URL 1] - [What information was useful]
+- [URL 2] - [What information was useful]
 
 ### Key Findings
-- [Bullet point with specific detail]
-- [Another finding with source attribution]
+Detailed findings with source attribution:
+- [Finding 1] (Source: [URL or description])
+- [Finding 2] (Source: [URL or description])
+- [Finding 3] (Source: [URL or description])
 
-### Sources
-- [URL 1] - [Brief description of what it provided]
-- [URL 2] - [Brief description]
+### Confidence Assessment
+Rate your confidence in the findings:
+- **High**: Multiple sources confirm this information
+- **Medium**: Limited sources, but reliable
+- **Low**: Single source or conflicting information found
 
-### Search Attempts (if relevant)
-[List queries tried and results, especially if initial searches failed]

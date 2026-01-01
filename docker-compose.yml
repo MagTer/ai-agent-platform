@@ -25,6 +25,7 @@ services:
       - ./services/agent/tests:/app/tests
       - ./services/agent/scripts:/app/scripts
       - ./services/agent/pyproject.toml:/app/pyproject.toml
+      - agent_data:/app/data  # Persist trace logs across restarts
     environment:
       AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
       QDRANT_URL: http://qdrant:6333
@@ -106,6 +107,7 @@ services:
 
 volumes:
   postgres_data:
+  agent_data:  # For trace log persistence (24h+ retention)
 
 networks:
   default:

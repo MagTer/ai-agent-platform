@@ -143,10 +143,48 @@ info = format_error_for_ai(code)
 ---
 
 ## 6. SELF-CORRECTION & DEBUGGING
-The Agent can debug its own runtime errors.
+The Agent can debug its own runtime errors using the diagnostics APIs.
+
+### 6.1 Diagnostics API Reference
+Use these endpoints for autonomous troubleshooting:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/diagnostics/summary` | GET | AI-optimized health report with error codes and recovery hints |
+| `/diagnostics/crash-log` | GET | Read `last_crash.log` content via API (no file access needed) |
+| `/diagnostics/run` | POST | Run integration tests on all components |
+| `/diagnostics/traces` | GET | Get recent traces (add `?show_all=true` to include health checks) |
+| `/diagnostics/metrics` | GET | System health metrics with error hotspots |
+
+### 6.2 Troubleshooting Workflow
+1. **Check Health Status First:**
+   ```bash
+   curl http://localhost:8000/diagnostics/summary
+   ```
+   Returns `overall_status` (HEALTHY | DEGRADED | CRITICAL) and `recommended_actions`.
+
+2. **Read Crash Logs:**
+   ```bash
+   curl http://localhost:8000/diagnostics/crash-log
+   ```
+   Returns `{ "exists": true/false, "content": "...", "modified": "ISO timestamp" }`
+
+3. **Search Specific Traces:**
+   The diagnostics dashboard (`/diagnostics/`) includes:
+   - TraceID search box for filtering
+   - "Show diagnostic/health traces" toggle
+   - Span waterfall visualization
+
+4. **Run Integration Tests:**
+   ```bash
+   curl -X POST http://localhost:8000/diagnostics/run
+   ```
+   Tests: LiteLLM, Qdrant, PostgreSQL, SearXNG, Embedder, Internet, Workspace.
+
+### 6.3 Crash Logs
 * **Crash Logs**: Unhandled exceptions are written to `services/agent/last_crash.log`.
-* **Reading Logs**: Use the `read_file` tool to inspect this log.
-    * Path: `services/agent/last_crash.log` (Relative to service root)
+* **API Access**: Use `GET /diagnostics/crash-log` instead of file system access.
+* **Path**: `services/agent/last_crash.log` (Relative to service root)
 
 * **Agent Scenarios**: (Logic Verification)
     * **MANDATORY:** Every feature flow needs a scenario test in `src/core/tests/test_agent_scenarios.py`.

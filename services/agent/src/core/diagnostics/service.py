@@ -182,8 +182,8 @@ class DiagnosticsService:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 # Use return_exceptions=True so one crash doesn't kill the batch
+                # Note: Ollama check removed - no longer part of the architecture
                 results = await asyncio.gather(
-                    self._check_ollama(client),
                     self._check_qdrant(client),
                     self._check_litellm(client),
                     self._check_embedder(client),
@@ -609,9 +609,32 @@ class DiagnosticsService:
                 message=str(e),
             )
 
-    def get_recent_traces(self, limit: int = 1000) -> list[TraceGroup]:
+    # Patterns for diagnostic/health-check traces to hide by default
+    _HIDE_PATTERNS = [
+        "GET /diagnostics",
+        "POST /diagnostics",
+        "GET /v1/models",
+        "/health",
+        "/readiness",
+        "/liveness",
+    ]
+
+    def _should_hide_trace(self, trace_group: TraceGroup) -> bool:
+        """Check if a trace should be hidden from default view."""
+        root_name = trace_group.root.name
+        root_attrs = trace_group.root.attributes
+        # Check name and http.target attribute
+        target = root_attrs.get("http.target", "") or root_attrs.get("http.route", "")
+        combined = f"{root_name} {target}"
+        return any(pattern.lower() in combined.lower() for pattern in self._HIDE_PATTERNS)
+
+    def get_recent_traces(self, limit: int = 1000, show_all: bool = False) -> list[TraceGroup]:
         """
         Read log, group by trace_id, and return valid trace groups.
+
+        Args:
+            limit: Maximum number of trace lines to read.
+            show_all: If True, include diagnostic/health-check traces. Default False.
         """
         if not self._trace_log_path.exists():
             LOGGER.warning(f"Trace log not found at {self._trace_log_path}")
@@ -704,4 +727,9 @@ class DiagnosticsService:
 
         # 4. Sort by Newest First
         trace_groups.sort(key=lambda g: g.start_time, reverse=True)
+
+        # 5. Filter out diagnostic/health-check traces unless show_all is True
+        if not show_all:
+            trace_groups = [g for g in trace_groups if not self._should_hide_trace(g)]
+
         return trace_groups

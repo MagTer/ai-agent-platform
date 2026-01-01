@@ -246,7 +246,18 @@ async def stream_response_generator(
                 # Clean the content to handle dicts/JSON
                 label = _clean_content(content)
                 role = (agent_chunk.get("metadata") or {}).get("role", "Executor")
-                formatted = f"\n\n👣 **{role}:** *{label}*\n\n"
+                action = (agent_chunk.get("metadata") or {}).get("action", "")
+                tool_name = (agent_chunk.get("metadata") or {}).get("tool", "")
+                
+                # Improve labels for clarity
+                if action == "completion":
+                    formatted = "\n\n📝 **Agent:** *Composing final answer*\n\n"
+                elif tool_name == "consult_expert":
+                    args = (agent_chunk.get("metadata") or {}).get("args") or {}
+                    skill = args.get("skill", "expert")
+                    formatted = f"\n\n🧠 **{skill.title()}:** *Starting research*\n\n"
+                else:
+                    formatted = f"\n\n👣 **{role}:** *{label}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "tool_start":
@@ -311,10 +322,20 @@ async def stream_response_generator(
                 meta = agent_chunk.get("metadata") or {}
                 status = meta.get("status", "success")
                 role = meta.get("role", "Executor")
-                if status == "error":
-                    msg = f"\n❌ **{role}:** Failed\n"
+                tool_name = meta.get("name", "")
+                
+                # Improve labels based on tool type
+                if tool_name == "consult_expert":
+                    skill = meta.get("skill", "Research")
+                    if status == "error":
+                        msg = f"\n❌ **{skill.title()}:** Research failed\n"
+                    else:
+                        msg = f"\n✅ **{skill.title()}:** Research complete\n"
                 else:
-                    msg = f"\n✅ **{role}:** Done\n"
+                    if status == "error":
+                        msg = f"\n❌ **{role}:** Failed\n"
+                    else:
+                        msg = f"\n✅ **{role}:** Done\n"
                 yield _format_chunk(chunk_id, created, model_name, msg)
 
             elif chunk_type == "error":
