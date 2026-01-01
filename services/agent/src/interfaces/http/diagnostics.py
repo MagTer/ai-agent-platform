@@ -97,6 +97,42 @@ async def get_crash_log() -> dict[str, Any]:
         return {"exists": False, "content": None, "message": f"Read error: {e}"}
 
 
+@router.post("/retention")
+async def run_retention(
+    message_days: int = 30,
+    inactive_days: int = 90,
+    max_messages: int = 500,
+) -> dict[str, Any]:
+    """Run database retention cleanup.
+
+    Args:
+        message_days: Delete messages older than this (default 30).
+        inactive_days: Delete conversations inactive for this long (default 90).
+        max_messages: Max messages per conversation (default 500).
+
+    Returns summary of deleted records.
+    """
+    from core.db.engine import AsyncSessionLocal
+    from core.db.retention import run_retention_cleanup
+
+    async with AsyncSessionLocal() as session:
+        results = await run_retention_cleanup(
+            session,
+            message_retention_days=message_days,
+            inactive_conversation_days=inactive_days,
+            max_messages_per_conversation=max_messages,
+        )
+        return {
+            "status": "completed",
+            "settings": {
+                "message_days": message_days,
+                "inactive_days": inactive_days,
+                "max_messages": max_messages,
+            },
+            **results,
+        }
+
+
 @router.get("/", response_class=HTMLResponse)
 async def diagnostics_dashboard(
     service: DiagnosticsService = Depends(get_diagnostics_service),
