@@ -119,7 +119,7 @@ class SkillDelegateTool(Tool):
         LOGGER.info(f"{logger_prefix} Starting goal: {goal}")
 
         # Import tracing only inside method to avoid circular imports
-        from core.observability.tracing import start_span
+        from core.observability.tracing import set_span_attributes, start_span
 
         max_turns = 10
 
@@ -129,7 +129,12 @@ class SkillDelegateTool(Tool):
                 yield {"type": "thinking", "content": f"Worker ({skill}) Turn {i+1}..."}
                 await asyncio.sleep(0)  # Force flush
 
-                with start_span(f"skill.turn.{i+1}"):
+                with start_span(f"skill.turn.{i+1}") as _turn_span:
+                    # Capture turn metadata
+                    set_span_attributes({
+                        "skill.turn": i + 1,
+                        "skill.name": skill,
+                    })
 
                     # Stream tokens instead of blocking
                     full_content = []
@@ -202,14 +207,28 @@ class SkillDelegateTool(Tool):
                         }
                         await asyncio.sleep(0)  # Force flush
 
-                        with start_span(f"skill.tool.{fname}"):
+                        with start_span(f"skill.tool.{fname}") as _tool_span:
+                            # Capture tool call details for diagnostics
                             try:
                                 fargs = json.loads(func["arguments"])
                             except json.JSONDecodeError:
                                 fargs = {}
 
-                            tool_obj = next((t for t in worker_tools if t.name == fname), None)
+                            # Add detailed attributes for search queries
+                            tool_attrs = {
+                                "tool.name": fname,
+                                "tool.args": json.dumps(fargs)[:500],  # Truncate
+                            }
+                            # Extract query specifically for search tools
+                            if "query" in fargs:
+                                tool_attrs["search.query"] = str(fargs["query"])[:200]
+                            if "url" in fargs:
+                                tool_attrs["fetch.url"] = str(fargs["url"])[:200]
+                            set_span_attributes(tool_attrs)
 
+                            tool_obj = next(
+                                (t for t in worker_tools if t.name == fname), None
+                            )
                             output_str = ""
                             if tool_obj:
                                 LOGGER.info(f"{logger_prefix} Executing {fname}")
@@ -217,10 +236,21 @@ class SkillDelegateTool(Tool):
                                     # Check if tool is also streaming?
                                     # For now, assume other tools are atomic.
                                     output_str = str(await tool_obj.run(**fargs))
+                                    # Capture output summary in span
+                                    set_span_attributes({
+                                        "tool.output_preview": output_str[:500],
+                                        "tool.output_length": len(output_str),
+                                        "tool.status": "success",
+                                    })
                                 except Exception as e:
                                     output_str = f"Error: {e}"
+                                    set_span_attributes({
+                                        "tool.status": "error",
+                                        "tool.error": str(e)[:200],
+                                    })
                             else:
                                 output_str = f"Error: Tool {fname} not found in worker context."
+                                set_span_attributes({"tool.status": "not_found"})
 
                             messages.append(
                                 AgentMessage(
