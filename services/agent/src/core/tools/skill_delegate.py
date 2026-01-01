@@ -215,15 +215,32 @@ class SkillDelegateTool(Tool):
                                 fargs = {}
 
                             # Add detailed attributes for search queries
-                            tool_attrs = {
+                            tool_attrs: dict[str, str | int] = {
                                 "tool.name": fname,
                                 "tool.args": json.dumps(fargs)[:500],  # Truncate
                             }
-                            # Extract query specifically for search tools
+                            # Extract common tool-specific attributes
+                            # Search tools (web_search, search_code, tibp_wiki_search)
                             if "query" in fargs:
                                 tool_attrs["search.query"] = str(fargs["query"])[:200]
+                            # Web fetch
                             if "url" in fargs:
                                 tool_attrs["fetch.url"] = str(fargs["url"])[:200]
+                            # File operations (read_file, write_to_file)
+                            if "path" in fargs:
+                                tool_attrs["file.path"] = str(fargs["path"])[:200]
+                            if "file_path" in fargs:
+                                tool_attrs["file.path"] = str(fargs["file_path"])[:200]
+                            # Azure DevOps
+                            if "action" in fargs:
+                                tool_attrs["devops.action"] = str(fargs["action"])
+                            if "work_item_id" in fargs:
+                                tool_attrs["devops.work_item_id"] = int(fargs["work_item_id"])
+                            if "type" in fargs:
+                                tool_attrs["devops.type"] = str(fargs["type"])
+                            # Test runner
+                            if "test_path" in fargs:
+                                tool_attrs["test.path"] = str(fargs["test_path"])[:200]
                             set_span_attributes(tool_attrs)
 
                             tool_obj = next(
