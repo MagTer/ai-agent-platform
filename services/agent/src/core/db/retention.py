@@ -72,9 +72,7 @@ async def cleanup_inactive_conversations(
     inactive_convs = (
         select(Conversation.id)
         .outerjoin(subq, Conversation.id == subq.c.conversation_id)
-        .where(
-            (subq.c.last_activity < cutoff) | (subq.c.last_activity.is_(None))
-        )
+        .where((subq.c.last_activity < cutoff) | (subq.c.last_activity.is_(None)))
         .where(Conversation.updated_at < cutoff)
     )
 
@@ -148,8 +146,7 @@ async def trim_conversation_messages(
     if total_trimmed > 0:
         await db_session.commit()
         LOGGER.info(
-            f"Retention: Trimmed {total_trimmed} messages "
-            f"(max {max_messages} per conversation)"
+            f"Retention: Trimmed {total_trimmed} messages " f"(max {max_messages} per conversation)"
         )
 
     return total_trimmed
@@ -168,9 +165,7 @@ async def run_retention_cleanup(
     LOGGER.info("Starting retention cleanup...")
 
     results = {
-        "old_messages_deleted": await cleanup_old_messages(
-            db_session, message_retention_days
-        ),
+        "old_messages_deleted": await cleanup_old_messages(db_session, message_retention_days),
         "inactive_conversations_deleted": await cleanup_inactive_conversations(
             db_session, inactive_conversation_days
         ),

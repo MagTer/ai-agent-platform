@@ -5,15 +5,15 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
+from shared.models import AgentMessage, AgentRequest, Plan, PlanStep, RoutingDecision
+from shared.streaming import AgentChunk
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from utils.template import substitute_variables
 
 from core.core.litellm_client import LiteLLMClient
 from core.core.routing import registry
 from core.db.models import Context, Conversation, Message, Session
-from shared.models import AgentMessage, AgentRequest, Plan, PlanStep, RoutingDecision
-from shared.streaming import AgentChunk
-from utils.template import substitute_variables
 
 from .skill_loader import SkillLoader
 
@@ -50,6 +50,7 @@ class Dispatcher:
         platform_id: str | None = None,
         db_session: AsyncSession | None = None,
         agent_service: Any = None,
+        history: list | None = None,
     ) -> AsyncGenerator[AgentChunk, None]:
         """
         Routes and streams a user message.
@@ -96,6 +97,7 @@ class Dispatcher:
                         db_session=db_session,
                         agent_service=agent_service,
                         metadata={"skill": skill.name, "tools": skill.tools},
+                        history=history,
                     ):
                         yield chunk
                     return
@@ -160,6 +162,7 @@ class Dispatcher:
                 db_session=db_session,
                 agent_service=agent_service,
                 metadata={"plan": plan.model_dump()},
+                history=history,
             ):
                 yield chunk
             return
@@ -196,19 +199,10 @@ class Dispatcher:
 
         if "CHAT" in classification:
             # Direct Streaming Chat
-            # We need history? Dispatcher doesn't fetch history easily
-            # We'll rely on AgentService-like logic or just fetch it if needed.
-            # But the requirement is to use LLMClient.
-            # For strict CHAT, we should append to DB history.
-
-            # Fetch history
-            history = []
-            if agent_service and db_session:
-                LOGGER.info(
-                    f"CHAT: Fetching history for conversation_id={conversation_id}"
-                )
-                history = await agent_service.get_history(conversation_id, db_session)
-                LOGGER.info(f"CHAT: Retrieved {len(history)} messages from history")
+            # Use injected history from OpenWebUI if available, otherwise fall back to DB
+            chat_history = history or []
+            if not chat_history and agent_service and db_session:
+                chat_history = await agent_service.get_history(conversation_id, db_session)
 
             # Stream response
             full_content = ""
@@ -221,7 +215,7 @@ class Dispatcher:
                 role="system", content=f"Current Date: {now}. You are live in {year}."
             )
 
-            chat_messages = [system_msg] + history
+            chat_messages = [system_msg] + chat_history
             chat_messages.append(AgentMessage(role="user", content=stripped_message))
 
             async for chunk in self.litellm.stream_chat(messages=chat_messages):
@@ -276,6 +270,7 @@ class Dispatcher:
                 db_session=db_session,
                 agent_service=agent_service,
                 metadata={"routing_decision": RoutingDecision.AGENTIC},
+                history=history,
             ):
                 yield chunk
 
@@ -288,14 +283,10 @@ class Dispatcher:
     ) -> str:
         """Helper to resolve conversation ID."""
         if not db_session:
-            LOGGER.debug(f"No db_session, returning session_id={session_id}")
             return session_id
 
         conversation_id = session_id
         if platform_id:
-            LOGGER.info(
-                f"Resolving conversation: platform={platform}, platform_id={platform_id}"
-            )
             stmt = select(Conversation).where(
                 Conversation.platform == platform,
                 Conversation.platform_id == platform_id,
@@ -304,7 +295,6 @@ class Dispatcher:
             conversation = result.scalar_one_or_none()
             if conversation:
                 conversation_id = str(conversation.id)
-                LOGGER.info(f"Found existing conversation: {conversation_id}")
             else:
                 # Create logic (simplified from original)
                 # We assume generic 'default' context exists or we create raw
@@ -323,9 +313,6 @@ class Dispatcher:
                 db_session.add(new_conv)
                 await db_session.flush()
                 conversation_id = str(new_conv.id)
-                LOGGER.info(f"Created new conversation: {conversation_id}")
-        else:
-            LOGGER.warning(f"No platform_id provided, using session_id={session_id}")
         return conversation_id
 
     async def _stream_agent_execution(
@@ -335,6 +322,7 @@ class Dispatcher:
         db_session: AsyncSession | None,
         agent_service: Any,
         metadata: dict[str, Any],
+        history: list | None = None,
     ) -> AsyncGenerator[AgentChunk, None]:
         """
         Execute agent service and yield chunks.
@@ -350,7 +338,12 @@ class Dispatcher:
             }
             return
 
-        request = AgentRequest(prompt=prompt, conversation_id=conversation_id, metadata=metadata)
+        request = AgentRequest(
+            prompt=prompt,
+            conversation_id=conversation_id,
+            metadata=metadata,
+            messages=history,
+        )
 
         try:
             # Stream events from AgentService

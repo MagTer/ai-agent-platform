@@ -60,6 +60,11 @@ class ChatCompletionRequest(BaseModel):
     messages: list[ChatMessage]
     stream: bool = False
     metadata: dict[str, Any] | None = None
+    # OpenWebUI sends these for conversation tracking
+    chat_id: str | None = None
+    session_id: str | None = None
+    # Allow additional fields OpenWebUI might send (params, features, etc)
+    model_config = {"extra": "ignore"}
 
 
 # --- Dependencies ---
@@ -111,27 +116,30 @@ async def chat_completions(
     if not user_message:
         raise HTTPException(status_code=400, detail="No user message found.")
 
-    # Use provided conversation_id from various OpenWebUI sources
-    # OpenWebUI may send it in different fields depending on version
-    metadata = request.metadata or {}
-    session_id = (
-        metadata.get("conversation_id")
-        or metadata.get("chat_id")  # Some OpenWebUI versions use chat_id
-        or metadata.get("session_id")
-        or getattr(request, "chat_id", None)  # Direct field on request
+    # Use chat_id from OpenWebUI as the conversation identifier
+    # Browser capture confirmed OpenWebUI sends this in every request
+    conversation_id = (
+        request.chat_id or request.session_id or (request.metadata or {}).get("conversation_id")
     )
-
-    if not session_id:
-        # Fallback: Generate new UUID (will break context across messages!)
-        session_id = str(uuid.uuid4())
-        LOGGER.warning(
-            f"No conversation_id in request, generated new: {session_id}. "
-            f"Metadata keys: {list(metadata.keys())}"
-        )
+    if not conversation_id:
+        conversation_id = str(uuid.uuid4())
+        LOGGER.warning(f"No chat_id in request, generated new: {conversation_id}")
     else:
-        LOGGER.info(f"Using session_id from request: {session_id}")
+        LOGGER.info(f"Using chat_id from request: {conversation_id}")
 
-    # 2. Execute & Stream
+    # 2. Extract conversation history
+    # OpenWebUI sends full history in each request - we must pass it to the agent
+    from shared.models import AgentMessage
+
+    history: list[AgentMessage] = []
+    if len(request.messages) > 1:
+        # All messages except the last one (which is the current user message)
+        history = [
+            AgentMessage(role=msg.role, content=msg.content) for msg in request.messages[:-1]
+        ]
+        LOGGER.info(f"Extracted {len(history)} messages from history")
+
+    # 3. Execute & Stream
     # We now enforce streaming or at least async generation for all requests
     # If request.stream is False, we should accumulate (MVP: just stream anyway or error?).
     # OpenAI allows stream=False.
@@ -146,7 +154,14 @@ async def chat_completions(
 
     return StreamingResponse(
         stream_response_generator(
-            session_id, user_message, request.model, dispatcher, session, agent_service, debug_mode
+            conversation_id,
+            user_message,
+            request.model,
+            dispatcher,
+            session,
+            agent_service,
+            debug_mode,
+            history,
         ),
         media_type="text/event-stream",
     )
@@ -160,6 +175,7 @@ async def stream_response_generator(
     db_session: AsyncSession,
     agent_service: AgentService,
     debug_mode: bool = False,
+    history: list | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Generates SSE events compatible with OpenAI API from AgentChunks.
@@ -194,10 +210,11 @@ async def stream_response_generator(
         async for agent_chunk in dispatcher.stream_message(
             session_id=session_id,
             message=message,
-            platform="openwebui",
-            platform_id=session_id,  # Link OpenWebUI sessions to persistent Conversation
+            platform="web",  # defaulting to web
+            platform_id=None,
             db_session=db_session,
             agent_service=agent_service,
+            history=history,  # Pass conversation history to dispatcher
         ):
             chunk_type = agent_chunk["type"]
             content = agent_chunk.get("content")
@@ -263,7 +280,7 @@ async def stream_response_generator(
                 role = (agent_chunk.get("metadata") or {}).get("role", "Executor")
                 action = (agent_chunk.get("metadata") or {}).get("action", "")
                 tool_name = (agent_chunk.get("metadata") or {}).get("tool", "")
-                
+
                 # Improve labels for clarity
                 if action == "completion":
                     formatted = "\n\n📝 **Agent:** *Composing final answer*\n\n"
@@ -338,7 +355,7 @@ async def stream_response_generator(
                 status = meta.get("status", "success")
                 role = meta.get("role", "Executor")
                 tool_name = meta.get("name", "")
-                
+
                 # Improve labels based on tool type
                 if tool_name == "consult_expert":
                     skill = meta.get("skill", "Research")

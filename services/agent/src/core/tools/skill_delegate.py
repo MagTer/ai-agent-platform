@@ -9,11 +9,12 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, cast
 
+from shared.models import AgentMessage
+
 from core.command_loader import load_command
 from core.core.litellm_client import LiteLLMClient
 from core.tools.base import Tool
 from core.tools.registry import ToolRegistry
-from shared.models import AgentMessage
 
 LOGGER = logging.getLogger(__name__)
 
@@ -131,10 +132,12 @@ class SkillDelegateTool(Tool):
 
                 with start_span(f"skill.turn.{i+1}") as _turn_span:
                     # Capture turn metadata
-                    set_span_attributes({
-                        "skill.turn": i + 1,
-                        "skill.name": skill,
-                    })
+                    set_span_attributes(
+                        {
+                            "skill.turn": i + 1,
+                            "skill.name": skill,
+                        }
+                    )
 
                     # Stream tokens instead of blocking
                     full_content = []
@@ -243,9 +246,7 @@ class SkillDelegateTool(Tool):
                                 tool_attrs["test.path"] = str(fargs["test_path"])[:200]
                             set_span_attributes(tool_attrs)
 
-                            tool_obj = next(
-                                (t for t in worker_tools if t.name == fname), None
-                            )
+                            tool_obj = next((t for t in worker_tools if t.name == fname), None)
                             output_str = ""
                             if tool_obj:
                                 LOGGER.info(f"{logger_prefix} Executing {fname}")
@@ -254,17 +255,21 @@ class SkillDelegateTool(Tool):
                                     # For now, assume other tools are atomic.
                                     output_str = str(await tool_obj.run(**fargs))
                                     # Capture output summary in span
-                                    set_span_attributes({
-                                        "tool.output_preview": output_str[:500],
-                                        "tool.output_length": len(output_str),
-                                        "tool.status": "success",
-                                    })
+                                    set_span_attributes(
+                                        {
+                                            "tool.output_preview": output_str[:500],
+                                            "tool.output_length": len(output_str),
+                                            "tool.status": "success",
+                                        }
+                                    )
                                 except Exception as e:
                                     output_str = f"Error: {e}"
-                                    set_span_attributes({
-                                        "tool.status": "error",
-                                        "tool.error": str(e)[:200],
-                                    })
+                                    set_span_attributes(
+                                        {
+                                            "tool.status": "error",
+                                            "tool.error": str(e)[:200],
+                                        }
+                                    )
                             else:
                                 output_str = f"Error: Tool {fname} not found in worker context."
                                 set_span_attributes({"tool.status": "not_found"})

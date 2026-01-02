@@ -8,6 +8,15 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    Plan,
+    PlanStep,
+    RoutingDecision,
+    StepResult,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,15 +43,6 @@ from core.observability.tracing import (
 from core.system_commands import handle_system_command
 from core.tools import SkillDelegateTool, ToolRegistry
 from core.tools.base import ToolConfirmationError
-from shared.models import (
-    AgentMessage,
-    AgentRequest,
-    AgentResponse,
-    Plan,
-    PlanStep,
-    RoutingDecision,
-    StepResult,
-)
 
 from .memory import MemoryRecord
 
@@ -693,17 +693,10 @@ class AgentService:
 
     async def get_history(self, conversation_id: str, session: AsyncSession) -> list[AgentMessage]:
         """Retrieve the conversation history from the database."""
-        # Convert string to UUID for proper comparison with Session.conversation_id
-        try:
-            conv_uuid = uuid.UUID(conversation_id)
-        except ValueError:
-            LOGGER.warning(f"Invalid conversation_id format: {conversation_id}")
-            return []
-
         stmt = (
             select(Message)
             .join(Session)
-            .where(Session.conversation_id == conv_uuid)
+            .where(Session.conversation_id == conversation_id)
             .order_by(Message.created_at.asc())
         )
         result = await session.execute(stmt)
