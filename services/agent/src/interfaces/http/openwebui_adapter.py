@@ -60,6 +60,11 @@ class ChatCompletionRequest(BaseModel):
     messages: list[ChatMessage]
     stream: bool = False
     metadata: dict[str, Any] | None = None
+    # OpenWebUI sends these for conversation tracking
+    chat_id: str | None = None
+    session_id: str | None = None
+    # Allow additional fields OpenWebUI might send (params, features, etc)
+    model_config = {"extra": "ignore"}
 
 
 # --- Dependencies ---
@@ -111,12 +116,30 @@ async def chat_completions(
     if not user_message:
         raise HTTPException(status_code=400, detail="No user message found.")
 
-    # Use provided conversation_id or generate new one
-    session_id = (request.metadata or {}).get("conversation_id")
-    if not session_id:
-        session_id = str(uuid.uuid4())
+    # Use chat_id from OpenWebUI as the conversation identifier
+    # Browser capture confirmed OpenWebUI sends this in every request
+    conversation_id = (
+        request.chat_id or request.session_id or (request.metadata or {}).get("conversation_id")
+    )
+    if not conversation_id:
+        conversation_id = str(uuid.uuid4())
+        LOGGER.warning(f"No chat_id in request, generated new: {conversation_id}")
+    else:
+        LOGGER.info(f"Using chat_id from request: {conversation_id}")
 
-    # 2. Execute & Stream
+    # 2. Extract conversation history
+    # OpenWebUI sends full history in each request - we must pass it to the agent
+    from shared.models import AgentMessage
+
+    history: list[AgentMessage] = []
+    if len(request.messages) > 1:
+        # All messages except the last one (which is the current user message)
+        history = [
+            AgentMessage(role=msg.role, content=msg.content) for msg in request.messages[:-1]
+        ]
+        LOGGER.info(f"Extracted {len(history)} messages from history")
+
+    # 3. Execute & Stream
     # We now enforce streaming or at least async generation for all requests
     # If request.stream is False, we should accumulate (MVP: just stream anyway or error?).
     # OpenAI allows stream=False.
@@ -131,7 +154,14 @@ async def chat_completions(
 
     return StreamingResponse(
         stream_response_generator(
-            session_id, user_message, request.model, dispatcher, session, agent_service, debug_mode
+            conversation_id,
+            user_message,
+            request.model,
+            dispatcher,
+            session,
+            agent_service,
+            debug_mode,
+            history,
         ),
         media_type="text/event-stream",
     )
@@ -145,6 +175,7 @@ async def stream_response_generator(
     db_session: AsyncSession,
     agent_service: AgentService,
     debug_mode: bool = False,
+    history: list | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Generates SSE events compatible with OpenAI API from AgentChunks.
@@ -183,6 +214,7 @@ async def stream_response_generator(
             platform_id=None,
             db_session=db_session,
             agent_service=agent_service,
+            history=history,  # Pass conversation history to dispatcher
         ):
             chunk_type = agent_chunk["type"]
             content = agent_chunk.get("content")
@@ -246,7 +278,18 @@ async def stream_response_generator(
                 # Clean the content to handle dicts/JSON
                 label = _clean_content(content)
                 role = (agent_chunk.get("metadata") or {}).get("role", "Executor")
-                formatted = f"\n\n👣 **{role}:** *{label}*\n\n"
+                action = (agent_chunk.get("metadata") or {}).get("action", "")
+                tool_name = (agent_chunk.get("metadata") or {}).get("tool", "")
+
+                # Improve labels for clarity
+                if action == "completion":
+                    formatted = "\n\n📝 **Agent:** *Composing final answer*\n\n"
+                elif tool_name == "consult_expert":
+                    args = (agent_chunk.get("metadata") or {}).get("args") or {}
+                    skill = args.get("skill", "expert")
+                    formatted = f"\n\n🧠 **{skill.title()}:** *Starting research*\n\n"
+                else:
+                    formatted = f"\n\n👣 **{role}:** *{label}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "tool_start":
@@ -311,10 +354,20 @@ async def stream_response_generator(
                 meta = agent_chunk.get("metadata") or {}
                 status = meta.get("status", "success")
                 role = meta.get("role", "Executor")
-                if status == "error":
-                    msg = f"\n❌ **{role}:** Failed\n"
+                tool_name = meta.get("name", "")
+
+                # Improve labels based on tool type
+                if tool_name == "consult_expert":
+                    skill = meta.get("skill", "Research")
+                    if status == "error":
+                        msg = f"\n❌ **{skill.title()}:** Research failed\n"
+                    else:
+                        msg = f"\n✅ **{skill.title()}:** Research complete\n"
                 else:
-                    msg = f"\n✅ **{role}:** Done\n"
+                    if status == "error":
+                        msg = f"\n❌ **{role}:** Failed\n"
+                    else:
+                        msg = f"\n✅ **{role}:** Done\n"
                 yield _format_chunk(chunk_id, created, model_name, msg)
 
             elif chunk_type == "error":

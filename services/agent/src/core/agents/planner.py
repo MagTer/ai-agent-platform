@@ -121,6 +121,22 @@ class PlannerAgent:
                 "(e.g., searching the web, writing code, reading files).\n"
                 "You MUST delegate work to Domain Experts using the `consult_expert` tool.\n\n"
                 f"### AVAILABLE SKILLS (Roles)\n{available_skills_text}\n\n"
+                "### ROUTING GUIDANCE (CRITICAL)\n"
+                "Before creating a plan, determine if the request "
+                "needs RESEARCH or a DIRECT ANSWER:\n\n"
+                "**DIRECT ANSWER (single completion step, NO research needed)**:\n"
+                "- Translations: 'What is bicycle in Spanish?' → 'bicicleta'\n"
+                "- Definitions: 'What does API stand for?'\n"
+                "- Basic facts YOU KNOW: 'What is the capital of France?'\n"
+                "- Simple math: 'What is 15% of 200?'\n"
+                "- Programming syntax: 'How to write a for loop in Python?'\n"
+                "- General knowledge from your training data\n\n"
+                "**RESEARCH REQUIRED (use researcher skill)**:\n"
+                "- Current events: 'What are the latest AI developments?'\n"
+                "- Real-time data: Stock prices, weather, sports scores\n"
+                "- Specific statistics: 'What is the population of Tokyo in 2025?'\n"
+                "- Unknown or uncertain facts: If you're not 95%+ confident\n"
+                "- Recent releases: Software versions, product launches since your training\n\n"
                 "### RESPONSE FORMAT (Strict JSON Only)\n"
                 "You must output a single JSON object. No conversational text.\n"
                 "{\n"
@@ -156,8 +172,17 @@ class PlannerAgent:
                 "   the specific arguments required by that skill (e.g., 'domain' for \n"
                 "   researcher, 'repo' for git). Do not omit them.\n\n"
                 "### EXAMPLES\n"
+                "User: 'What is bicycle in Spanish?'\n"
+                "Plan: (DIRECT ANSWER - you know this)\n"
+                "{\n"
+                '  "description": "Direct translation answer",\n'
+                '  "steps": [\n'
+                '    { "id": "1", "label": "Answer", "executor": "litellm", \n'
+                '      "action": "completion", "args": {} }\n'
+                "  ]\n"
+                "}\n\n"
                 "User: 'Research python 3.12'\n"
-                "Plan:\n"
+                "Plan: (RESEARCH - need current info)\n"
                 "{\n"
                 '  "description": "Delegate research to expert",\n'
                 '  "steps": [\n'
@@ -166,7 +191,7 @@ class PlannerAgent:
                 '      "args": { "skill": "researcher", "domain": "technology", \n'
                 '                "goal": "Find features of Python 3.12" } },\n'
                 '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
-                '      "action": "completion" }\n'
+                '      "action": "completion", "args": {} }\n'
                 "  ]\n"
                 "}\n\n"
             ),

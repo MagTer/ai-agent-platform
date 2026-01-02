@@ -50,6 +50,7 @@ class Dispatcher:
         platform_id: str | None = None,
         db_session: AsyncSession | None = None,
         agent_service: Any = None,
+        history: list | None = None,
     ) -> AsyncGenerator[AgentChunk, None]:
         """
         Routes and streams a user message.
@@ -96,6 +97,7 @@ class Dispatcher:
                         db_session=db_session,
                         agent_service=agent_service,
                         metadata={"skill": skill.name, "tools": skill.tools},
+                        history=history,
                     ):
                         yield chunk
                     return
@@ -160,6 +162,7 @@ class Dispatcher:
                 db_session=db_session,
                 agent_service=agent_service,
                 metadata={"plan": plan.model_dump()},
+                history=history,
             ):
                 yield chunk
             return
@@ -196,15 +199,10 @@ class Dispatcher:
 
         if "CHAT" in classification:
             # Direct Streaming Chat
-            # We need history? Dispatcher doesn't fetch history easily
-            # We'll rely on AgentService-like logic or just fetch it if needed.
-            # But the requirement is to use LLMClient.
-            # For strict CHAT, we should append to DB history.
-
-            # Fetch history
-            history = []
-            if agent_service and db_session:
-                history = await agent_service.get_history(conversation_id, db_session)
+            # Use injected history from OpenWebUI if available, otherwise fall back to DB
+            chat_history = history or []
+            if not chat_history and agent_service and db_session:
+                chat_history = await agent_service.get_history(conversation_id, db_session)
 
             # Stream response
             full_content = ""
@@ -217,7 +215,7 @@ class Dispatcher:
                 role="system", content=f"Current Date: {now}. You are live in {year}."
             )
 
-            chat_messages = [system_msg] + history
+            chat_messages = [system_msg] + chat_history
             chat_messages.append(AgentMessage(role="user", content=stripped_message))
 
             async for chunk in self.litellm.stream_chat(messages=chat_messages):
@@ -272,6 +270,7 @@ class Dispatcher:
                 db_session=db_session,
                 agent_service=agent_service,
                 metadata={"routing_decision": RoutingDecision.AGENTIC},
+                history=history,
             ):
                 yield chunk
 
@@ -323,6 +322,7 @@ class Dispatcher:
         db_session: AsyncSession | None,
         agent_service: Any,
         metadata: dict[str, Any],
+        history: list | None = None,
     ) -> AsyncGenerator[AgentChunk, None]:
         """
         Execute agent service and yield chunks.
@@ -338,7 +338,12 @@ class Dispatcher:
             }
             return
 
-        request = AgentRequest(prompt=prompt, conversation_id=conversation_id, metadata=metadata)
+        request = AgentRequest(
+            prompt=prompt,
+            conversation_id=conversation_id,
+            metadata=metadata,
+            messages=history,
+        )
 
         try:
             # Stream events from AgentService

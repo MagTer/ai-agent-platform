@@ -1,5 +1,8 @@
 # ruff: noqa: E501
 import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
@@ -20,9 +23,17 @@ def get_diagnostics_service(
 
 @router.get("/traces", response_model=list[TraceGroup])
 async def get_traces(
-    limit: int = 1000, service: DiagnosticsService = Depends(get_diagnostics_service)
+    limit: int = 1000,
+    show_all: bool = False,
+    service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> list[TraceGroup]:
-    return service.get_recent_traces(limit)
+    """Get recent traces, filtering out diagnostic/health-check traces by default.
+
+    Args:
+        limit: Maximum number of traces to return.
+        show_all: If True, include diagnostic/health traces. Default False.
+    """
+    return service.get_recent_traces(limit, show_all=show_all)
 
 
 @router.get("/metrics")
@@ -55,6 +66,71 @@ async def get_diagnostics_summary(
     This endpoint is optimized for AI agent self-diagnosis and automated remediation.
     """
     return await service.get_diagnostics_summary()
+
+
+@router.get("/crash-log")
+async def get_crash_log() -> dict[str, Any]:
+    """Expose last_crash.log for AI agent consumption.
+
+    Returns:
+        - exists: Whether the crash log file exists
+        - content: The crash log content (if exists)
+        - modified: When the file was last modified (if exists)
+
+    This endpoint enables AI agents to autonomously read crash logs
+    for troubleshooting without requiring file system access.
+    """
+    log_path = Path("services/agent/last_crash.log")
+    if not log_path.exists():
+        return {"exists": False, "content": None, "message": "No crash log found"}
+
+    try:
+        content = log_path.read_text(encoding="utf-8")
+        modified = datetime.fromtimestamp(log_path.stat().st_mtime).isoformat()
+        return {
+            "exists": True,
+            "content": content,
+            "modified": modified,
+        }
+    except Exception as e:
+        LOGGER.error(f"Failed to read crash log: {e}")
+        return {"exists": False, "content": None, "message": f"Read error: {e}"}
+
+
+@router.post("/retention")
+async def run_retention(
+    message_days: int = 30,
+    inactive_days: int = 90,
+    max_messages: int = 500,
+) -> dict[str, Any]:
+    """Run database retention cleanup.
+
+    Args:
+        message_days: Delete messages older than this (default 30).
+        inactive_days: Delete conversations inactive for this long (default 90).
+        max_messages: Max messages per conversation (default 500).
+
+    Returns summary of deleted records.
+    """
+    from core.db.engine import AsyncSessionLocal
+    from core.db.retention import run_retention_cleanup
+
+    async with AsyncSessionLocal() as session:
+        results = await run_retention_cleanup(
+            session,
+            message_retention_days=message_days,
+            inactive_conversation_days=inactive_days,
+            max_messages_per_conversation=max_messages,
+        )
+        return {
+            "status": "completed",
+            "settings": {
+                "message_days": message_days,
+                "inactive_days": inactive_days,
+                "max_messages": max_messages,
+            },
+            **results,
+        }
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -182,9 +258,18 @@ async def diagnostics_dashboard(
     <!-- Trace Screen -->
     <div class="layout screen" id="view-traces" style="display:flex">
         <div class="sidebar">
-            <div class="sidebar-header">
-                <span>RECENT REQUESTS</span>
-                <span id="trace-count">0</span>
+            <div class="sidebar-header" style="flex-direction:column; gap:8px; padding:12px">
+                <div style="display:flex; justify-content:space-between; align-items:center; width:100%">
+                    <span>RECENT REQUESTS</span>
+                    <span id="trace-count">0</span>
+                </div>
+                <input type="text" id="traceSearch" placeholder="Search by Trace ID..." 
+                       oninput="filterTraces()" 
+                       style="width:100%; padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:12px; box-sizing:border-box;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); cursor:pointer">
+                    <input type="checkbox" id="showAllTraces" onchange="loadTraces()">
+                    Show diagnostic/health traces
+                </label>
             </div>
             <div class="request-list" id="reqList"></div>
         </div>
@@ -393,26 +478,43 @@ async def diagnostics_dashboard(
         }
 
         // --- Traces ---
+        let filteredTraceGroups = [];
+        
         async function loadTraces() {
             const list = document.getElementById('reqList');
+            const showAll = document.getElementById('showAllTraces')?.checked || false;
             try {
-                const res = await fetch('/diagnostics/traces?limit=100');
+                const res = await fetch(`/diagnostics/traces?limit=100&show_all=${showAll}`);
                 if(!res.ok) throw new Error("API " + res.status);
                 traceGroups = await res.json();
-                renderTraceList(list);
+                filterTraces();
             } catch (e) {
                 list.innerHTML = `<div style="padding:20px; color:red">Error: ${e}</div>`;
             }
         }
+        
+        function filterTraces() {
+            const query = (document.getElementById('traceSearch')?.value || '').toLowerCase();
+            if (query) {
+                filteredTraceGroups = traceGroups.filter(g => 
+                    g.trace_id.toLowerCase().includes(query)
+                );
+            } else {
+                filteredTraceGroups = traceGroups;
+            }
+            renderTraceList(document.getElementById('reqList'));
+        }
 
         function renderTraceList(list) {
             list.innerHTML = '';
-            document.getElementById('trace-count').innerText = traceGroups.length;
+            document.getElementById('trace-count').innerText = filteredTraceGroups.length;
             
-            traceGroups.forEach((g, idx) => {
+            filteredTraceGroups.forEach((g, idx) => {
                 const el = document.createElement('div');
                 el.className = `req-card ${g.status === 'ERR' ? 'error' : ''}`;
-                el.onclick = () => selectTrace(idx);
+                // Use original index from traceGroups for selectTrace
+                const originalIdx = traceGroups.findIndex(t => t.trace_id === g.trace_id);
+                el.onclick = () => selectTrace(originalIdx);
                 
                 const time = new Date(g.start_time).toLocaleTimeString();
                 const intent = extractUserIntent(g.root);
