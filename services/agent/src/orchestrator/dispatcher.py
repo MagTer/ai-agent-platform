@@ -14,6 +14,7 @@ from utils.template import substitute_variables
 from core.core.litellm_client import LiteLLMClient
 from core.core.routing import registry
 from core.db.models import Context, Conversation, Message, Session
+from core.routing import IntentClassifier
 
 from .skill_loader import SkillLoader
 
@@ -39,6 +40,7 @@ class Dispatcher:
     def __init__(self, skill_loader: SkillLoader, litellm: LiteLLMClient):
         self.skill_loader = skill_loader
         self.litellm = litellm
+        self._intent_classifier = IntentClassifier(litellm)
         if not self.skill_loader.skills:
             self.skill_loader.load_skills()
 
@@ -167,37 +169,27 @@ class Dispatcher:
                 yield chunk
             return
 
-        # 3. Intent Classification
-        system_prompt = (
-            "You are a router. Classify user input as 'CHAT' "
-            "(greetings, simple chit-chat, questions about you) "
-            "or 'TASK' (actions, tools, planning, analyzing files, "
-            "searching, verifying facts, research). "
-            "CRITICAL RULES:\n"
-            "1. If the user asks to check, verify, search, or research, "
-            "MUST return TASK.\n"
-            "2. If the user asks for 'current' info or time-sensitive data, "
-            "MUST return TASK.\n"
-            "3. If the user implies using a tool (like 'check logs', "
-            "'run tests'), MUST return TASK.\n"
-            "Reply ONLY with the word CHAT or TASK."
+        # 3. Intent Classification (Structured Output)
+        intent = await self._intent_classifier.classify(stripped_message)
+        LOGGER.info(
+            "Intent classified: route=%s confidence=%.2f",
+            intent.route,
+            intent.confidence,
         )
 
-        try:
-            # We assume classification is fast enough to not need streaming chunks itself
-            classification = await self.litellm.generate(
-                messages=[
-                    AgentMessage(role="system", content=system_prompt),
-                    AgentMessage(role="user", content=stripped_message),
-                ],
-            )
-            classification = classification.strip().upper()
-            LOGGER.info(f"Dispatcher classified intent as: {classification}")
-        except Exception as e:
-            LOGGER.error(f"Intent classification failed: {e}")
-            classification = "TASK"  # Fallback
+        # Yield classification event for observability
+        yield {
+            "type": "thinking",
+            "content": f"Intent: {intent.route} (confidence: {intent.confidence:.0%})",
+            "tool_call": None,
+            "metadata": {
+                "intent_route": intent.route,
+                "intent_confidence": intent.confidence,
+                "intent_reasoning": intent.reasoning,
+            },
+        }
 
-        if "CHAT" in classification:
+        if intent.route == "chat":
             # Direct Streaming Chat
             # Use injected history from OpenWebUI if available, otherwise fall back to DB
             chat_history = history or []
