@@ -31,8 +31,14 @@ class SkillLoader:
         self.skills_dir = skills_dir
         self.skills: dict[str, Skill] = {}
 
-    def load_skills(self) -> dict[str, Skill]:
-        """Recursively scans the skills directory for .md files."""
+    def load_skills(self, workspace_path: str | None = None) -> dict[str, Skill]:
+        """Recursively scans the skills directory for .md files.
+
+        Args:
+            workspace_path: Optional path to a workspace directory. If provided
+                and the workspace contains .agent/skills/, those skills will be
+                loaded and merged with global skills (local takes precedence).
+        """
         LOGGER.info(f"Scanning for skills in {self.skills_dir}...")
         pattern = os.path.join(self.skills_dir, "**", "*.md")
         files = glob.glob(pattern, recursive=True)
@@ -47,8 +53,26 @@ class SkillLoader:
             except Exception as e:
                 LOGGER.error(f"Failed to load skill from {file_path}: {e}")
 
+        # Load workspace-specific skills if provided
+        if workspace_path:
+            workspace_skills_dir = os.path.join(workspace_path, ".agent", "skills")
+            if os.path.isdir(workspace_skills_dir):
+                LOGGER.info(f"Loading workspace skills from {workspace_skills_dir}")
+                ws_pattern = os.path.join(workspace_skills_dir, "**", "*.md")
+                ws_files = glob.glob(ws_pattern, recursive=True)
+
+                for file_path in ws_files:
+                    try:
+                        skill = self._parse_skill_file(file_path)
+                        if skill:
+                            # Local skills override global ones
+                            loaded_skills[skill.name] = skill
+                            LOGGER.info(f"Loaded workspace skill: {skill.name}")
+                    except Exception as e:
+                        LOGGER.error(f"Failed to load workspace skill from {file_path}: {e}")
+
         self.skills = loaded_skills
-        LOGGER.info(f"Loaded {len(self.skills)} skills.")
+        LOGGER.info(f"Loaded {len(self.skills)} skills total.")
         return self.skills
 
     def get_registry_index(self) -> str:

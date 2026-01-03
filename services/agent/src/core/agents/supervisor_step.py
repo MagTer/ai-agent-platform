@@ -44,7 +44,7 @@ class StepSupervisorAgent:
         self,
         step: PlanStep,
         step_result: StepResult,
-    ) -> tuple[Literal["ok", "adjust"], str]:
+    ) -> tuple[Literal["ok", "adjust"], str, str | None]:
         """Evaluate whether a step execution satisfies its intended goal.
 
         Args:
@@ -52,8 +52,10 @@ class StepSupervisorAgent:
             step_result: The result from executing the step.
 
         Returns:
-            A tuple of (decision, reason) where decision is "ok" or "adjust",
-            and reason explains the decision.
+            A tuple of (decision, reason, suggested_fix) where:
+            - decision is "ok" or "adjust"
+            - reason explains the decision
+            - suggested_fix is an optional actionable suggestion for how to fix the issue
         """
         # Extract key information for evaluation
         step_label = step.label
@@ -82,12 +84,16 @@ class StepSupervisorAgent:
                 "- Partial information - some data is better than none\n"
                 "- The tool executed and returned a response (even if brief)\n\n"
                 "## RESPONSE FORMAT (Strict JSON Only)\n"
-                "Output a single JSON object with no additional text:\n"
-                '{"decision": "ok" | "adjust", "reason": "Brief explanation"}\n\n'
+                '{"decision": "ok" | "adjust", "reason": "Brief explanation", '
+                '"suggested_fix": "Optional: specific action to fix the issue"}\n\n'
                 "## IMPORTANT\n"
                 "Be LENIENT. Only reject for TECHNICAL failures. "
                 "'No results' is a valid answer, not a failure. "
-                "When in doubt, choose 'ok'."
+                "When in doubt, choose 'ok'.\n\n"
+                "If you choose 'adjust', provide a specific suggested_fix that tells "
+                "the planner exactly what to try differently "
+                "(e.g., 'Use a different API endpoint', "
+                "'Check authentication token', 'Retry with smaller batch size')."
             ),
         )
 
@@ -122,10 +128,12 @@ class StepSupervisorAgent:
                 )
 
                 # Parse JSON response
-                decision, reason = self._parse_response(response)
+                decision, reason, suggested_fix = self._parse_response(response)
 
                 # Add decision to span
                 span.set_attribute("decision", decision)
+                if suggested_fix:
+                    span.set_attribute("suggested_fix", suggested_fix)
                 span.set_attribute("reason", reason)
 
                 # Log the decision
@@ -139,28 +147,29 @@ class StepSupervisorAgent:
                 )
 
                 LOGGER.info(
-                    "Supervisor reviewed step '%s': %s - %s",
+                    "Supervisor reviewed step '%s': %s - %s%s",
                     step_label,
                     decision,
                     reason,
+                    f" (fix: {suggested_fix})" if suggested_fix else "",
                 )
 
-                return decision, reason
+                return decision, reason, suggested_fix
 
             except Exception as exc:
                 LOGGER.exception("Supervisor review failed for step '%s'", step_label)
                 span.set_attribute("error", str(exc))
                 # On failure, assume OK to avoid blocking execution
-                return "ok", f"Supervisor error (defaulting to ok): {exc}"
+                return "ok", f"Supervisor error (defaulting to ok): {exc}", None
 
-    def _parse_response(self, response: str) -> tuple[Literal["ok", "adjust"], str]:
-        """Parse the LLM response into decision and reason.
+    def _parse_response(self, response: str) -> tuple[Literal["ok", "adjust"], str, str | None]:
+        """Parse the LLM response into decision, reason, and suggested_fix.
 
         Args:
             response: Raw LLM response text.
 
         Returns:
-            Tuple of (decision, reason).
+            Tuple of (decision, reason, suggested_fix).
         """
         try:
             # Try direct JSON parse
@@ -174,20 +183,21 @@ class StepSupervisorAgent:
                     data = json.loads(response[start : end + 1])
                 except json.JSONDecodeError:
                     LOGGER.warning("Failed to parse supervisor response: %s", response)
-                    return "ok", "Could not parse supervisor response"
+                    return "ok", "Could not parse supervisor response", None
             else:
                 LOGGER.warning("No JSON found in supervisor response: %s", response)
-                return "ok", "No JSON in supervisor response"
+                return "ok", "No JSON in supervisor response", None
 
         decision = data.get("decision", "ok")
         reason = data.get("reason", "No reason provided")
+        suggested_fix = data.get("suggested_fix")  # Optional field
 
         # Validate decision value
         if decision not in ("ok", "adjust"):
             LOGGER.warning("Invalid decision '%s', defaulting to 'ok'", decision)
             decision = "ok"
 
-        return decision, reason
+        return decision, reason, suggested_fix
 
 
 __all__ = ["StepSupervisorAgent"]
