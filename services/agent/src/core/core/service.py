@@ -118,6 +118,10 @@ class AgentService:
         # 6.1. Inject Pinned Files
         self._inject_pinned_files(history, db_context.pinned_files)
 
+        # 6.2. Inject Workspace Rules (if .agent/rules.md exists)
+        if db_conversation.current_cwd:
+            self._inject_workspace_rules(history, db_conversation.current_cwd)
+
         planner = PlannerAgent(self._litellm, model_name="planner")
         plan_supervisor = PlanSupervisorAgent()
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
@@ -394,9 +398,13 @@ class AgentService:
                         # ─────────────────────────────────────────────────────────
                         if plan_step.action == "completion":
                             # Completion steps bypass supervision
-                            decision, reason = "ok", "Completion step (skipped review)"
+                            decision, reason, suggested_fix = (
+                                "ok",
+                                "Completion step (skipped review)",
+                                None,
+                            )
                         else:
-                            decision, reason = await step_supervisor.review(
+                            decision, reason, suggested_fix = await step_supervisor.review(
                                 plan_step, step_execution_result
                             )
 
@@ -464,8 +472,12 @@ class AgentService:
                                 # Inject feedback for re-planning
                                 feedback_msg = (
                                     f"Step '{plan_step.label}' failed validation. "
-                                    f"Supervisor feedback: {reason}. "
-                                    "Please generate a new plan to address this issue."
+                                    f"Supervisor feedback: {reason}."
+                                )
+                                if suggested_fix:
+                                    feedback_msg += f"\n\nSuggested approach: {suggested_fix}"
+                                feedback_msg += (
+                                    "\n\nPlease generate a new plan to address this issue."
                                 )
                                 prompt_history.append(
                                     AgentMessage(role="system", content=feedback_msg)
@@ -478,6 +490,7 @@ class AgentService:
                                         "role": "Supervisor",
                                         "supervisor_decision": "adjust",
                                         "reason": reason,
+                                        "suggested_fix": suggested_fix,
                                         "replans_remaining": replans_remaining - 1,
                                     },
                                 }
@@ -1018,6 +1031,44 @@ class AgentService:
                     ),
                 )
             )
+
+    def _inject_workspace_rules(
+        self,
+        history: list[AgentMessage],
+        workspace_path: str,
+    ) -> None:
+        """Inject workspace rules from .agent/rules.md into the conversation history.
+
+        Args:
+            history: The conversation history to modify in-place
+            workspace_path: Path to the workspace directory
+        """
+        from pathlib import Path
+
+        rules_path = Path(workspace_path) / ".agent" / "rules.md"
+        if not rules_path.exists() or not rules_path.is_file():
+            return
+
+        try:
+            rules_content = rules_path.read_text(encoding="utf-8").strip()
+            if not rules_content:
+                return
+
+            # Insert at the beginning of history as a system message
+            history.insert(
+                0,
+                AgentMessage(
+                    role="system",
+                    content=(
+                        f"## WORKSPACE RULES\n"
+                        f"These rules apply to this workspace and must be followed:\n\n"
+                        f"{rules_content}"
+                    ),
+                ),
+            )
+            LOGGER.info(f"Injected workspace rules from {rules_path}")
+        except Exception as e:
+            LOGGER.warning(f"Failed to read workspace rules from {rules_path}: {e}")
 
     @staticmethod
     def _parse_tool_allowlist(raw: Any) -> set[str] | None:

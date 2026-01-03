@@ -133,6 +133,43 @@ async def run_retention(
         }
 
 
+@router.get("/mcp")
+async def get_mcp_health() -> dict[str, Any]:
+    """Get health status of all MCP server connections.
+
+    Returns:
+        - servers: Dict mapping server name to health info
+        - connected_count: Number of connected servers
+        - total_tools: Total tools across all servers
+
+    This endpoint enables monitoring of MCP integrations.
+    """
+    from core.tools.mcp_loader import get_mcp_health as fetch_mcp_health
+
+    try:
+        health = await fetch_mcp_health()
+        connected = sum(1 for s in health.values() if s.get("connected"))
+        total_tools = sum(s.get("tools_count", 0) for s in health.values())
+
+        return {
+            "status": "ok" if connected == len(health) or len(health) == 0 else "degraded",
+            "servers": health,
+            "connected_count": connected,
+            "total_count": len(health),
+            "total_tools": total_tools,
+        }
+    except Exception as e:
+        LOGGER.error("Failed to get MCP health: %s", e)
+        return {
+            "status": "error",
+            "message": str(e),
+            "servers": {},
+            "connected_count": 0,
+            "total_count": 0,
+            "total_tools": 0,
+        }
+
+
 @router.get("/", response_class=HTMLResponse)
 async def diagnostics_dashboard(
     service: DiagnosticsService = Depends(get_diagnostics_service),

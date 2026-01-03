@@ -24,7 +24,7 @@ from interfaces.http.diagnostics import router as diagnostics_router
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
 from ..tools.loader import load_tool_registry
-from ..tools.mcp_loader import load_mcp_tools
+from ..tools.mcp_loader import load_mcp_tools, shutdown_mcp_clients
 from .config import Settings, get_settings
 from .litellm_client import LiteLLMClient, LiteLLMError
 from .memory import MemoryStore
@@ -258,6 +258,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         yield  # Application runs here
 
         # --- SHUTDOWN ---
+        await shutdown_mcp_clients()
         await litellm_client.aclose()
 
     # Assign lifespan to app
