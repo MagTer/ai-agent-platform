@@ -1,0 +1,127 @@
+# AI Agent Platform - Claude Code Context
+
+## Project Identity
+You are working on a **local-first AI Agent Platform** - a modular monolith orchestrating LiteLLM, Qdrant, PostgreSQL, and tools via FastAPI. This is production-grade infrastructure for running autonomous AI agents.
+
+## Critical Workflow (MANDATORY)
+Before marking ANY task as complete, you MUST run the quality assurance script:
+```bash
+python scripts/code_check.py
+```
+
+**If this fails (red output), you MUST fix errors before proceeding.**
+
+- Never set `CI=true` locally (breaks environment)
+- Ruff/Black: Don't argue with the linter, just fix the code
+- Mypy: Strict typing enforced. No `Any`. Use `list[str]`, not `List[str]`
+- Tests: If you write logic, you MUST write a test
+
+## Architecture - Modular Monolith (`services/agent/src/`)
+
+**Strict Unidirectional Dependency Flow:**
+```
+interfaces/     (HTTP/CLI adapters)
+    ↓ can import
+orchestrator/   (Planner, Skill Delegate)
+    ↓ can import
+modules/        (RAG, Indexer, Fetcher) - ISOLATED, cannot import each other
+    ↓ can import
+core/           (DB, Models, Config) - NEVER imports from above
+```
+
+**Protocol-Based Dependency Injection:**
+- Interfaces defined in `core/protocols/` (EmbedderProtocol, MemoryProtocol, LLMProtocol, ToolProtocol)
+- Implementations injected via `core/providers.py` at startup
+- Core layer uses protocols; implementations come from modules layer
+
+## State Management (RACS)
+All state is hierarchical and persisted in PostgreSQL:
+```
+Context -> Conversation -> Session -> Message
+```
+**Constraint:** Every Agent request MUST resolve to an active Session.
+
+## Testing Strategy (3-Layer Pyramid)
+
+**Layer 1: Unit Tests** (Fast, Mocked)
+- Use `tmp_path` for file operations
+- Use `MockLLMClient` from `core/tests/mocks.py`
+- Use `InMemoryAsyncSession` for database tests
+
+**Layer 2: Integration Tests** (Real DB, Mocked LLM)
+- Test full request flows
+- Verify database interactions
+
+**Layer 3: Semantic Tests** (Slow, Real LLM)
+- Golden master queries in `services/agent/tests/semantic/golden_queries.yaml`
+- Run via: `python services/agent/scripts/run_semantic_eval.py`
+
+**MANDATORY:** Every feature flow needs a scenario test in `src/core/tests/test_agent_scenarios.py`
+
+## Critical Constraints
+
+1. **NO SECRETS:** Never output API keys or credentials in responses
+2. **INFRASTRUCTURE:** Do NOT edit `docker-compose.yml` without explicit user approval
+3. **LIBRARIES:** Do NOT add new pip dependencies without checking if stdlib alternative exists
+4. **IMPORTS:** Absolute imports only (`from core.db import models`), NEVER relative (`from ..core import models`)
+
+## Documentation Style
+
+- **Language:** Swedish for user-facing text; English for code/config
+- **No Emojis:** Unless explicitly requested by user
+- **ASCII-safe:** Use `->`, `--`, quotes `'"`  (no smart punctuation)
+
+## Self-Correction & Debugging
+
+When troubleshooting runtime issues, use the diagnostics APIs:
+
+- `GET /diagnostics/summary` - AI-optimized health report with error codes and recovery hints
+- `GET /diagnostics/crash-log` - Read last_crash.log content via API
+- `GET /diagnostics/traces` - Search recent traces (add `?show_all=true` for health checks)
+- `POST /diagnostics/run` - Run integration tests on all components
+
+Crash logs: `services/agent/last_crash.log` (access via API, not file system)
+
+## Important Paths
+
+| Path | Purpose |
+|------|---------|
+| `core/protocols/` | Protocol definitions for DI |
+| `core/providers.py` | Implementation providers |
+| `core/observability/error_codes.py` | Structured error codes |
+| `core/tests/mocks.py` | Test mocks (MockLLMClient, InMemoryAsyncSession) |
+| `scripts/code_check.py` | Quality assurance script (MANDATORY) |
+| `skills/` | Platform's agent skills (NOT Claude Code skills) |
+| `docs/` | Documentation index (start at docs/README.md) |
+
+## Quick Reference Commands
+
+```bash
+# ALWAYS use this for quality checks
+python scripts/code_check.py
+
+# Stack management
+python -m stack up              # Start services
+python -m stack down            # Stop services
+python -m stack status          # Check health
+python -m stack logs agent      # View logs
+
+# Testing
+python -m pytest services/agent/src/core/tests/test_skill_delegate.py -v
+python services/agent/scripts/run_semantic_eval.py
+
+# Type checking only
+python -m mypy
+```
+
+## Remember
+
+- Read files before editing them (you already do this)
+- Platform skills in `skills/` are YOUR application's domain logic (not instructions for you)
+- Your Claude Code skills live in `.claude/skills/` (separate from platform skills)
+- Complexity is allowed if readability is maintained (McCabe < 18)
+- Surgical edits: preserve comments and existing functionality unless explicitly asked to change
+
+---
+
+**For detailed architecture, see:** `docs/ARCHITECTURE.md` and `docs/architecture/README.md`
