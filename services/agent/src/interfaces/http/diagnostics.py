@@ -266,12 +266,17 @@ async def diagnostics_dashboard(
         .health-card.ok { border-top-color: var(--success); }
         .health-card.fail { border-top-color: var(--error); }
         
-        /* Drawer */
-        .drawer { position: fixed; right: -450px; top: 57px; bottom: 0; width: 450px; background: white; border-left: 1px solid var(--border); box-shadow: -4px 0 15px rgba(0,0,0,0.05); transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); z-index: 100; display: flex; flex-direction: column; }
-        .drawer.open { right: 0; }
-        .drawer-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fff; }
-        .drawer-content { flex: 1; overflow-y: auto; padding: 20px; background: #f9fafb; }
-        #drawerPre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto; font-family: 'Menlo', monospace; }
+        /* Drawer - Bottom Panel */
+        .drawer { position: fixed; bottom: -350px; left: 0; right: 0; height: 350px; background: white; border-top: 1px solid var(--border); box-shadow: 0 -4px 15px rgba(0,0,0,0.1); transition: bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1); z-index: 100; display: flex; flex-direction: column; }
+        .drawer.open { bottom: 0; }
+        .drawer-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fff; }
+        .drawer-content { flex: 1; overflow-y: auto; padding: 20px; background: #f9fafb; display: flex; gap: 24px; }
+        .drawer-attrs { flex: 1; min-width: 300px; }
+        .drawer-json { flex: 1; min-width: 300px; }
+        .attr-card { background: white; border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+        .attr-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+        .attr-value { font-size: 13px; font-weight: 500; word-break: break-all; }
+        #drawerPre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto; font-family: 'Menlo', monospace; max-height: 250px; }
         .close-drawer { cursor: pointer; font-size: 20px; color: var(--text-muted); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
         
         .hidden { display: none !important; }
@@ -400,6 +405,7 @@ async def diagnostics_dashboard(
     <script>
         let currentTab = 'traces';
         let traceGroups = [];
+        let selectedTraceId = null; // Track currently selected trace
 
         // Initialization
         window.switchTab = switchTab;
@@ -428,10 +434,22 @@ async def diagnostics_dashboard(
             }
         }
 
-        function refreshCurrent() {
-            if (currentTab === 'traces') loadTraces();
-            else if (currentTab === 'metrics') loadMetrics();
-            else runHealthChecks();
+        async function refreshCurrent() {
+            const btn = event?.target;
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = 'Loading...';
+            }
+            try {
+                if (currentTab === 'traces') await loadTraces();
+                else if (currentTab === 'metrics') await loadMetrics();
+                else await runHealthChecks();
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = 'Refresh';
+                }
+            }
         }
 
         // --- Metrics & Insights ---
@@ -525,6 +543,14 @@ async def diagnostics_dashboard(
                 if(!res.ok) throw new Error("API " + res.status);
                 traceGroups = await res.json();
                 filterTraces();
+                
+                // Re-select previously selected trace if still exists
+                if (selectedTraceId) {
+                    const idx = traceGroups.findIndex(g => g.trace_id === selectedTraceId);
+                    if (idx >= 0) {
+                        selectTrace(idx);
+                    }
+                }
             } catch (e) {
                 list.innerHTML = `<div style="padding:20px; color:red">Error: ${e}</div>`;
             }
@@ -576,6 +602,8 @@ async def diagnostics_dashboard(
              const g = traceGroups[idx];
              if(!g) return;
              
+             selectedTraceId = g.trace_id; // Store selected trace ID
+             
              document.getElementById('emptyState').classList.add('hidden');
              document.getElementById('detailView').classList.remove('hidden');
              
@@ -620,10 +648,35 @@ async def diagnostics_dashboard(
                 bar.style.width = `${width}%`;
                 bar.title = `${span.name} (Status: ${span.status})`;
                 
-                // Formatted name
+                // Formatted name with skill-specific details
                 let label = span.name;
-                if(label.startsWith('executor.step_run')) label = `Step ${span.attributes?.step || '?'}`;
-                if(label.includes('tool.call.')) label = `Tool: ${span.attributes?.['tool.name'] || label}`;
+                const attrs = span.attributes || {};
+                
+                if(label.startsWith('executor.step_run')) {
+                    label = `Step ${attrs.step || '?'}`;
+                } else if(label.startsWith('skill.tool.') || label.includes('tool.call.')) {
+                    const toolName = attrs['tool.name'] || label.split('.').pop();
+                    const query = attrs['search.query'];
+                    const url = attrs['fetch.url'];
+                    const filePath = attrs['file.path'];
+                    
+                    if(query) {
+                        label = `🔍 ${toolName}: "${query.substring(0, 40)}${query.length > 40 ? '...' : ''}"`;
+                    } else if(url) {
+                        const shortUrl = url.length > 50 ? url.substring(0, 47) + '...' : url;
+                        label = `🌐 ${toolName}: ${shortUrl}`;
+                    } else if(filePath) {
+                        label = `📄 ${toolName}: ${filePath.split('/').pop()}`;
+                    } else {
+                        label = `🔧 ${toolName}`;
+                    }
+                } else if(label.startsWith('skill.execution.')) {
+                    const skillName = label.replace('skill.execution.', '');
+                    label = `🧠 Skill: ${skillName}`;
+                } else if(label.startsWith('skill.turn.')) {
+                    const turn = label.replace('skill.turn.', '');
+                    label = `↻ Turn ${turn}`;
+                }
 
                 bar.innerText = label;
                 bar.onclick = () => showDetails(span);
@@ -636,14 +689,65 @@ async def diagnostics_dashboard(
         function showDetails(span) {
              const drawer = document.getElementById('attrDrawer');
              const content = document.getElementById('drawerContent');
+             const attrs = span.attributes || {};
+             
+             // Build attribute cards for key fields
+             let attrCards = '';
+             const keyAttrs = [
+                 { key: 'search.query', label: 'Search Query', icon: '🔍' },
+                 { key: 'fetch.url', label: 'Fetched URL', icon: '🌐' },
+                 { key: 'file.path', label: 'File Path', icon: '📄' },
+                 { key: 'tool.name', label: 'Tool Name', icon: '🔧' },
+                 { key: 'tool.output_preview', label: 'Output Preview', icon: '📤' },
+                 { key: 'tool.status', label: 'Status', icon: '✅' },
+                 { key: 'tool.error', label: 'Error', icon: '❌' },
+                 { key: 'goal', label: 'Skill Goal', icon: '🎯' },
+             ];
+             
+             keyAttrs.forEach(({key, label, icon}) => {
+                 if(attrs[key]) {
+                     attrCards += `
+                         <div class="attr-card">
+                             <div class="attr-label">${icon} ${label}</div>
+                             <div class="attr-value">${escapeHtml(String(attrs[key]))}</div>
+                         </div>
+                     `;
+                 }
+             });
+             
+             // Show tool args if present
+             if(attrs['tool.args']) {
+                 try {
+                     const args = JSON.parse(attrs['tool.args']);
+                     attrCards += `
+                         <div class="attr-card">
+                             <div class="attr-label">📋 Tool Arguments</div>
+                             <div class="attr-value" style="font-family:monospace; font-size:11px">${escapeHtml(JSON.stringify(args, null, 2))}</div>
+                         </div>
+                     `;
+                 } catch(e) {
+                     attrCards += `
+                         <div class="attr-card">
+                             <div class="attr-label">📋 Tool Arguments</div>
+                             <div class="attr-value">${escapeHtml(attrs['tool.args'])}</div>
+                         </div>
+                     `;
+                 }
+             }
              
              content.innerHTML = `
-                <div style="font-weight:600; font-size:16px; margin-bottom:8px">${escapeHtml(span.name)}</div>
-                <div style="margin-bottom:16px">
-                    <span class="badge ${span.status==='ERROR' ? 'bg-err' : 'bg-ai'}" style="color:white">${span.status}</span>
-                    <span class="badge">${span.duration_ms.toFixed(1)} ms</span>
+                <div class="drawer-attrs">
+                    <div style="font-weight:600; font-size:16px; margin-bottom:12px">${escapeHtml(span.name)}</div>
+                    <div style="margin-bottom:16px">
+                        <span class="badge ${span.status==='ERROR' ? 'bg-err' : 'bg-ai'}" style="color:white">${span.status}</span>
+                        <span class="badge">${span.duration_ms.toFixed(1)} ms</span>
+                    </div>
+                    ${attrCards || '<div style="color:var(--text-muted)">No key attributes</div>'}
                 </div>
-                <pre id="drawerPre">${JSON.stringify(span, null, 2)}</pre>
+                <div class="drawer-json">
+                    <div class="attr-label" style="margin-bottom:8px">📦 Raw Span Data</div>
+                    <pre id="drawerPre">${JSON.stringify(span, null, 2)}</pre>
+                </div>
              `;
              
              drawer.classList.add('open');

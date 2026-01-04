@@ -370,6 +370,25 @@ async def stream_response_generator(
                         msg = f"\n✅ **{role}:** Done\n"
                 yield _format_chunk(chunk_id, created, model_name, msg)
 
+            elif chunk_type == "skill_activity":
+                # Show detailed skill activity (search queries, URLs, etc.)
+                meta = agent_chunk.get("metadata") or {}
+                query = meta.get("search_query")
+                url = meta.get("fetch_url")
+                file_path = meta.get("file_path")
+
+                if query:
+                    formatted = f"\n🔍 *Searching: {query}*\n"
+                elif url:
+                    # Show shortened URL for readability
+                    short_url = url if len(url) <= 60 else url[:57] + "..."
+                    formatted = f"\n🌐 *Fetching: [{short_url}]({url})*\n"
+                elif file_path:
+                    formatted = f"\n📄 *Reading: {file_path}*\n"
+                else:
+                    formatted = f"\n⚙️ *{_clean_content(content)}*\n"
+                yield _format_chunk(chunk_id, created, model_name, formatted)
+
             elif chunk_type == "error":
                 formatted = f"\n❌ **Error:** {_clean_content(content)}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)

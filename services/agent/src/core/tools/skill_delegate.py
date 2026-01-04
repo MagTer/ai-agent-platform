@@ -204,18 +204,42 @@ class SkillDelegateTool(Tool):
                         fname = func["name"]
                         call_id = tc["id"]
 
+                        # Parse arguments early for activity message
+                        try:
+                            fargs = json.loads(func["arguments"])
+                        except json.JSONDecodeError:
+                            fargs = {}
+
                         yield {
                             "type": "thinking",
                             "content": f"Worker invoking {fname}...",
                         }
+
+                        # Yield detailed skill_activity for OpenWebUI live display
+                        activity_content = f"Using {fname}"
+                        if "query" in fargs:
+                            activity_content = f"Searching: {fargs['query']}"
+                        elif "url" in fargs:
+                            activity_content = f"Fetching: {fargs['url']}"
+                        elif "path" in fargs or "file_path" in fargs:
+                            path = fargs.get("path") or fargs.get("file_path")
+                            activity_content = f"Reading: {path}"
+
+                        yield {
+                            "type": "skill_activity",
+                            "content": activity_content,
+                            "metadata": {
+                                "tool": fname,
+                                "search_query": fargs.get("query"),
+                                "fetch_url": fargs.get("url"),
+                                "file_path": fargs.get("path") or fargs.get("file_path"),
+                                "skill": skill,
+                            },
+                        }
                         await asyncio.sleep(0)  # Force flush
 
                         with start_span(f"skill.tool.{fname}") as _tool_span:
-                            # Capture tool call details for diagnostics
-                            try:
-                                fargs = json.loads(func["arguments"])
-                            except json.JSONDecodeError:
-                                fargs = {}
+                            # fargs already parsed above
 
                             # Add detailed attributes for search queries
                             tool_attrs: dict[str, str | int] = {
