@@ -122,10 +122,12 @@ class AgentService:
         if db_conversation.current_cwd:
             self._inject_workspace_rules(history, db_conversation.current_cwd)
 
-        planner = PlannerAgent(self._litellm, model_name="planner")
+        planner = PlannerAgent(self._litellm, model_name=self._settings.model_planner)
         plan_supervisor = PlanSupervisorAgent()
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
-        step_supervisor = StepSupervisorAgent(self._litellm, model_name="supervisor")
+        step_supervisor = StepSupervisorAgent(
+            self._litellm, model_name=self._settings.model_supervisor
+        )
 
         # Adaptive execution settings
         max_replans = 3
@@ -174,7 +176,7 @@ class AgentService:
                     yield {
                         "type": "completion",
                         "provider": "litellm",
-                        "model": self._settings.litellm_model,
+                        "model": self._settings.model_agentchat,
                         "status": "ok",
                         "trace": current_trace_ids(),
                     }
@@ -213,7 +215,7 @@ class AgentService:
                 prompt_history = list(history_with_tools)
                 completion_text = ""
                 completion_provider = "litellm"
-                completion_model = self._settings.litellm_model
+                completion_model = self._settings.model_agentchat
                 execution_complete = False
 
                 # ═══════════════════════════════════════════════════════════════════

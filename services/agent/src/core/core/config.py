@@ -41,9 +41,17 @@ class Settings(BaseModel):
         description="Base URL for the LiteLLM gateway.",
     )
     litellm_api_key: str | None = Field(default=None, description="Optional LiteLLM API key.")
-    litellm_model: str = Field(
+    model_planner: str = Field(
+        default="planner",
+        description="Model identifier for the Planner agent.",
+    )
+    model_supervisor: str = Field(
+        default="supervisor",
+        description="Model identifier for the Supervisor agent.",
+    )
+    model_agentchat: str = Field(
         default="agentchat",
-        description="Default model identifier passed to LiteLLM.",
+        description="Model identifier for general agent chat/tools.",
     )
     litellm_timeout: float = Field(
         default=180.0,

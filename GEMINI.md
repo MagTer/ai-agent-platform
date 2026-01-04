@@ -14,11 +14,6 @@ Before marking ANY task as complete, you MUST execute the Quality Assurance scri
 * **Mypy:** strict typing is enforced. No `Any`. Use `list[str]`, not `List[str]`.
 * **Tests:** If you write logic, you MUST write a test.
 
-## 🛠️ CROSS-PLATFORM DEVELOPMENT (WSL)
-If operating from Windows but code resides in WSL, you MUST run checks via:
-```
-wsl -d Ubuntu --cd /home/magnus/dev/ai-agent-platform bash -c "python3 scripts/code_check.py"
-```
 
 ## 🚑 TROUBLESHOOTING
 * **Logs:** If you encounter issues, always check `services/agent/stack_up.log` using the `File Fetcher` before making assumptions.
@@ -79,10 +74,10 @@ We use `pytest`. You are required to maintain the **Testing Pyramid**.
 ### 4.1 Running Tests
 ```bash
 # Full quality check (recommended)
-wsl -d Ubuntu --cd /home/magnus/dev/ai-agent-platform bash -c "python3 scripts/code_check.py"
+python3 scripts/code_check.py
 
 # Integration tests with live agent
-wsl -d Ubuntu --cd /home/magnus/dev/ai-agent-platform bash -c "python3 scripts/test_integration.py"
+python3 scripts/test_integration.py
 ```
 
 ### 4.2 Test Layers

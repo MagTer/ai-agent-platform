@@ -50,7 +50,7 @@ class LiteLLMClient:
     ) -> AsyncGenerator[AgentChunk, None]:
         """Stream chat completions from LiteLLM."""
         payload: dict[str, Any] = {
-            "model": model or self._settings.litellm_model,
+            "model": model or self._settings.model_agentchat,
             "messages": [message.model_dump() for message in messages],
             "stream": True,
         }
@@ -186,7 +186,7 @@ class LiteLLMClient:
     ) -> dict[str, Any]:
         """Run completion with tool definitions and return full response object."""
         payload: dict[str, Any] = {
-            "model": model or self._settings.litellm_model,
+            "model": model or self._settings.model_agentchat,
             "messages": [message.model_dump() for message in messages],
             "tools": tools,
             "tool_choice": "auto",

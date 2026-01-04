@@ -441,7 +441,7 @@ class StepExecutorAgent:
         request: AgentRequest,
     ) -> tuple[str, str]:
         settings = getattr(self._litellm, "_settings", None)
-        default_model = getattr(settings, "litellm_model", "agent-model")
+        default_model = getattr(settings, "model_agentchat", "agent-model")
         model_override = str(step.args.get("model") or default_model)
         with start_span("llm.call.assistant") as span:
             span.set_attribute("model", model_override)
@@ -499,7 +499,7 @@ class StepExecutorAgent:
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a completion step with streaming."""
         settings = getattr(self._litellm, "_settings", None)
-        default_model = getattr(settings, "litellm_model", "agent-model")
+        default_model = getattr(settings, "model_agentchat", "agent-model")
         model_override = str(step.args.get("model") or default_model)
 
         with start_span("llm.call.assistant") as llm_span:

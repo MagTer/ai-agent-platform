@@ -152,6 +152,12 @@ async def chat_completions(
         # Strip [DEBUG] prefix from message
         user_message = user_message.replace("[DEBUG]", "").replace("[debug]", "").strip()
 
+    # Get trace ID for correlation
+    from core.observability.tracing import current_trace_ids
+
+    trace_ids = current_trace_ids()
+    trace_id = trace_ids.get("trace_id", "")
+
     return StreamingResponse(
         stream_response_generator(
             conversation_id,
@@ -164,6 +170,7 @@ async def chat_completions(
             history,
         ),
         media_type="text/event-stream",
+        headers={"X-Trace-ID": trace_id} if trace_id else None,
     )
 
 

@@ -20,6 +20,8 @@ services:
       - .env
     volumes:
       - ./services/agent/config:/app/config:ro
+      - ./services/agent/alembic:/app/alembic
+      - ./services/agent/alembic.ini:/app/alembic.ini
       - ./skills:/app/skills:ro
       - ./services/agent/src:/app/src
       - ./services/agent/tests:/app/tests

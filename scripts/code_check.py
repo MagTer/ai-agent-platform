@@ -192,6 +192,8 @@ def run_service_checks() -> None:
     """Run type checking and tests for each service."""
     print_step("Running Service-Level Checks")
 
+    ci_mode = is_ci()
+
     for service_dir in SERVICE_DIRS:
         if not service_dir.exists():
             print_error(f"Service directory not found: {service_dir}")
@@ -205,13 +207,95 @@ def run_service_checks() -> None:
         # It relies on pyproject.toml in that directory for configuration.
         run_cmd(["python", "-m", "mypy"], cwd=service_dir)
 
-        # 2. Pytest
+        # 2. Pytest (Unit & Integration Tests)
         # Runs inside the service directory.
         run_cmd(["python", "-m", "pytest"], cwd=service_dir)
+
+        # 3. Semantic End-to-End Tests (Local Only)
+        # These tests require a running agent and make real LLM calls.
+        # They are skipped in CI because:
+        # - Require docker-compose stack to be running
+        # - Make real HTTP requests to localhost:8000
+        # - Use real LLM calls for validation (cost + latency)
+        if not ci_mode:
+            semantic_test_dir = service_dir / "tests" / "semantic"
+            if semantic_test_dir.exists():
+                print_info("Running semantic end-to-end tests (local only)...")
+                try:
+                    run_cmd(
+                        [
+                            "python",
+                            "-m",
+                            "pytest",
+                            "tests/semantic/test_end_to_end.py",
+                            "-v",
+                        ],
+                        cwd=service_dir,
+                    )
+                    print_success("Semantic tests passed")
+                except SystemExit:
+                    print_error("Semantic tests failed or agent not running")
+                    print_info(
+                        "Tip: Start the agent with 'docker-compose up' to run semantic tests"
+                    )
+                    raise
+        else:
+            print_info("Semantic tests skipped (CI mode)")
+
+
+def ensure_dependencies() -> None:
+    """
+    Ensure that the necessary dependencies are installed in the environment.
+    If 'ruff' is missing, assume dependencies are missing and run 'poetry install'.
+    """
+    if is_ci():
+        return
+
+    # Check if ruff is installed (as a proxy for dev dependencies)
+    ruff_bin = shutil.which("ruff")
+
+    # Also check if we can import it or find it in the current python environment's bin
+    # Since we are in a venv, shutil.which might find a system ruff if not careful,
+    # but normally venv/bin is first in PATH.
+    # A cleaner check is to see if we can run it or if it exists in the venv bin.
+
+    # We are already running in a venv (guaranteed by ensure_virtual_environment)
+    # So we can just check if we can execute 'ruff --version' successfully?
+    # Or simple check:
+
+    dependencies_missing = False
+
+    if not ruff_bin:
+        dependencies_missing = True
+    else:
+        # Verify it resolves to inside the venv if possible, or just trust PATH if venv is active
+        # But closer check: try running it
+        try:
+            subprocess.run(  # noqa: S603
+                [sys.executable, "-m", "ruff", "--version"], capture_output=True, check=True
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            dependencies_missing = True
+
+    if dependencies_missing:
+        print_info("Dependencies appear to be missing. Running 'poetry install'...")
+        # We need to run poetry install in the agent service directory
+        poetry_bin = shutil.which("poetry")
+        if not poetry_bin:
+            print_error("Poetry not found. Cannot install dependencies.")
+            sys.exit(1)
+
+        try:
+            subprocess.run([poetry_bin, "install"], cwd=AGENT_SERVICE_DIR, check=True)  # noqa: S603
+            print_success("Dependencies installed successfully.")
+        except subprocess.CalledProcessError:
+            print_error("Failed to install dependencies via Poetry.")
+            sys.exit(1)
 
 
 def main() -> None:
     ensure_virtual_environment()
+    ensure_dependencies()
 
     print(f"\n{BOLD}🚀 Starting Quality Assurance Checks...{RESET}")
     print(f"   Root: {REPO_ROOT}")

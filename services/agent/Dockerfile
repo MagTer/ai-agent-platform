@@ -22,6 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY pyproject.toml ./
+COPY alembic.ini ./
+COPY alembic ./alembic
+
 # Use --no-cache to reduce image size
 RUN poetry install --no-root --only main --no-cache
 
