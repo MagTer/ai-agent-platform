@@ -211,7 +211,7 @@ class PlannerAgent:
         model_name = self._model_name
         if model_name is None:
             settings = getattr(self._litellm, "_settings", None)
-            model_name = getattr(settings, "litellm_model", None)
+            model_name = getattr(settings, "model_planner", None)
 
         span_attributes = {"step": "plan"}
         if model_name:
