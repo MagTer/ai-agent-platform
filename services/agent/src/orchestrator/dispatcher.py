@@ -375,6 +375,13 @@ class Dispatcher:
                         "tool_call": chunk.get("tool_call"),
                         "metadata": chunk.get("metadata"),
                     }
+                elif c_type == "skill_activity":
+                    yield {
+                        "type": "skill_activity",
+                        "content": chunk.get("content"),
+                        "tool_call": None,
+                        "metadata": chunk.get("metadata"),
+                    }
                 elif c_type == "content":
                     yield {
                         "type": "content",

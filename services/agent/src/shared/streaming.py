@@ -15,6 +15,7 @@ class AgentChunk(TypedDict):
         "error",
         "done",
         "history_snapshot",
+        "skill_activity",
     ]
     content: str | None
     tool_call: dict[str, Any] | None
