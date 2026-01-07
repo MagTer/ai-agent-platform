@@ -8,6 +8,7 @@ This module provides HTTP endpoints for OAuth 2.0 Authorization Code Grant:
 """
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -72,7 +73,7 @@ async def oauth_callback(
     code: str = Query(..., description="Authorization code from provider"),
     state: str = Query(..., description="State parameter for CSRF protection"),
     error: str | None = Query(None, description="Error if user denied"),
-):
+) -> HTMLResponse:
     """Handle OAuth provider callback.
 
     Provider redirects here after user approves/denies authorization.
@@ -202,7 +203,7 @@ class RevokeRequest(BaseModel):
 
 
 @router.post("/revoke")
-async def revoke_token(request: RevokeRequest):
+async def revoke_token(request: RevokeRequest) -> dict[str, str]:
     """Revoke and delete OAuth token.
 
     Args:
@@ -234,7 +235,7 @@ class StatusRequest(BaseModel):
 
 
 @router.post("/status")
-async def check_token_status(request: StatusRequest):
+async def check_token_status(request: StatusRequest) -> dict[str, Any]:
     """Check OAuth token status.
 
     Args:

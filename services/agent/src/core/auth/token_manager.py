@@ -5,10 +5,19 @@ multiple providers. It wraps the OAuth client and handles provider configuration
 """
 
 import logging
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from core.auth.models import OAuthProviderConfig
 from core.auth.oauth_client import OAuthClient
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from contextlib import AbstractAsyncContextManager
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from core.core.config import Settings
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,7 +29,11 @@ class TokenManager:
     Handles provider configuration and delegates to OAuth client.
     """
 
-    def __init__(self, session_factory, settings):
+    def __init__(
+        self,
+        session_factory: Callable[[], AbstractAsyncContextManager[AsyncSession]],
+        settings: Settings,
+    ):
         """Initialize token manager.
 
         Args:
@@ -35,16 +48,19 @@ class TokenManager:
 
         # Homey OAuth configuration
         if settings.homey_oauth_enabled and settings.homey_client_id:
-            provider_configs["homey"] = OAuthProviderConfig(
-                provider_name="homey",
-                authorization_url=settings.homey_authorization_url,
-                token_url=settings.homey_token_url,
-                client_id=settings.homey_client_id,
-                client_secret=settings.homey_client_secret,
-                scopes=None,  # Homey doesn't require specific scopes
-                redirect_uri=settings.oauth_redirect_uri,
-            )
-            LOGGER.info("Configured OAuth provider: homey")
+            if not settings.oauth_redirect_uri:
+                LOGGER.warning("Skipping Homey OAuth: oauth_redirect_uri not configured")
+            else:
+                provider_configs["homey"] = OAuthProviderConfig(
+                    provider_name="homey",
+                    authorization_url=settings.homey_authorization_url,
+                    token_url=settings.homey_token_url,
+                    client_id=settings.homey_client_id,
+                    client_secret=settings.homey_client_secret,
+                    scopes=None,  # Homey doesn't require specific scopes
+                    redirect_uri=settings.oauth_redirect_uri,
+                )
+                LOGGER.info("Configured OAuth provider: homey")
 
         # Future providers can be added here (GitHub, Google, etc.)
 

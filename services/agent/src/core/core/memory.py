@@ -136,7 +136,7 @@ class MemoryStore:
         vector = vectors[0]
 
         # Build filter conditions for context and conversation isolation
-        filter_conditions = []
+        filter_conditions: list[FieldCondition | Filter] = []
 
         # Always filter by context_id if set (multi-tenant isolation)
         if self._context_id:

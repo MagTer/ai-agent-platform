@@ -1,6 +1,7 @@
 """OAuth endpoints optimized for Open WebUI integration."""
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -220,7 +221,7 @@ async def initiate_oauth(
 
 
 @router.get("/providers")
-async def list_oauth_providers() -> dict[str, list[str]]:
+async def list_oauth_providers() -> dict[str, Any]:
     """List all configured OAuth providers.
 
     Returns:

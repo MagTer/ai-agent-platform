@@ -9,13 +9,17 @@ import hashlib
 import logging
 import secrets
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 from uuid import UUID
 
 import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from contextlib import AbstractAsyncContextManager
 
 from core.auth.models import OAuthError, OAuthProviderConfig, TokenResponse
 from core.db.oauth_models import OAuthState, OAuthToken
@@ -30,7 +34,11 @@ class OAuthClient:
     Stores tokens in database and handles automatic refresh.
     """
 
-    def __init__(self, session_factory, provider_configs: dict[str, OAuthProviderConfig]):
+    def __init__(
+        self,
+        session_factory: Callable[[], AbstractAsyncContextManager[AsyncSession]],
+        provider_configs: dict[str, OAuthProviderConfig],
+    ):
         """Initialize OAuth client.
 
         Args:
