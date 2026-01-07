@@ -29,5 +29,58 @@ class ToolRegistry:
         """Return the registered tool instances."""
         return list(self._tools.values())
 
+    def list_tools(self) -> list[Tool]:
+        """Return the registered tool instances (alias for tools())."""
+        return self.tools()
+
+    def clone(self) -> ToolRegistry:
+        """Create a shallow copy of this registry.
+
+        Used to create per-context registries without duplicating tool instances.
+        Each context gets its own registry dict, but the tool instances themselves
+        are shared (which is safe since tools are stateless or manage their own state).
+
+        Returns:
+            New ToolRegistry with copied tool dict
+        """
+        cloned = ToolRegistry()
+        cloned._tools = self._tools.copy()  # Shallow copy of dict
+        return cloned
+
+    def filter_by_permissions(self, permissions: dict[str, bool]) -> None:
+        """Remove tools not allowed for this context.
+
+        Modifies the registry in-place to only include allowed tools.
+        If a tool is not in the permissions dict, it is allowed by default.
+
+        Args:
+            permissions: Mapping of tool_name → allowed (True/False)
+                        Only False values will remove tools.
+
+        Example:
+            >>> registry.filter_by_permissions({"bash": False, "python": True})
+            >>> # bash tool is removed, python and all others remain
+        """
+        if not permissions:
+            # No permissions defined - allow all tools
+            return
+
+        # Filter out tools where permission is explicitly False
+        filtered_tools = {
+            name: tool
+            for name, tool in self._tools.items()
+            if permissions.get(name, True)  # Default allow if not in permissions
+        }
+
+        removed_count = len(self._tools) - len(filtered_tools)
+        if removed_count > 0:
+            import logging
+
+            logger = logging.getLogger(__name__)
+            removed_tools = set(self._tools.keys()) - set(filtered_tools.keys())
+            logger.info(f"Filtered {removed_count} tools by permissions: {sorted(removed_tools)}")
+
+        self._tools = filtered_tools
+
 
 __all__ = ["ToolRegistry"]

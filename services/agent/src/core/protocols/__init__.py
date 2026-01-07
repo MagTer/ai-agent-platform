@@ -12,11 +12,13 @@ The dependency flow is:
 from .embedder import IEmbedder
 from .fetcher import IFetcher
 from .indexer import ICodeIndexer
+from .oauth import IOAuthClient
 from .rag import IRAGManager
 
 __all__ = [
     "IEmbedder",
     "IFetcher",
     "ICodeIndexer",
+    "IOAuthClient",
     "IRAGManager",
 ]

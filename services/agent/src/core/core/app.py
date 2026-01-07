@@ -19,15 +19,20 @@ from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
+from core.db.models import Context, Conversation
 from core.observability.tracing import configure_tracing
+from interfaces.http.admin_contexts import router as admin_contexts_router
+from interfaces.http.admin_diagnostics import router as admin_diagnostics_router
+from interfaces.http.admin_mcp import router as admin_mcp_router
+from interfaces.http.admin_oauth import router as admin_oauth_router
 from interfaces.http.diagnostics import router as diagnostics_router
+from interfaces.http.oauth import router as oauth_router
+from interfaces.http.oauth_webui import router as oauth_webui_router
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
-from ..tools.loader import load_tool_registry
-from ..tools.mcp_loader import load_mcp_tools, shutdown_mcp_clients
+from ..tools.mcp_loader import set_mcp_client_pool, shutdown_all_mcp_clients
 from .config import Settings, get_settings
 from .litellm_client import LiteLLMClient, LiteLLMError
-from .memory import MemoryStore
 from .models import (
     AgentMessage,
     AgentRequest,
@@ -38,12 +43,19 @@ from .models import (
     HealthStatus,
 )
 from .service import AgentService
+from .service_factory import ServiceFactory
 
 LOGGER = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None, service: AgentService | None = None) -> FastAPI:
-    """Initialise the FastAPI application."""
+    """Initialise the FastAPI application.
+
+    Args:
+        settings: Application settings. If None, uses get_settings().
+        service: Pre-configured AgentService for testing. If provided,
+            legacy endpoints will use this service instead of the factory.
+    """
 
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level)
@@ -53,6 +65,10 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     )
 
     app = FastAPI(title=settings.app_name)
+
+    # Store test service if provided (for legacy endpoint testing)
+    if service is not None:
+        app.state.test_service = service
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -165,30 +181,12 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
     FastAPIInstrumentor.instrument_app(app, excluded_urls="/healthz,/readyz")
 
+    # Create shared LiteLLM client (stateless, safe to share across contexts)
     litellm_client = LiteLLMClient(settings)
-    memory_store = MemoryStore(settings)
-    # Correcting duplicate lines from original if they were present
-    # litellm_client = LiteLLMClient(settings)
-    # memory_store = MemoryStore(settings)
 
-    # Load native tools from configuration
-    tool_registry = load_tool_registry(settings.tools_config_path)
-
-    # Inject Orchestration Tools
-    from core.tools.skill_delegate import SkillDelegateTool
-
-    delegate_tool = SkillDelegateTool(litellm_client, tool_registry)
-    tool_registry.register(delegate_tool)
-
-    service_instance = service or AgentService(
-        settings=settings,
-        litellm=litellm_client,
-        memory=memory_store,
-        tool_registry=tool_registry,
-    )
-
-    # Store service in app state for dependency injection
-    app.state.service = service_instance
+    # NOTE: We no longer create a global service instance
+    # Instead, we'll create a ServiceFactory in the lifespan that creates
+    # context-scoped services per request
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -203,6 +201,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             set_embedder,
             set_fetcher,
             set_rag_manager,
+            set_token_manager,
         )
         from modules.embedder import get_embedder as get_module_embedder
         from modules.fetcher import get_fetcher as get_module_fetcher
@@ -215,13 +214,32 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         set_rag_manager(RAGManager())
         set_code_indexer_factory(CodeIndexer)
 
+        # Register OAuth TokenManager
+        from core.auth.token_manager import TokenManager
+        from core.db.engine import AsyncSessionLocal
+
+        token_manager = TokenManager(AsyncSessionLocal, settings)
+        set_token_manager(token_manager)
+
         LOGGER.info("Dependency providers registered")
 
-        # Initialize memory store (connect to Qdrant)
-        await memory_store.ainit()
+        # Initialize MCP client pool for context-aware MCP connections
+        from core.mcp.client_pool import McpClientPool
 
-        # Run MCP loading in the background so it doesn't block startup
-        asyncio.create_task(load_mcp_tools(settings, service_instance._tool_registry))
+        mcp_pool = McpClientPool(settings)
+        set_mcp_client_pool(mcp_pool)
+        LOGGER.info("MCP client pool initialized")
+
+        # Create ServiceFactory for context-aware service creation
+        from core.core.service_factory import ServiceFactory
+
+        service_factory = ServiceFactory(
+            settings=settings,
+            litellm_client=litellm_client,
+        )
+        app.state.service_factory = service_factory
+
+        LOGGER.info("ServiceFactory initialized")
 
         # Warm-up LiteLLM connection in background
         async def warm_up_litellm() -> None:
@@ -258,20 +276,54 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         yield  # Application runs here
 
         # --- SHUTDOWN ---
-        await shutdown_mcp_clients()
+        await shutdown_all_mcp_clients()
         await litellm_client.aclose()
+        await token_manager.shutdown()
 
     # Assign lifespan to app
     app.router.lifespan_context = lifespan
 
-    def get_service() -> AgentService:
-        """Return a singleton agent service instance."""
+    def get_service_factory() -> ServiceFactory:
+        """Return the service factory from app state."""
+        return app.state.service_factory
 
-        return service_instance
+    async def get_service(
+        request: Request,
+        session: AsyncSession = Depends(get_db),
+    ) -> AgentService:
+        """Get AgentService for legacy endpoints.
 
-        """Return a singleton agent service instance."""
+        For production: Creates a service using the factory with a default context.
+        For testing: Returns the pre-injected test service if available.
+        """
+        # Check for test service first (avoids needing service_factory in tests)
+        if (
+            hasattr(request.app.state, "test_service")
+            and request.app.state.test_service is not None
+        ):
+            return request.app.state.test_service
 
-        return service_instance
+        # Production: Get factory and create service with default "api" context
+        factory: ServiceFactory = request.app.state.service_factory
+
+        from sqlalchemy import select
+
+        # Look up or create default API context
+        stmt = select(Context).where(Context.name == "default_api")
+        result = await session.execute(stmt)
+        context = result.scalar_one_or_none()
+
+        if not context:
+            context = Context(
+                name="default_api",
+                type="virtual",
+                config={},
+                default_cwd="/tmp",  # noqa: S108
+            )
+            session.add(context)
+            await session.flush()
+
+        return await factory.create_service(context.id, session)
 
     @app.get("/healthz", response_model=HealthStatus)
     async def health() -> HealthStatus:  # pragma: no cover - trivial endpoint
@@ -280,10 +332,63 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     @app.post("/v1/agent", response_model=AgentResponse)
     async def run_agent(
         request: AgentRequest,
-        svc: AgentService = Depends(get_service),
+        factory: ServiceFactory = Depends(get_service_factory),
         session: AsyncSession = Depends(get_db),
     ) -> AgentResponse:
         try:
+            # Extract or create context_id from conversation_id
+            from uuid import UUID
+
+            context_id: UUID
+            if request.conversation_id:
+                try:
+                    conversation_uuid = UUID(request.conversation_id)
+                    # Look up conversation to get context_id
+                    from sqlalchemy import select
+
+                    stmt = select(Conversation).where(Conversation.id == conversation_uuid)
+                    result = await session.execute(stmt)
+                    conversation = result.scalar_one_or_none()
+
+                    if conversation:
+                        context_id = conversation.context_id
+                    else:
+                        # Create default context for new conversation
+                        context = Context(
+                            name=f"agent_{conversation_uuid}",
+                            type="virtual",
+                            config={},
+                            default_cwd="/tmp",  # noqa: S108
+                        )
+                        session.add(context)
+                        await session.flush()
+                        context_id = context.id
+                except ValueError:
+                    # Invalid UUID - create default context
+                    context = Context(
+                        name=f"agent_{uuid.uuid4()}",
+                        type="virtual",
+                        config={},
+                        default_cwd="/tmp",  # noqa: S108
+                    )
+                    session.add(context)
+                    await session.flush()
+                    context_id = context.id
+            else:
+                # No conversation_id - create default context
+                context = Context(
+                    name=f"agent_{uuid.uuid4()}",
+                    type="virtual",
+                    config={},
+                    default_cwd="/tmp",  # noqa: S108
+                )
+                session.add(context)
+                await session.flush()
+                context_id = context.id
+
+            # Create context-scoped service
+            svc = await factory.create_service(context_id, session)
+
             return await svc.handle_request(request, session=session)
         except LiteLLMError as exc:  # pragma: no cover - upstream failure
             LOGGER.error("LiteLLM gateway error: %s", exc)
@@ -372,6 +477,15 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
     app.include_router(openwebui_router)
     app.include_router(diagnostics_router)
+    app.include_router(oauth_router)
+    app.include_router(oauth_webui_router)
+
+    # Admin routers (secured with API key)
+    app.include_router(admin_contexts_router)
+    app.include_router(admin_oauth_router)
+    app.include_router(admin_mcp_router)
+    app.include_router(admin_diagnostics_router)
+
     return app
 
 

@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.core.config import Settings
 
@@ -11,6 +14,9 @@ from ..mcp.client import McpClient
 from ..models.mcp import McpTool
 from .base import Tool
 from .registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from core.mcp.client_pool import McpClientPool
 
 LOGGER = logging.getLogger(__name__)
 
@@ -52,153 +58,201 @@ class McpToolWrapper(Tool):
             self._server_name,
             kwargs,
         )
-        # Use original tool name for the actual call
-        result = await self._mcp_client.call_tool(self._original_name, kwargs)
 
-        # Handle MCP result format - extract content if available
-        if hasattr(result, "content"):
-            # MCP returns a CallToolResult with content list
-            contents = result.content
-            if contents and len(contents) > 0:
-                first_content = contents[0]
-                if hasattr(first_content, "text"):
-                    return first_content.text
-                return str(first_content)
-            return str(result)
-        return result
+        try:
+            # Use original tool name for the actual call
+            result = await self._mcp_client.call_tool(self._original_name, kwargs)
+
+            # Handle MCP result format - extract content if available
+            if hasattr(result, "content"):
+                # MCP returns a CallToolResult with content list
+                contents = result.content
+                if contents and len(contents) > 0:
+                    first_content = contents[0]
+                    if hasattr(first_content, "text"):
+                        return first_content.text
+                    return str(first_content)
+                return str(result)
+            return result
+
+        except Exception as e:
+            error_str = str(e).lower()
+
+            # Detect authentication/authorization errors
+            if any(
+                keyword in error_str
+                for keyword in [
+                    "401",
+                    "unauthorized",
+                    "authentication",
+                    "auth",
+                    "forbidden",
+                    "403",
+                ]
+            ):
+                LOGGER.warning(
+                    "Authentication error for MCP tool %s (%s): %s",
+                    self._original_name,
+                    self._server_name,
+                    e,
+                )
+
+                # Construct authorization message
+                provider_lower = self._server_name.lower()
+
+                return (
+                    f"🔐 **{self._server_name} Authentication Required**\n\n"
+                    f"To use {self._server_name} tools, I need permission to access "
+                    f"your account.\n\n"
+                    f"**To authorize {self._server_name}:**\n"
+                    f"I can help you start the authorization process. Just tell me to "
+                    f'"authorize {provider_lower}" or "set up {provider_lower}", and '
+                    f"I'll provide you with a secure authorization link.\n\n"
+                    f"_The authorization is done through your browser and only needs to be "
+                    f"completed once._"
+                )
+
+            # Re-raise other errors
+            raise
 
 
-# Store active clients for lifecycle management
-_active_clients: list[McpClient] = []
+# Module-level MCP client pool (singleton)
+_client_pool: McpClientPool | None = None
 
 
-async def load_mcp_tools(settings: Settings, tool_registry: ToolRegistry) -> None:
-    """Connect to configured MCP servers, discover tools, and register them.
+def set_mcp_client_pool(pool: McpClientPool) -> None:
+    """Register the global MCP client pool.
 
-    This function is called during application startup to discover and register
-    tools from all configured MCP servers. It handles connection failures
-    gracefully, allowing the application to start even if some MCP servers
-    are unavailable.
+    Called during application startup to provide the pool to the loader.
+
+    Args:
+        pool: Initialized McpClientPool instance
     """
-    global _active_clients
+    global _client_pool
+    _client_pool = pool
+    LOGGER.info("MCP client pool registered")
 
-    mcp_configs: list[dict[str, str | None]] = []
 
-    # Homey MCP
-    if settings.homey_mcp_url and settings.homey_api_token:
-        mcp_configs.append(
-            {
-                "name": "Homey",
-                "url": str(settings.homey_mcp_url),
-                "token": settings.homey_api_token,
-            }
+def get_mcp_client_pool() -> McpClientPool:
+    """Get the global MCP client pool.
+
+    Returns:
+        The registered MCP client pool
+
+    Raises:
+        RuntimeError: If pool not initialized
+    """
+    if _client_pool is None:
+        raise RuntimeError(
+            "MCP client pool not initialized. "
+            "Call set_mcp_client_pool() during application startup."
         )
-    else:
-        LOGGER.info("Homey MCP integration disabled (missing URL or API token).")
+    return _client_pool
 
-    # Context7 MCP
-    if settings.context7_mcp_url:
-        mcp_configs.append(
-            {
-                "name": "Context7",
-                "url": str(settings.context7_mcp_url),
-                "token": settings.context7_api_key,  # Use API key if configured
-            }
-        )
-    else:
-        LOGGER.info("Context7 MCP integration disabled (missing URL).")
 
-    if not mcp_configs:
-        LOGGER.info("No MCP servers configured.")
+async def load_mcp_tools_for_context(
+    context_id: UUID,
+    tool_registry: ToolRegistry,
+    session: AsyncSession,
+    settings: Settings,
+) -> None:
+    """Load MCP tools for a specific context using OAuth tokens.
+
+    This replaces the global load_mcp_tools() function with per-context loading.
+    It fetches the context's OAuth tokens and creates MCP clients accordingly.
+
+    Args:
+        context_id: Context UUID for isolation
+        tool_registry: ToolRegistry to populate with MCP tools
+        session: Database session for loading OAuth tokens
+        settings: Application settings
+
+    Raises:
+        RuntimeError: If MCP client pool not initialized
+    """
+    # Get the global client pool
+    try:
+        pool = get_mcp_client_pool()
+    except RuntimeError as e:
+        LOGGER.warning(f"MCP client pool not available: {e}")
         return
 
-    for config in mcp_configs:
-        client_name = config.get("name")
-        url = config.get("url")
-        token = config.get("token")
+    # Get clients for this context (creates if needed)
+    clients = await pool.get_clients(context_id, session)
 
-        if not url or not client_name:
-            LOGGER.warning("Skipping MCP config with missing name or URL: %s", config)
-            continue
+    if not clients:
+        LOGGER.debug(f"No MCP clients available for context {context_id}")
+        return
 
-        LOGGER.info("Initializing MCP client for %s at %s...", client_name, url)
-        mcp_client = McpClient(
-            url=url,
-            auth_token=token,
-            name=client_name,
-            auto_reconnect=True,
-            max_retries=3,
-            cache_ttl_seconds=300,  # 5 minute cache
+    # Register tools from each client
+    total_tools = 0
+    for client in clients:
+        for mcp_tool in client.tools:
+            wrapper = McpToolWrapper(
+                mcp_client=client,
+                mcp_tool=mcp_tool,
+                server_name=client.name,
+                prefix_name=True,  # Avoid collisions
+            )
+            tool_registry.register(wrapper)
+            total_tools += 1
+
+        LOGGER.debug(
+            f"Registered {len(client.tools)} tools from {client.name} " f"for context {context_id}"
         )
 
-        try:
-            await mcp_client.connect()
-            _active_clients.append(mcp_client)
-
-            # Register all discovered tools
-            for mcp_tool in mcp_client.tools:
-                wrapper = McpToolWrapper(
-                    mcp_client=mcp_client,
-                    mcp_tool=mcp_tool,
-                    server_name=client_name,
-                    prefix_name=True,  # Avoid collisions
-                )
-                tool_registry.register(wrapper)
-                LOGGER.info("Registered MCP tool: %s", wrapper.name)
-
-            LOGGER.info(
-                "Successfully loaded %d tools from MCP server '%s'",
-                len(mcp_client.tools),
-                client_name,
-            )
-
-        except Exception as e:
-            LOGGER.error(
-                "Failed to load tools from MCP server '%s': %s. "
-                "The agent will continue without these tools.",
-                client_name,
-                e,
-            )
-            # Continue with other servers even if one fails
+    LOGGER.info(
+        f"Loaded {total_tools} MCP tools from {len(clients)} clients " f"for context {context_id}"
+    )
 
 
-async def shutdown_mcp_clients() -> None:
-    """Disconnect all active MCP clients.
+async def shutdown_all_mcp_clients() -> None:
+    """Shutdown all MCP clients across all contexts.
 
-    Should be called during application shutdown.
+    Called during application shutdown.
     """
-    global _active_clients
-
-    for client in _active_clients:
-        try:
-            await client.disconnect()
-        except Exception as e:
-            LOGGER.warning("Error disconnecting MCP client %s: %s", client.name, e)
-
-    _active_clients.clear()
-    LOGGER.info("All MCP clients disconnected.")
+    if _client_pool:
+        await _client_pool.shutdown()
+        LOGGER.info("All MCP client pools shut down")
+    else:
+        LOGGER.debug("No MCP client pool to shut down")
 
 
 async def get_mcp_health() -> dict[str, dict[str, Any]]:
-    """Get health status of all MCP connections.
+    """Get health status of all MCP connections across all contexts.
 
-    Returns a dict mapping server name to health info.
+    Returns:
+        Dict mapping context_id (str) → health info
     """
-    health: dict[str, dict[str, Any]] = {}
+    if not _client_pool:
+        return {}
 
-    for client in _active_clients:
-        is_healthy = await client.ping()
-        health[client.name] = {
-            "connected": client.is_connected,
-            "healthy": is_healthy,
-            "state": client.state.name,
-            "tools_count": len(client.tools),
-            "resources_count": len(client.resources),
-            "prompts_count": len(client.prompts),
-            "cache_stale": client.is_cache_stale(),
+    return _client_pool.get_health_status()
+
+
+def get_mcp_stats() -> dict[str, Any]:
+    """Get overall MCP client pool statistics.
+
+    Returns:
+        Statistics about total contexts, clients, etc.
+    """
+    if not _client_pool:
+        return {
+            "total_contexts": 0,
+            "total_clients": 0,
+            "connected_clients": 0,
+            "disconnected_clients": 0,
         }
 
-    return health
+    return _client_pool.get_stats()
 
 
-__all__ = ["load_mcp_tools", "shutdown_mcp_clients", "get_mcp_health", "McpToolWrapper"]
+__all__ = [
+    "load_mcp_tools_for_context",
+    "shutdown_all_mcp_clients",
+    "get_mcp_health",
+    "get_mcp_stats",
+    "set_mcp_client_pool",
+    "get_mcp_client_pool",
+    "McpToolWrapper",
+]

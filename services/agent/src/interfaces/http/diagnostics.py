@@ -23,7 +23,7 @@ def get_diagnostics_service(
 
 @router.get("/traces", response_model=list[TraceGroup])
 async def get_traces(
-    limit: int = 1000,
+    limit: int = 5000,
     show_all: bool = False,
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> list[TraceGroup]:
@@ -539,7 +539,7 @@ async def diagnostics_dashboard(
             const list = document.getElementById('reqList');
             const showAll = document.getElementById('showAllTraces')?.checked || false;
             try {
-                const res = await fetch(`/diagnostics/traces?limit=100&show_all=${showAll}`);
+                const res = await fetch(`/diagnostics/traces?limit=500&show_all=${showAll}`);
                 if(!res.ok) throw new Error("API " + res.status);
                 traceGroups = await res.json();
                 filterTraces();

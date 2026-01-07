@@ -8,6 +8,7 @@ from contextlib import AsyncExitStack, suppress
 from datetime import datetime, timedelta
 from enum import Enum, auto
 from typing import Any
+from uuid import UUID
 
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
@@ -49,12 +50,19 @@ class McpClient:
         auto_reconnect: bool = True,
         max_retries: int = 3,
         cache_ttl_seconds: int = 300,  # 5 minutes
+        context_id: UUID | None = None,
+        oauth_provider: str | None = None,
     ) -> None:
         self._url = url
         self._name = name
         self._mcp_session: ClientSession | None = None
         self._exit_stack = AsyncExitStack()
         self._headers: dict[str, str] = {}
+
+        # OAuth support
+        self._context_id = context_id
+        self._oauth_provider = oauth_provider
+        self._static_token = auth_token
 
         # Caches
         self._tools_cache: list[McpTool] = []
@@ -68,9 +76,6 @@ class McpClient:
         self._auto_reconnect = auto_reconnect
         self._max_retries = max_retries
         self._connect_lock = asyncio.Lock()
-
-        if auth_token:
-            self._headers["Authorization"] = f"Bearer {auth_token}"
 
     @property
     def name(self) -> str:
@@ -107,6 +112,40 @@ class McpClient:
         if not self._cache_timestamp:
             return True
         return datetime.now() - self._cache_timestamp > self._cache_ttl
+
+    async def _get_auth_token(self) -> str | None:
+        """Get authentication token from database or fallback to static token.
+
+        Fetches OAuth token from database if context_id and oauth_provider are configured.
+        Falls back to static token if OAuth not configured or token fetch fails.
+
+        Returns:
+            Authentication token or None
+        """
+        if self._context_id and self._oauth_provider:
+            try:
+                from core.providers import get_token_manager
+
+                token_manager = get_token_manager()
+                token = await token_manager.get_token(self._oauth_provider, self._context_id)
+                if token:
+                    LOGGER.debug("Fetched OAuth token for %s provider", self._oauth_provider)
+                    return token
+                else:
+                    LOGGER.warning(
+                        "No OAuth token found for %s provider, context %s",
+                        self._oauth_provider,
+                        self._context_id,
+                    )
+            except Exception as e:
+                LOGGER.warning(
+                    "Failed to fetch OAuth token for %s: %s. Falling back to static token.",
+                    self._oauth_provider,
+                    e,
+                )
+
+        # Fallback to static token
+        return self._static_token
 
     async def connect(self) -> None:
         """Connect to the MCP server with retry logic and exponential backoff."""
@@ -152,8 +191,18 @@ class McpClient:
         LOGGER.info("Connecting to MCP server %s at %s", self._name, self._url)
 
         try:
+            # Get current authentication token (from DB or static)
+            auth_token = await self._get_auth_token()
+            headers = self._headers.copy()
+
+            if auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+                LOGGER.debug("Using Bearer token for MCP authentication")
+            else:
+                LOGGER.warning("No authentication token available for MCP %s", self._name)
+
             streams = await self._exit_stack.enter_async_context(
-                sse_client(str(self._url), headers=self._headers)
+                sse_client(str(self._url), headers=headers)
             )
             read_stream, write_stream = streams
 

@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -19,11 +19,13 @@ class Context(Base):
     type: Mapped[str] = mapped_column(String)  # e.g. 'git_repo', 'devops'
     config: Mapped[dict[str, Any]] = mapped_column(JSONB, default={})
     pinned_files: Mapped[list[str]] = mapped_column(JSONB, default=list)
-    default_cwd: Mapped[str] = mapped_column(String)
+    default_cwd: Mapped[str] = mapped_column(String, default="/tmp")  # noqa: S108
 
     conversations = relationship(
         "Conversation", back_populates="context", cascade="all, delete-orphan"
     )
+    oauth_tokens = relationship("OAuthToken", cascade="all, delete-orphan")
+    tool_permissions = relationship("ToolPermission", cascade="all, delete-orphan")
 
 
 class Conversation(Base):
@@ -69,3 +71,26 @@ class Message(Base):
     trace_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     session = relationship("Session", back_populates="messages")
+
+
+class ToolPermission(Base):
+    """Per-context tool access permissions.
+
+    Controls which tools are available to each context (user/workspace).
+    Default behavior is allow-all (if no permission record exists).
+    """
+
+    __tablename__ = "tool_permissions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    tool_name: Mapped[str] = mapped_column(String, index=True)
+    allowed: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    __table_args__ = (UniqueConstraint("context_id", "tool_name", name="uq_context_tool"),)
