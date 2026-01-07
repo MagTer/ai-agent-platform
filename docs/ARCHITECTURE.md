@@ -50,6 +50,83 @@ The system follows a **Modular Monolith** architecture with a strict unidirectio
 
 ---
 
+## Multi-Tenant Architecture
+
+The platform implements **context-based multi-tenancy** for complete isolation between users, workspaces, or projects.
+
+### Service Factory Pattern
+
+Instead of a global `AgentService` singleton, the `ServiceFactory` creates isolated services per request:
+
+```python
+# Per-request service creation (not singleton!)
+@app.post("/v1/agent")
+async def run_agent(
+    request: AgentRequest,
+    factory: ServiceFactory = Depends(get_service_factory),
+    session: AsyncSession = Depends(get_db),
+):
+    # Extract context_id from conversation
+    context_id = await extract_context_id(request, session)
+
+    # Create context-scoped service
+    service = await factory.create_service(context_id, session)
+
+    # Each service has:
+    # - Cloned tool registry (filtered by permissions)
+    # - Context-filtered memory store
+    # - OAuth-authenticated MCP clients
+    return await service.handle_request(request, session)
+```
+
+### Context Isolation
+
+**Database Level:**
+- Conversations, OAuth tokens, and tool permissions scoped to `context_id`
+- Cascade delete ensures data cleanup
+
+**Memory Level (Qdrant):**
+- Every memory point tagged with `context_id`
+- Searches automatically filtered by context
+
+**MCP Clients:**
+- Per-context OAuth tokens
+- Client pool manages connections per context
+- Health monitoring and automatic reconnection
+
+**Tool Registry:**
+- Base registry cloned per request
+- Per-context permissions applied
+- MCP tools loaded with context-specific OAuth
+
+See [Multi-Tenant Architecture](./MULTI_TENANT_ARCHITECTURE.md) for details.
+
+### Admin API
+
+The platform includes admin endpoints for managing contexts, OAuth tokens, and MCP clients:
+
+```bash
+# List contexts
+GET /admin/contexts
+
+# Create context
+POST /admin/contexts
+
+# Manage OAuth tokens
+GET /admin/oauth/tokens
+DELETE /admin/oauth/tokens/{token_id}
+
+# MCP client management
+GET /admin/mcp/health
+POST /admin/mcp/disconnect/{context_id}
+```
+
+All admin endpoints require API key authentication (`X-API-Key` header).
+
+See [Admin API Reference](./ADMIN_API.md) for complete documentation.
+
+---
+
 ## Protocol-Based Dependency Injection
 
 The `core/` layer uses **Protocol classes** to define interfaces, enabling dependency injection without importing from higher layers.

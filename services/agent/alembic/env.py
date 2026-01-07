@@ -15,6 +15,10 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 sys.path.append(str(Path(__file__).parent.parent / "src"))
 
 from core.db.models import Base
+from core.db.oauth_models import (  # noqa: F401 - needed for alembic autogenerate
+    OAuthState,
+    OAuthToken,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

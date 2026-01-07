@@ -5,18 +5,20 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.core.config import Settings, get_settings
 from core.core.litellm_client import LiteLLMClient
-from core.core.memory import MemoryStore
 from core.core.service import AgentService
+from core.core.service_factory import ServiceFactory
 from core.db.engine import get_db
-from core.tools.loader import load_tool_registry
+from core.db.models import Context, Conversation
 from interfaces.base import PlatformAdapter
 from orchestrator.dispatcher import Dispatcher
 from orchestrator.skill_loader import SkillLoader
@@ -83,14 +85,132 @@ def get_dispatcher(settings: Settings = Depends(get_settings_dep)) -> Dispatcher
     return Dispatcher(loader, litellm)
 
 
-async def get_agent_service(
-    settings: Settings = Depends(get_settings_dep),
-) -> AgentService:
+async def get_or_create_context_id(
+    request: ChatCompletionRequest,
+    session: AsyncSession = Depends(get_db),
+) -> UUID:
+    """Extract or create context_id from OpenWebUI conversation.
+
+    Flow:
+    1. Get conversation_id from request (chat_id, session_id, or metadata)
+    2. Look up conversation in database to get context_id
+    3. If conversation doesn't exist yet, create a default context
+    4. Return context_id for use in context-aware services
+
+    Args:
+        request: OpenWebUI chat completion request
+        session: Database session
+
+    Returns:
+        Context UUID for this conversation
+    """
+    # Extract conversation_id from OpenWebUI request
+    conversation_id_str = (
+        request.chat_id or request.session_id or (request.metadata or {}).get("conversation_id")
+    )
+
+    if not conversation_id_str:
+        # No conversation ID - create a default context for this request
+        # This handles the case where OpenWebUI starts a fresh conversation
+        context = Context(
+            name=f"openwebui_{uuid.uuid4()}",
+            type="virtual",
+            config={},
+            default_cwd="/tmp",
+        )
+        session.add(context)
+        await session.flush()
+        LOGGER.info(f"Created new context for fresh OpenWebUI conversation: {context.id}")
+        return context.id
+
+    # Try to parse as UUID
+    try:
+        conversation_uuid = UUID(conversation_id_str)
+    except ValueError:
+        # Invalid UUID format - create default context
+        LOGGER.warning(
+            f"Invalid conversation_id format: {conversation_id_str}, creating new context"
+        )
+        context = Context(
+            name=f"openwebui_{uuid.uuid4()}",
+            type="virtual",
+            config={},
+            default_cwd="/tmp",
+        )
+        session.add(context)
+        await session.flush()
+        return context.id
+
+    # Look up conversation in database
+    stmt = select(Conversation).where(Conversation.id == conversation_uuid)
+    result = await session.execute(stmt)
+    conversation = result.scalar_one_or_none()
+
+    if conversation:
+        # Conversation exists - return its context
+        LOGGER.debug(
+            f"Found existing conversation {conversation_uuid}, context_id={conversation.context_id}"
+        )
+        return conversation.context_id
+
+    # Conversation doesn't exist yet (will be created by AgentService later)
+    # Create a default context for this new conversation
+    context = Context(
+        name=f"openwebui_{conversation_uuid}",
+        type="virtual",
+        config={"platform": "openwebui", "conversation_id": str(conversation_uuid)},
+        default_cwd="/tmp",
+    )
+    session.add(context)
+    await session.flush()
+    LOGGER.info(f"Created new context for conversation {conversation_uuid}: {context.id}")
+    return context.id
+
+
+def get_service_factory() -> ServiceFactory:
+    """Get service factory from FastAPI app state."""
+
+    # Access via current request context (injected by FastAPI)
+    # Note: This is a workaround to access app state
+    # A cleaner approach would be to pass the factory explicitly,
+    # but this works for dependency injection
+    import inspect
+
+    for frame_info in inspect.stack():
+        frame_locals = frame_info.frame.f_locals
+        if "app" in frame_locals:
+            app = frame_locals["app"]
+            if hasattr(app, "state") and hasattr(app.state, "service_factory"):
+                return app.state.service_factory
+
+    # Fallback: create temporary factory (shouldn't happen in normal operation)
+    LOGGER.warning("Could not access service_factory from app state, creating temporary instance")
+    settings = get_settings()
     litellm = LiteLLMClient(settings)
-    memory = MemoryStore(settings)
-    await memory.ainit()  # Await async initialization
-    tool_registry = load_tool_registry(settings.tools_config_path)
-    return AgentService(settings, litellm, memory, tool_registry=tool_registry)
+    return ServiceFactory(settings, litellm)
+
+
+async def get_agent_service(
+    context_id: UUID = Depends(get_or_create_context_id),
+    session: AsyncSession = Depends(get_db),
+    factory: ServiceFactory = Depends(get_service_factory),
+) -> AgentService:
+    """Get context-aware AgentService using ServiceFactory.
+
+    This creates a service instance scoped to the context, with:
+    - Context-isolated MemoryStore
+    - Context-specific tool registry (including MCP tools in Phase 3)
+    - Proper multi-tenant isolation
+
+    Args:
+        context_id: Context UUID from get_or_create_context_id dependency
+        session: Database session
+        factory: Service factory from app state
+
+    Returns:
+        AgentService instance scoped to the context
+    """
+    return await factory.create_service(context_id, session)
 
 
 # --- Endpoints ---

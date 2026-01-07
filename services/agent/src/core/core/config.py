@@ -102,6 +102,39 @@ class Settings(BaseModel):
     homey_api_token: str | None = Field(
         default=None, description="API token for authenticating with Homey MCP."
     )
+
+    # OAuth 2.0 Configuration (Homey)
+    homey_oauth_enabled: bool = Field(
+        default=True,
+        description="Use OAuth 2.0 for Homey authentication",
+    )
+    homey_authorization_url: HttpUrl = Field(
+        default=cast(HttpUrl, "https://api.athom.com/oauth2/authorise"),
+        description="Homey OAuth authorization endpoint",
+    )
+    homey_token_url: HttpUrl = Field(
+        default=cast(HttpUrl, "https://api.athom.com/oauth2/token"),
+        description="Homey OAuth token endpoint",
+    )
+    homey_client_id: str | None = Field(
+        default=None,
+        description="Homey OAuth client ID (register at https://tools.developer.homey.app/)",
+    )
+    homey_client_secret: str | None = Field(
+        default=None,
+        description="Homey OAuth client secret (optional for public clients)",
+    )
+    oauth_redirect_uri: HttpUrl | None = Field(
+        default=None,
+        description="OAuth callback URL (e.g., https://your-app.com/auth/oauth/callback)",
+    )
+
+    # Admin Dashboard
+    admin_api_key: str | None = Field(
+        default=None,
+        description="API key for admin dashboard access (generate with: openssl rand -hex 32)",
+    )
+
     context7_mcp_url: HttpUrl | None = Field(
         default=None,
         description="URL for the Context7 Model Context Protocol (MCP) server.",

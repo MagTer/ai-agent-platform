@@ -17,6 +17,7 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from core.auth.token_manager import TokenManager
     from core.protocols import ICodeIndexer, IEmbedder, IFetcher, IRAGManager
 
 LOGGER = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ _embedder: IEmbedder | None = None
 _fetcher: IFetcher | None = None
 _rag_manager: IRAGManager | None = None
 _code_indexer_factory: type[ICodeIndexer] | None = None
+_token_manager: TokenManager | None = None
 
 
 class ProviderError(Exception):
@@ -96,6 +98,21 @@ def get_code_indexer_factory() -> type[ICodeIndexer]:
     return _code_indexer_factory
 
 
+# --- Token Manager ---
+def set_token_manager(token_manager: TokenManager) -> None:
+    """Register the token manager implementation."""
+    global _token_manager
+    _token_manager = token_manager
+    LOGGER.info("Token Manager provider registered")
+
+
+def get_token_manager() -> TokenManager:
+    """Get the registered token manager. Raises if not configured."""
+    if _token_manager is None:
+        raise ProviderError("Token Manager not configured. Call set_token_manager() at startup.")
+    return _token_manager
+
+
 __all__ = [
     "ProviderError",
     "set_embedder",
@@ -106,4 +123,6 @@ __all__ = [
     "get_rag_manager",
     "set_code_indexer_factory",
     "get_code_indexer_factory",
+    "set_token_manager",
+    "get_token_manager",
 ]

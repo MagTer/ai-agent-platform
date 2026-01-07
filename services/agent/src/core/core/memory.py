@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable
 from dataclasses import dataclass
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
@@ -33,18 +33,25 @@ class MemoryRecord:
 
 
 class MemoryStore:
-    """Persist conversations inside Qdrant for long-term recall."""
+    """Persist conversations inside Qdrant for long-term recall.
 
-    def __init__(self, settings: Settings) -> None:
+    Supports context isolation - all memories are stored with a context_id
+    and searches are filtered to only return memories from the same context.
+    """
+
+    def __init__(self, settings: Settings, context_id: UUID | None = None) -> None:
+        """Initialize memory store.
+
+        Args:
+            settings: Application settings
+            context_id: Context UUID for multi-tenant isolation.
+                       If None, context filtering is disabled (backward compatibility).
+        """
         self._settings = settings
+        self._context_id = context_id
         self._vector_size = settings.qdrant_vector_size
         self._embedder = EmbedderClient(str(settings.embedder_url))
         self._client: AsyncQdrantClient | None = None
-        # _ensure_client is now async, so it needs to be awaited.
-        # This means __init__ cannot directly call it with await.
-        # It needs to be called after instantiation in an async context,
-        # or we could make MemoryStore a dependency that's created async.
-        # For now, I'll remove the call from __init__ and add a note.
 
     async def ainit(self) -> None:  # Async initialization method
         await self._async_ensure_client()
@@ -90,14 +97,20 @@ class MemoryStore:
 
         points = []
         for record, vector in zip(record_list, vectors, strict=False):
+            payload = {
+                "conversation_id": record.conversation_id,
+                "text": record.text,
+            }
+
+            # Add context_id for multi-tenant isolation
+            if self._context_id:
+                payload["context_id"] = str(self._context_id)
+
             points.append(
                 PointStruct(
                     id=uuid4().hex,
                     vector=vector,
-                    payload={
-                        "conversation_id": record.conversation_id,
-                        "text": record.text,
-                    },
+                    payload=payload,
                 )
             )
         try:
@@ -121,19 +134,36 @@ class MemoryStore:
         if not vectors:
             return []
         vector = vectors[0]
-        query_filter: Filter | None = None
-        if conversation_id:
-            query_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="conversation_id",
-                        match=MatchValue(value=conversation_id),
-                    )
-                ]
+
+        # Build filter conditions for context and conversation isolation
+        filter_conditions = []
+
+        # Always filter by context_id if set (multi-tenant isolation)
+        if self._context_id:
+            filter_conditions.append(
+                FieldCondition(
+                    key="context_id",
+                    match=MatchValue(value=str(self._context_id)),
+                )
             )
 
+        # Optionally filter by conversation_id
+        if conversation_id:
+            filter_conditions.append(
+                FieldCondition(
+                    key="conversation_id",
+                    match=MatchValue(value=conversation_id),
+                )
+            )
+
+        query_filter: Filter | None = None
+        if filter_conditions:
+            query_filter = Filter(must=filter_conditions)
+
         LOGGER.info(
-            f"Searching memory for query='{query}' conversation_id='{conversation_id or 'all'}'"
+            f"Searching memory for query='{query}' "
+            f"context_id='{self._context_id or 'all'}' "
+            f"conversation_id='{conversation_id or 'all'}'"
         )
 
         try:
