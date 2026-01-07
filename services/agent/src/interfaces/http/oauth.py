@@ -146,6 +146,7 @@ async def oauth_callback(
 
     except OAuthError as e:
         LOGGER.error(f"OAuth callback error: {e.error} - {e.description}")
+        # ruff: noqa: E501
         return HTMLResponse(
             content=f"""
             <!DOCTYPE html>

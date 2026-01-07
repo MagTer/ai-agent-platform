@@ -52,10 +52,7 @@ class TestAdminContextEndpoints:
         """Test listing contexts with valid auth."""
         # Create test context
         context = Context(
-            name="test_list_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="test_list_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session_sync.add(context)
         async_session_sync.commit()
@@ -75,7 +72,7 @@ class TestAdminContextEndpoints:
             name="test_detail_context",
             type="virtual",
             config={"key": "value"},
-            default_cwd="/tmp",
+            default_cwd="/tmp",  # noqa: S108,
         )
         async_session_sync.add(context)
         async_session_sync.flush()
@@ -84,7 +81,7 @@ class TestAdminContextEndpoints:
             platform="test",
             platform_id="test_conv",
             context_id=context.id,
-            current_cwd="/tmp",
+            current_cwd="/tmp",  # noqa: S108,
         )
         async_session_sync.add(conversation)
         async_session_sync.commit()
@@ -103,7 +100,7 @@ class TestAdminContextEndpoints:
             "name": "new_test_context",
             "type": "virtual",
             "config": {},
-            "default_cwd": "/tmp",
+            "default_cwd": "/tmp",  # noqa: S108
         }
 
         response = admin_client.post("/admin/contexts", json=payload, headers=admin_headers)
@@ -117,10 +114,7 @@ class TestAdminContextEndpoints:
         """Test that duplicate context names are rejected."""
         # Create existing context
         context = Context(
-            name="duplicate_name",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="duplicate_name", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session_sync.add(context)
         async_session_sync.commit()
@@ -130,7 +124,7 @@ class TestAdminContextEndpoints:
             "name": "duplicate_name",
             "type": "virtual",
             "config": {},
-            "default_cwd": "/tmp",
+            "default_cwd": "/tmp",  # noqa: S108
         }
 
         response = admin_client.post("/admin/contexts", json=payload, headers=admin_headers)
@@ -141,10 +135,7 @@ class TestAdminContextEndpoints:
         """Test deleting a context."""
         # Create context
         context = Context(
-            name="delete_test_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="delete_test_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session_sync.add(context)
         async_session_sync.commit()
@@ -166,10 +157,7 @@ class TestAdminOAuthEndpoints:
         """Test listing OAuth tokens."""
         # Create context with token
         context = Context(
-            name="oauth_list_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="oauth_list_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session_sync.add(context)
         async_session_sync.flush()
@@ -202,16 +190,10 @@ class TestAdminOAuthEndpoints:
         """Test filtering OAuth tokens by context."""
         # Create two contexts
         context_a = Context(
-            name="oauth_filter_a",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="oauth_filter_a", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         context_b = Context(
-            name="oauth_filter_b",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="oauth_filter_b", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session_sync.add(context_a)
         async_session_sync.add(context_b)
@@ -250,10 +232,7 @@ class TestAdminOAuthEndpoints:
         """Test revoking an OAuth token."""
         # Create context with token
         context = Context(
-            name="revoke_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="revoke_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session_sync.add(context)
         async_session_sync.flush()
@@ -281,10 +260,7 @@ class TestAdminOAuthEndpoints:
         """Test getting OAuth status for a context."""
         # Create context with token
         context = Context(
-            name="status_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="status_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session_sync.add(context)
         async_session_sync.flush()
@@ -339,7 +315,7 @@ class TestAdminMCPEndpoints:
             name="mcp_disconnect_context",
             type="virtual",
             config={},
-            default_cwd="/tmp",
+            default_cwd="/tmp",  # noqa: S108,
         )
         async_session_sync.add(context)
         async_session_sync.commit()

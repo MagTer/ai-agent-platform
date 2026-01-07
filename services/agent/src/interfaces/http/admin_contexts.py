@@ -69,7 +69,7 @@ class CreateContextRequest(BaseModel):
     type: str = "virtual"
     config: dict[str, Any] = {}
     pinned_files: list[str] = []
-    default_cwd: str = "/tmp"
+    default_cwd: str = "/tmp"  # noqa: S108
 
 
 class CreateContextResponse(BaseModel):

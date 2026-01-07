@@ -554,7 +554,8 @@ class StepExecutorAgent:
 
             elif tool_event["type"] == "content":
                 # Streaming tool content (e.g., SkillDelegateTool)
-                # Collect but DON'T stream - skill output should inform the answer, not BE the answer
+                # Collect but DON'T stream - skill output should inform the answer, not  # noqa: E501
+                # BE the answer
                 chunk = tool_event.get("content", "")
                 if chunk:
                     content_chunks.append(chunk)

@@ -129,7 +129,7 @@ class TestMemoryStoreContext:
         with patch.object(memory, "_get_embedding", new_callable=AsyncMock) as mock_embed:
             mock_embed.return_value = [0.1, 0.2, 0.3]
 
-            results = await memory.search("test query", limit=5)
+            await memory.search("test query", limit=5)
 
             # Verify search was called
             mock_client.search.assert_called_once()
@@ -170,7 +170,7 @@ class TestMemoryStoreContext:
         with patch.object(memory, "_get_embedding", new_callable=AsyncMock) as mock_embed:
             mock_embed.return_value = [0.1, 0.2, 0.3]
 
-            results = await memory.search("test query", limit=5, conversation_id=conversation_id)
+            await memory.search("test query", limit=5, conversation_id=conversation_id)
 
             # Verify search was called with filters
             mock_client.search.assert_called_once()
@@ -203,7 +203,7 @@ class TestMemoryStoreContext:
         with patch.object(memory, "_get_embedding", new_callable=AsyncMock) as mock_embed:
             mock_embed.return_value = [0.1, 0.2, 0.3]
 
-            results = await memory.search("test query", limit=5)
+            await memory.search("test query", limit=5)
 
             # Verify search was called
             mock_client.search.assert_called_once()
@@ -211,7 +211,7 @@ class TestMemoryStoreContext:
             call_kwargs = mock_client.search.call_args[1]
 
             # Should not have context filter (or should be empty filter list)
-            query_filter = call_kwargs.get("query_filter")
+            call_kwargs.get("query_filter")
             # Filter might be None or an empty filter depending on implementation
 
     async def test_different_contexts_isolated(self, settings):

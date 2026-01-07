@@ -203,7 +203,8 @@ async def migrate_memory_contexts() -> None:
         context_id = payload.get("context_id", "MISSING")
         conversation_id = payload.get("conversation_id", "MISSING")
         print(
-            f"  Point {point.id[:8]}... context_id={context_id[:8]}... conv_id={conversation_id[:8]}..."
+            f"  Point {point.id[:8]}... context_id={context_id[:8]}... "  # noqa: E501
+            f"conv_id={conversation_id[:8]}..."
         )
 
     print()

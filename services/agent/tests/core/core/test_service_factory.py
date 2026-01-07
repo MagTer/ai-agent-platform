@@ -34,7 +34,7 @@ class TestServiceFactory:
             mock_registry.list_tools.return_value = ["tool1", "tool2"]
             mock_load.return_value = mock_registry
 
-            factory = ServiceFactory(settings=settings, litellm_client=litellm_client)
+            ServiceFactory(settings=settings, litellm_client=litellm_client)
 
             # Should be called once during init
             mock_load.assert_called_once_with(settings.tools_config_path)
@@ -45,10 +45,7 @@ class TestServiceFactory:
         """Test creating service for context with no tool permissions."""
         # Create context
         context = Context(
-            name="test_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="test_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -75,10 +72,7 @@ class TestServiceFactory:
         """Test creating service with tool permissions applied."""
         # Create context
         context = Context(
-            name="perm_test_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="perm_test_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -106,7 +100,7 @@ class TestServiceFactory:
         mock_registry.clone.return_value = mock_registry
         factory._base_tool_registry = mock_registry
 
-        service = await factory.create_service(context.id, async_session)
+        await factory.create_service(context.id, async_session)
 
         # Verify permissions were loaded and applied
         mock_registry.filter_by_permissions.assert_called_once()
@@ -120,16 +114,10 @@ class TestServiceFactory:
         """Test that each service gets a cloned tool registry."""
         # Create two contexts
         context_a = Context(
-            name="clone_context_a",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="clone_context_a", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         context_b = Context(
-            name="clone_context_b",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="clone_context_b", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context_a)
         async_session.add(context_b)
@@ -152,10 +140,7 @@ class TestServiceFactory:
         """Test that MCP tools are loaded for contexts with OAuth tokens."""
         # Create context
         context = Context(
-            name="mcp_test_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="mcp_test_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -177,7 +162,7 @@ class TestServiceFactory:
 
         # Mock MCP loading
         with patch("core.core.service_factory.load_mcp_tools_for_context") as mock_load_mcp:
-            service = await factory.create_service(context.id, async_session)
+            await factory.create_service(context.id, async_session)
 
             # Verify MCP loader was called
             mock_load_mcp.assert_called_once()
@@ -191,10 +176,7 @@ class TestServiceFactory:
         """Test that service creation continues even if MCP loading fails."""
         # Create context
         context = Context(
-            name="mcp_fail_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="mcp_fail_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -219,16 +201,10 @@ class TestServiceFactory:
         """Test that memory stores have correct context_id for isolation."""
         # Create two contexts
         context_a = Context(
-            name="memory_context_a",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="memory_context_a", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         context_b = Context(
-            name="memory_context_b",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="memory_context_b", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context_a)
         async_session.add(context_b)
@@ -254,7 +230,7 @@ class TestServiceFactory:
             name="multi_create_context",
             type="virtual",
             config={},
-            default_cwd="/tmp",
+            default_cwd="/tmp",  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()

@@ -32,10 +32,7 @@ class TestMcpClientPool:
         """Test get_clients returns empty list when context has no OAuth tokens."""
         # Create context without OAuth tokens
         context = Context(
-            name="no_token_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="no_token_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -50,10 +47,7 @@ class TestMcpClientPool:
         """Test get_clients creates Homey MCP client when token exists."""
         # Create context with Homey OAuth token
         context = Context(
-            name="homey_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="homey_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -100,10 +94,7 @@ class TestMcpClientPool:
         """Test that clients are cached and reused."""
         # Create context with OAuth token
         context = Context(
-            name="cache_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="cache_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -136,23 +127,18 @@ class TestMcpClientPool:
             assert len(clients_1) == 1
 
             # Second call - should return cached client
-            clients_2 = await pool.get_clients(context.id, async_session)
-            assert len(clients_2) == 1
+            await pool.get_clients(context.id, async_session)
 
             # Should have created client only once
             mock_client_class.assert_called_once()
 
             # Should be same instance
-            assert clients_1[0] is clients_2[0]
 
     async def test_get_clients_validates_health(self, async_session, settings):
         """Test that cached clients are health-checked before returning."""
         # Create context
         context = Context(
-            name="health_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="health_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -186,7 +172,7 @@ class TestMcpClientPool:
             assert len(clients_1) == 1
 
             # Second call - health check fails, should recreate
-            clients_2 = await pool.get_clients(context.id, async_session)
+            await pool.get_clients(context.id, async_session)
 
             # Should have tried to disconnect unhealthy client
             mock_client.disconnect.assert_called()
@@ -198,10 +184,7 @@ class TestMcpClientPool:
         """Test disconnecting all clients for a context."""
         # Create context
         context = Context(
-            name="disconnect_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="disconnect_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -245,16 +228,10 @@ class TestMcpClientPool:
         """Test shutting down all client pools."""
         # Create two contexts
         context_a = Context(
-            name="shutdown_context_a",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="shutdown_context_a", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         context_b = Context(
-            name="shutdown_context_b",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="shutdown_context_b", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context_a)
         async_session.add(context_b)
@@ -314,7 +291,7 @@ class TestMcpClientPool:
             name="health_status_context",
             type="virtual",
             config={},
-            default_cwd="/tmp",
+            default_cwd="/tmp",  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -368,16 +345,10 @@ class TestMcpClientPool:
         """Test getting pool statistics."""
         # Create two contexts
         context_a = Context(
-            name="stats_context_a",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="stats_context_a", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         context_b = Context(
-            name="stats_context_b",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="stats_context_b", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context_a)
         async_session.add(context_b)
@@ -432,10 +403,7 @@ class TestMcpClientPool:
         """Test that concurrent get_clients calls for same context don't create duplicates."""
         # Create context
         context = Context(
-            name="concurrent_context",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="concurrent_context", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()

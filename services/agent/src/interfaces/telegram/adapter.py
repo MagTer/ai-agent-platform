@@ -102,7 +102,7 @@ class TelegramAdapter(PlatformAdapter):
             name=f"telegram_{chat_id}",
             type="virtual",
             config={"platform": "telegram", "chat_id": chat_id},
-            default_cwd="/tmp",
+            default_cwd="/tmp",  # noqa: S108
         )
         session.add(context)
         await session.flush()

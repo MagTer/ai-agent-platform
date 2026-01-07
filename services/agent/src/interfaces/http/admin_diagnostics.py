@@ -238,6 +238,7 @@ async def diagnostics_dashboard(
         so the X-API-Key header must be included in all requests.
     """
     # Professional Split-Pane Dashboard
+    # ruff: noqa: E501
     html_content = """
 <!DOCTYPE html>
 <html lang="en">

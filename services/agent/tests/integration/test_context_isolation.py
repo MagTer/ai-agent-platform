@@ -32,16 +32,10 @@ class TestContextIsolation:
         """Verify conversations are isolated between contexts."""
         # Create two contexts
         context_a = Context(
-            name="context_a",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="context_a", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         context_b = Context(
-            name="context_b",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="context_b", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context_a)
         async_session.add(context_b)
@@ -52,7 +46,7 @@ class TestContextIsolation:
             platform="test",
             platform_id="conv_a",
             context_id=context_a.id,
-            current_cwd="/tmp",
+            current_cwd="/tmp",  # noqa: S108,
         )
         async_session.add(conv_a)
 
@@ -61,7 +55,7 @@ class TestContextIsolation:
             platform="test",
             platform_id="conv_b",
             context_id=context_b.id,
-            current_cwd="/tmp",
+            current_cwd="/tmp",  # noqa: S108,
         )
         async_session.add(conv_b)
         await async_session.commit()
@@ -87,16 +81,10 @@ class TestContextIsolation:
         """Verify OAuth tokens are isolated between contexts."""
         # Create two contexts
         context_a = Context(
-            name="oauth_context_a",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="oauth_context_a", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         context_b = Context(
-            name="oauth_context_b",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="oauth_context_b", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context_a)
         async_session.add(context_b)
@@ -144,16 +132,10 @@ class TestContextIsolation:
         """Verify tool permissions are isolated between contexts."""
         # Create two contexts
         context_a = Context(
-            name="perm_context_a",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="perm_context_a", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         context_b = Context(
-            name="perm_context_b",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="perm_context_b", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context_a)
         async_session.add(context_b)
@@ -198,10 +180,7 @@ class TestContextIsolation:
         """Verify deleting a context cascades to related entities."""
         # Create context
         context = Context(
-            name="cascade_test",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="cascade_test", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context)
         await async_session.flush()
@@ -211,7 +190,7 @@ class TestContextIsolation:
             platform="test",
             platform_id="cascade_conv",
             context_id=context.id,
-            current_cwd="/tmp",
+            current_cwd="/tmp",  # noqa: S108,
         )
         async_session.add(conversation)
 
@@ -233,7 +212,6 @@ class TestContextIsolation:
         await async_session.commit()
 
         # Store IDs
-        context_id = context.id
         conv_id = conversation.id
         token_id = oauth_token.id
         perm_id = tool_perm.id
@@ -302,16 +280,10 @@ class TestContextIsolation:
         """Verify ServiceFactory creates isolated services per context."""
         # Create two contexts with different tool permissions
         context_a = Context(
-            name="service_context_a",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="service_context_a", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         context_b = Context(
-            name="service_context_b",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",
+            name="service_context_b", type="virtual", config={}, default_cwd="/tmp"  # noqa: S108,
         )
         async_session.add(context_a)
         async_session.add(context_b)
@@ -366,7 +338,7 @@ class TestContextIsolation:
                 name=f"concurrent_context_{i}",
                 type="virtual",
                 config={},
-                default_cwd="/tmp",
+                default_cwd="/tmp",  # noqa: S108,
             )
             async_session.add(context)
             contexts.append(context)

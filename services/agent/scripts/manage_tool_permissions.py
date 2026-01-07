@@ -155,8 +155,8 @@ async def interactive_menu() -> None:
                     print("No contexts found. Create a context first.")
                     continue
 
-                for i, (ctx_id, ctx_name) in enumerate(contexts, 1):
-                    print(f"{i:3d}. {ctx_name} ({ctx_id})")
+                for i, (_ctx_id, ctx_name) in enumerate(contexts, 1):
+                    print(f"{i:3d}. {ctx_name}")
                 print(f"\nTotal: {len(contexts)} contexts")
 
             elif choice == "3":
@@ -167,7 +167,7 @@ async def interactive_menu() -> None:
                     continue
 
                 print("\nSelect context:")
-                for i, (ctx_id, ctx_name) in enumerate(contexts, 1):
+                for i, (_ctx_id, ctx_name) in enumerate(contexts, 1):
                     print(f"{i}. {ctx_name}")
 
                 ctx_idx = input("Context number: ").strip()
@@ -201,7 +201,7 @@ async def interactive_menu() -> None:
                     continue
 
                 print(f"\nSelect context to {action} access:")
-                for i, (ctx_id, ctx_name) in enumerate(contexts, 1):
+                for i, (_ctx_id, ctx_name) in enumerate(contexts, 1):
                     print(f"{i}. {ctx_name}")
 
                 ctx_idx = input("Context number: ").strip()
@@ -227,7 +227,7 @@ async def interactive_menu() -> None:
                     continue
 
                 print("\nSelect context:")
-                for i, (ctx_id, ctx_name) in enumerate(contexts, 1):
+                for i, (_ctx_id, ctx_name) in enumerate(contexts, 1):
                     print(f"{i}. {ctx_name}")
 
                 ctx_idx = input("Context number: ").strip()
@@ -253,7 +253,7 @@ async def interactive_menu() -> None:
                     continue
 
                 print("\nSelect context to reset:")
-                for i, (ctx_id, ctx_name) in enumerate(contexts, 1):
+                for i, (_ctx_id, ctx_name) in enumerate(contexts, 1):
                     print(f"{i}. {ctx_name}")
 
                 ctx_idx = input("Context number: ").strip()

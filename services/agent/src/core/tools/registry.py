@@ -76,9 +76,9 @@ class ToolRegistry:
         if removed_count > 0:
             import logging
 
-            LOGGER = logging.getLogger(__name__)
+            logger = logging.getLogger(__name__)
             removed_tools = set(self._tools.keys()) - set(filtered_tools.keys())
-            LOGGER.info(f"Filtered {removed_count} tools by permissions: {sorted(removed_tools)}")
+            logger.info(f"Filtered {removed_count} tools by permissions: {sorted(removed_tools)}")
 
         self._tools = filtered_tools
 

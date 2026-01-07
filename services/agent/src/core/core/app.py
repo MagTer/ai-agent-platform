@@ -318,7 +318,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                 name="default_api",
                 type="virtual",
                 config={},
-                default_cwd="/tmp",
+                default_cwd="/tmp",  # noqa: S108
             )
             session.add(context)
             await session.flush()
@@ -358,7 +358,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                             name=f"agent_{conversation_uuid}",
                             type="virtual",
                             config={},
-                            default_cwd="/tmp",
+                            default_cwd="/tmp",  # noqa: S108
                         )
                         session.add(context)
                         await session.flush()
@@ -369,7 +369,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                         name=f"agent_{uuid.uuid4()}",
                         type="virtual",
                         config={},
-                        default_cwd="/tmp",
+                        default_cwd="/tmp",  # noqa: S108
                     )
                     session.add(context)
                     await session.flush()
@@ -380,7 +380,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                     name=f"agent_{uuid.uuid4()}",
                     type="virtual",
                     config={},
-                    default_cwd="/tmp",
+                    default_cwd="/tmp",  # noqa: S108
                 )
                 session.add(context)
                 await session.flush()

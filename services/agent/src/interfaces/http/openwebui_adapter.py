@@ -116,7 +116,7 @@ async def get_or_create_context_id(
             name=f"openwebui_{uuid.uuid4()}",
             type="virtual",
             config={},
-            default_cwd="/tmp",
+            default_cwd="/tmp",  # noqa: S108
         )
         session.add(context)
         await session.flush()
@@ -135,7 +135,7 @@ async def get_or_create_context_id(
             name=f"openwebui_{uuid.uuid4()}",
             type="virtual",
             config={},
-            default_cwd="/tmp",
+            default_cwd="/tmp",  # noqa: S108
         )
         session.add(context)
         await session.flush()
@@ -159,7 +159,7 @@ async def get_or_create_context_id(
         name=f"openwebui_{conversation_uuid}",
         type="virtual",
         config={"platform": "openwebui", "conversation_id": str(conversation_uuid)},
-        default_cwd="/tmp",
+        default_cwd="/tmp",  # noqa: S108
     )
     session.add(context)
     await session.flush()

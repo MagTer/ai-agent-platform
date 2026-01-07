@@ -227,7 +227,6 @@ async def list_oauth_providers() -> dict[str, list[str]]:
         List of available OAuth provider names
     """
     try:
-        token_manager = get_token_manager()
         # Get configured providers from token manager
         # For now, we know Homey is configured if OAuth is enabled
         # In the future, this could dynamically check the token manager's provider configs

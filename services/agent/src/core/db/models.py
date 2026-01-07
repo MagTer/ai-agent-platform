@@ -19,7 +19,7 @@ class Context(Base):
     type: Mapped[str] = mapped_column(String)  # e.g. 'git_repo', 'devops'
     config: Mapped[dict[str, Any]] = mapped_column(JSONB, default={})
     pinned_files: Mapped[list[str]] = mapped_column(JSONB, default=list)
-    default_cwd: Mapped[str] = mapped_column(String, default="/tmp")
+    default_cwd: Mapped[str] = mapped_column(String, default="/tmp")  # noqa: S108
 
     conversations = relationship(
         "Conversation", back_populates="context", cascade="all, delete-orphan"

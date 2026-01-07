@@ -90,7 +90,6 @@ class McpToolWrapper(Tool):
                     "403",
                 ]
             ):
-                provider_name = self._server_name.lower()
                 LOGGER.warning(
                     "Authentication error for MCP tool %s (%s): %s",
                     self._original_name,
@@ -98,13 +97,13 @@ class McpToolWrapper(Tool):
                     e,
                 )
 
-                # Get base URL from settings if available
-                base_url = "http://localhost:8000"  # Default for development
+                # Construct authorization message
                 provider_lower = self._server_name.lower()
 
                 return (
                     f"🔐 **{self._server_name} Authentication Required**\n\n"
-                    f"To use {self._server_name} tools, I need permission to access your account.\n\n"
+                    f"To use {self._server_name} tools, I need permission to access "
+                    f"your account.\n\n"
                     f"**To authorize {self._server_name}:**\n"
                     f"I can help you start the authorization process. Just tell me to "
                     f'"authorize {provider_lower}" or "set up {provider_lower}", and '
