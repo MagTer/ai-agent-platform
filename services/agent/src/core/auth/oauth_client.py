@@ -8,6 +8,8 @@ import base64
 import hashlib
 import logging
 import secrets
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
@@ -18,8 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from contextlib import AbstractAsyncContextManager
+    pass
 
 from core.auth.models import OAuthError, OAuthProviderConfig, TokenResponse
 from core.db.oauth_models import OAuthState, OAuthToken

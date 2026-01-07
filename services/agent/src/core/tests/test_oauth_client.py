@@ -24,7 +24,7 @@ from core.db.oauth_models import OAuthState, OAuthToken
 
 
 @pytest.fixture
-def provider_config():
+def provider_config() -> OAuthProviderConfig:
     """Create a test OAuth provider configuration."""
     from pydantic import HttpUrl
 
@@ -40,7 +40,7 @@ def provider_config():
 
 
 @pytest.fixture
-def mock_session_factory():
+def mock_session_factory() -> tuple[Any, Any]:
     """Create a mock async session factory.
 
     The OAuth client uses `async with self._session_factory() as session`,
@@ -50,13 +50,13 @@ def mock_session_factory():
 
     # Create async context manager class
     class MockSessionContextManager:
-        async def __aenter__(self):
+        async def __aenter__(self) -> Any:
             return mock_session
 
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
+        async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
             return None
 
-    def session_factory():
+    def session_factory() -> MockSessionContextManager:
         return MockSessionContextManager()
 
     return session_factory, mock_session
@@ -142,7 +142,7 @@ class TestAuthorizationURL:
         assert "code_challenge_method=S256" in url
         assert "scope=read+write" in url
 
-    async def test_get_authorization_url_unknown_provider(self, mock_session_factory) -> None:
+    async def test_get_authorization_url_unknown_provider(self, mock_session_factory: Any) -> None:
         """Test that unknown provider raises ValueError."""
         factory, _ = mock_session_factory
         client = OAuthClient(factory, {})
@@ -175,7 +175,9 @@ class TestAuthorizationURL:
 class TestTokenExchange:
     """Tests for authorization code to token exchange."""
 
-    async def test_exchange_code_invalid_state(self, provider_config, mock_session_factory) -> None:
+    async def test_exchange_code_invalid_state(
+        self, provider_config: Any, mock_session_factory: Any
+    ) -> None:
         """Test that invalid state raises OAuthError."""
         factory, mock_session = mock_session_factory
         mock_session.get.return_value = None
@@ -187,7 +189,9 @@ class TestTokenExchange:
 
         assert exc_info.value.error == "invalid_state"
 
-    async def test_exchange_code_expired_state(self, provider_config, mock_session_factory) -> None:
+    async def test_exchange_code_expired_state(
+        self, provider_config: Any, mock_session_factory: Any
+    ) -> None:
         """Test that expired state raises OAuthError."""
         factory, mock_session = mock_session_factory
 
@@ -261,7 +265,7 @@ class TestTokenExchange:
 
     @patch("core.auth.oauth_client.httpx.AsyncClient")
     async def test_exchange_code_http_error(
-        self, mock_httpx, provider_config, mock_session_factory
+        self, mock_httpx: Any, provider_config: Any, mock_session_factory: Any
     ) -> None:
         """Test token exchange HTTP error handling."""
         factory, mock_session = mock_session_factory
@@ -301,7 +305,9 @@ class TestTokenExchange:
 class TestGetToken:
     """Tests for token retrieval and refresh."""
 
-    async def test_get_token_not_found(self, provider_config, mock_session_factory) -> None:
+    async def test_get_token_not_found(
+        self, provider_config: Any, mock_session_factory: Any
+    ) -> None:
         """Test that missing token returns None."""
         factory, mock_session = mock_session_factory
 
@@ -314,7 +320,7 @@ class TestGetToken:
 
         assert token is None
 
-    async def test_get_token_valid(self, provider_config, mock_session_factory) -> None:
+    async def test_get_token_valid(self, provider_config: Any, mock_session_factory: Any) -> None:
         """Test that valid token is returned."""
         factory, mock_session = mock_session_factory
 
@@ -353,7 +359,7 @@ class TestGetToken:
 
     @patch("core.auth.oauth_client.httpx.AsyncClient")
     async def test_get_token_refresh_on_expiry(
-        self, mock_httpx, provider_config, mock_session_factory
+        self, mock_httpx: Any, provider_config: Any, mock_session_factory: Any
     ) -> None:
         """Test that expired token with refresh_token is refreshed."""
         factory, mock_session = mock_session_factory
@@ -395,7 +401,9 @@ class TestGetToken:
 class TestRevokeToken:
     """Tests for token revocation."""
 
-    async def test_revoke_token_exists(self, provider_config, mock_session_factory) -> None:
+    async def test_revoke_token_exists(
+        self, provider_config: Any, mock_session_factory: Any
+    ) -> None:
         """Test that existing token is deleted."""
         factory, mock_session = mock_session_factory
         context_id = uuid.uuid4()
@@ -411,7 +419,9 @@ class TestRevokeToken:
         mock_session.delete.assert_called_once_with(mock_token)
         mock_session.commit.assert_called_once()
 
-    async def test_revoke_token_not_exists(self, provider_config, mock_session_factory) -> None:
+    async def test_revoke_token_not_exists(
+        self, provider_config: Any, mock_session_factory: Any
+    ) -> None:
         """Test that missing token is handled gracefully."""
         factory, mock_session = mock_session_factory
         context_id = uuid.uuid4()

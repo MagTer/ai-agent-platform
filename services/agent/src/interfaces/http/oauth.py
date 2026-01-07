@@ -24,7 +24,7 @@ router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 
 
 @router.post("/authorize", response_model=AuthorizeResponse)
-async def start_authorization(request: AuthorizeRequest):
+async def start_authorization(request: AuthorizeRequest) -> AuthorizeResponse:
     """Generate OAuth authorization URL for user to visit.
 
     Agent calls this when tool fails due to missing OAuth credentials.
