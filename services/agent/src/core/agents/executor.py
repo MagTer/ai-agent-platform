@@ -535,12 +535,40 @@ class StepExecutorAgent:
         step: PlanStep,
         request: AgentRequest,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute a tool step, wrapping the generator."""
+        """Execute a tool step, wrapping the generator.
+
+        Handles both traditional tools (yielding 'final' events) and streaming tools
+        like SkillDelegateTool (yielding 'content' and 'result' events).
+        """
+        content_chunks: list[str] = []
+        result_outputs: list[str] = []
+        got_final = False
+
         async for tool_event in self._run_tool_gen(step, request):
             if tool_event["type"] == "final":
+                # Traditional tool completion
                 result, messages, status = tool_event["data"]
                 step_res = StepResult(step=step, status=status, result=result, messages=messages)
                 yield {"type": "result", "result": step_res}
+                got_final = True
+
+            elif tool_event["type"] == "content":
+                # Streaming tool content (e.g., SkillDelegateTool)
+                # Collect but DON'T stream - skill output should inform the answer, not BE the answer
+                chunk = tool_event.get("content", "")
+                if chunk:
+                    content_chunks.append(chunk)
+
+            elif tool_event["type"] == "result":
+                # Streaming tool result event (e.g., SkillDelegateTool)
+                output = tool_event.get("output", "")
+                if output and output not in ("Worker finished.",):
+                    result_outputs.append(output)
+
+            elif tool_event["type"] == "skill_activity":
+                # Forward skill activity events for OpenWebUI display
+                yield tool_event
+
             elif tool_event["type"] == "thinking":
                 yield {
                     "type": "thinking",
@@ -548,6 +576,28 @@ class StepExecutorAgent:
                     "metadata": tool_event.get("metadata"),
                 }
                 await asyncio.sleep(0)  # Yield for flush
+
+        # If no 'final' event was received, build StepResult from collected content/results
+        # This handles streaming tools like SkillDelegateTool (consult_expert)
+        if not got_final:
+            # Prefer streamed content over result messages
+            if content_chunks:
+                output_text = "".join(content_chunks)
+            elif result_outputs:
+                output_text = "\n".join(result_outputs)
+            else:
+                output_text = "No output from tool."
+
+            # Build messages list for prompt_history (critical for LLM context)
+            messages = [
+                AgentMessage(
+                    role="system",
+                    content=f"Tool {step.tool} output:\n{output_text}",
+                )
+            ]
+            result = {"name": step.tool, "status": "ok", "output": output_text}
+            step_res = StepResult(step=step, status="ok", result=result, messages=messages)
+            yield {"type": "result", "result": step_res}
 
 
 __all__ = ["StepExecutorAgent", "StepResult"]
