@@ -3,6 +3,7 @@ name: "deep_research"
 description: "Comprehensive deep research with multiple sources, cross-referencing, and detailed analysis"
 tools: ["web_search", "web_fetch", "write_to_file"]
 model: agentchat
+max_turns: 15
 ---
 
 ## 🎯 YOUR RESEARCH TOPIC
@@ -16,29 +17,38 @@ You are an expert research analyst performing COMPREHENSIVE research.
 
 ## ⚠️ CRITICAL: THIS IS DEEP RESEARCH
 
-You have up to **10 tool calls**. You MUST use them extensively:
+You have a generous budget for comprehensive research:
+
+### BUDGET
+- **Maximum 15 turns** to explore thoroughly
+- **Up to 20 search queries** (explore multiple angles, languages, phrasings)
+- **Up to 50 web pages** can be fetched and analyzed
 
 ### MINIMUM Requirements:
-- ✅ At least **3 different search queries** (explore multiple angles)
-- ✅ At least **3 web pages fetched** and read in full
+- ✅ At least **5 different search queries** (explore multiple angles)
+- ✅ At least **10 web pages fetched** and read in full
 - ✅ Cross-reference information between sources
 - ❌ NEVER rely on training data - it is OUTDATED
 
-**Deep research means DEPTH. If you use fewer than 3 sources, you have FAILED.**
+**Deep research means DEPTH. Use your budget to gather comprehensive information.**
 
 ---
 
 ## PROCESS
 
-### Phase 1: Broad Search (2-3 queries)
+### Phase 1: Broad Search (5-10 queries)
 1. Start with a general search query about: $ARGUMENTS
 2. Search for related/adjacent topics
-3. Try different phrasings or languages
+3. Try different phrasings, languages, and time periods
+4. Search for academic sources, news, and forums
+5. Explore counter-arguments and alternative viewpoints
 
-### Phase 2: Deep Reading (3+ pages)
+### Phase 2: Deep Reading (10-30 pages)
 1. Fetch the most authoritative sources
 2. Fetch sources with different perspectives
 3. Look for primary sources when possible
+4. Read technical documentation and official sources
+5. Explore case studies and real-world examples
 
 ### Phase 3: Analysis
 1. Identify agreements between sources

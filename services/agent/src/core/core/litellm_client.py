@@ -46,7 +46,11 @@ class LiteLLMClient:
         return headers
 
     async def stream_chat(
-        self, messages: Iterable[AgentMessage], *, model: str | None = None
+        self,
+        messages: Iterable[AgentMessage],
+        *,
+        model: str | None = None,
+        tools: list[dict[str, Any]] | None = None,
     ) -> AsyncGenerator[AgentChunk, None]:
         """Stream chat completions from LiteLLM."""
         payload: dict[str, Any] = {
@@ -54,6 +58,10 @@ class LiteLLMClient:
             "messages": [message.model_dump() for message in messages],
             "stream": True,
         }
+
+        # Add tools if provided
+        if tools:
+            payload["tools"] = tools
         start_time = time.perf_counter()
         first_token_received = False
 

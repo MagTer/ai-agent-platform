@@ -158,9 +158,13 @@ class TestSkillDelegateTool:
         # Verify the mock tool was called
         mock_run.assert_called_once()
 
-        # Should have thinking chunks about tool invocation
+        # Should have thinking chunks about tool invocation with query
         thinking_chunks = [c for c in chunks if c["type"] == "thinking"]
-        assert any("web_search" in c.get("content", "") for c in thinking_chunks)
+        # New format: 'Searching: "test"' instead of 'Worker invoking web_search'
+        assert any(
+            "test" in c.get("content", "") or "Searching" in c.get("content", "")
+            for c in thinking_chunks
+        )
 
     @pytest.mark.asyncio
     async def test_error_chunk_handling(
@@ -242,10 +246,14 @@ class TestSkillDelegateTool:
             async for chunk in tool.run(skill="researcher", goal="Keep searching"):
                 chunks.append(chunk)
 
-        # Should have result indicating timeout
+        # Should have result indicating max turns reached
         result_chunks = [c for c in chunks if c["type"] == "result"]
         assert len(result_chunks) >= 1
-        assert any("timed out" in c.get("output", "").lower() for c in result_chunks)
+        assert any(
+            "maximum turns limit" in c.get("output", "").lower()
+            or "reached" in c.get("output", "").lower()
+            for c in result_chunks
+        )
 
     @pytest.mark.asyncio
     async def test_skill_load_error(self, mock_registry: tuple[ToolRegistry, AsyncMock]) -> None:

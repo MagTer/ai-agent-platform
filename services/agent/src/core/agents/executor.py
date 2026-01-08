@@ -332,6 +332,7 @@ class StepExecutorAgent:
                     output = None
                     result_outputs = []  # Collect all result outputs
                     content_chunks = []  # Collect content stream
+                    tool_source_count = 0  # Track source count from streaming tools
                     if inspect.isasyncgenfunction(tool.run):
                         async for chunk in tool.run(**run_args):
                             if isinstance(chunk, dict) and chunk.get("type") == "thinking":
@@ -353,6 +354,13 @@ class StepExecutorAgent:
                                 chunk_output = chunk.get("output")
                                 if chunk_output:
                                     result_outputs.append(str(chunk_output))
+                                # Capture source_count from skill delegate result events
+                                sc = chunk.get("source_count")
+                                if isinstance(sc, int):
+                                    tool_source_count = sc
+                                    LOGGER.info(
+                                        f"[_run_tool_gen] Captured source_count={tool_source_count}"
+                                    )
 
                         # Prefer collected content stream over result outputs
                         # Content chunks are the actual skill output (researcher, etc.)
@@ -413,7 +421,12 @@ class StepExecutorAgent:
             yield {
                 "type": "final",
                 "data": (
-                    {"name": step.tool, "status": trace_status, "output": output_text},
+                    {
+                        "name": step.tool,
+                        "status": trace_status,
+                        "output": output_text,
+                        "source_count": tool_source_count,
+                    },
                     tool_messages,
                     trace_status,
                 ),
@@ -543,11 +556,13 @@ class StepExecutorAgent:
         content_chunks: list[str] = []
         result_outputs: list[str] = []
         got_final = False
+        source_count = 0  # Track source count from skill delegate tool
 
         async for tool_event in self._run_tool_gen(step, request):
             if tool_event["type"] == "final":
                 # Traditional tool completion
                 result, messages, status = tool_event["data"]
+                LOGGER.info(f"[StepExecutor] Got FINAL event, result keys: {result.keys()}")
                 step_res = StepResult(step=step, status=status, result=result, messages=messages)
                 yield {"type": "result", "result": step_res}
                 got_final = True
@@ -565,6 +580,12 @@ class StepExecutorAgent:
                 output = tool_event.get("output", "")
                 if output and output not in ("Worker finished.",):
                     result_outputs.append(output)
+                # Capture source count from skill delegate tool
+                if "source_count" in tool_event:
+                    source_count = tool_event["source_count"]
+                    LOGGER.info(
+                        f"[StepExecutor] Captured source_count={source_count} from tool_event"
+                    )
 
             elif tool_event["type"] == "skill_activity":
                 # Forward skill activity events for OpenWebUI display
@@ -596,7 +617,16 @@ class StepExecutorAgent:
                     content=f"Tool {step.tool} output:\n{output_text}",
                 )
             ]
-            result = {"name": step.tool, "status": "ok", "output": output_text}
+            result = {
+                "name": step.tool,
+                "status": "ok",
+                "output": output_text,
+                "source_count": source_count,
+            }
+            LOGGER.info(
+                f"[StepExecutor] Yielding result with source_count={source_count} "
+                f"for tool={step.tool}"
+            )
             step_res = StepResult(step=step, status="ok", result=result, messages=messages)
             yield {"type": "result", "result": step_res}
 

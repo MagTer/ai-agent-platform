@@ -3,6 +3,7 @@ name: "research"
 description: "Research a topic using web search and page reading - always fetches current information from the internet"
 tools: ["web_search", "web_fetch", "write_to_file"]
 model: agentchat
+max_turns: 7
 ---
 
 ## 🎯 YOUR RESEARCH TOPIC
@@ -26,18 +27,20 @@ You are a research assistant that ALWAYS uses the internet to find current infor
 ## PROCESS
 
 ### 1. Search Phase
-- Call `web_search` with a focused query
-- If results are poor, try a different query (up to 3 attempts)
+- Call `web_search` with a focused query (up to 3 searches)
+- If results are poor, try a different query
 - For non-English topics, try BOTH original language AND English
 
 ### 2. Fetch Phase (MANDATORY)
-- Pick 1-2 promising URLs from search results
+- Pick promising URLs from search results (up to 10 page fetches)
 - Call `web_fetch` to read the full page content
 - If a fetch fails, try another URL
 
 ### 3. Synthesis Phase
 - Combine information from fetched sources
 - Always cite your sources with URLs
+
+**BUDGET**: Maximum 7 turns and ~13 total tool calls (3 searches + 10 page fetches)
 
 ---
 

@@ -5,19 +5,15 @@ multiple providers. It wraps the OAuth client and handles provider configuration
 """
 
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.models import OAuthProviderConfig
 from core.auth.oauth_client import OAuthClient
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-    from contextlib import AbstractAsyncContextManager
-
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-    from core.core.config import Settings
+from core.core.config import Settings
 
 LOGGER = logging.getLogger(__name__)
 

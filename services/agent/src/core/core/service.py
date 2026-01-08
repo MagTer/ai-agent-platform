@@ -428,7 +428,12 @@ class AgentService:
                             "name": plan_step.tool,
                             "executor": plan_step.executor,
                             "output": str(step_execution_result.result.get("output") or ""),
+                            "source_count": step_execution_result.result.get("source_count", 0),
                         }
+
+                        # Add skill name for consult_expert tool
+                        if plan_step.tool == "consult_expert" and plan_step.args:
+                            meta["skill"] = plan_step.args.get("skill", "Research")
 
                         content_str = str(
                             step_execution_result.result.get("output")

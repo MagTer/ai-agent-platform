@@ -482,6 +482,7 @@ async def stream_response_generator(
                 status = meta.get("status", "success")
                 role = meta.get("role", "Executor")
                 tool_name = meta.get("name", "")
+                source_count = meta.get("source_count", 0)
 
                 # Improve labels based on tool type
                 if tool_name == "consult_expert":
@@ -489,7 +490,12 @@ async def stream_response_generator(
                     if status == "error":
                         msg = f"\n❌ **{skill.title()}:** Research failed\n"
                     else:
-                        msg = f"\n✅ **{skill.title()}:** Research complete\n"
+                        # Always include source count (even if 0) for transparency
+                        source_text = "source" if source_count == 1 else "sources"
+                        msg = (
+                            f"\n✅ **{skill.title()}:** "
+                            f"Research complete ({source_count} {source_text})\n"
+                        )
                 else:
                     if status == "error":
                         msg = f"\n❌ **{role}:** Failed\n"

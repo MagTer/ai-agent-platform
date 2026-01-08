@@ -18,6 +18,17 @@ class WebFetchTool(Tool):
         "Retrieve rendered page context (and optional HTML) using the internal fetcher module. "
         "Args: url (str) - The URL to fetch."
     )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": "The URL to fetch content from.",
+            },
+        },
+        "required": ["url"],
+    }
+    activity_hint = {"url": "Fetching: {domain}"}  # {domain} extracts netloc from URL
 
     def __init__(
         self,
