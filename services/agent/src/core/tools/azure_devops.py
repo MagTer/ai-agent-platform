@@ -20,6 +20,7 @@ class AzureDevOpsTool(Tool):
         "For 'create', set confirm_write=True after user approval."
     )
     # Per-action confirmation: only 'create' requires confirmation (checked in run())
+    activity_hint = {"action": "DevOps: {action}"}
 
     def __init__(self, org_url: str | None = None, pat: str | None = None) -> None:
         self.org_url = org_url or os.environ.get("AZURE_DEVOPS_ORG_URL")

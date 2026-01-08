@@ -24,6 +24,7 @@ class Skill:
     prompt_template: str
     file_path: str
     tools: list[str] = field(default_factory=list)
+    max_turns: int = 10  # Default to 10 if not specified in YAML
 
 
 class SkillLoader:
@@ -133,6 +134,12 @@ class SkillLoader:
         if not isinstance(tools_list, list):
             tools_list = []
 
+        # Read max_turns from metadata, defaulting to 10
+        max_turns = metadata.get("max_turns", 10)
+        if not isinstance(max_turns, int) or max_turns < 1:
+            LOGGER.warning(f"Invalid max_turns in {file_path}, using default 10")
+            max_turns = 10
+
         return Skill(
             name=metadata["name"],
             description=metadata.get("description", ""),
@@ -141,4 +148,5 @@ class SkillLoader:
             prompt_template=template_content,
             file_path=file_path,
             tools=[str(t) for t in tools_list if isinstance(t, str)],
+            max_turns=max_turns,
         )

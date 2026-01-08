@@ -8,6 +8,7 @@ import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from shared.models import AgentMessage
 
@@ -17,6 +18,61 @@ from core.tools.base import Tool
 from core.tools.registry import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, Any]) -> str:
+    """Build an informative activity message from tool hints or arguments.
+
+    Args:
+        tool_obj: The tool object (may have activity_hint attribute)
+        fname: The function/tool name
+        fargs: The arguments passed to the tool
+
+    Returns:
+        A human-readable activity message for UI display
+    """
+    # 1. Try tool's activity_hint first
+    if tool_obj and hasattr(tool_obj, "activity_hint") and tool_obj.activity_hint:
+        for arg_name, pattern in tool_obj.activity_hint.items():
+            if arg_name in fargs:
+                value = fargs[arg_name]
+                domain = value  # Default: use value as domain too
+
+                # Handle special {domain} placeholder - extract netloc from URL
+                if "{domain}" in pattern and isinstance(value, str):
+                    try:
+                        domain = urlparse(value).netloc or value
+                    except Exception:
+                        domain = value
+
+                # Truncate long values
+                if isinstance(value, str) and len(value) > 50:
+                    value = value[:47] + "..."
+                if isinstance(domain, str) and len(domain) > 50:
+                    domain = domain[:47] + "..."
+
+                try:
+                    return pattern.format(**{arg_name: value, "domain": domain})
+                except (KeyError, ValueError):
+                    pass  # Fall through to fallback
+
+    # 2. Fallback: Common argument patterns
+    if "query" in fargs:
+        q = fargs["query"]
+        q = q if len(q) <= 50 else q[:47] + "..."
+        return f'Searching: "{q}"'
+    elif "url" in fargs:
+        try:
+            domain = urlparse(fargs["url"]).netloc
+            return f"Fetching: {domain}"
+        except Exception:
+            return "Fetching URL"
+    elif "path" in fargs or "file_path" in fargs:
+        path = fargs.get("path") or fargs.get("file_path")
+        return f"Reading: {path}"
+
+    # 3. Ultimate fallback
+    return f"Using {fname}"
 
 
 class SkillDelegateTool(Tool):
@@ -83,6 +139,7 @@ class SkillDelegateTool(Tool):
 
         # 3. Build LiteLLM Tool Definitions
         tool_schemas = []
+        tool_lookup: dict[str, Tool] = {}  # For activity message lookup
         for t in worker_tools:
             info: dict[str, Any] = {
                 "type": "function",
@@ -94,6 +151,7 @@ class SkillDelegateTool(Tool):
             if hasattr(t, "parameters"):
                 info["function"]["parameters"] = t.parameters
             tool_schemas.append(info)
+            tool_lookup[t.name] = t
 
         # 4. Worker Loop
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -122,13 +180,26 @@ class SkillDelegateTool(Tool):
         # Import tracing only inside method to avoid circular imports
         from core.observability.tracing import set_span_attributes, start_span
 
-        max_turns = 10
+        # Get max_turns from skill metadata, default to 10 if not specified
+        max_turns = metadata.get("max_turns", 10)
+        if not isinstance(max_turns, int) or max_turns < 1:
+            LOGGER.warning(f"Invalid max_turns for skill '{skill}', using default 10")
+            max_turns = 10
+
+        source_count = 0  # Track number of tool calls (sources)
+
+        LOGGER.info(f"{logger_prefix} Max turns allowed: {max_turns}")
 
         with start_span(f"skill.execution.{skill}", attributes={"goal": goal}):
             for i in range(max_turns):
                 LOGGER.debug(f"{logger_prefix} Turn {i+1}")
-                yield {"type": "thinking", "content": f"Worker ({skill}) Turn {i+1}..."}
-                await asyncio.sleep(0)  # Force flush
+                # Show research topic on first turn only
+                # For Turn 2+, we show a detailed summary after tool calls are known
+                if i == 0:
+                    # Truncate goal to one line (max 80 chars for readability)
+                    display_goal = goal if len(goal) <= 80 else goal[:77] + "..."
+                    yield {"type": "thinking", "content": f"Researching: {display_goal}"}
+                    await asyncio.sleep(0)  # Force flush
 
                 with start_span(f"skill.turn.{i+1}") as _turn_span:
                     # Capture turn metadata
@@ -144,8 +215,10 @@ class SkillDelegateTool(Tool):
                     tool_calls_buffer = {}  # index -> call
 
                     try:
-                        # Use default model
-                        async for chunk in self._litellm.stream_chat(messages, model=None):
+                        # Use default model with tool schemas
+                        async for chunk in self._litellm.stream_chat(
+                            messages, model=None, tools=tool_schemas if tool_schemas else None
+                        ):
                             # 1. Yield Thinking Tokens
                             if chunk["type"] == "content" and chunk["content"]:
                                 content = chunk["content"]
@@ -189,15 +262,82 @@ class SkillDelegateTool(Tool):
 
                     if not tool_calls:
                         if content:
-                            yield {"type": "result", "output": "Worker finished."}
+                            LOGGER.info(
+                                f"{logger_prefix} Yielding final result with "
+                                f"source_count={source_count}"
+                            )
+                            yield {
+                                "type": "result",
+                                "output": "Worker finished.",
+                                "source_count": source_count,
+                            }
                             # Yield final result event with accumulated content.
-                            yield {"type": "result", "output": content}
+                            yield {
+                                "type": "result",
+                                "output": content,
+                                "source_count": source_count,
+                            }
                             return
                         yield {
                             "type": "result",
                             "output": "Worker produced empty response.",
+                            "source_count": source_count,
                         }
                         return
+
+                    # Count sources (tool calls)
+                    source_count += len(tool_calls)
+                    LOGGER.info(
+                        f"{logger_prefix} Turn {i+1}: {len(tool_calls)} tool calls "
+                        f"(total sources: {source_count})"
+                    )
+
+                    # Build a summary of what this turn will do
+                    turn_activities: list[str] = []
+                    for tc in tool_calls:
+                        try:
+                            fargs = json.loads(tc["function"]["arguments"])
+                        except json.JSONDecodeError:
+                            fargs = {}
+                        if "query" in fargs:
+                            q = fargs["query"]
+                            # Truncate long queries
+                            q = q if len(q) <= 50 else q[:47] + "..."
+                            turn_activities.append(f'"{q}"')
+                        elif "url" in fargs:
+                            # Extract domain from URL for clearer display
+                            try:
+                                domain = urlparse(fargs["url"]).netloc
+                                turn_activities.append(domain or "URL")
+                            except Exception:
+                                turn_activities.append("URL")
+
+                    # Count searches vs fetches for summary
+                    search_count = sum(1 for a in turn_activities if a.startswith('"'))
+                    fetch_count = len(turn_activities) - search_count
+
+                    # Show turn summary if we have activities (Turn 2+)
+                    if i > 0 and turn_activities:
+                        # Show up to 3 queries/activities
+                        if len(turn_activities) > 3:
+                            extra = len(turn_activities) - 3
+                            summary = ", ".join(turn_activities[:3]) + f" +{extra} more"
+                        else:
+                            summary = ", ".join(turn_activities)
+
+                        # Build action verb based on what we're doing
+                        if search_count > 0 and fetch_count > 0:
+                            action = "Searching/fetching"
+                        elif fetch_count > 0:
+                            action = f"Fetching {fetch_count} pages:"
+                        else:
+                            action = "Searching"
+
+                        yield {
+                            "type": "thinking",
+                            "content": f"Turn {i+1}: {action} {summary}",
+                        }
+                        await asyncio.sleep(0)  # Force flush
 
                     for tc in tool_calls:
                         func = tc["function"]
@@ -210,24 +350,19 @@ class SkillDelegateTool(Tool):
                         except json.JSONDecodeError:
                             fargs = {}
 
+                        # Build informative message using tool's activity_hint
+                        tool_obj = tool_lookup.get(fname)
+                        invoke_msg = _build_activity_message(tool_obj, fname, fargs)
+
                         yield {
                             "type": "thinking",
-                            "content": f"Worker invoking {fname}...",
+                            "content": invoke_msg,
                         }
 
                         # Yield detailed skill_activity for OpenWebUI live display
-                        activity_content = f"Using {fname}"
-                        if "query" in fargs:
-                            activity_content = f"Searching: {fargs['query']}"
-                        elif "url" in fargs:
-                            activity_content = f"Fetching: {fargs['url']}"
-                        elif "path" in fargs or "file_path" in fargs:
-                            path = fargs.get("path") or fargs.get("file_path")
-                            activity_content = f"Reading: {path}"
-
                         yield {
                             "type": "skill_activity",
-                            "content": activity_content,
+                            "content": invoke_msg,
                             "metadata": {
                                 "tool": fname,
                                 "search_query": fargs.get("query"),
@@ -307,7 +442,17 @@ class SkillDelegateTool(Tool):
                                 )
                             )
 
-        yield {"type": "result", "output": "Worker timed out (max turns reached)."}
+        # Reached max_turns limit
+        LOGGER.warning(
+            f"{logger_prefix} Reached max_turns limit ({max_turns}) with "
+            f"source_count={source_count}"
+        )
+        yield {
+            "type": "result",
+            "output": f"Skill '{skill}' reached maximum turns limit ({max_turns}). "
+            f"Used {source_count} sources.",
+            "source_count": source_count,
+        }
 
     def _merge_tool_calls(self, buffer: dict[int, Any], chunk: dict[str, Any]) -> None:
         """Merge streaming tool call deltas into the buffer."""

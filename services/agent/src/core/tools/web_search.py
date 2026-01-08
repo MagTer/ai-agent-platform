@@ -17,6 +17,17 @@ class WebSearchTool(Tool):
         "Search the web for a given query. Returns a list of relevant results with titles, "
         "URLs, and snippets."
     )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The search query to look up on the web.",
+            },
+        },
+        "required": ["query"],
+    }
+    activity_hint = {"query": 'Searching: "{query}"'}
 
     def __init__(
         self,

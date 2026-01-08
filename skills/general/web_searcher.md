@@ -3,6 +3,7 @@ name: "search"
 description: "Quick web search for simple factual questions - returns search results without deep page reading"
 tools: ["web_search"]
 model: agentchat
+max_turns: 2
 ---
 
 ## 🎯 YOUR SEARCH QUERY
@@ -26,6 +27,8 @@ You MUST use the `web_search` tool to answer ANY question.
 
 1. **Call `web_search`** with the query above (or a refined version)
 2. **Summarize the top results** with source links
+
+**BUDGET**: You have a maximum of 2 turns to complete this search. Be efficient.
 
 ## OUTPUT FORMAT
 

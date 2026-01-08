@@ -27,6 +27,11 @@ class Tool(ABC):
     category: str = "domain"
     requires_confirmation: bool = False
 
+    # Optional hint for displaying tool activity in the UI
+    # Maps argument names to display patterns, e.g. {"query": "Searching: \"{query}\""}
+    # Special placeholder {domain} extracts netloc from URL values
+    activity_hint: dict[str, str] | None = None
+
     @abstractmethod
     async def run(self, *args: Any, **kwargs: Any) -> Any:
         """Execute the tool and return the result."""

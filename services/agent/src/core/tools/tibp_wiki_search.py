@@ -15,6 +15,17 @@ class TibpWikiSearchTool(Tool):
         "Searches the TIBP corporate wiki for guidelines, security requirements, and rules."
     )
     category = "tibp"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The search query to look up in the TIBP wiki.",
+            },
+        },
+        "required": ["query"],
+    }
+    activity_hint = {"query": 'Searching TIBP Wiki: "{query}"'}
 
     async def run(self, query: str) -> str:
         """
