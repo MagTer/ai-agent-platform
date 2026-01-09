@@ -13,6 +13,7 @@ class SearchCodeBaseTool(Tool):
         "Useful for finding definitions, usage examples, and understanding code "
         "without knowing exact paths. Args: query (str)"
     )
+    activity_hint = {"query": 'Searching code: "{query}"'}
 
     async def run(self, query: str) -> str:
         try:

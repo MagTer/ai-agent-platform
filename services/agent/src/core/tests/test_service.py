@@ -57,10 +57,11 @@ class MockLiteLLMClient(LiteLLMClient):
         tools: list[dict[str, Any]] | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
-        # Detect if this is a planner call
+        # Detect if this is a planner call (check for planner prompt markers)
         system_msg = next((m for m in messages if m.role == "system"), None)
+        system_content = system_msg.content or "" if system_msg else ""
 
-        if system_msg and "You are the Planner Agent" in (system_msg.content or ""):
+        if "PLANNER AGENT" in system_content or "You are the Planner Agent" in system_content:
             content = self._plan_output
         else:
             sequence = list(messages)

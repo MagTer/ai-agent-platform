@@ -46,9 +46,11 @@ model_list:
     litellm_params:
       model: openrouter/meta-llama/llama-3.3-70b-instruct
       api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0.3
+      temperature: 0.2
       max_tokens: 8192
       rpm: 60
       extra_body:
         provider:
           zdr: true
+        # Llama 3.3 benefits from repetition penalty to reduce tool-call loops
+        repetition_penalty: 1.05

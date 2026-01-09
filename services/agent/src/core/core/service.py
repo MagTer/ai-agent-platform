@@ -26,7 +26,7 @@ from core.agents import (
     StepExecutorAgent,
     StepSupervisorAgent,
 )
-from core.command_loader import get_registry_index
+from core.command_loader import get_available_skill_names, get_registry_index
 from core.context_manager import ContextManager
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
@@ -123,7 +123,10 @@ class AgentService:
             self._inject_workspace_rules(history, db_conversation.current_cwd)
 
         planner = PlannerAgent(self._litellm, model_name=self._settings.model_planner)
-        plan_supervisor = PlanSupervisorAgent()
+        plan_supervisor = PlanSupervisorAgent(
+            tool_registry=self._tool_registry,
+            skill_names=get_available_skill_names(),
+        )
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
         step_supervisor = StepSupervisorAgent(
             self._litellm, model_name=self._settings.model_supervisor
@@ -225,6 +228,17 @@ class AgentService:
                 while replans_remaining >= 0 and not execution_complete:
                     replan_count = max_replans - replans_remaining
                     set_span_attributes({"replan_count": replan_count})
+
+                    # Apply exponential backoff on re-plan attempts
+                    # Delays: 0.5s, 1s, 2s for attempts 1, 2, 3
+                    if replan_count > 0:
+                        backoff_delay = 0.5 * (2 ** (replan_count - 1))
+                        LOGGER.info(
+                            "Re-plan backoff: waiting %ss before attempt %d",
+                            backoff_delay,
+                            replan_count,
+                        )
+                        await asyncio.sleep(backoff_delay)
 
                     # ─────────────────────────────────────────────────────────────
                     # PLANNING PHASE

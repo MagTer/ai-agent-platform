@@ -1,9 +1,12 @@
+import logging
 import os
 from pathlib import Path
 from string import Template
 from typing import Any
 
 import yaml
+
+LOGGER = logging.getLogger(__name__)
 
 # Default to a path relative to this file if not in docker
 # This file is in src/core, so skills is likely ../../../../../skills
@@ -21,6 +24,44 @@ def get_registry_index() -> str:
     for s in skills:
         lines.append(f"• [{s['name']}]: {s.get('description', 'No description')}")
     return "\n".join(lines)
+
+
+def get_available_skill_names() -> set[str]:
+    """Return set of all available skill names (from frontmatter 'name' field).
+
+    This returns the actual skill names that can be used with consult_expert,
+    which come from the 'name' field in each skill's YAML frontmatter.
+    Also includes path-based names for backward compatibility.
+    """
+    skill_names: set[str] = set()
+    if not SKILLS_DIR.exists():
+        return skill_names
+
+    for path in SKILLS_DIR.rglob("*.md"):
+        try:
+            content = path.read_text(encoding="utf-8")
+            if content.startswith("---"):
+                parts = content.split("---", 2)
+                if len(parts) >= 2:
+                    metadata = yaml.safe_load(parts[1]) or {}
+                    # Add the frontmatter 'name' if present
+                    if "name" in metadata:
+                        skill_names.add(metadata["name"])
+
+            # Also add path-based name for compatibility
+            relative_path = path.relative_to(SKILLS_DIR).with_suffix("")
+            path_name = str(relative_path).replace("\\", "/")
+            skill_names.add(path_name)
+
+            # Add just the filename (without extension) for simple lookups
+            skill_names.add(path.stem)
+
+        except Exception as e:
+            # Log but continue - don't let one bad skill file break everything
+            LOGGER.debug(f"Error reading skill {path}: {e}")
+            continue
+
+    return skill_names
 
 
 def list_commands() -> list[dict[str, Any]]:

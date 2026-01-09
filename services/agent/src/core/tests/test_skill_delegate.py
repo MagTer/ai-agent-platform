@@ -274,3 +274,49 @@ class TestSkillDelegateTool:
         assert chunks[0]["type"] == "result"
         assert "error" in chunks[0]["output"].lower()
         assert "broken_skill" in chunks[0]["output"]
+
+    @pytest.mark.asyncio
+    async def test_rate_limiting_blocks_excessive_calls(
+        self,
+        mock_registry: tuple[ToolRegistry, AsyncMock],
+        simple_skill_metadata: tuple[dict[str, Any], str],
+    ) -> None:
+        """Test that rate limiting blocks after max_calls_per_tool (3) calls."""
+        registry, mock_tool_run = mock_registry
+        mock_tool_run.return_value = "Search result"
+
+        # Create 5 unique tool calls (different queries) - should hit rate limit after 3
+        tool_calls = []
+        for i in range(5):
+            tool_calls.append(
+                [
+                    {
+                        "type": "tool_start",
+                        "content": None,
+                        "tool_call": {
+                            "index": 0,
+                            "id": f"call_{i}",
+                            "function": {
+                                "name": "web_search",
+                                "arguments": json.dumps({"query": f"unique query {i}"}),
+                            },
+                        },
+                    }
+                ]
+            )
+
+        mock_llm = MockStreamingLLMClient(tool_calls)
+        tool = SkillDelegateTool(mock_llm, registry)  # type: ignore[arg-type]
+
+        with patch("core.tools.skill_delegate.load_command", return_value=simple_skill_metadata):
+            chunks = []
+            async for chunk in tool.run(skill="researcher", goal="Search multiple times"):
+                chunks.append(chunk)
+
+        # Check that rate limiting kicked in (max 3 calls per tool)
+        # After 3 calls, subsequent calls should be blocked
+        result_chunks = [c for c in chunks if c["type"] == "result"]
+        assert len(result_chunks) >= 1
+
+        # The tool should have been called only 3 times (rate limit)
+        assert mock_tool_run.call_count == 3

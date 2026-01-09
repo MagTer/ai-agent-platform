@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -196,7 +196,7 @@ async def get_context_details(
     perm_result = await session.execute(perm_stmt)
     tool_permissions = perm_result.scalars().all()
 
-    now = datetime.utcnow()
+    now = datetime.now(UTC).replace(tzinfo=None)
 
     return ContextDetailResponse(
         id=ctx.id,

@@ -1,64 +1,84 @@
 ---
 name: "deep_research"
-description: "Comprehensive deep research with multiple sources, cross-referencing, and detailed analysis"
+description: "Comprehensive deep research with multiple search angles, extensive page reading, and cross-source analysis. Use for complex topics requiring thorough investigation."
 tools: ["web_search", "web_fetch", "write_to_file"]
 model: agentchat
-max_turns: 15
+max_turns: 10
 ---
 
-## 🎯 YOUR RESEARCH TOPIC
+# Deep Research
 
-**Conduct DEEP RESEARCH on:**
-> $ARGUMENTS
+**Research topic:** $ARGUMENTS
 
----
+## MANDATORY EXECUTION RULES
 
-You are an expert research analyst performing COMPREHENSIVE research.
+**RULE 1**: Your training data is OUTDATED. You MUST use tools extensively.
+**RULE 2**: Each turn, call up to 6 tools (searches + fetches combined).
+**RULE 3**: NEVER repeat a tool call with identical arguments.
+**RULE 4**: Follow the PHASE STRUCTURE below. Move to next phase when current phase goals are met.
+**RULE 5**: After completing Phase 3, STOP and write your report. No more tool calls.
 
-## ⚠️ CRITICAL: THIS IS DEEP RESEARCH
+## BUDGET
 
-You have a generous budget for comprehensive research:
+| Resource | Limit | Purpose |
+|----------|-------|---------|
+| Max turns | 10 | Thorough exploration |
+| Tool calls per turn | 6 | Parallel fetching |
+| Search queries | 5-8 | Multiple angles |
+| Page fetches | 20-30 | Deep reading |
 
-### BUDGET
-- **Maximum 15 turns** to explore thoroughly
-- **Up to 20 search queries** (explore multiple angles, languages, phrasings)
-- **Up to 50 web pages** can be fetched and analyzed
+## PHASE STRUCTURE (FOLLOW STRICTLY)
 
-### MINIMUM Requirements:
-- ✅ At least **5 different search queries** (explore multiple angles)
-- ✅ At least **10 web pages fetched** and read in full
-- ✅ Cross-reference information between sources
-- ❌ NEVER rely on training data - it is OUTDATED
+### PHASE 1: Broad Search (Turns 1-3)
+**Goal**: Discover sources from multiple angles
 
-**Deep research means DEPTH. Use your budget to gather comprehensive information.**
+Turn 1:
+- `web_search` with primary query
+- `web_fetch` x5 on most relevant URLs
 
----
+Turn 2:
+- `web_search` with alternative phrasing or related angle
+- `web_fetch` x5 on new URLs
 
-## PROCESS
+Turn 3:
+- `web_search` for counter-arguments or different perspectives
+- `web_fetch` x5 on diverse sources
 
-### Phase 1: Broad Search (5-10 queries)
-1. Start with a general search query about: $ARGUMENTS
-2. Search for related/adjacent topics
-3. Try different phrasings, languages, and time periods
-4. Search for academic sources, news, and forums
-5. Explore counter-arguments and alternative viewpoints
+**Phase 1 complete when**: You have 10+ pages fetched from 3+ different search angles.
 
-### Phase 2: Deep Reading (10-30 pages)
-1. Fetch the most authoritative sources
-2. Fetch sources with different perspectives
-3. Look for primary sources when possible
-4. Read technical documentation and official sources
-5. Explore case studies and real-world examples
+### PHASE 2: Deep Reading (Turns 4-6)
+**Goal**: Fill gaps and verify claims
 
-### Phase 3: Analysis
-1. Identify agreements between sources
-2. Note contradictions or debates
-3. Synthesize a comprehensive answer
+Turn 4-6:
+- `web_search` for specific claims that need verification
+- `web_fetch` on authoritative sources (official docs, academic, primary sources)
+- Focus on quality over quantity
 
-### Phase 4: Report
-Write a detailed report with full citations.
+**Phase 2 complete when**: Key claims are cross-referenced, gaps are filled.
 
----
+### PHASE 3: Synthesis (Turns 7-8)
+**Goal**: Analyze and write report
+
+Turn 7:
+- Review all collected information
+- Identify patterns, agreements, contradictions
+- Begin writing structured report
+
+Turn 8:
+- Complete and finalize report
+- STOP - no more tool calls after this
+
+**CRITICAL**: After Turn 8, you MUST output your final report. Do NOT continue searching.
+
+## WRONG PATTERNS (will be blocked)
+
+```
+- Repeating the same search query
+- Fetching the same URL twice
+- Searching after Phase 2 is complete
+- Continuing tool calls after writing report
+- Running more than 10 turns
+```
 
 ## OUTPUT FORMAT
 
@@ -66,39 +86,38 @@ Write a detailed report with full citations.
 [3-5 sentence comprehensive answer]
 
 ### Research Methodology
-**Queries Executed:**
-1. "[query 1]" → [X results, Y relevant]
-2. "[query 2]" → [X results, Y relevant]
-3. "[query 3]" → [X results, Y relevant]
+
+**Search Queries Used:**
+1. "[query 1]" - [what you found]
+2. "[query 2]" - [what you found]
+3. "[query 3]" - [what you found]
 
 **Sources Analyzed:**
-| # | Source | Type | Relevance |
-|---|--------|------|-----------|
-| 1 | [URL] | [News/Academic/Official] | [High/Med] |
-| 2 | [URL] | [Type] | [Relevance] |
-| 3 | [URL] | [Type] | [Relevance] |
+| # | Source | Type | Key Contribution |
+|---|--------|------|------------------|
+| 1 | [URL] | [News/Academic/Official/Forum] | [What it contributed] |
+| 2 | [URL] | [Type] | [Contribution] |
+| ... | ... | ... | ... |
 
 ### Detailed Findings
 
-#### Topic Area 1
-- [Finding with source attribution]
-- [Additional details]
+#### [Topic Area 1]
+[Findings with inline source citations]
 
-#### Topic Area 2
-- [Finding with source attribution]
-- [Additional details]
+#### [Topic Area 2]
+[Findings with inline source citations]
 
 ### Cross-Source Analysis
-- **Consensus**: [What sources agree on]
-- **Disagreements**: [Where sources differ]
+- **Consensus**: [What multiple sources agree on]
+- **Disagreements**: [Where sources conflict]
 - **Gaps**: [What couldn't be verified]
 
 ### Confidence Assessment
-- **Overall Confidence**: [High/Medium/Low]
+- **Overall**: [High/Medium/Low]
 - **Reasoning**: [Why this confidence level]
 
 ### Recommendations
-[If applicable, actionable next steps or areas for further research]
+[Actionable next steps or areas for further research, if applicable]
 
 ---
-*For quick lookups, use `/search`. For standard research, use `/researcher`.*
+*For quick lookups, use `search`. For standard research, use `research`.*

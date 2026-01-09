@@ -11,7 +11,7 @@ Tests the OAuth client implementation including:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -159,9 +159,9 @@ class TestAuthorizationURL:
         client = OAuthClient(factory, {"test_provider": provider_config})
         context_id = uuid.uuid4()
 
-        before = datetime.utcnow()
+        before = datetime.now(UTC).replace(tzinfo=None)
         await client.get_authorization_url("test_provider", context_id)
-        after = datetime.utcnow()
+        after = datetime.now(UTC).replace(tzinfo=None)
 
         added_state = mock_session.add.call_args[0][0]
         expected_min = before + timedelta(minutes=10)
@@ -196,7 +196,7 @@ class TestTokenExchange:
         factory, mock_session = mock_session_factory
 
         expired_state = MagicMock()
-        expired_state.expires_at = datetime.utcnow() - timedelta(minutes=1)
+        expired_state.expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1)
         mock_session.get.return_value = expired_state
 
         client = OAuthClient(factory, {"test_provider": provider_config})
@@ -217,7 +217,7 @@ class TestTokenExchange:
 
         # Mock valid state
         valid_state = MagicMock()
-        valid_state.expires_at = datetime.utcnow() + timedelta(minutes=5)
+        valid_state.expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5)
         valid_state.provider = "test_provider"
         valid_state.context_id = context_id
         valid_state.code_verifier = "test_verifier"
@@ -273,7 +273,7 @@ class TestTokenExchange:
 
         # Mock valid state
         valid_state = MagicMock()
-        valid_state.expires_at = datetime.utcnow() + timedelta(minutes=5)
+        valid_state.expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=5)
         valid_state.provider = "test_provider"
         valid_state.context_id = context_id
         valid_state.code_verifier = "test_verifier"
@@ -326,7 +326,7 @@ class TestGetToken:
 
         mock_token = MagicMock()
         mock_token.access_token = "valid_token"
-        mock_token.expires_at = datetime.utcnow() + timedelta(hours=1)
+        mock_token.expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1)
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_token
@@ -345,7 +345,7 @@ class TestGetToken:
 
         mock_token = MagicMock()
         mock_token.access_token = "expired_token"
-        mock_token.expires_at = datetime.utcnow() - timedelta(hours=1)
+        mock_token.expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
         mock_token.refresh_token = None
 
         mock_result = MagicMock()
@@ -366,7 +366,8 @@ class TestGetToken:
 
         mock_token = MagicMock()
         mock_token.access_token = "old_token"
-        mock_token.expires_at = datetime.utcnow() - timedelta(seconds=30)  # Just expired
+        # Token just expired 30 seconds ago
+        mock_token.expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=30)
         mock_token.refresh_token = "refresh_token"
         mock_token.context_id = uuid.uuid4()
 

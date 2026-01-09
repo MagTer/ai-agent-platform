@@ -21,6 +21,9 @@ from core.tools import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
 
+# Default timeout for tool execution (2 minutes)
+TOOL_TIMEOUT_SECONDS = 120
+
 
 class StepExecutorAgent:
     """Execute individual steps with observability hooks."""
@@ -333,47 +336,68 @@ class StepExecutorAgent:
                     result_outputs = []  # Collect all result outputs
                     content_chunks = []  # Collect content stream
                     tool_source_count = 0  # Track source count from streaming tools
-                    if inspect.isasyncgenfunction(tool.run):
-                        async for chunk in tool.run(**run_args):
-                            if isinstance(chunk, dict) and chunk.get("type") == "thinking":
-                                yield {
-                                    "type": "thinking",
-                                    "content": chunk.get("content"),
-                                }
-                                await asyncio.sleep(0)  # Force flush
-                            elif isinstance(chunk, dict) and chunk.get("type") == "content":
-                                # Forward content events and collect for final output
-                                if chunk_content := chunk.get("content"):
-                                    content_chunks.append(str(chunk_content))
+
+                    # Wrap tool execution with timeout
+                    async with asyncio.timeout(TOOL_TIMEOUT_SECONDS):
+                        if inspect.isasyncgenfunction(tool.run):
+                            async for chunk in tool.run(**run_args):
+                                if isinstance(chunk, dict) and chunk.get("type") == "thinking":
                                     yield {
-                                        "type": "content",
-                                        "content": chunk_content,
+                                        "type": "thinking",
+                                        "content": chunk.get("content"),
                                     }
                                     await asyncio.sleep(0)  # Force flush
-                            elif isinstance(chunk, dict) and chunk.get("type") == "result":
-                                chunk_output = chunk.get("output")
-                                if chunk_output:
-                                    result_outputs.append(str(chunk_output))
-                                # Capture source_count from skill delegate result events
-                                sc = chunk.get("source_count")
-                                if isinstance(sc, int):
-                                    tool_source_count = sc
-                                    LOGGER.info(
-                                        f"[_run_tool_gen] Captured source_count={tool_source_count}"
-                                    )
+                                elif isinstance(chunk, dict) and chunk.get("type") == "content":
+                                    # Forward content events and collect for final output
+                                    if chunk_content := chunk.get("content"):
+                                        content_chunks.append(str(chunk_content))
+                                        yield {
+                                            "type": "content",
+                                            "content": chunk_content,
+                                        }
+                                        await asyncio.sleep(0)  # Force flush
+                                elif isinstance(chunk, dict) and chunk.get("type") == "result":
+                                    chunk_output = chunk.get("output")
+                                    if chunk_output:
+                                        result_outputs.append(str(chunk_output))
+                                    # Capture source_count from skill delegate result events
+                                    sc = chunk.get("source_count")
+                                    if isinstance(sc, int):
+                                        tool_source_count = sc
+                                        LOGGER.info(
+                                            "[_run_tool_gen] Captured source_count=%d",
+                                            tool_source_count,
+                                        )
 
-                        # Prefer collected content stream over result outputs
-                        # Content chunks are the actual skill output (researcher, etc.)
-                        # Result outputs are status messages ("Worker finished.", etc.)
-                        if content_chunks:
-                            output = "".join(content_chunks)
-                        elif result_outputs:
-                            output = "\n".join(result_outputs)
+                            # Prefer collected content stream over result outputs
+                            # Content chunks are the actual skill output (researcher, etc.)
+                            # Result outputs are status messages ("Worker finished.", etc.)
+                            if content_chunks:
+                                output = "".join(content_chunks)
+                            elif result_outputs:
+                                output = "\n".join(result_outputs)
+                            else:
+                                output = "No valid output from streaming tool."
                         else:
-                            output = "No valid output from streaming tool."
-                    else:
-                        output = await tool.run(**run_args)
+                            output = await tool.run(**run_args)
+
                     output_text = str(output)
+
+                except TimeoutError:
+                    LOGGER.error(f"Tool {step.tool} timed out after {TOOL_TIMEOUT_SECONDS}s")
+                    yield {
+                        "type": "final",
+                        "data": (
+                            {
+                                "name": step.tool,
+                                "status": "error",
+                                "reason": f"Tool timed out after {TOOL_TIMEOUT_SECONDS} seconds",
+                            },
+                            tool_messages,
+                            "error",
+                        ),
+                    }
+                    return
 
                 except TypeError as exc:
                     yield {

@@ -24,6 +24,7 @@ class GitHubTool(Tool):
         "repo_url (str) - The full URL (e.g., https://github.com/owner/repo). "
         "file_path (str) - Optional path for 'read_file'."
     )
+    activity_hint = {"action": "GitHub: {action}"}
 
     def __init__(self, token: str | None = None) -> None:
         self._token = token or os.getenv("GITHUB_TOKEN")

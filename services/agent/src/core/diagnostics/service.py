@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from collections import Counter, deque
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -651,7 +651,10 @@ class DiagnosticsService:
                     data = json.loads(line)
                     context = data.get("context", {})
                     start_str = data.get("start_time")
-                    start_dt = datetime.fromisoformat(start_str) if start_str else datetime.utcnow()
+                    if start_str:
+                        start_dt = datetime.fromisoformat(start_str)
+                    else:
+                        start_dt = datetime.now(UTC).replace(tzinfo=None)
 
                     span = TraceSpan(
                         trace_id=context.get("trace_id", "unknown"),
@@ -690,7 +693,7 @@ class DiagnosticsService:
             # but for now we accept best-effort roots
 
             # Calc Stats
-            start_time = root.start_time or datetime.utcnow()
+            start_time = root.start_time or datetime.now(UTC).replace(tzinfo=None)
             # approximate total duration
             end_times = [
                 (s.start_time or start_time).timestamp() * 1000 + s.duration_ms for s in spans

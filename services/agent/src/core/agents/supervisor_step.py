@@ -159,8 +159,15 @@ class StepSupervisorAgent:
             except Exception as exc:
                 LOGGER.exception("Supervisor review failed for step '%s'", step_label)
                 span.set_attribute("error", str(exc))
-                # On failure, assume OK to avoid blocking execution
-                return "ok", f"Supervisor error (defaulting to ok): {exc}", None
+                # On failure, be conservative - flag for potential re-planning
+                # rather than silently approving potentially broken steps.
+                # This ensures failures are surfaced and can trigger re-planning
+                # if the issue is transient (e.g., network timeout).
+                return (
+                    "adjust",
+                    f"Supervisor unavailable - review manually: {exc}",
+                    "Verify the step output is correct or retry the operation",
+                )
 
     def _parse_response(self, response: str) -> tuple[Literal["ok", "adjust"], str, str | None]:
         """Parse the LLM response into decision, reason, and suggested_fix.
