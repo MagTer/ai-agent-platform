@@ -18,6 +18,45 @@ from core.observability.tracing import current_trace_ids, start_span
 
 LOGGER = logging.getLogger(__name__)
 
+# Maximum length for user prompts to prevent context overflow
+MAX_PROMPT_LENGTH = 4000
+
+
+def _sanitize_user_input(text: str) -> str:
+    """Sanitize user input to reduce prompt injection risk.
+
+    This function:
+    - Truncates excessively long inputs
+    - Removes markdown code fence markers that could confuse JSON parsing
+    - Logs when sanitization is applied
+
+    Args:
+        text: Raw user input text.
+
+    Returns:
+        Sanitized text safe for inclusion in planner prompt.
+    """
+    if not text:
+        return text
+
+    original_length = len(text)
+    sanitized = text
+
+    # Remove markdown code fences that could interfere with JSON output
+    # These patterns could trick the LLM into thinking it's already in a code block
+    if "```json" in sanitized or "```" in sanitized:
+        sanitized = sanitized.replace("```json", "").replace("```", "")
+        LOGGER.debug("Removed markdown code fences from user input")
+
+    # Truncate excessively long inputs to prevent context overflow
+    if len(sanitized) > MAX_PROMPT_LENGTH:
+        sanitized = sanitized[:MAX_PROMPT_LENGTH] + "\n... (input truncated)"
+        LOGGER.warning(
+            f"User input truncated from {original_length} to {MAX_PROMPT_LENGTH} chars"
+        )
+
+    return sanitized
+
 
 class PlannerAgent:
     """Generate plans using the configured planning model."""
@@ -111,97 +150,56 @@ class PlannerAgent:
             "as HISTORICAL FACTS, not predictions.\n"
         )
 
+        # Optimized prompt for Llama 3.3 70B - concise, structured, clear rules
         system_message = AgentMessage(
             role="system",
             content=(
                 f"{system_context}\n"
-                "You are the Planner Agent. Your goal is to orchestrate \n"
-                "a precise JSON execution plan.\n"
-                "You are an ORCHESTRATOR, not a worker. You CANNOT perform tasks directly \n"
-                "(e.g., searching the web, writing code, reading files).\n"
-                "You MUST delegate work to Domain Experts using the `consult_expert` tool.\n\n"
-                f"### AVAILABLE SKILLS (Roles)\n{available_skills_text}\n\n"
-                "### ROUTING GUIDANCE (CRITICAL)\n"
-                "Before creating a plan, determine if the request "
-                "needs RESEARCH or a DIRECT ANSWER:\n\n"
-                "**DIRECT ANSWER (single completion step, NO research needed)**:\n"
-                "- Translations: 'What is bicycle in Spanish?' → 'bicicleta'\n"
-                "- Definitions: 'What does API stand for?'\n"
-                "- Basic facts YOU KNOW: 'What is the capital of France?'\n"
-                "- Simple math: 'What is 15% of 200?'\n"
-                "- Programming syntax: 'How to write a for loop in Python?'\n"
-                "- General knowledge from your training data\n\n"
-                "**RESEARCH REQUIRED (use researcher skill)**:\n"
-                "- Current events: 'What are the latest AI developments?'\n"
-                "- Real-time data: Stock prices, weather, sports scores\n"
-                "- Specific statistics: 'What is the population of Tokyo in 2025?'\n"
-                "- Unknown or uncertain facts: If you're not 95%+ confident\n"
-                "- Recent releases: Software versions, product launches since your training\n\n"
-                "### RESPONSE FORMAT (Strict JSON Only)\n"
-                "You must output a single JSON object. No conversational text.\n"
+                "# PLANNER AGENT\n\n"
+                "You generate JSON execution plans. You are an ORCHESTRATOR - "
+                "delegate ALL work to skills via `consult_expert`.\n\n"
+                f"## AVAILABLE SKILLS\n{available_skills_text}\n\n"
+                "## SKILL ROUTING (use exactly ONE skill per task)\n"
+                "- Azure DevOps READ (list/get/search items): `backlog_manager`\n"
+                "- Azure DevOps WRITE (create items): `requirements_engineer`\n"
+                "- Web research with page reading: `researcher`\n"
+                "- Quick web search (snippets only): `search`\n"
+                "- Deep multi-source research: `deep_researcher`\n\n"
+                "## JSON FORMAT (output ONLY valid JSON)\n"
                 "{\n"
-                '  "description": "Brief summary of the plan",\n'
+                '  "description": "Brief plan summary",\n'
                 '  "steps": [\n'
-                "    {\n"
-                '      "id": "step-1",\n'
-                '      "label": "Action Label",\n'
-                '      "executor": "agent" | "litellm",\n'
-                '      "action": "memory" | "tool" | "completion",\n'
-                '      "tool": "tool_name" (REQUIRED if action="tool"),\n'
-                '      "args": { "arg_name": "value" } (REQUIRED for all actions)\n'
-                "    }\n"
+                '    {"id": "1", "label": "...", "executor": "agent|litellm", '
+                '"action": "tool|completion|memory", "tool": "...", "args": {}}\n'
                 "  ]\n"
                 "}\n\n"
-                "### RULES\n"
-                "1. **NO GUESSING**: If you need information, delegate to a SKILL\n"
-                "   from the list above.\n"
-                "2. **CRITICAL**: The `skill` argument for `consult_expert`\n"
-                "   MUST be one of the exact 'Role' keys listed in 'AVAILABLE SKILLS'.\n"
-                "   DO NOT put tool names (like 'web_search', 'python', 'google')\n"
-                "   as the skill name.\n"
-                "   Example: call `consult_expert(skill='researcher')`,\n"
-                "   NOT `confirm_expert(skill='web_search')`.\n"
-                "3. **STRICT ARGS**: Use exactly the arguments defined in the \n"
-                "   'Available Tools' list.\n"
-                "4. **FINAL STEP**: Must be `action: completion` (executor: litellm) \n"
-                "   to answer the user.\n"
-                "5. **MEMORY**: Use `action: memory` (args: { 'query': '...' }) \n"
-                "   to find context if needed.\n"
-                "6. **TOOL EXECUTOR**: If `action` is 'tool', `executor` MUST be 'agent'.\n"
-                "7. **REQUIRED ARGS**: When calling `consult_expert`, you MUST provide \n"
-                "   the specific arguments required by that skill (e.g., 'domain' for \n"
-                "   researcher, 'repo' for git). Do not omit them.\n\n"
-                "### EXAMPLES\n"
-                "User: 'What is bicycle in Spanish?'\n"
-                "Plan: (DIRECT ANSWER - you know this)\n"
-                "{\n"
-                '  "description": "Direct translation answer",\n'
-                '  "steps": [\n'
-                '    { "id": "1", "label": "Answer", "executor": "litellm", \n'
-                '      "action": "completion", "args": {} }\n'
-                "  ]\n"
-                "}\n\n"
-                "User: 'Research python 3.12'\n"
-                "Plan: (RESEARCH - need current info)\n"
-                "{\n"
-                '  "description": "Delegate research to expert",\n'
-                '  "steps": [\n'
-                '    { "id": "1", "label": "Research", "executor": "agent", \n'
-                '      "action": "tool", "tool": "consult_expert", \n'
-                '      "args": { "skill": "researcher", "domain": "technology", \n'
-                '                "goal": "Find features of Python 3.12" } },\n'
-                '    { "id": "2", "label": "Answer", "executor": "litellm", \n'
-                '      "action": "completion", "args": {} }\n'
-                "  ]\n"
-                "}\n\n"
+                "## RULES\n"
+                "1. DELEGATE via consult_expert - never guess answers needing current data\n"
+                "2. FINAL STEP must be action=completion, executor=litellm\n"
+                "3. consult_expert args: skill (from list above), goal (what to find)\n"
+                "4. Simple questions (translations, math, syntax) = single completion step\n"
+                "5. If action=tool, executor MUST be agent\n\n"
+                "## EXAMPLES\n"
+                '"What is hello in French?" → direct answer (you know this):\n'
+                '{"description":"Translation","steps":[{"id":"1","label":"Answer",'
+                '"executor":"litellm","action":"completion","args":{}}]}\n\n'
+                '"Research Python 3.12" → delegate then answer:\n'
+                '{"description":"Research","steps":[{"id":"1","label":"Research",'
+                '"executor":"agent","action":"tool","tool":"consult_expert",'
+                '"args":{"skill":"researcher","goal":"Python 3.12 features"}},'
+                '{"id":"2","label":"Answer","executor":"litellm",'
+                '"action":"completion","args":{}}]}\n'
             ),
         )
+
+        # Sanitize user input to reduce prompt injection risk
+        sanitized_prompt = _sanitize_user_input(request.prompt)
 
         user_message = AgentMessage(
             role="user",
             content=(
                 f"### AVAILABLE TOOLS\n{available_tools_text}\n\n"
-                f"### USER REQUEST\n{request.prompt}\n\n"
+                f"### USER REQUEST\n{sanitized_prompt}\n\n"
                 f"### CONTEXT (History)\n{history_text}\n\n"
                 f"### METADATA\n{metadata_text}\n\n"
                 "Create the execution plan now."
@@ -212,10 +210,6 @@ class PlannerAgent:
         if model_name is None:
             settings = getattr(self._litellm, "_settings", None)
             model_name = getattr(settings, "model_planner", None)
-
-        span_attributes = {"step": "plan"}
-        if model_name:
-            span_attributes["model"] = model_name
 
         span_attributes = {"step": "plan"}
         if model_name:

@@ -12,6 +12,24 @@ from .base import Tool
 LOGGER = logging.getLogger(__name__)
 
 
+def _sanitize_wiql_value(value: str) -> str:
+    """Escape single quotes in WIQL string values.
+
+    WIQL doesn't support parameterized queries, so we escape single quotes
+    by doubling them (standard SQL escaping convention).
+
+    Args:
+        value: Raw string value to be used in WIQL query.
+
+    Returns:
+        Escaped string safe for WIQL interpolation.
+    """
+    if not value:
+        return value
+    # Escape single quotes by doubling them
+    return value.replace("'", "''")
+
+
 class AzureDevOpsTool(Tool):
     name = "azure_devops"
     description = (
@@ -295,17 +313,22 @@ class AzureDevOpsTool(Tool):
                 if not target_project:
                     return "❌ Error: Project not specified for list action."
 
-                # Build WIQL query
-                conditions = ["[System.TeamProject] = @project"]
+                # Build WIQL query with sanitized values
+                safe_project = _sanitize_wiql_value(target_project)
+                conditions = [f"[System.TeamProject] = '{safe_project}'"]
                 if area_path:
-                    conditions.append(f"[System.AreaPath] UNDER '{area_path}'")
+                    safe_area = _sanitize_wiql_value(area_path)
+                    conditions.append(f"[System.AreaPath] UNDER '{safe_area}'")
                 if type:
-                    conditions.append(f"[System.WorkItemType] = '{type}'")
+                    safe_type = _sanitize_wiql_value(type)
+                    conditions.append(f"[System.WorkItemType] = '{safe_type}'")
                 if state:
-                    conditions.append(f"[System.State] = '{state}'")
+                    safe_state = _sanitize_wiql_value(state)
+                    conditions.append(f"[System.State] = '{safe_state}'")
                 if tags:
                     for tag in tags:
-                        conditions.append(f"[System.Tags] CONTAINS '{tag}'")
+                        safe_tag = _sanitize_wiql_value(tag)
+                        conditions.append(f"[System.Tags] CONTAINS '{safe_tag}'")
 
                 where_clause = " AND ".join(conditions)
                 # WIQL doesn't support parameterized queries
@@ -317,7 +340,7 @@ class AzureDevOpsTool(Tool):
                 """  # noqa: S608
 
                 wiql_result = wit_client.query_by_wiql(
-                    {"query": wiql}, project=target_project, top=top
+                    {"query": wiql}, top=top
                 )
 
                 if not wiql_result.work_items:
@@ -344,18 +367,20 @@ class AzureDevOpsTool(Tool):
                 if not target_project:
                     return "❌ Error: Project not specified for search action."
 
-                # WIQL text search (WIQL doesn't support parameterized queries)
-                wiql = f"""  
+                # WIQL text search with sanitized inputs
+                safe_project = _sanitize_wiql_value(target_project)
+                safe_query = _sanitize_wiql_value(query)
+                wiql = f"""
                 SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType]
                 FROM WorkItems
-                WHERE [System.TeamProject] = @project
-                  AND ([System.Title] CONTAINS '{query}'
-                       OR [System.Description] CONTAINS '{query}')
+                WHERE [System.TeamProject] = '{safe_project}'
+                  AND ([System.Title] CONTAINS '{safe_query}'
+                       OR [System.Description] CONTAINS '{safe_query}')
                 ORDER BY [System.ChangedDate] DESC
                 """  # noqa: S608
 
                 wiql_result = wit_client.query_by_wiql(
-                    {"query": wiql}, project=target_project, top=top
+                    {"query": wiql}, top=top
                 )
 
                 if not wiql_result.work_items:

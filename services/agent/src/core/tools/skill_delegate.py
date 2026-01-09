@@ -164,6 +164,24 @@ class SkillDelegateTool(Tool):
             f"- Your knowledge cutoff is static, but YOU ARE LIVE in {year}.\n"
             f"- Treat all retrieved documents dated up to {today} "
             "as HISTORICAL FACTS, not predictions.\n"
+            "\n"
+            "## EXECUTION PROTOCOL (STRICT - VIOLATIONS WILL CAUSE ERRORS)\n"
+            "\n"
+            "RULE 1 - ONE CALL PER QUERY: Each unique question = exactly ONE tool call.\n"
+            "RULE 2 - NO REPEATS: If you called a tool, you CANNOT call it again with same/similar args.\n"
+            "RULE 3 - RESULTS ARE FINAL: When you receive tool output, that data is complete. Respond immediately.\n"
+            "\n"
+            "CORRECT FLOW:\n"
+            "1. User asks question\n"
+            "2. You call ONE tool\n"
+            "3. You receive results\n"
+            "4. You provide final answer using those results (NO more tool calls)\n"
+            "\n"
+            "WRONG (will be blocked):\n"
+            "- Calling the same tool twice\n"
+            "- Calling a tool after you already have the data\n"
+            "- Trying variations of the same query\n"
+            "\n"
         )
 
         messages = [
@@ -187,6 +205,9 @@ class SkillDelegateTool(Tool):
             max_turns = 10
 
         source_count = 0  # Track number of tool calls (sources)
+        seen_calls: set[tuple[str, str]] = set()  # Track executed calls to prevent loops
+        tool_call_counts: dict[str, int] = {}  # Track calls per tool type for rate limiting
+        max_calls_per_tool = 3  # Maximum calls to any single tool
 
         LOGGER.info(f"{logger_prefix} Max turns allowed: {max_turns}")
 
@@ -198,7 +219,7 @@ class SkillDelegateTool(Tool):
                 if i == 0:
                     # Truncate goal to one line (max 80 chars for readability)
                     display_goal = goal if len(goal) <= 80 else goal[:77] + "..."
-                    yield {"type": "thinking", "content": f"Researching: {display_goal}"}
+                    yield {"type": "thinking", "content": f"Goal: {display_goal}"}
                     await asyncio.sleep(0)  # Force flush
 
                 with start_span(f"skill.turn.{i+1}") as _turn_span:
@@ -354,23 +375,34 @@ class SkillDelegateTool(Tool):
                         tool_obj = tool_lookup.get(fname)
                         invoke_msg = _build_activity_message(tool_obj, fname, fargs)
 
-                        yield {
-                            "type": "thinking",
-                            "content": invoke_msg,
-                        }
+                        # Logic moved: pre-calculate duplication status to suppress UI for duplicates
+                        # We still re-check inside the span to handle the blocking logic
+                        call_key_check = (fname, json.dumps(fargs, sort_keys=True))
+                        is_duplicate_ui = call_key_check in seen_calls
 
-                        # Yield detailed skill_activity for OpenWebUI live display
-                        yield {
-                            "type": "skill_activity",
-                            "content": invoke_msg,
-                            "metadata": {
-                                "tool": fname,
-                                "search_query": fargs.get("query"),
-                                "fetch_url": fargs.get("url"),
-                                "file_path": fargs.get("path") or fargs.get("file_path"),
-                                "skill": skill,
-                            },
-                        }
+                        if is_duplicate_ui:
+                             yield {
+                                "type": "thinking",
+                                "content": f"Skipping duplicate call to {fname}",
+                            }
+                        else:
+                            yield {
+                                "type": "thinking",
+                                "content": invoke_msg,
+                            }
+
+                            # Yield detailed skill_activity for OpenWebUI live display
+                            yield {
+                                "type": "skill_activity",
+                                "content": invoke_msg,
+                                "metadata": {
+                                    "tool": fname,
+                                    "search_query": fargs.get("query"),
+                                    "fetch_url": fargs.get("url"),
+                                    "file_path": fargs.get("path") or fargs.get("file_path"),
+                                    "skill": skill,
+                                },
+                            }
                         await asyncio.sleep(0)  # Force flush
 
                         with start_span(f"skill.tool.{fname}") as _tool_span:
@@ -405,33 +437,62 @@ class SkillDelegateTool(Tool):
                                 tool_attrs["test.path"] = str(fargs["test_path"])[:200]
                             set_span_attributes(tool_attrs)
 
-                            tool_obj = next((t for t in worker_tools if t.name == fname), None)
+                            # Deduplication and rate limiting checks
+                            call_key = (fname, json.dumps(fargs, sort_keys=True))
+                            current_tool_count = tool_call_counts.get(fname, 0)
+
                             output_str = ""
-                            if tool_obj:
-                                LOGGER.info(f"{logger_prefix} Executing {fname}")
-                                try:
-                                    # Check if tool is also streaming?
-                                    # For now, assume other tools are atomic.
-                                    output_str = str(await tool_obj.run(**fargs))
-                                    # Capture output summary in span
-                                    set_span_attributes(
-                                        {
-                                            "tool.output_preview": output_str[:500],
-                                            "tool.output_length": len(output_str),
-                                            "tool.status": "success",
-                                        }
-                                    )
-                                except Exception as e:
-                                    output_str = f"Error: {e}"
-                                    set_span_attributes(
-                                        {
-                                            "tool.status": "error",
-                                            "tool.error": str(e)[:200],
-                                        }
-                                    )
+                            if call_key in seen_calls:
+                                # Exact duplicate - same tool, same args
+                                LOGGER.warning(f"{logger_prefix} Blocking duplicate call to {fname}")
+                                output_str = (
+                                    f"BLOCKED: Duplicate call to '{fname}'. "
+                                    "You already have the data from your previous call. "
+                                    "STOP calling tools. Write your final answer NOW."
+                                )
+                                set_span_attributes({"tool.status": "duplicate_blocked"})
+                            elif current_tool_count >= max_calls_per_tool:
+                                # Rate limit - too many calls to same tool
+                                LOGGER.warning(
+                                    f"{logger_prefix} Rate limiting {fname} "
+                                    f"(called {current_tool_count} times)"
+                                )
+                                output_str = (
+                                    f"BLOCKED: Maximum calls ({max_calls_per_tool}) to '{fname}' "
+                                    "reached. Use the data you have collected. "
+                                    "Write your final answer NOW."
+                                )
+                                set_span_attributes({"tool.status": "rate_limited"})
                             else:
-                                output_str = f"Error: Tool {fname} not found in worker context."
-                                set_span_attributes({"tool.status": "not_found"})
+                                seen_calls.add(call_key)
+                                tool_call_counts[fname] = current_tool_count + 1
+                                
+                                tool_obj = next((t for t in worker_tools if t.name == fname), None)
+                                if tool_obj:
+                                    LOGGER.info(f"{logger_prefix} Executing {fname}")
+                                    try:
+                                        # Check if tool is also streaming?
+                                        # For now, assume other tools are atomic.
+                                        output_str = str(await tool_obj.run(**fargs))
+                                        # Capture output summary in span
+                                        set_span_attributes(
+                                            {
+                                                "tool.output_preview": output_str[:500],
+                                                "tool.output_length": len(output_str),
+                                                "tool.status": "success",
+                                            }
+                                        )
+                                    except Exception as e:
+                                        output_str = f"Error: {e}"
+                                        set_span_attributes(
+                                            {
+                                                "tool.status": "error",
+                                                "tool.error": str(e)[:200],
+                                            }
+                                        )
+                                else:
+                                    output_str = f"Error: Tool {fname} not found in worker context."
+                                    set_span_attributes({"tool.status": "not_found"})
 
                             messages.append(
                                 AgentMessage(
@@ -442,15 +503,43 @@ class SkillDelegateTool(Tool):
                                 )
                             )
 
-        # Reached max_turns limit
+        # Reached max_turns limit - collect tool outputs for the response
         LOGGER.warning(
             f"{logger_prefix} Reached max_turns limit ({max_turns}) with "
             f"source_count={source_count}"
         )
+        
+        # Extract tool outputs from messages to include in final result
+        tool_outputs: list[str] = []
+        for msg in messages:
+            if msg.role == "tool" and msg.content:
+                # Only include substantial outputs (not errors or blocked messages)
+                if (
+                    not msg.content.startswith("Error:")
+                    and not msg.content.startswith("BLOCKED:")
+                    and len(msg.content) > 50
+                ):
+                    tool_outputs.append(msg.content)
+
+        # Build a useful summary - always indicate max_turns was reached
+        if tool_outputs:
+            # Include up to 3 most recent substantial tool outputs
+            recent_outputs = tool_outputs[-3:]
+            combined = "\n\n---\n\n".join(recent_outputs)
+            output_msg = (
+                f"Skill '{skill}' reached maximum turns limit ({max_turns}). "
+                f"Collected data from {source_count} sources:\n\n"
+                f"{combined}"
+            )
+        else:
+            output_msg = (
+                f"Skill '{skill}' reached maximum turns limit ({max_turns}). "
+                f"Used {source_count} sources but no substantial results."
+            )
+        
         yield {
             "type": "result",
-            "output": f"Skill '{skill}' reached maximum turns limit ({max_turns}). "
-            f"Used {source_count} sources.",
+            "output": output_msg,
             "source_count": source_count,
         }
 
