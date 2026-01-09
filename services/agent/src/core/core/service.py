@@ -234,7 +234,9 @@ class AgentService:
                     if replan_count > 0:
                         backoff_delay = 0.5 * (2 ** (replan_count - 1))
                         LOGGER.info(
-                            f"Re-plan backoff: waiting {backoff_delay}s before attempt {replan_count}"
+                            "Re-plan backoff: waiting %ss before attempt %d",
+                            backoff_delay,
+                            replan_count,
                         )
                         await asyncio.sleep(backoff_delay)
 

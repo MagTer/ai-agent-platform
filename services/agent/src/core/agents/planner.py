@@ -51,9 +51,7 @@ def _sanitize_user_input(text: str) -> str:
     # Truncate excessively long inputs to prevent context overflow
     if len(sanitized) > MAX_PROMPT_LENGTH:
         sanitized = sanitized[:MAX_PROMPT_LENGTH] + "\n... (input truncated)"
-        LOGGER.warning(
-            f"User input truncated from {original_length} to {MAX_PROMPT_LENGTH} chars"
-        )
+        LOGGER.warning(f"User input truncated from {original_length} to {MAX_PROMPT_LENGTH} chars")
 
     return sanitized
 

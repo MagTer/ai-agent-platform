@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from core.agents.planner import MAX_PROMPT_LENGTH, _sanitize_user_input
 from core.tools.azure_devops import _sanitize_wiql_value
 

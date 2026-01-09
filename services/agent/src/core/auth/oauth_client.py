@@ -10,7 +10,7 @@ import logging
 import secrets
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -113,7 +113,7 @@ class OAuthClient:
                 context_id=context_id,
                 provider=provider,
                 code_verifier=code_verifier,
-                expires_at=datetime.utcnow() + timedelta(minutes=10),
+                expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=10),
             )
             session.add(oauth_state)
             await session.commit()
@@ -160,7 +160,7 @@ class OAuthClient:
             if not oauth_state:
                 raise OAuthError("invalid_state", "State parameter not found or expired")
 
-            if oauth_state.expires_at < datetime.utcnow():
+            if oauth_state.expires_at < datetime.now(UTC).replace(tzinfo=None):
                 await session.delete(oauth_state)
                 await session.commit()
                 raise OAuthError("invalid_state", "State parameter expired")
@@ -222,7 +222,8 @@ class OAuthClient:
             result = await session.execute(stmt)
             existing_token = result.scalar_one_or_none()
 
-            expires_at = datetime.utcnow() + timedelta(seconds=token_response.expires_in)
+            now = datetime.now(UTC).replace(tzinfo=None)
+            expires_at = now + timedelta(seconds=token_response.expires_in)
 
             if existing_token:
                 # Update existing token
@@ -231,7 +232,7 @@ class OAuthClient:
                 existing_token.token_type = token_response.token_type
                 existing_token.expires_at = expires_at
                 existing_token.scope = token_response.scope
-                existing_token.updated_at = datetime.utcnow()
+                existing_token.updated_at = datetime.now(UTC).replace(tzinfo=None)
             else:
                 # Create new token
                 new_token = OAuthToken(
@@ -279,7 +280,7 @@ class OAuthClient:
                 return None
 
             # Check if token expired (with 60s buffer)
-            now = datetime.utcnow()
+            now = datetime.now(UTC).replace(tzinfo=None)
             if now >= token.expires_at - timedelta(seconds=60):
                 if token.refresh_token:
                     # Attempt refresh
@@ -356,8 +357,9 @@ class OAuthClient:
         token.access_token = token_response.access_token
         if token_response.refresh_token:
             token.refresh_token = token_response.refresh_token
-        token.expires_at = datetime.utcnow() + timedelta(seconds=token_response.expires_in)
-        token.updated_at = datetime.utcnow()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        token.expires_at = now + timedelta(seconds=token_response.expires_in)
+        token.updated_at = now
 
         LOGGER.info(
             "OAuth token refreshed successfully",

@@ -6,13 +6,21 @@ This module defines database models for OAuth 2.0 tokens and temporary state sto
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.db.models import Base
+
+
+def _utc_now() -> datetime:
+    """Return naive UTC datetime for SQLAlchemy defaults.
+
+    Returns naive datetime to match TIMESTAMP WITHOUT TIME ZONE columns.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class OAuthToken(Base):
@@ -48,10 +56,8 @@ class OAuthToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
     scope: Mapped[str | None] = mapped_column(String, nullable=True)
     token_metadata: Mapped[dict] = mapped_column("metadata", JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
     __table_args__ = (UniqueConstraint("context_id", "provider", name="uq_context_provider"),)
 
@@ -78,4 +84,4 @@ class OAuthState(Base):
     provider: Mapped[str] = mapped_column(String)
     code_verifier: Mapped[str] = mapped_column(String)
     expires_at: Mapped[datetime] = mapped_column(DateTime)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)

@@ -320,7 +320,6 @@ __all__ = [
     "configure_tracing",
     "get_tracer",
     "start_span",
-    "start_span",
     "current_trace_ids",
     "set_span_attributes",
     "add_span_event",

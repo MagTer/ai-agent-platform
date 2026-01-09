@@ -6,7 +6,7 @@ Provides two cleanup strategies:
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +29,7 @@ async def cleanup_old_messages(
 
     Returns the number of deleted messages.
     """
-    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=retention_days)
 
     # Count before delete
     count_stmt = select(func.count(Message.id)).where(Message.created_at < cutoff)
@@ -54,7 +54,7 @@ async def cleanup_inactive_conversations(
     This cascades to delete associated sessions and messages.
     Returns the number of deleted conversations.
     """
-    cutoff = datetime.utcnow() - timedelta(days=inactive_days)
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=inactive_days)
 
     # Find conversations with no recent messages
     # Subquery to get max message date per conversation

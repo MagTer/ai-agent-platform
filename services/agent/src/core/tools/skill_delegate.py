@@ -86,6 +86,7 @@ class SkillDelegateTool(Tool):
         "Do not pass atomic tool names here."
     )
     category = "orchestration"
+    activity_hint = {"skill": "Consulting: {skill}"}
     parameters = {
         "type": "object",
         "properties": {
@@ -168,8 +169,10 @@ class SkillDelegateTool(Tool):
             "## EXECUTION PROTOCOL (STRICT - VIOLATIONS WILL CAUSE ERRORS)\n"
             "\n"
             "RULE 1 - ONE CALL PER QUERY: Each unique question = exactly ONE tool call.\n"
-            "RULE 2 - NO REPEATS: If you called a tool, you CANNOT call it again with same/similar args.\n"
-            "RULE 3 - RESULTS ARE FINAL: When you receive tool output, that data is complete. Respond immediately.\n"
+            "RULE 2 - NO REPEATS: If you called a tool, you CANNOT call it again "
+            "with same/similar args.\n"
+            "RULE 3 - RESULTS ARE FINAL: When you receive tool output, that data is "
+            "complete. Respond immediately.\n"
             "\n"
             "CORRECT FLOW:\n"
             "1. User asks question\n"
@@ -375,13 +378,13 @@ class SkillDelegateTool(Tool):
                         tool_obj = tool_lookup.get(fname)
                         invoke_msg = _build_activity_message(tool_obj, fname, fargs)
 
-                        # Logic moved: pre-calculate duplication status to suppress UI for duplicates
-                        # We still re-check inside the span to handle the blocking logic
+                        # Pre-calculate duplication status to suppress UI for duplicates
+                        # We still re-check inside the span for blocking logic
                         call_key_check = (fname, json.dumps(fargs, sort_keys=True))
                         is_duplicate_ui = call_key_check in seen_calls
 
                         if is_duplicate_ui:
-                             yield {
+                            yield {
                                 "type": "thinking",
                                 "content": f"Skipping duplicate call to {fname}",
                             }
@@ -444,7 +447,9 @@ class SkillDelegateTool(Tool):
                             output_str = ""
                             if call_key in seen_calls:
                                 # Exact duplicate - same tool, same args
-                                LOGGER.warning(f"{logger_prefix} Blocking duplicate call to {fname}")
+                                LOGGER.warning(
+                                    "%s Blocking duplicate call to %s", logger_prefix, fname
+                                )
                                 output_str = (
                                     f"BLOCKED: Duplicate call to '{fname}'. "
                                     "You already have the data from your previous call. "
@@ -466,7 +471,7 @@ class SkillDelegateTool(Tool):
                             else:
                                 seen_calls.add(call_key)
                                 tool_call_counts[fname] = current_tool_count + 1
-                                
+
                                 tool_obj = next((t for t in worker_tools if t.name == fname), None)
                                 if tool_obj:
                                     LOGGER.info(f"{logger_prefix} Executing {fname}")
@@ -508,7 +513,7 @@ class SkillDelegateTool(Tool):
             f"{logger_prefix} Reached max_turns limit ({max_turns}) with "
             f"source_count={source_count}"
         )
-        
+
         # Extract tool outputs from messages to include in final result
         tool_outputs: list[str] = []
         for msg in messages:
@@ -536,7 +541,7 @@ class SkillDelegateTool(Tool):
                 f"Skill '{skill}' reached maximum turns limit ({max_turns}). "
                 f"Used {source_count} sources but no substantial results."
             )
-        
+
         yield {
             "type": "result",
             "output": output_msg,

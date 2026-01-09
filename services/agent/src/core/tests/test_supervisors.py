@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -33,9 +32,7 @@ class TestPlanSupervisorAgent:
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
         """Test that a valid plan passes validation."""
-        supervisor = PlanSupervisorAgent(
-            tool_registry=mock_registry, skill_names=skill_names
-        )
+        supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
         plan = Plan(
             description="Valid plan",
@@ -66,9 +63,7 @@ class TestPlanSupervisorAgent:
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
         """Test that empty plans are flagged as errors."""
-        supervisor = PlanSupervisorAgent(
-            tool_registry=mock_registry, skill_names=skill_names
-        )
+        supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
         plan = Plan(description="Empty plan", steps=[])
 
@@ -81,9 +76,7 @@ class TestPlanSupervisorAgent:
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
         """Test that plans without completion step generate warning."""
-        supervisor = PlanSupervisorAgent(
-            tool_registry=mock_registry, skill_names=skill_names
-        )
+        supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
         plan = Plan(
             description="No completion",
@@ -107,9 +100,7 @@ class TestPlanSupervisorAgent:
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
         """Test that unknown skill references generate warning."""
-        supervisor = PlanSupervisorAgent(
-            tool_registry=mock_registry, skill_names=skill_names
-        )
+        supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
         plan = Plan(
             description="Unknown skill",
@@ -140,9 +131,7 @@ class TestPlanSupervisorAgent:
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
         """Test that missing skill argument generates error."""
-        supervisor = PlanSupervisorAgent(
-            tool_registry=mock_registry, skill_names=skill_names
-        )
+        supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
         plan = Plan(
             description="Missing skill arg",
@@ -173,9 +162,7 @@ class TestPlanSupervisorAgent:
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
         """Test that tool actions with wrong executor generate warning."""
-        supervisor = PlanSupervisorAgent(
-            tool_registry=mock_registry, skill_names=skill_names
-        )
+        supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
         plan = Plan(
             description="Wrong executor",
@@ -236,11 +223,10 @@ class TestStepSupervisorAgent:
     @pytest.mark.asyncio
     async def test_returns_adjust_on_timeout(self) -> None:
         """Test that supervisor returns 'adjust' on timeout."""
-        import asyncio
 
         # Create mock LLM that times out
         mock_llm = MagicMock()
-        mock_llm.generate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_llm.generate = AsyncMock(side_effect=TimeoutError())
 
         supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
 
@@ -292,7 +278,10 @@ class TestStepSupervisorAgent:
         """Test that supervisor correctly parses 'adjust' response with suggested fix."""
         mock_llm = MagicMock()
         mock_llm.generate = AsyncMock(
-            return_value='{"decision": "adjust", "reason": "Output incomplete", "suggested_fix": "Try a different query"}'
+            return_value=(
+                '{"decision": "adjust", "reason": "Output incomplete", '
+                '"suggested_fix": "Try a different query"}'
+            )
         )
 
         supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")

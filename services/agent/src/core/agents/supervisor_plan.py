@@ -95,9 +95,7 @@ class PlanSupervisorAgent:
                     elif self._tool_registry:
                         # Validate other tool references
                         if not self._tool_registry.get(step.tool):
-                            warnings.append(
-                                f"Step '{step.label}': Unknown tool '{step.tool}'"
-                            )
+                            warnings.append(f"Step '{step.label}': Unknown tool '{step.tool}'")
 
                 # 4. Validate executor/action combinations
                 if step.action == "tool" and step.executor != "agent":

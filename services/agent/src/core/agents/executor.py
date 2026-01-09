@@ -365,7 +365,8 @@ class StepExecutorAgent:
                                     if isinstance(sc, int):
                                         tool_source_count = sc
                                         LOGGER.info(
-                                            f"[_run_tool_gen] Captured source_count={tool_source_count}"
+                                            "[_run_tool_gen] Captured source_count=%d",
+                                            tool_source_count,
                                         )
 
                             # Prefer collected content stream over result outputs

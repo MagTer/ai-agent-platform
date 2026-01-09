@@ -339,9 +339,7 @@ class AzureDevOpsTool(Tool):
                 ORDER BY [System.ChangedDate] DESC
                 """  # noqa: S608
 
-                wiql_result = wit_client.query_by_wiql(
-                    {"query": wiql}, top=top
-                )
+                wiql_result = wit_client.query_by_wiql({"query": wiql}, top=top)
 
                 if not wiql_result.work_items:
                     return "No work items found matching the criteria."
@@ -379,9 +377,7 @@ class AzureDevOpsTool(Tool):
                 ORDER BY [System.ChangedDate] DESC
                 """  # noqa: S608
 
-                wiql_result = wit_client.query_by_wiql(
-                    {"query": wiql}, top=top
-                )
+                wiql_result = wit_client.query_by_wiql({"query": wiql}, top=top)
 
                 if not wiql_result.work_items:
                     return f"No work items found matching '{query}'."

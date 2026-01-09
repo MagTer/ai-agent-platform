@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -87,7 +87,7 @@ async def list_oauth_tokens(
     result = await session.execute(stmt)
     tokens = result.scalars().all()
 
-    now = datetime.utcnow()
+    now = datetime.now(UTC).replace(tzinfo=None)
     token_infos = [
         OAuthTokenInfo(
             id=token.id,
@@ -189,7 +189,7 @@ async def get_oauth_status(
     result = await session.execute(stmt)
     tokens = result.scalars().all()
 
-    now = datetime.utcnow()
+    now = datetime.now(UTC).replace(tzinfo=None)
     provider_status = []
 
     for token in tokens:
