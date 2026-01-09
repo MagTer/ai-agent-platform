@@ -211,6 +211,7 @@ class SkillDelegateTool(Tool):
         seen_calls: set[tuple[str, str]] = set()  # Track executed calls to prevent loops
         tool_call_counts: dict[str, int] = {}  # Track calls per tool type for rate limiting
         max_calls_per_tool = 3  # Maximum calls to any single tool
+        blocked_this_turn = False  # Track if we blocked a call this turn
 
         LOGGER.info(f"{logger_prefix} Max turns allowed: {max_turns}")
 
@@ -224,6 +225,9 @@ class SkillDelegateTool(Tool):
                     display_goal = goal if len(goal) <= 80 else goal[:77] + "..."
                     yield {"type": "thinking", "content": f"Goal: {display_goal}"}
                     await asyncio.sleep(0)  # Force flush
+
+                # Reset blocked flag for this turn
+                blocked_this_turn = False
 
                 with start_span(f"skill.turn.{i+1}") as _turn_span:
                     # Capture turn metadata
@@ -456,6 +460,7 @@ class SkillDelegateTool(Tool):
                                     "STOP calling tools. Write your final answer NOW."
                                 )
                                 set_span_attributes({"tool.status": "duplicate_blocked"})
+                                blocked_this_turn = True
                             elif current_tool_count >= max_calls_per_tool:
                                 # Rate limit - too many calls to same tool
                                 LOGGER.warning(
@@ -468,6 +473,7 @@ class SkillDelegateTool(Tool):
                                     "Write your final answer NOW."
                                 )
                                 set_span_attributes({"tool.status": "rate_limited"})
+                                blocked_this_turn = True
                             else:
                                 seen_calls.add(call_key)
                                 tool_call_counts[fname] = current_tool_count + 1
@@ -508,11 +514,19 @@ class SkillDelegateTool(Tool):
                                 )
                             )
 
-        # Reached max_turns limit - collect tool outputs for the response
-        LOGGER.warning(
-            f"{logger_prefix} Reached max_turns limit ({max_turns}) with "
-            f"source_count={source_count}"
-        )
+                # After processing tool calls, break if we blocked any call
+                if blocked_this_turn:
+                    LOGGER.info(
+                        f"{logger_prefix} Blocked duplicate/rate-limited call, "
+                        "terminating skill execution with source_count={source_count}"
+                    )
+                    break
+            else:
+                # Loop completed without break (hit max_turns)
+                LOGGER.warning(
+                    f"{logger_prefix} Reached max_turns limit ({max_turns}) with "
+                    f"source_count={source_count}"
+                )
 
         # Extract tool outputs from messages to include in final result
         tool_outputs: list[str] = []
