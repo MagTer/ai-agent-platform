@@ -3,6 +3,32 @@
 ## Project Identity
 You are working on a **local-first AI Agent Platform** - a modular monolith orchestrating LiteLLM, Qdrant, PostgreSQL, and tools via FastAPI. This is production-grade infrastructure for running autonomous AI agents.
 
+## Tri-Model Workflow (MANDATORY)
+
+**Before starting any work, read:** `/CLAUDE.md` (root entry point with context hygiene rules)
+
+### Plan-First Approach
+
+Before writing code for non-trivial tasks:
+1. Check if a plan exists in `.claude/plans/CURRENT_PLAN.md` or `.claude/plans/YYYY-MM-DD-feature.md`
+2. For complex tasks (3+ files, architectural changes), a plan is REQUIRED
+3. If no plan exists, use `/architect` to create one FIRST
+4. Never write code without a plan for complex features
+
+### Model Selection Guide
+
+- **Opus (`/architect`)**: Planning, architecture review, security audits, complex reasoning
+- **Sonnet (`/builder`)**: Implementation, debugging, API design, code writing
+- **Haiku (`/janitor`)**: Testing, linting, docs, simple fixes, maintenance
+
+Use the right model for the task to optimize costs. When switching models is needed, ask the user explicitly.
+
+### Always Read These First
+
+1. `/CLAUDE.md` - Workflow and context hygiene (THIS FILE)
+2. `.claude/PRIMER.md` - Project essentials (architecture, standards, patterns)
+3. Plan file - If implementing from a plan
+
 ## Critical Workflow (MANDATORY)
 Before marking ANY task as complete, you MUST run the quality assurance script:
 ```bash
