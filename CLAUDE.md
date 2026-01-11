@@ -6,9 +6,9 @@
 
 ---
 
-## Native Sub-Agents (TOML-Based)
+## Native Sub-Agents (Markdown-Based)
 
-This project uses **native Claude Code sub-agents** defined in `.claude/agents/*.toml`. Each agent has specialized instructions and model assignments embedded directly in their TOML configuration.
+This project uses **native Claude Code sub-agents** defined in `.claude/agents/*.md`. Each agent has specialized instructions and model assignments embedded directly in their YAML frontmatter and markdown content.
 
 ---
 
@@ -38,7 +38,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 
 ---
 
-### 2. Builder (Sonnet - Implementation)
+### 2. Engineer (Sonnet - Implementation)
 
 **Model:** `claude-4-5-sonnet`
 
@@ -53,7 +53,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 **What it does:**
 - Executes implementation plans step-by-step
 - Writes production-quality code
-- Runs quality checks (`code_check.py`)
+- Delegates quality checks to QA agent
 - Follows strict coding standards
 
 **Example:**
@@ -63,7 +63,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 
 ---
 
-### 3. Janitor (Haiku - Maintenance)
+### 3. QA (Haiku - Quality Assurance)
 
 **Model:** `claude-3-5-haiku` (cost-efficient)
 
@@ -78,6 +78,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 **What it does:**
 - Runs pytest and reports results
 - Auto-fixes Ruff/Black issues
+- Spawns Engineer for complex Mypy errors
 - Updates docs after code changes
 - Generates PR descriptions
 
@@ -97,18 +98,21 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 /plan Add Azure DevOps integration with OAuth2
 
 # Architect creates: .claude/plans/2026-01-10-azure-devops.md
+# Architect offers to auto-spawn Engineer (Option 1) or manual (Option 2)
 
-# Step 2: Implement with Builder (new session for token savings)
+# Option 1 (Recommended - Auto-spawn):
+# Architect spawns Engineer → Engineer implements → Engineer spawns QA → Done!
+
+# Option 2 (Manual - Fresh session):
 exit
 claude --model sonnet
 /build .claude/plans/2026-01-10-azure-devops.md
 
-# Builder implements feature, runs quality checks
-
-# Step 3: Cleanup with Janitor
-/clean Run final tests and update documentation
-
-# Janitor runs tests, updates docs, reports results
+# Engineer implements feature
+# Engineer auto-delegates to QA for final quality checks
+# QA runs tests, updates docs, spawns Engineer if complex Mypy errors
+# QA reports results back to Engineer
+# Engineer confirms completion
 ```
 
 ### Simple Bug Fix (Direct)
@@ -118,7 +122,7 @@ claude --model sonnet
 # Read file, fix bug, run quality checks, done
 ```
 
-### Documentation Update (Janitor Only)
+### Documentation Update (QA Only)
 
 ```bash
 /clean Update API docs for new /v1/analyze endpoint
@@ -128,13 +132,13 @@ claude --model sonnet
 
 ## Agent Configuration Files
 
-All agent instructions are in `.claude/agents/*.toml`:
+All agent instructions are in `.claude/agents/*.md`:
 
-- **`architect.toml`** - Planning logic, architecture rules, security checklist
-- **`builder.toml`** - Coding standards, implementation patterns, quality gates
-- **janitor.toml`** - Maintenance tasks, doc updates, test running
+- **`architect.md`** - Planning logic, architecture rules, security checklist, Engineer spawning
+- **`engineer.md`** - Coding standards, implementation patterns, QA delegation
+- **`qa.md`** - Quality assurance, testing, docs, Engineer escalation for complex Mypy
 
-**The TOML files contain ALL priming instructions.** No need to read separate PRIMER.md files.
+**The markdown files contain ALL priming instructions.** No need to read separate PRIMER.md files.
 
 ---
 
@@ -178,41 +182,47 @@ This runs: Ruff → Black → Mypy → Pytest
 
 | Task | Agent | Model | Cost |
 |------|-------|-------|------|
-| Complex planning | `/plan` | Opus | $$$ |
-| Architecture review | `/plan` | Opus | $$$ |
-| Security audit | `/plan` | Opus | $$$ |
-| Writing code | `/build` | Sonnet | $$ |
-| Debugging | `/build` | Sonnet | $$ |
-| Running tests | `/clean` | Haiku | $ |
-| Fixing linting | `/clean` | Haiku | $ |
-| Updating docs | `/clean` | Haiku | $ |
+| Complex planning | Architect | Opus | $$$ |
+| Architecture review | Architect | Opus | $$$ |
+| Security audit | Architect | Opus | $$$ |
+| Writing code | Engineer | Sonnet | $$ |
+| Debugging | Engineer | Sonnet | $$ |
+| Complex Mypy fixes | Engineer | Sonnet | $$ |
+| Running tests | QA | Haiku | $ |
+| Fixing simple linting | QA | Haiku | $ |
+| Updating docs | QA | Haiku | $ |
 
 **Token Savings:**
-- Exit between phases for fresh sessions (max savings)
-- Use Haiku for all maintenance tasks (10x cheaper)
-- TOML-embedded instructions avoid loading separate markdown files
+- Agents spawn with fresh context (no bloat from parent agent)
+- Auto-delegation: Engineer → QA (uses Haiku for tests/docs)
+- QA auto-spawns Engineer only when complex errors detected
+- Use Haiku for all maintenance tasks (10x cheaper than Sonnet)
+- Markdown-embedded instructions avoid loading separate files
 
 ---
 
 ## When to Use Which Agent
 
-### ✅ Use /plan (Opus) when:
+### ✅ Use /plan (Architect - Opus) when:
 - Starting a complex feature (3+ files)
 - Making architectural changes
 - Need security review
 - Unclear how to approach a problem
+- **Architect will offer to auto-spawn Engineer when done**
 
-### ✅ Use /build (Sonnet) when:
+### ✅ Use /build (Engineer - Sonnet) when:
 - Implementing from an existing plan
 - Writing new code
 - Debugging errors
 - Refactoring with clear scope
+- **Engineer will auto-delegate to QA when implementation complete**
 
-### ✅ Use /clean (Haiku) when:
+### ✅ Use /clean (QA - Haiku) when:
 - Running tests
 - Fixing linting errors
 - Updating documentation
 - Summarizing changes
+- **QA will auto-spawn Engineer for complex Mypy errors**
 
 ### ❌ Don't use workflow for:
 - Simple bug fixes (1-2 lines)
@@ -236,7 +246,7 @@ This runs: Ruff → Black → Mypy → Pytest
 ## Important Files
 
 - `.clinerules` - Project-wide standards (auto-loaded)
-- `.claude/agents/*.toml` - Agent configurations with embedded instructions
+- `.claude/agents/*.md` - Agent configurations with embedded instructions
 - `.claude/plans/*.md` - Implementation plans created by Architect
 - `docs/ARCHITECTURE.md` - Full architecture documentation
 - `docs/STYLE.md` - Documentation style guide
