@@ -1,13 +1,32 @@
 defaults:
-  area_path: "TIBP"
+  area_path: "Web Teams\Common"
+  default_type: "Feature"
 teams:
-  backend:
-    area_path: "TIBP\\Backend"
-  frontend:
-    area_path: "TIBP\\Frontend"
-  data:
-    area_path: "TIBP\\Data"
+  infra:
+    area_path: "Web Teams\Common\Infra"
+    default_type: "User story"
+  common:
+    area_path: "Web Teams\Common"
+    default_type: "User story"
+  platform:
+    area_path: "Web Teams\Platform"
+    default_type: "User story"
+  engage:
+    area_path: "Web Teams\Engage"
+    default_type: "User story"
+  guide_and_find:
+    area_path: "Web Teams\Guide and Find"
+    default_type: "User story"
+  otd:
+    area_path: "Web Teams\OtD and Services"
+    default_type: "User story"
+  content:
+    area_path: "Web Teams\OtD and Services"
+    default_type: "User story"
+  walter:
+    area_path: "Web Teams\Walter"
+    default_type: "User story"
   security:
-    area_path: "TIBP\\Architecture\\Security"
-    default_tags: ["Security", "Architecture"]
+    area_path: "Web Teams\Platform\Security"
+    default_tags: ["Security", "SecurityIncidentHigh","SecurityIncidentMedium"]
     default_type: "User Story"

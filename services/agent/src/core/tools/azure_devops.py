@@ -30,6 +30,48 @@ def _sanitize_wiql_value(value: str) -> str:
     return value.replace("'", "''")
 
 
+def _find_similar(target: str, candidates: list[str], max_suggestions: int = 3) -> list[str]:
+    """Find similar strings using Levenshtein distance.
+
+    Args:
+        target: String to find matches for.
+        candidates: List of strings to compare against.
+        max_suggestions: Maximum number of suggestions to return.
+
+    Returns:
+        List of similar strings, sorted by similarity.
+    """
+
+    def levenshtein_distance(s1: str, s2: str) -> int:
+        """Calculate Levenshtein distance between two strings."""
+        if len(s1) < len(s2):
+            return levenshtein_distance(s2, s1)
+        if len(s2) == 0:
+            return len(s1)
+
+        previous_row = list(range(len(s2) + 1))
+        for i, c1 in enumerate(s1):
+            current_row = [i + 1]
+            for j, c2 in enumerate(s2):
+                insertions = previous_row[j + 1] + 1
+                deletions = current_row[j] + 1
+                substitutions = previous_row[j] + (c1 != c2)
+                current_row.append(min(insertions, deletions, substitutions))
+            previous_row = current_row
+
+        return previous_row[-1]
+
+    # Calculate distances and sort
+    distances = [
+        (candidate, levenshtein_distance(target.lower(), candidate.lower()))
+        for candidate in candidates
+    ]
+    distances.sort(key=lambda x: x[1])
+
+    # Return top suggestions with distance <= 3
+    return [candidate for candidate, dist in distances[:max_suggestions] if dist <= 3]
+
+
 class AzureDevOpsTool(Tool):
     name = "azure_devops"
     description = (
@@ -50,6 +92,11 @@ class AzureDevOpsTool(Tool):
         self.pat = pat or os.environ.get("AZURE_DEVOPS_PAT")
         self.mappings = self._load_mappings()
 
+        # Validate and warn
+        warnings = self._validate_mappings()
+        for warning in warnings:
+            LOGGER.warning(f"ADO Mapping: {warning}")
+
     def _load_mappings(self) -> dict[str, Any]:
         """Load ADO mappings from default config path."""
         try:
@@ -65,6 +112,50 @@ class AzureDevOpsTool(Tool):
         except Exception as e:
             LOGGER.error(f"Failed to load ADO mappings: {e}")
             return {}
+
+    def _get_available_teams(self) -> list[str]:
+        """Return list of configured team aliases."""
+        return list(self.mappings.get("teams", {}).keys())
+
+    def _resolve_team_config(self, team_alias: str | None) -> dict[str, Any]:
+        """Resolve team configuration with validation.
+
+        Returns:
+            dict with: area_path, default_type, default_tags, _resolved_team
+
+        Raises:
+            ValueError: If team_alias is invalid (with suggestions)
+        """
+        if not team_alias:
+            return self.mappings.get("defaults", {})
+
+        teams = self.mappings.get("teams", {})
+
+        if team_alias not in teams:
+            available = list(teams.keys())
+            # Suggest similar team names (Levenshtein distance)
+            suggestions = _find_similar(team_alias, available)
+            error_msg = f"Unknown team '{team_alias}'. Available teams: {', '.join(available)}."
+            if suggestions:
+                error_msg += f" Did you mean: {', '.join(suggestions)}?"
+            raise ValueError(error_msg)
+
+        config = teams[team_alias].copy()
+        config["_resolved_team"] = team_alias
+        return config
+
+    def _validate_mappings(self) -> list[str]:
+        """Validate mapping structure, return warnings."""
+        warnings = []
+        teams = self.mappings.get("teams", {})
+
+        for team, config in teams.items():
+            if not config.get("area_path"):
+                warnings.append(f"Team '{team}' missing area_path")
+            if not config.get("default_type"):
+                warnings.append(f"Team '{team}' missing default_type")
+
+        return warnings
 
     async def run(
         self,
@@ -89,15 +180,17 @@ class AzureDevOpsTool(Tool):
         Manage Azure DevOps Work Items.
 
         Args:
-            action: 'create', 'get', 'list', 'search', or 'children'.
+            action: 'create', 'get', 'list', 'search', 'children', 'get_teams', or
+                'team_summary'.
             title: Title (required for create).
             description: Description (required for create).
             acceptance_criteria: Acceptance Criteria (optional).
             work_item_id: ID (required for get/children).
-            team_alias: 'backend', 'frontend', 'security' etc.
+            team_alias: Team identifier (use get_teams to discover). Examples: 'infra',
+                'platform', 'security'. Used for create, list, and search actions.
             area_path: Filter by Area Path (for list).
             type: Work Item Type filter (for list) or type to create.
-            project: Project Name.
+            project: Project Name (required for team_summary).
             tags: List of tags to add (create) or filter by (list).
             start_date: 'YYYY-MM-DD' (create).
             target_date: 'YYYY-MM-DD' (create).
@@ -138,10 +231,12 @@ class AzureDevOpsTool(Tool):
                     return "❌ Error: Azure DevOps Project not specified."
 
                 # 1. Resolve Configuration based on Team Alias
+                try:
+                    team_config = self._resolve_team_config(team_alias)
+                except ValueError as e:
+                    return f"❌ Error: {str(e)}"
+
                 default_area = self.mappings.get("defaults", {}).get("area_path")
-                team_config = (
-                    self.mappings.get("teams", {}).get(team_alias, {}) if team_alias else {}
-                )
 
                 # 2. Determine Final Values (Arg > Team Config > Default)
                 final_area_path = area_path or team_config.get("area_path") or default_area
@@ -313,6 +408,19 @@ class AzureDevOpsTool(Tool):
                 if not target_project:
                     return "❌ Error: Project not specified for list action."
 
+                # Resolve team_alias to area_path
+                if team_alias:
+                    try:
+                        team_config = self._resolve_team_config(team_alias)
+                        # Override area_path if team provided
+                        if not area_path:
+                            area_path = team_config.get("area_path")
+                        # Auto-add team default tags to filter if not specified
+                        if not tags and team_config.get("default_tags"):
+                            tags = team_config["default_tags"]
+                    except ValueError as e:
+                        return f"❌ Error: {str(e)}"
+
                 # Build WIQL query with sanitized values
                 safe_project = _sanitize_wiql_value(target_project)
                 conditions = [f"[System.TeamProject] = '{safe_project}'"]
@@ -365,6 +473,17 @@ class AzureDevOpsTool(Tool):
                 if not target_project:
                     return "❌ Error: Project not specified for search action."
 
+                # Team-aware search
+                team_area_clause = ""
+                if team_alias:
+                    try:
+                        team_config = self._resolve_team_config(team_alias)
+                        if team_config.get("area_path"):
+                            safe_area = _sanitize_wiql_value(team_config["area_path"])
+                            team_area_clause = f" AND [System.AreaPath] UNDER '{safe_area}'"
+                    except ValueError as e:
+                        return f"❌ Error: {str(e)}"
+
                 # WIQL text search with sanitized inputs
                 safe_project = _sanitize_wiql_value(target_project)
                 safe_query = _sanitize_wiql_value(query)
@@ -372,6 +491,7 @@ class AzureDevOpsTool(Tool):
                 SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType]
                 FROM WorkItems
                 WHERE [System.TeamProject] = '{safe_project}'
+                  {team_area_clause}
                   AND ([System.Title] CONTAINS '{safe_query}'
                        OR [System.Description] CONTAINS '{safe_query}')
                 ORDER BY [System.ChangedDate] DESC
@@ -436,10 +556,90 @@ class AzureDevOpsTool(Tool):
 
                 return "\n".join(results)
 
+            elif action == "get_teams":
+                """List configured teams with their settings."""
+                teams = self.mappings.get("teams", {})
+
+                if not teams:
+                    return "⚠️ No teams configured in ado_mappings.yaml"
+
+                results = ["### Configured Teams\n"]
+                for team_alias, config in teams.items():
+                    area = config.get("area_path", "Not set")
+                    type_ = config.get("default_type", "Not set")
+                    tags = config.get("default_tags", [])
+                    tags_str = ", ".join(tags) if tags else "None"
+
+                    results.append(f"**{team_alias}**")
+                    results.append(f"  - Area Path: {area}")
+                    results.append(f"  - Default Type: {type_}")
+                    results.append(f"  - Default Tags: {tags_str}")
+                    results.append("")
+
+                return "\n".join(results)
+
+            elif action == "team_summary":
+                """Show workload distribution across all teams."""
+                if not target_project:
+                    return "❌ Error: Project not specified for team_summary action."
+
+                teams = self.mappings.get("teams", {})
+                if not teams:
+                    return "⚠️ No teams configured in ado_mappings.yaml"
+
+                results = ["### Team Workload Summary\n"]
+                results.append("| Team | Active | New | Closed |")
+                results.append("|------|--------|-----|--------|")
+
+                for team_alias, config in teams.items():
+                    area_path_value = config.get("area_path")
+                    if not area_path_value:
+                        continue
+
+                    # Query active count
+                    safe_project = _sanitize_wiql_value(target_project)
+                    safe_area = _sanitize_wiql_value(area_path_value)
+
+                    active_query = f"""
+                    SELECT [System.Id] FROM WorkItems
+                    WHERE [System.TeamProject] = '{safe_project}'
+                      AND [System.AreaPath] UNDER '{safe_area}'
+                      AND [System.State] = 'Active'
+                    """  # noqa: S608
+                    active_result = wit_client.query_by_wiql({"query": active_query})
+                    active_count = len(active_result.work_items)
+
+                    # Query new count
+                    new_query = f"""
+                    SELECT [System.Id] FROM WorkItems
+                    WHERE [System.TeamProject] = '{safe_project}'
+                      AND [System.AreaPath] UNDER '{safe_area}'
+                      AND [System.State] = 'New'
+                    """  # noqa: S608
+                    new_result = wit_client.query_by_wiql({"query": new_query})
+                    new_count = len(new_result.work_items)
+
+                    # Query closed count
+                    closed_query = f"""
+                    SELECT [System.Id] FROM WorkItems
+                    WHERE [System.TeamProject] = '{safe_project}'
+                      AND [System.AreaPath] UNDER '{safe_area}'
+                      AND [System.State] = 'Closed'
+                    """  # noqa: S608
+                    closed_result = wit_client.query_by_wiql({"query": closed_query})
+                    closed_count = len(closed_result.work_items)
+
+                    results.append(
+                        f"| {team_alias} | {active_count} | {new_count} | {closed_count} |"
+                    )
+
+                return "\n".join(results)
+
             else:
                 return (
                     f"❌ Error: Unknown action '{action}'. "
-                    "Use 'create', 'get', 'list', 'search', or 'children'."
+                    "Use 'create', 'get', 'list', 'search', 'children', 'get_teams', "
+                    "or 'team_summary'."
                 )
 
         except Exception as e:
