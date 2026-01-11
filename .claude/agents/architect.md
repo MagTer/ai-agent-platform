@@ -152,7 +152,15 @@ Create `.claude/plans/YYYY-MM-DD-feature-name.md` with:
 ```
 Plan created: .claude/plans/YYYY-MM-DD-feature-name.md
 
-Ready to implement! Choose your preferred approach:
+[Show brief plan summary - key phases and files affected]
+
+**Before proceeding, you can:**
+- Ask me to clarify any aspect of the plan
+- Request modifications or additions
+- Discuss alternative approaches
+- Review security/performance implications
+
+**When ready to implement:**
 
 **Option 1: Auto-spawn Engineer (recommended)**
 - ✅ Seamless autonomous execution
@@ -164,14 +172,21 @@ I'll spawn Engineer using:
 Task(subagent_type="engineer", model="sonnet", ...)
 
 **Option 2: Manual implementation (for manual control)**
-- You review/modify the plan before implementation
+- You review/modify the plan file directly
 - Start fresh session when ready:
   exit
   claude --model sonnet
   # Then say: "Implement .claude/plans/YYYY-MM-DD-feature-name.md"
 
-Which would you like? (1 or 2, default is 1)
+Which would you like? (1 or 2, or ask for changes first)
 ```
+
+**Important: Stay active and responsive until user approves and chooses an option!**
+
+If user asks for plan modifications:
+1. Update the plan file with requested changes
+2. Explain what was changed and why
+3. Ask again if they're ready to proceed (offer options 1/2 again)
 
 **If user chooses Option 1:**
 
