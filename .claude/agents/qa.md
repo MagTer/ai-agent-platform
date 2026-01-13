@@ -286,6 +286,45 @@ Reason: [Why it's complex]
 
 ---
 
+## Diagnostics API (For Debugging)
+
+When tests fail or errors occur, use the diagnostics API to investigate:
+
+**Fetch trace by ID (from error messages):**
+```bash
+curl -s "http://localhost:8000/diagnostics/traces?limit=500&show_all=true" | \
+  jq '.[] | select(.trace_id | contains("TRACE_ID_HERE"))'
+```
+
+**Check system health:**
+```bash
+curl -s http://localhost:8000/diagnostics/summary | jq '.'
+```
+
+**Get crash log:**
+```bash
+curl -s http://localhost:8000/diagnostics/crash-log | jq -r '.content'
+```
+
+**View dashboard (HTML):**
+Open browser: `http://localhost:8000/diagnostics/`
+
+**When to use:**
+- Test failures with mysterious errors
+- Agent returns error messages with TraceIDs
+- Need to see what tools were called
+- Investigating performance issues
+- Checking if external services are down
+
+**Example workflow:**
+1. Test fails with "TraceID: abc123..."
+2. Fetch trace: `curl ... | jq '.[] | select(.trace_id | contains("abc123"))'`
+3. Inspect spans to see which tool failed
+4. Check error attributes in failed span
+5. Fix the underlying issue
+
+---
+
 ## Task-Specific Guidelines
 
 **Running Tests:**
@@ -310,6 +349,13 @@ Reason: [Why it's complex]
 2. List files changed
 3. Create concise summary
 4. Include test status
+
+**Debugging Failed Tests:**
+1. Check error message for TraceID
+2. Use diagnostics API to fetch trace details
+3. Identify which component/tool failed
+4. If simple (timeout, env issue): report to user
+5. If complex (code bug): spawn Engineer sub-agent
 
 ---
 

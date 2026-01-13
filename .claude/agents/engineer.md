@@ -477,6 +477,74 @@ async def run_agent(
 
 ---
 
+## Diagnostics API (For Debugging)
+
+When implementation fails or debugging is needed, use the diagnostics API:
+
+**Fetch trace by ID (when user reports errors with TraceID):**
+```bash
+curl -s "http://localhost:8000/diagnostics/traces?limit=500&show_all=true" | \
+  jq '.[] | select(.trace_id | contains("TRACE_ID_HERE"))'
+```
+
+**Example trace analysis:**
+```bash
+# Get trace
+curl -s "http://localhost:8000/diagnostics/traces?limit=500" | \
+  jq '.[] | select(.trace_id | contains("abc123"))' > trace.json
+
+# Inspect which tools were called
+cat trace.json | jq '.spans[] | select(.attributes."tool.name") | {name, status, duration_ms, error: .attributes."tool.error"}'
+
+# Find errors
+cat trace.json | jq '.spans[] | select(.status == "ERROR")'
+```
+
+**Check system health:**
+```bash
+curl -s http://localhost:8000/diagnostics/summary | jq '.'
+```
+
+**View crash log:**
+```bash
+curl -s http://localhost:8000/diagnostics/crash-log | jq -r '.content'
+```
+
+**Dashboard (visual debugging):**
+Open: `http://localhost:8000/diagnostics/`
+- Waterfall view shows tool execution timeline
+- Click spans to see detailed attributes
+- Search by TraceID
+
+**When to use:**
+- User reports: "Got error with TraceID: xyz"
+- Implementation fails with mysterious errors
+- Need to verify which tools were actually called
+- Debugging performance issues
+- Integration test failures
+
+**Example debugging workflow:**
+```
+User: "Feature X failed with TraceID: 4914e3242..."
+
+1. Fetch trace:
+   curl ... | jq '.[] | select(.trace_id | contains("4914e3242"))'
+
+2. Analyze output:
+   - Look for spans with status: "ERROR"
+   - Check attributes for error messages
+   - See which tool failed
+
+3. Identify root cause:
+   - If tool error: Fix tool parameters or implementation
+   - If timeout: Optimize performance
+   - If auth error: Check credentials
+
+4. Fix and verify
+```
+
+---
+
 ## Tech Stack
 
 - **Language:** Python 3.11+
