@@ -113,9 +113,9 @@ Did you mean: infra?
 
 ## Skills Integration
 
-### Requirements Engineer
+### Requirements Drafter
 
-The `requirements_engineer` skill uses team structure to:
+The `requirements_drafter` skill uses team structure to:
 
 1. **Suggest teams** based on work item content:
    - Security keywords → "security" team
@@ -237,7 +237,7 @@ WARNING: ADO Mapping: Team 'platform' missing area_path
 **User Request:**
 "Create a security incident for XSS vulnerability"
 
-**requirements_engineer workflow:**
+**requirements_drafter workflow:**
 1. Detects "security" keyword
 2. Calls `get_teams` to validate "security" team exists
 3. Shows draft with resolved config:

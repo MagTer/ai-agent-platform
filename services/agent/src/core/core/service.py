@@ -108,7 +108,14 @@ class AgentService:
         db_session = await self._get_or_create_session(session, conversation_id)
 
         # 5. Load History
-        history = await self._load_conversation_history(session, db_session)
+        # OpenWebUI sends full history in request.messages - prefer that over DB
+        if request.messages:
+            # Use the history provided by the client (OpenWebUI sends full history)
+            history = list(request.messages)
+            LOGGER.info(f"Using {len(history)} messages from request.messages (OpenWebUI history)")
+        else:
+            # Fallback to loading from database
+            history = await self._load_conversation_history(session, db_session)
 
         # 6. Request Prep
         request_metadata: dict[str, Any] = dict(request.metadata or {})
@@ -556,6 +563,36 @@ class AgentService:
                 # ═══════════════════════════════════════════════════════════════════
 
                 if not completion_text:
+                    # Check for work item drafts in recent history to prevent translation
+                    # Heuristic: Look for common work item markers in the last few messages
+                    work_item_detected = False
+                    for msg in reversed(prompt_history[-5:]):  # Check last 5 messages
+                        content = str(msg.content or "")
+                        if (
+                            "User Story" in content
+                            or "Feature" in content
+                            or "TYPE:" in content
+                            or "TITLE:" in content
+                        ) and ("Acceptance Criteria" in content or "Success Metrics" in content):
+                            work_item_detected = True
+                            break
+
+                    if work_item_detected:
+                        LOGGER.info(
+                            "Work item draft detected. Injecting language preservation instruction."
+                        )
+                        prompt_history.append(
+                            AgentMessage(
+                                role="system",
+                                content=(
+                                    "IMPORTANT: The conversation contains Azure DevOps work item "
+                                    "drafts that MUST remain in English. Do not translate work "
+                                    "item titles, descriptions, or acceptance criteria. "
+                                    "Only translate your commentary."
+                                ),
+                            )
+                        )
+
                     yield {
                         "type": "thinking",
                         "content": "Generating final answer...",

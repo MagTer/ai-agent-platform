@@ -32,7 +32,7 @@ The platform understands Azure DevOps team structure for intelligent backlog man
 
 **Skills:**
 - `backlog_manager` - List, search, analyze work items by team
-- `requirements_engineer` - Create work items with team validation and suggestions
+- `requirements_drafter` - Create work items with team validation and suggestions
 
 **Team Discovery:**
 ```
@@ -47,7 +47,7 @@ User: "What's the Platform team working on?"
 → backlog_manager lists Platform's active work items
 
 User: "Create a security incident for the Security team"
-→ requirements_engineer validates team, creates with correct area/tags
+→ requirements_drafter validates team, creates with correct area/tags
 ```
 
 **Configuration:**

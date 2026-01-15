@@ -20,6 +20,15 @@ class RunPytestTool(Tool):
         "Run pytest to verify code changes. "
         "Args: test_path (str, optional) - Path to test file or directory (defaults to 'tests/')."
     )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "test_path": {
+                "type": "string",
+                "description": "Path to test file or directory (default: 'tests/')",
+            }
+        },
+    }
 
     def __init__(self, base_path: str) -> None:
         self._base_path = base_path

@@ -628,47 +628,75 @@ class DiagnosticsService:
         combined = f"{root_name} {target}"
         return any(pattern.lower() in combined.lower() for pattern in self._HIDE_PATTERNS)
 
-    def get_recent_traces(self, limit: int = 1000, show_all: bool = False) -> list[TraceGroup]:
+    def _parse_span(self, data: dict[str, Any]) -> TraceSpan | None:
+        """Parse a span from JSON data."""
+        try:
+            context = data.get("context", {})
+            start_str = data.get("start_time")
+            if start_str:
+                start_dt = datetime.fromisoformat(start_str)
+            else:
+                start_dt = datetime.now(UTC).replace(tzinfo=None)
+
+            return TraceSpan(
+                trace_id=context.get("trace_id", "unknown"),
+                span_id=context.get("span_id", "unknown"),
+                parent_id=context.get("parent_id"),
+                name=data.get("name", "unknown"),
+                start_time=start_dt,
+                duration_ms=data.get("duration_ms", 0.0),
+                status=data.get("status", "UNSET"),
+                attributes=data.get("attributes", {}),
+            )
+        except (KeyError, ValueError):
+            return None
+
+    def get_recent_traces(
+        self, limit: int = 1000, show_all: bool = False, trace_id: str | None = None
+    ) -> list[TraceGroup]:
         """
         Read log, group by trace_id, and return valid trace groups.
 
         Args:
             limit: Maximum number of trace lines to read.
             show_all: If True, include diagnostic/health-check traces. Default False.
+            trace_id: If provided, filter to traces containing this ID (partial match).
         """
         if not self._trace_log_path.exists():
             LOGGER.warning(f"Trace log not found at {self._trace_log_path}")
             return []
 
         # 1. Read Raw Spans
+        # When trace_id is specified, search the entire file for matching spans
+        # Otherwise, read only the last N lines for performance
         raw_spans: list[TraceSpan] = []
         try:
-            with self._trace_log_path.open("r", encoding="utf-8") as f:
-                last_lines = deque(f, maxlen=limit)
+            if trace_id:
+                # Full-file search for specific trace_id
+                with self._trace_log_path.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        if trace_id not in line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            span = self._parse_span(data)
+                            if span:
+                                raw_spans.append(span)
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+            else:
+                # Tail-based reading for recent traces
+                with self._trace_log_path.open("r", encoding="utf-8") as f:
+                    last_lines = deque(f, maxlen=limit)
 
-            for line in last_lines:
-                try:
-                    data = json.loads(line)
-                    context = data.get("context", {})
-                    start_str = data.get("start_time")
-                    if start_str:
-                        start_dt = datetime.fromisoformat(start_str)
-                    else:
-                        start_dt = datetime.now(UTC).replace(tzinfo=None)
-
-                    span = TraceSpan(
-                        trace_id=context.get("trace_id", "unknown"),
-                        span_id=context.get("span_id", "unknown"),
-                        parent_id=context.get("parent_id"),
-                        name=data.get("name", "unknown"),
-                        start_time=start_dt,
-                        duration_ms=data.get("duration_ms", 0.0),
-                        status=data.get("status", "UNSET"),
-                        attributes=data.get("attributes", {}),
-                    )
-                    raw_spans.append(span)
-                except (json.JSONDecodeError, ValueError):
-                    continue
+                for line in last_lines:
+                    try:
+                        data = json.loads(line)
+                        span = self._parse_span(data)
+                        if span:
+                            raw_spans.append(span)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
         except Exception as e:
             LOGGER.error(f"Error reading trace log: {e}")
             return []
@@ -732,7 +760,12 @@ class DiagnosticsService:
         trace_groups.sort(key=lambda g: g.start_time, reverse=True)
 
         # 5. Filter out diagnostic/health-check traces unless show_all is True
-        if not show_all:
+        #    OR when a specific trace_id is requested (always show explicit requests)
+        if not show_all and not trace_id:
             trace_groups = [g for g in trace_groups if not self._should_hide_trace(g)]
+
+        # 6. Filter by specific trace_id if provided (partial match)
+        if trace_id:
+            trace_groups = [g for g in trace_groups if trace_id in g.trace_id]
 
         return trace_groups

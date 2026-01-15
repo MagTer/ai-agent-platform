@@ -81,6 +81,61 @@ class AzureDevOpsTool(Tool):
     )
     # Per-action confirmation: only 'create' requires confirmation (checked in run())
     activity_hint = {"action": "DevOps: {action}"}
+    parameters = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": [
+                    "create",
+                    "get",
+                    "list",
+                    "search",
+                    "children",
+                    "get_teams",
+                    "team_summary",
+                ],
+                "description": (
+                    "Action: create (new item), get (by ID), list (query), "
+                    "search (WIQL), children, get_teams, team_summary"
+                ),
+            },
+            "title": {"type": "string", "description": "Title (required for create)"},
+            "description": {
+                "type": "string",
+                "description": "Description (required for create)",
+            },
+            "work_item_id": {
+                "type": "integer",
+                "description": "Work item ID (required for get/children)",
+            },
+            "team_alias": {
+                "type": "string",
+                "description": "Team identifier (e.g., 'infra', 'platform'). "
+                "Use get_teams to discover.",
+            },
+            "type": {
+                "type": "string",
+                "description": "Work Item Type: 'Feature', 'User Story', 'Bug'",
+            },
+            "state": {
+                "type": "string",
+                "enum": ["New", "Active", "Closed"],
+                "description": "Filter by state",
+            },
+            "area_path": {"type": "string", "description": "Area Path filter"},
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Tags to add/filter",
+            },
+            "start_date": {"type": "string", "description": "Start date (YYYY-MM-DD)"},
+            "target_date": {"type": "string", "description": "Target date (YYYY-MM-DD)"},
+            "query": {"type": "string", "description": "WIQL search text"},
+            "top": {"type": "integer", "description": "Max results (default 20)"},
+        },
+        "required": ["action"],
+    }
 
     def __init__(self, org_url: str | None = None, pat: str | None = None) -> None:
         self.org_url = org_url or os.environ.get("AZURE_DEVOPS_ORG_URL")
@@ -98,27 +153,55 @@ class AzureDevOpsTool(Tool):
             LOGGER.warning(f"ADO Mapping: {warning}")
 
     def _load_mappings(self) -> dict[str, Any]:
-        """Load ADO mappings from default config path."""
-        try:
-            base_path = Path(__file__).resolve().parent.parent.parent.parent
-            config_path = base_path / "config" / "ado_mappings.yaml"
+        """Load ADO mappings from default config path.
 
-            if config_path.exists():
-                with open(config_path, encoding="utf-8") as f:
-                    return yaml.safe_load(f) or {}
-            else:
-                LOGGER.warning(f"ADO mappings not found at {config_path}")
-                return {}
-        except Exception as e:
-            LOGGER.error(f"Failed to load ADO mappings: {e}")
-            return {}
+        Tries multiple locations for Docker and local development compatibility.
+        """
+        # Candidate paths in priority order
+        candidates = [
+            Path("/app/config/ado_mappings.yaml"),  # Docker mount
+            Path(__file__).resolve().parent.parent.parent.parent
+            / "config"
+            / "ado_mappings.yaml",  # Local development
+        ]
+
+        for config_path in candidates:
+            try:
+                if config_path.exists():
+                    LOGGER.debug(f"Loading ADO mappings from {config_path}")
+                    with open(config_path, encoding="utf-8") as f:
+                        return yaml.safe_load(f) or {}
+            except Exception as e:
+                LOGGER.warning(f"Failed to load ADO mappings from {config_path}: {e}")
+                continue
+
+        LOGGER.warning(f"ADO mappings not found in any of: {[str(p) for p in candidates]}")
+        return {}
 
     def _get_available_teams(self) -> list[str]:
         """Return list of configured team aliases."""
         return list(self.mappings.get("teams", {}).keys())
 
+    def find_team_by_owner(self, owner_name: str) -> str | None:
+        """Find team alias by owner name (case-insensitive partial match).
+
+        Args:
+            owner_name: Name or partial name of the team owner.
+
+        Returns:
+            Team alias if found, None otherwise.
+        """
+        owner_lower = owner_name.lower()
+        for alias, config in self.mappings.get("teams", {}).items():
+            owner = config.get("owner", "")
+            if owner and owner_lower in owner.lower():
+                return alias
+        return None
+
     def _resolve_team_config(self, team_alias: str | None) -> dict[str, Any]:
         """Resolve team configuration with validation.
+
+        Supports both team alias (e.g., 'infra') and owner name (e.g., 'Martin').
 
         Returns:
             dict with: area_path, default_type, default_tags, _resolved_team
@@ -131,18 +214,27 @@ class AzureDevOpsTool(Tool):
 
         teams = self.mappings.get("teams", {})
 
-        if team_alias not in teams:
-            available = list(teams.keys())
-            # Suggest similar team names (Levenshtein distance)
-            suggestions = _find_similar(team_alias, available)
-            error_msg = f"Unknown team '{team_alias}'. Available teams: {', '.join(available)}."
-            if suggestions:
-                error_msg += f" Did you mean: {', '.join(suggestions)}?"
-            raise ValueError(error_msg)
+        # Direct match by team alias
+        if team_alias in teams:
+            config = teams[team_alias].copy()
+            config["_resolved_team"] = team_alias
+            return config
 
-        config = teams[team_alias].copy()
-        config["_resolved_team"] = team_alias
-        return config
+        # Try to find by owner name
+        resolved_alias = self.find_team_by_owner(team_alias)
+        if resolved_alias:
+            LOGGER.info(f"Resolved '{team_alias}' to team '{resolved_alias}' via owner lookup")
+            config = teams[resolved_alias].copy()
+            config["_resolved_team"] = resolved_alias
+            return config
+
+        # No match found - provide helpful error
+        available = list(teams.keys())
+        suggestions = _find_similar(team_alias, available)
+        error_msg = f"Unknown team '{team_alias}'. Available teams: {', '.join(available)}."
+        if suggestions:
+            error_msg += f" Did you mean: {', '.join(suggestions)}?"
+        raise ValueError(error_msg)
 
     def _validate_mappings(self) -> list[str]:
         """Validate mapping structure, return warnings."""
@@ -211,8 +303,9 @@ class AzureDevOpsTool(Tool):
             )
 
             if action == "create":
-                # Per-action confirmation: require explicit confirm_write=True
-                if not kwargs.get("confirm_write"):
+                # Per-action confirmation: require explicit confirm_write=True (boolean)
+                # String "True" or other truthy values must NOT bypass confirmation
+                if kwargs.get("confirm_write") is not True:
                     from core.tools.base import ToolConfirmationError
 
                     raise ToolConfirmationError(
@@ -459,9 +552,16 @@ class AzureDevOpsTool(Tool):
                 results = [f"### Found {len(work_items)} Work Items\n"]
                 for wi in work_items:
                     f = wi.fields
+                    assigned = f.get("System.AssignedTo", {})
+                    assigned_name = (
+                        assigned.get("displayName", "Unassigned")
+                        if isinstance(assigned, dict)
+                        else "Unassigned"
+                    )
                     results.append(
                         f"- **#{wi.id}** [{f.get('System.WorkItemType')}] "
-                        f"{f.get('System.Title')} ({f.get('System.State')})"
+                        f"{f.get('System.Title')} ({f.get('System.State')}) "
+                        f"- {assigned_name}"
                     )
 
                 return "\n".join(results)
@@ -565,12 +665,16 @@ class AzureDevOpsTool(Tool):
 
                 results = ["### Configured Teams\n"]
                 for team_alias, config in teams.items():
+                    display_name = config.get("display_name", team_alias)
+                    owner = config.get("owner", "")
                     area = config.get("area_path", "Not set")
                     type_ = config.get("default_type", "Not set")
                     tags = config.get("default_tags", [])
                     tags_str = ", ".join(tags) if tags else "None"
 
-                    results.append(f"**{team_alias}**")
+                    results.append(f"**{team_alias}** ({display_name})")
+                    if owner:
+                        results.append(f"  - Owner: {owner}")
                     results.append(f"  - Area Path: {area}")
                     results.append(f"  - Default Type: {type_}")
                     results.append(f"  - Default Tags: {tags_str}")

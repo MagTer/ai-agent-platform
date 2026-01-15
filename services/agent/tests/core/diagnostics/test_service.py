@@ -87,3 +87,56 @@ def test_get_system_health_metrics():
 
     finally:
         Path(tmp.name).unlink()
+
+
+def test_get_recent_traces_with_trace_id_filter():
+    """Test that trace_id parameter filters traces correctly."""
+    with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as tmp:
+        # Write spans for two different traces
+        tmp.write(
+            json.dumps(
+                {
+                    "name": "agent.request",
+                    "context": {"trace_id": "abc123def456", "span_id": "s1"},
+                    "status": "OK",
+                    "start_time": "2026-01-12T06:00:00",
+                    "duration_ms": 100.0,
+                    "attributes": {},
+                }
+            )
+            + "\n"
+        )
+        tmp.write(
+            json.dumps(
+                {
+                    "name": "agent.request",
+                    "context": {"trace_id": "xyz789ghi012", "span_id": "s2"},
+                    "status": "OK",
+                    "start_time": "2026-01-12T06:00:01",
+                    "duration_ms": 100.0,
+                    "attributes": {},
+                }
+            )
+            + "\n"
+        )
+        tmp.flush()
+
+    try:
+        settings = Settings(trace_span_log_path=tmp.name)
+        svc = DiagnosticsService(settings)
+
+        # Without filter - should return both
+        all_traces = svc.get_recent_traces(limit=100, show_all=True)
+        assert len(all_traces) == 2
+
+        # With trace_id filter - should return only matching
+        filtered = svc.get_recent_traces(limit=100, show_all=True, trace_id="abc123")
+        assert len(filtered) == 1
+        assert filtered[0].trace_id == "abc123def456"
+
+        # With non-matching filter - should return empty
+        empty = svc.get_recent_traces(limit=100, show_all=True, trace_id="nonexistent")
+        assert len(empty) == 0
+
+    finally:
+        Path(tmp.name).unlink()

@@ -18,7 +18,13 @@ class TestPlanSupervisorAgent:
     @pytest.fixture
     def skill_names(self) -> set[str]:
         """Sample skill names for testing."""
-        return {"researcher", "search", "backlog_manager", "requirements_engineer"}
+        return {
+            "researcher",
+            "search",
+            "backlog_manager",
+            "requirements_drafter",
+            "requirements_writer",
+        }
 
     @pytest.fixture
     def mock_registry(self) -> ToolRegistry:

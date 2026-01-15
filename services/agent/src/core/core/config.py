@@ -50,8 +50,8 @@ class Settings(BaseModel):
         description="Model identifier for the Supervisor agent.",
     )
     model_agentchat: str = Field(
-        default="agentchat",
-        description="Model identifier for general agent chat/tools.",
+        default="skillsrunner-complex",
+        description="Model for general agent chat/tools (deprecated).",
     )
     litellm_timeout: float = Field(
         default=180.0,

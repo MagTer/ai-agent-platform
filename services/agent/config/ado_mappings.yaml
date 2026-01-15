@@ -1,32 +1,50 @@
 defaults:
-  area_path: "Web Teams\Common"
+  area_path: 'Web Teams\Common'
   default_type: "Feature"
 teams:
   infra:
-    area_path: "Web Teams\Common\Infra"
+    area_path: 'Web Teams\Common\Infra'
+    display_name: "Common - Infrastructure"
+    owner: "Magnus Ternström"
     default_type: "User story"
   common:
-    area_path: "Web Teams\Common"
+    area_path: 'Web Teams\Common'
+    display_name: "Common"
+    owner: "Magnus Ternström"
     default_type: "User story"
   platform:
-    area_path: "Web Teams\Platform"
+    area_path: 'Web Teams\Platform'
+    display_name: "Platform"
+    owner: "Malin Stjärnsten"
     default_type: "User story"
   engage:
-    area_path: "Web Teams\Engage"
+    area_path: 'Web Teams\Engage'
+    display_name: "Engage"
+    owner: "Max Hjälm"
     default_type: "User story"
   guide_and_find:
-    area_path: "Web Teams\Guide and Find"
+    area_path: 'Web Teams\Guide and Find'
+    display_name: "Guide and Find"
+    owner: "Sara Ekstrand"
     default_type: "User story"
   otd:
-    area_path: "Web Teams\OtD and Services"
+    area_path: 'Web Teams\OtD and Services'
+    display_name: "OtD and Services"
+    owner: "Martin Brunnander"
     default_type: "User story"
   content:
-    area_path: "Web Teams\OtD and Services"
-    default_type: "User story"
+    area_path: 'Web Teams\Content'
+    display_name: "Content"
+    owner: "Gianfranco Bianco"
+    default_type: "Feature"
   walter:
-    area_path: "Web Teams\Walter"
+    area_path: 'Web Teams\Walter'
+    display_name: "Walter"
+    owner: "Daniel Cozma"
     default_type: "User story"
   security:
-    area_path: "Web Teams\Platform\Security"
-    default_tags: ["Security", "SecurityIncidentHigh","SecurityIncidentMedium"]
+    area_path: 'Web Teams\Platform\Security'
+    display_name: "Platform - Security"
+    owner: "Magnus Ternström"
+    default_tags: ["Security", "SecurityIncidentHigh", "SecurityIncidentMedium"]
     default_type: "User Story"

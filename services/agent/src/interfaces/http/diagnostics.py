@@ -25,6 +25,7 @@ def get_diagnostics_service(
 async def get_traces(
     limit: int = 5000,
     show_all: bool = False,
+    trace_id: str | None = None,
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> list[TraceGroup]:
     """Get recent traces, filtering out diagnostic/health-check traces by default.
@@ -32,8 +33,23 @@ async def get_traces(
     Args:
         limit: Maximum number of traces to return.
         show_all: If True, include diagnostic/health traces. Default False.
+        trace_id: If provided, filter traces containing this ID (partial match).
     """
-    return service.get_recent_traces(limit, show_all=show_all)
+    return service.get_recent_traces(limit, show_all=show_all, trace_id=trace_id)
+
+
+@router.get("/span/{trace_id}", response_model=TraceGroup | None)
+async def get_span_by_trace_id(
+    trace_id: str,
+    service: DiagnosticsService = Depends(get_diagnostics_service),
+) -> TraceGroup | None:
+    """Get all spans for a specific trace ID.
+
+    Searches the entire spans.jsonl file to find all spans matching the trace_id.
+    This is useful for debugging older traces that fall outside the recent window.
+    """
+    traces = service.get_recent_traces(limit=10000, show_all=True, trace_id=trace_id)
+    return traces[0] if traces else None
 
 
 @router.get("/metrics")
@@ -306,7 +322,7 @@ async def diagnostics_dashboard(
                     <span id="trace-count">0</span>
                 </div>
                 <input type="text" id="traceSearch" placeholder="Search by Trace ID..." 
-                       oninput="filterTraces()" 
+                       oninput="onTraceSearchInput()" 
                        style="width:100%; padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:12px; box-sizing:border-box;">
                 <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); cursor:pointer">
                     <input type="checkbox" id="showAllTraces" onchange="loadTraces()">
@@ -535,11 +551,17 @@ async def diagnostics_dashboard(
         // --- Traces ---
         let filteredTraceGroups = [];
         
-        async function loadTraces() {
+        async function loadTraces(searchTraceId = null) {
             const list = document.getElementById('reqList');
             const showAll = document.getElementById('showAllTraces')?.checked || false;
             try {
-                const res = await fetch(`/diagnostics/traces?limit=500&show_all=${showAll}`);
+                // If searchTraceId is provided, do full-file search via API
+                let url = `/diagnostics/traces?limit=500&show_all=${showAll}`;
+                if (searchTraceId && searchTraceId.length >= 8) {
+                    url += `&trace_id=${encodeURIComponent(searchTraceId)}`;
+                }
+                
+                const res = await fetch(url);
                 if(!res.ok) throw new Error("API " + res.status);
                 traceGroups = await res.json();
                 filterTraces();
@@ -566,6 +588,21 @@ async def diagnostics_dashboard(
                 filteredTraceGroups = traceGroups;
             }
             renderTraceList(document.getElementById('reqList'));
+        }
+        
+        // Debounce search to trigger server-side lookup for trace IDs
+        let searchTimeout = null;
+        function onTraceSearchInput() {
+            const query = document.getElementById('traceSearch')?.value || '';
+            clearTimeout(searchTimeout);
+            
+            // If query looks like a trace ID (8+ hex chars), do server-side search
+            if (query.length >= 8 && /^[a-f0-9]+$/i.test(query)) {
+                searchTimeout = setTimeout(() => loadTraces(query), 300);
+            } else {
+                // Just filter locally
+                filterTraces();
+            }
         }
 
         function renderTraceList(list) {

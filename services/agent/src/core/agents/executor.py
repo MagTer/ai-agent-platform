@@ -173,10 +173,10 @@ class StepExecutorAgent:
                         metadata, rendered_prompt = load_command(step.tool, step.args or {})
 
                         # --- DYNAMIC ROUTING ---
-                        # Use the model defined in skill, or default to 'agentchat'
-                        target_model = metadata.get("model", "agentchat")
+                        # Use the model defined in skill, or default to 'skillsrunner-complex'
+                        target_model = metadata.get("model", "skillsrunner-complex")
 
-                        if target_model != "agentchat":
+                        if target_model != "skillsrunner-complex":
                             LOGGER.info(
                                 f"Routing skill '{step.tool}' to specialized model: {target_model}"
                             )
@@ -477,9 +477,8 @@ class StepExecutorAgent:
         prompt_history: list[AgentMessage],
         request: AgentRequest,
     ) -> tuple[str, str]:
-        settings = getattr(self._litellm, "_settings", None)
-        default_model = getattr(settings, "model_agentchat", "agent-model")
-        model_override = str(step.args.get("model") or default_model)
+        # Use composer model for completion (non-streaming fallback)
+        model_override = str(step.args.get("model") or "composer")
         with start_span("llm.call.assistant") as span:
             span.set_attribute("model", model_override)
             span.set_attribute("step", str(step.id))
@@ -535,9 +534,8 @@ class StepExecutorAgent:
         prompt_history: list[AgentMessage],
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a completion step with streaming."""
-        settings = getattr(self._litellm, "_settings", None)
-        default_model = getattr(settings, "model_agentchat", "agent-model")
-        model_override = str(step.args.get("model") or default_model)
+        # Use composer model for final answer synthesis (fast Llama)
+        model_override = str(step.args.get("model") or "composer")
 
         with start_span("llm.call.assistant") as llm_span:
             llm_span.set_attribute("model", model_override)
@@ -545,9 +543,21 @@ class StepExecutorAgent:
 
             full_content = []
 
-            # Reconstruct messages list
+            # Add composer system prompt to preserve technical content language
+            composer_system = AgentMessage(
+                role="system",
+                content=(
+                    "You are synthesizing a final answer for the user. "
+                    "CRITICAL: When the previous steps contain technical content like "
+                    "requirements, user stories, drafts, or work items, you MUST preserve "
+                    "their exact language (usually English). Do NOT translate technical "
+                    "content to the user's language. Only translate conversational parts."
+                ),
+            )
+
+            # Reconstruct messages list with composer system prompt
             # prompt_history already includes the user request from service.py
-            msgs_to_send = prompt_history
+            msgs_to_send = [composer_system] + list(prompt_history)
 
             async for chunk in self._litellm.stream_chat(msgs_to_send, model=model_override):
                 if chunk["type"] == "content" and chunk["content"]:
