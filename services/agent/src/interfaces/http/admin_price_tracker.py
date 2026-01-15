@@ -642,6 +642,7 @@ async def list_watches(
                     "product_name": product.name,
                     "target_price_sek": target_price,
                     "alert_on_any_offer": watch.alert_on_any_offer,
+                    "price_drop_threshold_percent": watch.price_drop_threshold_percent,
                     "email_address": watch.email_address,
                     "last_alerted_at": last_alerted,
                     "created_at": watch.created_at.isoformat(),
@@ -682,6 +683,7 @@ async def create_watch(
             email=data.email_address,
             target_price=data.target_price_sek,
             alert_on_any_offer=data.alert_on_any_offer,
+            price_drop_threshold_percent=data.price_drop_threshold_percent,
         )
         return {"watch_id": str(watch.id), "message": "Price watch created successfully"}
     except Exception as e:
@@ -1196,6 +1198,13 @@ async def price_tracker_dashboard() -> str:
                 <input type="number" id="watchTargetPrice" class="form-input" step="0.01" placeholder="Valfritt">
             </div>
             <div class="form-group">
+                <label class="form-label">Notifiera vid prisfall (%)</label>
+                <input type="number" id="watchPriceDropPercent" class="form-input" min="1" max="100" placeholder="t.ex. 15">
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                    Larma nar priset sjunker med minst denna procent fran ordinarie pris
+                </div>
+            </div>
+            <div class="form-group">
                 <label class="form-checkbox">
                     <input type="checkbox" id="watchAlertAny">
                     <span>Notifiera vid alla erbjudanden</span>
@@ -1322,18 +1331,26 @@ async def price_tracker_dashboard() -> str:
                     return;
                 }
 
-                list.innerHTML = watches.map(w => `
+                list.innerHTML = watches.map(w => {
+                    const conditions = [];
+                    if (w.target_price_sek) conditions.push(`Malpris: ${w.target_price_sek} kr`);
+                    if (w.price_drop_threshold_percent) conditions.push(`Prisfall: ${w.price_drop_threshold_percent}%`);
+                    if (w.alert_on_any_offer) conditions.push('Alla erbjudanden');
+                    const conditionText = conditions.length > 0 ? conditions.join(' &middot; ') : 'Inga villkor';
+
+                    return `
                     <div class="watch-item">
                         <div>
                             <div style="font-weight: 600;">${escapeHtml(w.product_name)}</div>
                             <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                                ${w.target_price_sek ? `Malpris: ${w.target_price_sek} kr` : 'Alla erbjudanden'}
+                                ${conditionText}
                                 &middot; ${escapeHtml(w.email_address)}
                             </div>
                         </div>
                         <button class="btn btn-sm btn-secondary" onclick="deleteWatch('${w.watch_id}')">Ta bort</button>
                     </div>
-                `).join('');
+                    `;
+                }).join('');
             } catch (e) {
                 list.innerHTML = `<div class="error-msg">Misslyckades att ladda bevakningar: ${e.message}</div>`;
             }
@@ -1419,6 +1436,7 @@ async def price_tracker_dashboard() -> str:
             const productId = document.getElementById('watchProductId').value;
             const email = document.getElementById('watchEmail').value.trim();
             const targetPrice = document.getElementById('watchTargetPrice').value;
+            const priceDropPercent = document.getElementById('watchPriceDropPercent').value;
             const alertAny = document.getElementById('watchAlertAny').checked;
 
             if (!productId || !email) return;
@@ -1427,6 +1445,7 @@ async def price_tracker_dashboard() -> str:
                 product_id: productId,
                 email_address: email,
                 target_price_sek: targetPrice ? parseFloat(targetPrice) : null,
+                price_drop_threshold_percent: priceDropPercent ? parseInt(priceDropPercent) : null,
                 alert_on_any_offer: alertAny
             };
 

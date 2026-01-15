@@ -356,6 +356,7 @@ class PriceTrackerService:
         email: str,
         target_price: Decimal | None,
         alert_on_any_offer: bool,
+        price_drop_threshold_percent: int | None = None,
     ) -> PriceWatch:
         """Create a price watch for a product.
 
@@ -365,6 +366,7 @@ class PriceTrackerService:
             email: Email address for alerts.
             target_price: Target price threshold. Optional.
             alert_on_any_offer: Alert on any offer regardless of price.
+            price_drop_threshold_percent: Alert when price drops by this percentage. Optional.
 
         Returns:
             Created PriceWatch instance.
@@ -379,6 +381,7 @@ class PriceTrackerService:
                 email_address=email,
                 target_price_sek=target_price,
                 alert_on_any_offer=alert_on_any_offer,
+                price_drop_threshold_percent=price_drop_threshold_percent,
             )
 
             session.add(watch)

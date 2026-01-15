@@ -132,6 +132,7 @@ class PriceWatch(Base):
     )
     target_price_sek: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     alert_on_any_offer: Mapped[bool] = mapped_column(Boolean, default=False)
+    price_drop_threshold_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
     email_address: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_alerted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

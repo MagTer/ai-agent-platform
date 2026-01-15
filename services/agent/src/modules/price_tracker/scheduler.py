@@ -190,6 +190,7 @@ class PriceCheckScheduler:
 
         for watch in watches:
             should_alert = False
+            price_drop_percent = None
 
             # Check target price
             if watch.target_price_sek and current_price <= watch.target_price_sek:
@@ -198,6 +199,21 @@ class PriceCheckScheduler:
             # Check for any offer
             if watch.alert_on_any_offer and extraction.offer_type:
                 should_alert = True
+
+            # Check price drop percentage
+            if (
+                watch.price_drop_threshold_percent
+                and extraction.price_sek
+                and extraction.offer_price_sek
+            ):
+                # Calculate percentage drop from regular price
+                regular_price = extraction.price_sek
+                current_price_value = extraction.offer_price_sek
+                drop_percent = ((regular_price - current_price_value) / regular_price) * 100
+
+                if drop_percent >= watch.price_drop_threshold_percent:
+                    should_alert = True
+                    price_drop_percent = float(drop_percent)
 
             # Don't spam - check last alerted time (24h cooldown)
             if should_alert and watch.last_alerted_at:
@@ -221,6 +237,7 @@ class PriceCheckScheduler:
                     offer_type=extraction.offer_type,
                     offer_details=extraction.offer_details,
                     product_url=product_store.store_url,
+                    price_drop_percent=price_drop_percent,
                 )
 
                 if success:
