@@ -28,6 +28,8 @@ class PriceNotifier:
         offer_details: str | None,
         product_url: str | None = None,
         price_drop_percent: float | None = None,
+        unit_price_sek: Decimal | None = None,
+        unit_price_drop_percent: float | None = None,
     ) -> bool:
         """Send price drop alert email."""
         subject = f"Prisvarning: {product_name} hos {store_name}"
@@ -40,6 +42,8 @@ class PriceNotifier:
             offer_details=offer_details,
             product_url=product_url,
             price_drop_percent=price_drop_percent,
+            unit_price_sek=unit_price_sek,
+            unit_price_drop_percent=unit_price_drop_percent,
         )
         return await self._send_email(to_email, subject, html_body)
 
@@ -64,6 +68,8 @@ class PriceNotifier:
         offer_details: str | None,
         product_url: str | None,
         price_drop_percent: float | None = None,
+        unit_price_sek: Decimal | None = None,
+        unit_price_drop_percent: float | None = None,
     ) -> str:
         """Build HTML for price alert email."""
         target_row = ""
@@ -82,6 +88,28 @@ class PriceNotifier:
                 <td style="padding: 8px; border-bottom: 1px solid #eee;">
                     <strong style="color: #22c55e;">
                         {price_drop_percent:.1f}% under ordinarie pris
+                    </strong>
+                </td>
+            </tr>"""
+
+        unit_price_row = ""
+        if unit_price_sek is not None:
+            unit_price_row = f"""
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">Jamforelsepris:</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">
+                    <strong>{unit_price_sek} kr/enhet</strong>
+                </td>
+            </tr>"""
+
+        unit_price_drop_row = ""
+        if unit_price_drop_percent is not None:
+            unit_price_drop_row = f"""
+            <tr>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">Jamforelsepris-fall:</td>
+                <td style="padding: 8px; border-bottom: 1px solid #eee;">
+                    <strong style="color: #22c55e;">
+                        {unit_price_drop_percent:.1f}% under ordinarie jamforelsepris
                     </strong>
                 </td>
             </tr>"""
@@ -128,6 +156,8 @@ class PriceNotifier:
                 </tr>
                 {target_row}
                 {price_drop_row}
+                {unit_price_row}
+                {unit_price_drop_row}
                 {offer_row}
             </table>
             {link_section}

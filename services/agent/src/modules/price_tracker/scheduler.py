@@ -191,6 +191,8 @@ class PriceCheckScheduler:
         for watch in watches:
             should_alert = False
             price_drop_percent = None
+            unit_price_drop_percent = None
+            current_unit_price = extraction.unit_price_sek
 
             # Check target price
             if watch.target_price_sek and current_price <= watch.target_price_sek:
@@ -215,6 +217,31 @@ class PriceCheckScheduler:
                     should_alert = True
                     price_drop_percent = float(drop_percent)
 
+            # Check unit price target
+            if watch.unit_price_target_sek and extraction.unit_price_sek:
+                if extraction.unit_price_sek <= watch.unit_price_target_sek:
+                    should_alert = True
+
+            # Check unit price drop percentage
+            if (
+                watch.unit_price_drop_threshold_percent
+                and extraction.unit_price_sek
+                and extraction.price_sek
+            ):
+                # Calculate what regular unit price would be if there's an offer
+                if extraction.offer_price_sek:
+                    # units_in_package = offer_price / unit_price
+                    units_in_package = extraction.offer_price_sek / extraction.unit_price_sek
+                    # regular_unit_price = regular_price / units_in_package
+                    regular_unit_price = extraction.price_sek / units_in_package
+                    drop_percent_unit = (
+                        (regular_unit_price - extraction.unit_price_sek) / regular_unit_price
+                    ) * 100
+
+                    if drop_percent_unit >= watch.unit_price_drop_threshold_percent:
+                        should_alert = True
+                        unit_price_drop_percent = float(drop_percent_unit)
+
             # Don't spam - check last alerted time (24h cooldown)
             if should_alert and watch.last_alerted_at:
                 cooldown = timedelta(hours=24)
@@ -238,6 +265,8 @@ class PriceCheckScheduler:
                     offer_details=extraction.offer_details,
                     product_url=product_store.store_url,
                     price_drop_percent=price_drop_percent,
+                    unit_price_sek=current_unit_price,
+                    unit_price_drop_percent=unit_price_drop_percent,
                 )
 
                 if success:

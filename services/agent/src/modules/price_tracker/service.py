@@ -357,6 +357,8 @@ class PriceTrackerService:
         target_price: Decimal | None,
         alert_on_any_offer: bool,
         price_drop_threshold_percent: int | None = None,
+        unit_price_target_sek: Decimal | None = None,
+        unit_price_drop_threshold_percent: int | None = None,
     ) -> PriceWatch:
         """Create a price watch for a product.
 
@@ -367,6 +369,8 @@ class PriceTrackerService:
             target_price: Target price threshold. Optional.
             alert_on_any_offer: Alert on any offer regardless of price.
             price_drop_threshold_percent: Alert when price drops by this percentage. Optional.
+            unit_price_target_sek: Alert when unit price drops below threshold. Optional.
+            unit_price_drop_threshold_percent: Alert when unit price drops by %. Optional.
 
         Returns:
             Created PriceWatch instance.
@@ -382,6 +386,8 @@ class PriceTrackerService:
                 target_price_sek=target_price,
                 alert_on_any_offer=alert_on_any_offer,
                 price_drop_threshold_percent=price_drop_threshold_percent,
+                unit_price_target_sek=unit_price_target_sek,
+                unit_price_drop_threshold_percent=unit_price_drop_threshold_percent,
             )
 
             session.add(watch)

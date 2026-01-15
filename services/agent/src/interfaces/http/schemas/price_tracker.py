@@ -29,6 +29,8 @@ class PriceWatchCreate(BaseModel):
     target_price_sek: Decimal | None = None
     alert_on_any_offer: bool = False
     price_drop_threshold_percent: int | None = None
+    unit_price_target_sek: Decimal | None = None
+    unit_price_drop_threshold_percent: int | None = None
     email_address: str
 
 
