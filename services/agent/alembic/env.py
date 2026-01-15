@@ -19,6 +19,13 @@ from core.db.oauth_models import (  # noqa: F401 - needed for alembic autogenera
     OAuthState,
     OAuthToken,
 )
+from modules.price_tracker.models import (  # noqa: F401 - needed for alembic autogenerate
+    PricePoint,
+    PriceWatch,
+    Product,
+    ProductStore,
+    Store,
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

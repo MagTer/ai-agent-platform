@@ -36,3 +36,8 @@
   type: core.tools.test_runner.TestRunnerTool
   enabled: true
   description: "Executes pytest on a specific file or directory. Use this to verify your code changes."
+
+- name: price_tracker
+  type: core.tools.price_tracker.PriceTrackerTool
+  enabled: true
+  description: "Track and compare grocery and pharmacy prices"

@@ -160,6 +160,20 @@ class Settings(BaseModel):
 
     log_level: str = Field(default="INFO", description="Python logging level for the service.")
 
+    # Price Tracker Settings
+    resend_api_key: str | None = Field(
+        default=None,
+        description="Resend API key for email notifications.",
+    )
+    price_tracker_from_email: str = Field(
+        default="prisspaning@noreply.local",
+        description="From email address for price alerts.",
+    )
+    price_tracker_check_interval_hours: int = Field(
+        default=6,
+        description="Default interval between automatic price checks.",
+    )
+
     def __init__(self, **data: Any) -> None:  # noqa: D401 - inherited docstring
         env_values = type(self)._load_environment_values()
         env_values.update(data)

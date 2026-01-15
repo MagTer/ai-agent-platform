@@ -25,6 +25,7 @@ from interfaces.http.admin_contexts import router as admin_contexts_router
 from interfaces.http.admin_diagnostics import router as admin_diagnostics_router
 from interfaces.http.admin_mcp import router as admin_mcp_router
 from interfaces.http.admin_oauth import router as admin_oauth_router
+from interfaces.http.admin_price_tracker import router as admin_price_tracker_router
 from interfaces.http.diagnostics import router as diagnostics_router
 from interfaces.http.oauth import router as oauth_router
 from interfaces.http.oauth_webui import router as oauth_webui_router
@@ -197,6 +198,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         # Dependency Injection: Register module implementations
         # This is the ONLY place where modules are wired to core protocols.
         from core.providers import (
+            get_fetcher,
             set_code_indexer_factory,
             set_embedder,
             set_fetcher,
@@ -273,9 +275,33 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         asyncio.create_task(retention_cleanup_loop())
         LOGGER.info("Retention cleanup scheduled (startup + daily)")
 
+        # Price Tracker Scheduler - runs background price checks
+        from modules.price_tracker.scheduler import PriceCheckScheduler
+
+        # Create notifier if API key is configured
+        notifier = None
+        if settings.resend_api_key:
+            from modules.price_tracker.notifier import PriceNotifier
+
+            notifier = PriceNotifier(
+                api_key=settings.resend_api_key,
+                from_email=settings.price_tracker_from_email,
+            )
+            LOGGER.info("Price alert notifier initialized")
+
+        # Create and start scheduler
+        scheduler = PriceCheckScheduler(
+            session_factory=AsyncSessionLocal,
+            fetcher=get_fetcher(),
+            notifier=notifier,
+        )
+        await scheduler.start()
+        LOGGER.info("Price check scheduler started")
+
         yield  # Application runs here
 
         # --- SHUTDOWN ---
+        await scheduler.stop()
         await shutdown_all_mcp_clients()
         await litellm_client.aclose()
         await token_manager.shutdown()
@@ -485,6 +511,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     app.include_router(admin_oauth_router)
     app.include_router(admin_mcp_router)
     app.include_router(admin_diagnostics_router)
+    app.include_router(admin_price_tracker_router)
 
     return app
 

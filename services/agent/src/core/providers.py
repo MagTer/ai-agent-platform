@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.auth.token_manager import TokenManager
-    from core.protocols import ICodeIndexer, IEmbedder, IFetcher, IRAGManager
+    from core.protocols import ICodeIndexer, IEmbedder, IFetcher, IPriceTracker, IRAGManager
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ _fetcher: IFetcher | None = None
 _rag_manager: IRAGManager | None = None
 _code_indexer_factory: type[ICodeIndexer] | None = None
 _token_manager: TokenManager | None = None
+_price_tracker: IPriceTracker | None = None
 
 
 class ProviderError(Exception):
@@ -113,6 +114,21 @@ def get_token_manager() -> TokenManager:
     return _token_manager
 
 
+# --- Price Tracker ---
+def set_price_tracker(tracker: IPriceTracker) -> None:
+    """Register the price tracker implementation."""
+    global _price_tracker
+    _price_tracker = tracker
+    LOGGER.info("Price Tracker provider registered")
+
+
+def get_price_tracker() -> IPriceTracker:
+    """Get the registered price tracker. Raises if not configured."""
+    if _price_tracker is None:
+        raise ProviderError("Price Tracker not configured. Call set_price_tracker() at startup.")
+    return _price_tracker
+
+
 __all__ = [
     "ProviderError",
     "set_embedder",
@@ -125,4 +141,6 @@ __all__ = [
     "get_code_indexer_factory",
     "set_token_manager",
     "get_token_manager",
+    "set_price_tracker",
+    "get_price_tracker",
 ]
