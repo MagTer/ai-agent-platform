@@ -277,11 +277,17 @@ interfaces/ → orchestrator/ → modules/ → core/
 - Complex bugs discovered
 - Implementation required
 
+**Loop Prevention (CRITICAL):**
+If a local fix attempt fails (e.g., linting still fails after auto-fix, same Mypy error persists after one fix attempt):
+- Do NOT retry the same fix locally
+- Immediately escalate to Engineer sub-agent
+- Do not burn tokens on repeated failed fixes
+
 **Report:**
 ```
 Issue: [Brief description]
 Action: Spawning Engineer sub-agent
-Reason: [Why it's complex]
+Reason: [Why it's complex / fix attempt failed]
 ```
 
 ---

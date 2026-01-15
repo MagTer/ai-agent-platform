@@ -19,6 +19,24 @@ Create detailed, actionable implementation plans that the Builder (Sonnet) can e
 
 ---
 
+## Context Awareness (CRITICAL)
+
+**The Engineer starts with ZERO context.** When you spawn the Engineer sub-agent, it cannot see:
+- This conversation history
+- Files you've browsed
+- Decisions you've discussed
+- Code patterns you've noted
+
+**Your plan must be completely self-contained:**
+- Full file paths (absolute or project-relative)
+- Exact code snippets to copy/modify
+- All constraints and edge cases
+- Step-by-step instructions (no "as we discussed")
+
+**If the plan references conversation context, the Engineer will fail or improvise.**
+
+---
+
 ## Architecture Constraints (CRITICAL)
 
 **Modular Monolith - Strict Layer Dependency:**
@@ -162,23 +180,24 @@ Plan created: .claude/plans/YYYY-MM-DD-feature-name.md
 
 **When ready to implement:**
 
-**Option 1: Auto-spawn Engineer (recommended)**
+**Option 1: Auto-spawn Engineer (DEFAULT - recommended)**
 - ✅ Seamless autonomous execution
 - ✅ Engineer starts with fresh context (only sees the plan)
 - ✅ I verify completion and report back to you
 - ✅ Cost-efficient (Engineer uses Sonnet, QA uses Haiku)
+- ✅ Standard workflow - ensures clean context switching
 
 I'll spawn Engineer using:
 Task(subagent_type="engineer", model="sonnet", ...)
 
-**Option 2: Manual implementation (for manual control)**
+**Option 2: Manual implementation (for manual control only)**
 - You review/modify the plan file directly
 - Start fresh session when ready:
   exit
   claude --model sonnet
   # Then say: "Implement .claude/plans/YYYY-MM-DD-feature-name.md"
 
-Which would you like? (1 or 2, or ask for changes first)
+**Recommended: Option 1 (press Enter or say '1')** - ask for changes first if needed
 ```
 
 **Important: Stay active and responsive until user approves and chooses an option!**
