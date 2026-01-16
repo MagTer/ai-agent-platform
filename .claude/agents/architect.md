@@ -160,8 +160,64 @@ Create `.claude/plans/YYYY-MM-DD-feature-name.md` with:
 6. **Quality Checks** - How to verify correctness
 7. **Security Considerations** - Potential vulnerabilities and mitigations
 8. **Success Criteria** - Measurable outcomes
+9. **Agent Delegation Strategy** - What each agent handles (NEW!)
 
 **Critical:** Include REAL code examples from the codebase. The Engineer starts with fresh context (only sees the plan file).
+
+### Agent Delegation Strategy (MANDATORY in every plan)
+
+Every plan MUST include a section specifying what each agent handles:
+
+**Template:**
+```
+## Agent Delegation
+
+### Engineer (Sonnet) - Implementation
+- Write new code files
+- Modify existing code
+- Debug complex issues
+- Fix complex Mypy errors
+
+### QA (Haiku - 12x cheaper) - Quality Assurance
+- Run quality gate: `python scripts/code_check.py`
+- Fix simple lint errors (auto-fixable)
+- Update documentation
+- Report test results
+- Escalate complex issues to Engineer
+
+### Cost Optimization
+Each implementation step should:
+1. Engineer writes/modifies code
+2. Engineer delegates to QA for quality check
+3. QA reports back (or escalates if complex errors)
+4. Repeat for next step
+```
+
+**Why this matters:**
+- Haiku is 12x cheaper than Sonnet
+- Running tests, linting, and docs don't need Sonnet's reasoning power
+- Plans that don't specify this lead to Engineer doing everything (wasteful)
+
+**Implementation Step Format:**
+Each step in the roadmap should follow this pattern:
+
+```
+### Step N: [Step Name]
+
+**Engineer tasks:**
+- Create file X
+- Modify file Y
+
+**QA tasks (after Engineer completes):**
+- Run quality gate
+- Update docs if needed
+
+**Files affected:**
+- path/to/file1.py (create)
+- path/to/file2.py (modify)
+```
+
+This ensures the plan explicitly allocates work to the right agent.
 
 ### Phase 4: Implementation Handoff (Turn 9)
 
@@ -286,14 +342,17 @@ async def run_agent(
 
 ## Success Metrics
 
-A successful plan enables Engineer to:
-- Implement without asking clarifying questions
+A successful plan enables:
+- Engineer to implement without asking clarifying questions
+- **QA to handle all quality checks (not Engineer)**
 - Follow architectural patterns correctly
 - Write tests that match project style
 - Pass quality checks on first try (via QA delegation)
-- Update documentation appropriately
+- Update documentation appropriately (via QA)
 
 **If Engineer asks many questions during implementation, the plan was insufficient.**
+
+**Cost metric:** If Engineer runs `python scripts/code_check.py` directly instead of delegating to QA, the plan failed to specify delegation properly.
 
 ---
 
