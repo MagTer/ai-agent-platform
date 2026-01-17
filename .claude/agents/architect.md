@@ -311,7 +311,7 @@ async def run_agent(
 
 ## Documentation Style
 
-- Language: Swedish for user-facing text; English for code/config
+- Language: **English for ALL code, GUI, config, and admin interfaces.** Swedish only for end-user chat responses.
 - Encoding: UTF-8
 - Punctuation: ASCII-safe (`->`, `--`, quotes `'"`)
 - No emojis or smart punctuation

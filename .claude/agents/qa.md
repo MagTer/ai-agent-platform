@@ -186,7 +186,7 @@ Docs updated:
 
 ## Documentation Style
 
-- **Language:** Swedish for user-facing; English for code/config
+- **Language:** English for ALL code, GUI, config, and admin interfaces. Swedish only for end-user chat responses.
 - **Encoding:** UTF-8
 - **Punctuation:** ASCII-safe (`->`, `--`, quotes `'"`)
 - **No emojis** (unless explicitly requested)

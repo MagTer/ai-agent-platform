@@ -19,7 +19,6 @@ from modules.price_tracker.models import PriceWatch, Product, ProductStore, Stor
 from modules.price_tracker.parser import PriceParser
 from modules.price_tracker.service import PriceTrackerService
 
-from .admin_auth import verify_admin_api_key
 from .schemas.price_tracker import (
     DealResponse,
     PricePointResponse,
@@ -35,7 +34,6 @@ LOGGER = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/admin/price-tracker",
     tags=["admin", "price-tracker"],
-    dependencies=[Depends(verify_admin_api_key)],
 )
 
 
@@ -141,6 +139,7 @@ async def list_products(
 
             stores_data: list[dict[str, str | int | None]] = [
                 {
+                    "product_store_id": str(ps.id),
                     "store_id": str(ps.store_id),
                     "store_name": store.name,
                     "store_slug": store.slug,
@@ -240,6 +239,7 @@ async def get_product(
 
         stores_data: list[dict[str, str | int | None]] = [
             {
+                "product_store_id": str(ps.id),
                 "store_id": str(ps.store_id),
                 "store_name": store.name,
                 "store_slug": store.slug,
@@ -744,17 +744,17 @@ async def price_tracker_dashboard() -> str:
     """Server-rendered admin dashboard for price tracking.
 
     Returns:
-        HTML dashboard with Swedish UI for managing products, deals, and watches.
+        HTML dashboard for managing products, deals, and price watches.
 
-    Security:
-        Requires admin API key stored in localStorage or cookie.
+    Note:
+        No authentication required. Will be replaced with Entra ID later.
     """
     return """<!DOCTYPE html>
-<html lang="sv">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Prisspaning - Admin Dashboard</title>
+    <title>Price Tracker - Admin Dashboard</title>
     <style>
         :root {
             --primary: #2563eb;
@@ -778,69 +778,6 @@ async def price_tracker_dashboard() -> str:
             color: var(--text);
         }
 
-        .login-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
-        }
-
-        .login-overlay.hidden { display: none; }
-
-        .login-box {
-            background: var(--bg-card);
-            padding: 2rem;
-            border-radius: 8px;
-            text-align: center;
-            max-width: 400px;
-            width: 90%;
-        }
-
-        .login-box h2 {
-            margin: 0 0 0.5rem 0;
-            font-size: 24px;
-        }
-
-        .login-box p {
-            margin: 0 0 1rem 0;
-            color: var(--text-muted);
-        }
-
-        .login-box input {
-            width: 100%;
-            padding: 0.75rem;
-            margin: 1rem 0;
-            border: 1px solid var(--border);
-            border-radius: 4px;
-            font-size: 1rem;
-            box-sizing: border-box;
-        }
-
-        .login-box button {
-            width: 100%;
-            padding: 0.75rem;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 1rem;
-        }
-
-        .login-box button:hover { opacity: 0.9; }
-
-        .login-box .error {
-            color: #ef4444;
-            margin-top: 0.5rem;
-            font-size: 14px;
-        }
-
         .header {
             background: var(--white);
             border-bottom: 1px solid var(--border);
@@ -856,31 +793,11 @@ async def price_tracker_dashboard() -> str:
             font-size: 18px;
         }
 
-        .header-nav {
-            display: flex;
-            align-items: center;
-            gap: 24px;
-        }
-
         .tab-nav {
             display: flex;
             gap: 24px;
             font-size: 13px;
             font-weight: 500;
-        }
-
-        .logout-btn {
-            background: transparent;
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-            padding: 0.5rem 1rem;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 13px;
-        }
-
-        .logout-btn:hover {
-            background: var(--bg-hover);
         }
 
         .nav-item {
@@ -1168,26 +1085,12 @@ async def price_tracker_dashboard() -> str:
     </style>
 </head>
 <body>
-    <!-- Login Overlay -->
-    <div id="loginOverlay" class="login-overlay">
-        <div class="login-box">
-            <h2>Prisspaning - Admin</h2>
-            <p>Ange din API-nyckel for att fortsatta</p>
-            <input type="password" id="apiKeyInput" placeholder="API-nyckel" autocomplete="off">
-            <button onclick="validateAndSaveKey()">Logga in</button>
-            <p id="loginError" class="error"></p>
-        </div>
-    </div>
-
     <div class="header">
-        <div class="brand">Prisspaning</div>
-        <div class="header-nav">
-            <div class="tab-nav">
-                <div class="nav-item active" onclick="switchTab('products')">Produkter</div>
-                <div class="nav-item" onclick="switchTab('deals')">Erbjudanden</div>
-                <div class="nav-item" onclick="switchTab('watches')">Bevakningar</div>
-            </div>
-            <button onclick="logout()" class="logout-btn">Logga ut</button>
+        <div class="brand">Price Tracker</div>
+        <div class="tab-nav">
+            <div class="nav-item active" onclick="switchTab('products')">Products</div>
+            <div class="nav-item" onclick="switchTab('deals')">Deals</div>
+            <div class="nav-item" onclick="switchTab('watches')">Watches</div>
         </div>
     </div>
 
@@ -1195,37 +1098,37 @@ async def price_tracker_dashboard() -> str:
         <!-- Products Screen -->
         <div class="screen active" id="screen-products">
             <div class="section-header">
-                <input type="text" id="searchProducts" class="search-box" placeholder="Sok produkter...">
-                <button class="btn btn-primary" onclick="showModal('addProduct')">+ Ny produkt</button>
+                <input type="text" id="searchProducts" class="search-box" placeholder="Search products...">
+                <button class="btn btn-primary" onclick="showModal('addProduct')">+ New Product</button>
             </div>
             <div class="grid" id="productGrid">
-                <div class="loading">Laddar produkter...</div>
+                <div class="loading">Loading products...</div>
             </div>
         </div>
 
         <!-- Deals Screen -->
         <div class="screen" id="screen-deals">
             <div class="section-header">
-                <div class="section-title">Aktuella erbjudanden</div>
+                <div class="section-title">Current Deals</div>
             </div>
             <div class="filters">
-                <button class="filter-btn active" onclick="filterDeals(null)">Alla</button>
-                <button class="filter-btn" onclick="filterDeals('grocery')">Matvaror</button>
-                <button class="filter-btn" onclick="filterDeals('pharmacy')">Apotek</button>
+                <button class="filter-btn active" onclick="filterDeals(null)">All</button>
+                <button class="filter-btn" onclick="filterDeals('grocery')">Grocery</button>
+                <button class="filter-btn" onclick="filterDeals('pharmacy')">Pharmacy</button>
             </div>
             <div class="grid" id="dealsGrid">
-                <div class="loading">Laddar erbjudanden...</div>
+                <div class="loading">Loading deals...</div>
             </div>
         </div>
 
         <!-- Watches Screen -->
         <div class="screen" id="screen-watches">
             <div class="section-header">
-                <div class="section-title">Prisbevakning</div>
-                <button class="btn btn-primary" onclick="showModal('addWatch')">+ Ny bevakning</button>
+                <div class="section-title">Price Watches</div>
+                <button class="btn btn-primary" onclick="showModal('addWatch')">+ New Watch</button>
             </div>
             <div id="watchesList">
-                <div class="loading">Laddar bevakningar...</div>
+                <div class="loading">Loading watches...</div>
             </div>
         </div>
     </div>
@@ -1233,35 +1136,35 @@ async def price_tracker_dashboard() -> str:
     <!-- Add Product Modal -->
     <div class="modal" id="modal-addProduct">
         <div class="modal-content">
-            <div class="modal-title">Lagg till produkt</div>
+            <div class="modal-title">Add Product</div>
             <div id="addProductError"></div>
             <div class="form-group">
-                <label class="form-label">Produktnamn *</label>
+                <label class="form-label">Product Name *</label>
                 <input type="text" id="newProductName" class="form-input" required>
             </div>
             <div class="form-group">
-                <label class="form-label">Varumarke</label>
+                <label class="form-label">Brand</label>
                 <input type="text" id="newProductBrand" class="form-input">
             </div>
             <div class="form-group">
-                <label class="form-label">Kategori</label>
+                <label class="form-label">Category</label>
                 <input type="text" id="newProductCategory" class="form-input">
             </div>
             <div class="form-group">
-                <label class="form-label">Enhet</label>
-                <input type="text" id="newProductUnit" class="form-input" placeholder="st, kg, l...">
+                <label class="form-label">Unit</label>
+                <input type="text" id="newProductUnit" class="form-input" placeholder="pcs, kg, l...">
             </div>
             <div class="form-group">
-                <label class="form-label">Butik</label>
+                <label class="form-label">Store</label>
                 <select id="newProductStore" class="form-select"></select>
             </div>
             <div class="form-group">
-                <label class="form-label">URL till produkt</label>
+                <label class="form-label">Product URL</label>
                 <input type="url" id="newProductUrl" class="form-input">
             </div>
             <div class="btn-group">
-                <button class="btn btn-primary" onclick="createProduct()">Skapa</button>
-                <button class="btn btn-secondary" onclick="hideModal('addProduct')">Avbryt</button>
+                <button class="btn btn-primary" onclick="createProduct()">Create</button>
+                <button class="btn btn-secondary" onclick="hideModal('addProduct')">Cancel</button>
             </div>
         </div>
     </div>
@@ -1269,11 +1172,11 @@ async def price_tracker_dashboard() -> str:
     <!-- Add Store Link Modal -->
     <div class="modal" id="modal-addStore">
         <div class="modal-content">
-            <div class="modal-title">Lagg till butik</div>
+            <div class="modal-title">Add Store Link</div>
             <div id="addStoreError"></div>
             <input type="hidden" id="linkProductId">
             <div class="form-group">
-                <label class="form-label">Butik *</label>
+                <label class="form-label">Store *</label>
                 <select id="linkStoreId" class="form-select"></select>
             </div>
             <div class="form-group">
@@ -1281,12 +1184,12 @@ async def price_tracker_dashboard() -> str:
                 <input type="url" id="linkStoreUrl" class="form-input" required>
             </div>
             <div class="form-group">
-                <label class="form-label">Kontrollfrekvens (timmar)</label>
+                <label class="form-label">Check Frequency (hours)</label>
                 <input type="number" id="linkStoreFrequency" class="form-input" value="24" min="1">
             </div>
             <div class="btn-group">
-                <button class="btn btn-primary" onclick="linkStore()">Lagg till</button>
-                <button class="btn btn-secondary" onclick="hideModal('addStore')">Avbryt</button>
+                <button class="btn btn-primary" onclick="linkStore()">Add</button>
+                <button class="btn btn-secondary" onclick="hideModal('addStore')">Cancel</button>
             </div>
         </div>
     </div>
@@ -1294,50 +1197,50 @@ async def price_tracker_dashboard() -> str:
     <!-- Add Watch Modal -->
     <div class="modal" id="modal-addWatch">
         <div class="modal-content">
-            <div class="modal-title">Ny prisbevakning</div>
+            <div class="modal-title">New Price Watch</div>
             <div id="addWatchError"></div>
             <div class="form-group">
-                <label class="form-label">Produkt *</label>
+                <label class="form-label">Product *</label>
                 <select id="watchProductId" class="form-select"></select>
             </div>
             <div class="form-group">
-                <label class="form-label">Malpris (SEK)</label>
-                <input type="number" id="watchTargetPrice" class="form-input" step="0.01" placeholder="Valfritt">
+                <label class="form-label">Target Price (SEK)</label>
+                <input type="number" id="watchTargetPrice" class="form-input" step="0.01" placeholder="Optional">
             </div>
             <div class="form-group">
-                <label class="form-label">Notifiera vid prisfall (%)</label>
-                <input type="number" id="watchPriceDropPercent" class="form-input" min="1" max="100" placeholder="t.ex. 15">
+                <label class="form-label">Notify on Price Drop (%)</label>
+                <input type="number" id="watchPriceDropPercent" class="form-input" min="1" max="100" placeholder="e.g. 15">
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                    Larma nar priset sjunker med minst denna procent fran ordinarie pris
+                    Alert when price drops by at least this percentage from regular price
                 </div>
             </div>
             <div class="form-group">
-                <label class="form-label">Malpris for jamforelsepris (kr/enhet)</label>
-                <input type="number" id="watchUnitPriceTarget" class="form-input" step="0.01" placeholder="t.ex. 3.50">
+                <label class="form-label">Target Unit Price (SEK/unit)</label>
+                <input type="number" id="watchUnitPriceTarget" class="form-input" step="0.01" placeholder="e.g. 3.50">
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                    Larma nar jamforelsepriset (kr/kg, kr/l, etc) underskrider detta varde
+                    Alert when unit price (SEK/kg, SEK/l, etc) falls below this value
                 </div>
             </div>
             <div class="form-group">
-                <label class="form-label">Jamforelsepris-fall (%)</label>
-                <input type="number" id="watchUnitPriceDropPercent" class="form-input" min="1" max="100" placeholder="t.ex. 15">
+                <label class="form-label">Unit Price Drop (%)</label>
+                <input type="number" id="watchUnitPriceDropPercent" class="form-input" min="1" max="100" placeholder="e.g. 15">
                 <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
-                    Larma nar jamforelsepriset sjunker med minst denna procent
+                    Alert when unit price drops by at least this percentage
                 </div>
             </div>
             <div class="form-group">
                 <label class="form-checkbox">
                     <input type="checkbox" id="watchAlertAny">
-                    <span>Notifiera vid alla erbjudanden</span>
+                    <span>Notify on any offer</span>
                 </label>
             </div>
             <div class="form-group">
-                <label class="form-label">E-postadress *</label>
+                <label class="form-label">Email Address *</label>
                 <input type="email" id="watchEmail" class="form-input" required>
             </div>
             <div class="btn-group">
-                <button class="btn btn-primary" onclick="createWatch()">Skapa bevakning</button>
-                <button class="btn btn-secondary" onclick="hideModal('addWatch')">Avbryt</button>
+                <button class="btn btn-primary" onclick="createWatch()">Create Watch</button>
+                <button class="btn btn-secondary" onclick="hideModal('addWatch')">Cancel</button>
             </div>
         </div>
     </div>
@@ -1350,77 +1253,13 @@ async def price_tracker_dashboard() -> str:
         let watches = [];
         let currentDealFilter = null;
 
-        // Get API key from storage
-        function getApiKey() {
-            return localStorage.getItem('priceTrackerApiKey') || '';
-        }
-
-        // Check for stored API key on page load
-        function checkAuth() {
-            const apiKey = getApiKey();
-            if (apiKey) {
-                document.getElementById('loginOverlay').classList.add('hidden');
-                loadAll();
-            }
-        }
-
-        // Validate key by calling /stores endpoint
-        async function validateAndSaveKey() {
-            const input = document.getElementById('apiKeyInput');
-            const error = document.getElementById('loginError');
-            const key = input.value.trim();
-
-            if (!key) {
-                error.textContent = 'Ange en API-nyckel';
-                return;
-            }
-
-            try {
-                const res = await fetch(BASE_URL + '/stores', {
-                    headers: { 'X-API-Key': key }
-                });
-
-                if (res.ok) {
-                    localStorage.setItem('priceTrackerApiKey', key);
-                    document.getElementById('loginOverlay').classList.add('hidden');
-                    input.value = '';
-                    error.textContent = '';
-                    loadAll();
-                } else if (res.status === 401 || res.status === 403) {
-                    error.textContent = 'Ogiltig API-nyckel';
-                } else {
-                    error.textContent = 'Kunde inte validera nyckeln';
-                }
-            } catch (e) {
-                error.textContent = 'Anslutningsfel';
-            }
-        }
-
-        // Logout function
-        function logout() {
-            localStorage.removeItem('priceTrackerApiKey');
-            location.reload();
-        }
-
-        // Load all initial data
-        function loadAll() {
-            loadStores();
-            loadProducts();
-        }
-
         async function apiRequest(path, options = {}) {
             const headers = {
-                'X-API-Key': getApiKey(),
                 'Content-Type': 'application/json',
                 ...options.headers
             };
             const response = await fetch(BASE_URL + path, { ...options, headers });
             if (!response.ok) {
-                // Handle 401 errors globally
-                if (response.status === 401 || response.status === 403) {
-                    logout();
-                    return;
-                }
                 const error = await response.text();
                 throw new Error(error);
             }
@@ -1448,7 +1287,7 @@ async def price_tracker_dashboard() -> str:
                 products = await apiRequest('/products');
 
                 if (products.length === 0) {
-                    grid.innerHTML = '<div class="empty-state">Inga produkter tillagda an. Klicka pa "+ Ny produkt" for att komma igang.</div>';
+                    grid.innerHTML = '<div class="empty-state">No products added yet. Click "+ New Product" to get started.</div>';
                     return;
                 }
 
@@ -1464,15 +1303,15 @@ async def price_tracker_dashboard() -> str:
                             ${p.stores.map(s => `
                                 <div class="pill">
                                     <span>${escapeHtml(s.store_name)}</span>
-                                    <button class="btn btn-sm btn-secondary" onclick="triggerCheck('${s.store_id}', '${p.id}')">Kolla pris</button>
+                                    <button class="btn btn-sm btn-secondary" onclick="triggerCheck('${s.store_id}', '${p.id}')">Check Price</button>
                                 </div>
                             `).join('')}
                         </div>
-                        <button class="btn btn-sm btn-secondary" onclick="showAddStoreModal('${p.id}')">Lagg till butik</button>
+                        <button class="btn btn-sm btn-secondary" onclick="showAddStoreModal('${p.id}')">Add Store</button>
                     </div>
                 `).join('');
             } catch (e) {
-                grid.innerHTML = `<div class="error-msg">Misslyckades att ladda produkter: ${e.message}</div>`;
+                grid.innerHTML = `<div class="error-msg">Failed to load products: ${e.message}</div>`;
             }
         }
 
@@ -1483,7 +1322,7 @@ async def price_tracker_dashboard() -> str:
                 deals = await apiRequest(path);
 
                 if (deals.length === 0) {
-                    grid.innerHTML = '<div class="empty-state">Inga aktuella erbjudanden hittades.</div>';
+                    grid.innerHTML = '<div class="empty-state">No current deals found.</div>';
                     return;
                 }
 
@@ -1500,7 +1339,7 @@ async def price_tracker_dashboard() -> str:
                     </div>
                 `).join('');
             } catch (e) {
-                grid.innerHTML = `<div class="error-msg">Misslyckades att ladda erbjudanden: ${e.message}</div>`;
+                grid.innerHTML = `<div class="error-msg">Failed to load deals: ${e.message}</div>`;
             }
         }
 
@@ -1510,18 +1349,18 @@ async def price_tracker_dashboard() -> str:
                 watches = await apiRequest('/watches');
 
                 if (watches.length === 0) {
-                    list.innerHTML = '<div class="empty-state">Inga aktiva bevakningar. Klicka pa "+ Ny bevakning" for att skapa en.</div>';
+                    list.innerHTML = '<div class="empty-state">No active watches. Click "+ New Watch" to create one.</div>';
                     return;
                 }
 
                 list.innerHTML = watches.map(w => {
                     const conditions = [];
-                    if (w.target_price_sek) conditions.push(`Malpris: ${w.target_price_sek} kr`);
-                    if (w.price_drop_threshold_percent) conditions.push(`Prisfall: ${w.price_drop_threshold_percent}%`);
-                    if (w.unit_price_target_sek) conditions.push(`Jamforelsepris-mal: ${w.unit_price_target_sek} kr/enhet`);
-                    if (w.unit_price_drop_threshold_percent) conditions.push(`Jamforelsepris-fall: ${w.unit_price_drop_threshold_percent}%`);
-                    if (w.alert_on_any_offer) conditions.push('Alla erbjudanden');
-                    const conditionText = conditions.length > 0 ? conditions.join(' &middot; ') : 'Inga villkor';
+                    if (w.target_price_sek) conditions.push(`Target: ${w.target_price_sek} SEK`);
+                    if (w.price_drop_threshold_percent) conditions.push(`Drop: ${w.price_drop_threshold_percent}%`);
+                    if (w.unit_price_target_sek) conditions.push(`Unit target: ${w.unit_price_target_sek} SEK/unit`);
+                    if (w.unit_price_drop_threshold_percent) conditions.push(`Unit drop: ${w.unit_price_drop_threshold_percent}%`);
+                    if (w.alert_on_any_offer) conditions.push('Any offer');
+                    const conditionText = conditions.length > 0 ? conditions.join(' &middot; ') : 'No conditions';
 
                     return `
                     <div class="watch-item">
@@ -1532,12 +1371,12 @@ async def price_tracker_dashboard() -> str:
                                 &middot; ${escapeHtml(w.email_address)}
                             </div>
                         </div>
-                        <button class="btn btn-sm btn-secondary" onclick="deleteWatch('${w.watch_id}')">Ta bort</button>
+                        <button class="btn btn-sm btn-secondary" onclick="deleteWatch('${w.watch_id}')">Delete</button>
                     </div>
                     `;
                 }).join('');
             } catch (e) {
-                list.innerHTML = `<div class="error-msg">Misslyckades att ladda bevakningar: ${e.message}</div>`;
+                list.innerHTML = `<div class="error-msg">Failed to load watches: ${e.message}</div>`;
             }
         }
 
@@ -1610,10 +1449,10 @@ async def price_tracker_dashboard() -> str:
             try {
                 const productStore = product.stores.find(s => s.store_id === storeId);
                 await apiRequest(`/check/${productStore.product_store_id}`, { method: 'POST' });
-                alert('Priskontroll genomford!');
+                alert('Price check completed!');
                 await loadProducts();
             } catch (e) {
-                alert('Priskontroll misslyckades: ' + e.message);
+                alert('Price check failed: ' + e.message);
             }
         }
 
@@ -1652,13 +1491,13 @@ async def price_tracker_dashboard() -> str:
         }
 
         async function deleteWatch(watchId) {
-            if (!confirm('Ar du saker pa att du vill ta bort denna bevakning?')) return;
+            if (!confirm('Are you sure you want to delete this watch?')) return;
 
             try {
                 await apiRequest(`/watches/${watchId}`, { method: 'DELETE' });
                 await loadWatches();
             } catch (e) {
-                alert('Misslyckades att ta bort bevakning: ' + e.message);
+                alert('Failed to delete watch: ' + e.message);
             }
         }
 
@@ -1713,16 +1552,11 @@ async def price_tracker_dashboard() -> str:
             });
         });
 
-        // Handle Enter key in login input
-        document.getElementById('apiKeyInput').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                validateAndSaveKey();
-            }
-        });
+        // Load data on page load
+        loadStores();
+        loadProducts();
 
-        // Check authentication on page load
-        checkAuth();
-
+        // Auto-refresh deals every minute
         setInterval(() => {
             const activeTab = document.querySelector('.screen.active').id;
             if (activeTab === 'screen-deals') loadDeals();

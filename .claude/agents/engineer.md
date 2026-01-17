@@ -466,6 +466,21 @@ async def run_agent(
 
 ---
 
+## Language Standards
+
+- **English for ALL code, GUI, config, and admin interfaces.** This includes:
+  - Variable names, function names, class names
+  - Comments and docstrings
+  - Error messages
+  - Log messages
+  - Admin dashboard UI text
+  - API response messages
+  - Configuration files
+- **Swedish only for end-user chat responses** (bot messages to users)
+- No emojis or smart punctuation in code/UI
+
+---
+
 ## Critical Guidelines
 
 **DO:**
@@ -481,6 +496,7 @@ async def run_agent(
 - Skip quality checks
 - Skip documentation updates
 - Batch completions (update immediately)
+- Write Swedish text in code, GUI, or config (only in chat responses)
 
 ---
 

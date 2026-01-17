@@ -93,7 +93,7 @@ Context -> Conversation -> Session -> Message
 
 ## Documentation Style
 
-- **Language:** Swedish for user-facing text; English for code/config
+- **Language:** English for ALL code, GUI, config, and admin interfaces. Swedish only for end-user chat responses.
 - **No Emojis:** Unless explicitly requested by user
 - **ASCII-safe:** Use `->`, `--`, quotes `'"`  (no smart punctuation)
 
