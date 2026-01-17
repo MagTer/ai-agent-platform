@@ -759,9 +759,12 @@ async def price_tracker_dashboard() -> str:
         :root {
             --primary: #2563eb;
             --bg: #f3f4f6;
+            --bg-card: #fff;
+            --bg-hover: #f9fafb;
             --white: #fff;
             --border: #e5e7eb;
             --text: #1f2937;
+            --text-secondary: #6b7280;
             --text-muted: #6b7280;
             --success: #10b981;
             --error: #ef4444;
@@ -773,6 +776,69 @@ async def price_tracker_dashboard() -> str:
             margin: 0;
             background: var(--bg);
             color: var(--text);
+        }
+
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .login-overlay.hidden { display: none; }
+
+        .login-box {
+            background: var(--bg-card);
+            padding: 2rem;
+            border-radius: 8px;
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .login-box h2 {
+            margin: 0 0 0.5rem 0;
+            font-size: 24px;
+        }
+
+        .login-box p {
+            margin: 0 0 1rem 0;
+            color: var(--text-muted);
+        }
+
+        .login-box input {
+            width: 100%;
+            padding: 0.75rem;
+            margin: 1rem 0;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 1rem;
+            box-sizing: border-box;
+        }
+
+        .login-box button {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        .login-box button:hover { opacity: 0.9; }
+
+        .login-box .error {
+            color: #ef4444;
+            margin-top: 0.5rem;
+            font-size: 14px;
         }
 
         .header {
@@ -790,11 +856,31 @@ async def price_tracker_dashboard() -> str:
             font-size: 18px;
         }
 
+        .header-nav {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
         .tab-nav {
             display: flex;
             gap: 24px;
             font-size: 13px;
             font-weight: 500;
+        }
+
+        .logout-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .logout-btn:hover {
+            background: var(--bg-hover);
         }
 
         .nav-item {
@@ -1082,12 +1168,26 @@ async def price_tracker_dashboard() -> str:
     </style>
 </head>
 <body>
+    <!-- Login Overlay -->
+    <div id="loginOverlay" class="login-overlay">
+        <div class="login-box">
+            <h2>Prisspaning - Admin</h2>
+            <p>Ange din API-nyckel for att fortsatta</p>
+            <input type="password" id="apiKeyInput" placeholder="API-nyckel" autocomplete="off">
+            <button onclick="validateAndSaveKey()">Logga in</button>
+            <p id="loginError" class="error"></p>
+        </div>
+    </div>
+
     <div class="header">
         <div class="brand">Prisspaning</div>
-        <div class="tab-nav">
-            <div class="nav-item active" onclick="switchTab('products')">Produkter</div>
-            <div class="nav-item" onclick="switchTab('deals')">Erbjudanden</div>
-            <div class="nav-item" onclick="switchTab('watches')">Bevakningar</div>
+        <div class="header-nav">
+            <div class="tab-nav">
+                <div class="nav-item active" onclick="switchTab('products')">Produkter</div>
+                <div class="nav-item" onclick="switchTab('deals')">Erbjudanden</div>
+                <div class="nav-item" onclick="switchTab('watches')">Bevakningar</div>
+            </div>
+            <button onclick="logout()" class="logout-btn">Logga ut</button>
         </div>
     </div>
 
@@ -1243,7 +1343,6 @@ async def price_tracker_dashboard() -> str:
     </div>
 
     <script>
-        const API_KEY = localStorage.getItem('admin_api_key') || '';
         const BASE_URL = '/admin/price-tracker';
         let stores = [];
         let products = [];
@@ -1251,14 +1350,77 @@ async def price_tracker_dashboard() -> str:
         let watches = [];
         let currentDealFilter = null;
 
+        // Get API key from storage
+        function getApiKey() {
+            return localStorage.getItem('priceTrackerApiKey') || '';
+        }
+
+        // Check for stored API key on page load
+        function checkAuth() {
+            const apiKey = getApiKey();
+            if (apiKey) {
+                document.getElementById('loginOverlay').classList.add('hidden');
+                loadAll();
+            }
+        }
+
+        // Validate key by calling /stores endpoint
+        async function validateAndSaveKey() {
+            const input = document.getElementById('apiKeyInput');
+            const error = document.getElementById('loginError');
+            const key = input.value.trim();
+
+            if (!key) {
+                error.textContent = 'Ange en API-nyckel';
+                return;
+            }
+
+            try {
+                const res = await fetch(BASE_URL + '/stores', {
+                    headers: { 'X-API-Key': key }
+                });
+
+                if (res.ok) {
+                    localStorage.setItem('priceTrackerApiKey', key);
+                    document.getElementById('loginOverlay').classList.add('hidden');
+                    input.value = '';
+                    error.textContent = '';
+                    loadAll();
+                } else if (res.status === 401 || res.status === 403) {
+                    error.textContent = 'Ogiltig API-nyckel';
+                } else {
+                    error.textContent = 'Kunde inte validera nyckeln';
+                }
+            } catch (e) {
+                error.textContent = 'Anslutningsfel';
+            }
+        }
+
+        // Logout function
+        function logout() {
+            localStorage.removeItem('priceTrackerApiKey');
+            location.reload();
+        }
+
+        // Load all initial data
+        function loadAll() {
+            loadStores();
+            loadProducts();
+        }
+
         async function apiRequest(path, options = {}) {
             const headers = {
-                'X-API-Key': API_KEY,
+                'X-API-Key': getApiKey(),
                 'Content-Type': 'application/json',
                 ...options.headers
             };
             const response = await fetch(BASE_URL + path, { ...options, headers });
             if (!response.ok) {
+                // Handle 401 errors globally
+                if (response.status === 401 || response.status === 403) {
+                    logout();
+                    return;
+                }
                 const error = await response.text();
                 throw new Error(error);
             }
@@ -1551,8 +1713,15 @@ async def price_tracker_dashboard() -> str:
             });
         });
 
-        loadStores();
-        loadProducts();
+        // Handle Enter key in login input
+        document.getElementById('apiKeyInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                validateAndSaveKey();
+            }
+        });
+
+        // Check authentication on page load
+        checkAuth();
 
         setInterval(() => {
             const activeTab = document.querySelector('.screen.active').id;

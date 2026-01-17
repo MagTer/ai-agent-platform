@@ -1,7 +1,7 @@
 """add_price_drop_threshold
 
 Revision ID: 20260115000001
-Revises: d3d249838bf6
+Revises: 20260115_price_tracker
 Create Date: 2026-01-15 00:00:01.000000
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "20260115000001"
-down_revision: str | Sequence[str] | None = "d3d249838bf6"
+down_revision: str | Sequence[str] | None = "20260115_price_tracker"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
