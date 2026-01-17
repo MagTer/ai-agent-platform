@@ -1,5 +1,6 @@
 """Admin endpoints for context management."""
 
+# ruff: noqa: E501
 from __future__ import annotations
 
 import logging
@@ -8,6 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,15 +18,106 @@ from core.db.engine import get_db
 from core.db.models import Context, Conversation, ToolPermission
 from core.db.oauth_models import OAuthToken
 
-from .admin_auth import verify_admin_api_key
-
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/admin/contexts",
     tags=["admin", "contexts"],
-    dependencies=[Depends(verify_admin_api_key)],
 )
+
+
+@router.get("/", response_class=HTMLResponse)
+async def contexts_dashboard() -> str:
+    """Context management dashboard."""
+    return """<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contexts - Admin</title>
+    <style>
+        :root { --primary: #f59e0b; --bg: #f8fafc; --card: #fff; --border: #e2e8f0; --text: #1e293b; --muted: #64748b; --success: #10b981; --error: #ef4444; }
+        body { font-family: system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
+        .header { background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 24px; }
+        .header h1 { margin: 0 0 4px 0; font-size: 20px; }
+        .header p { margin: 0; opacity: 0.8; font-size: 13px; }
+        .nav { padding: 8px 24px; background: var(--card); border-bottom: 1px solid var(--border); }
+        .nav a { color: var(--primary); text-decoration: none; font-size: 13px; }
+        .container { max-width: 900px; margin: 24px auto; padding: 0 24px; }
+        .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+        .card h2 { margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
+        .context-list { margin-top: 16px; }
+        .context { padding: 16px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; }
+        .context-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+        .context-meta { font-size: 12px; color: var(--muted); display: flex; gap: 16px; margin-top: 8px; }
+        .context-id { font-family: monospace; font-size: 11px; color: var(--muted); }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; background: #e0e7ff; color: #3730a3; }
+        .loading { color: var(--muted); font-style: italic; }
+        .btn { padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); background: var(--card); }
+        .btn:hover { background: var(--bg); }
+        .btn-sm { padding: 4px 8px; font-size: 11px; }
+        .btn-danger { color: var(--error); border-color: var(--error); }
+        .btn-danger:hover { background: #fee2e2; }
+        .stat { font-size: 24px; font-weight: 600; color: var(--primary); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Contexts</h1>
+        <p>Manage conversation contexts and resources</p>
+    </div>
+    <div class="nav"><a href="/admin/">&larr; Back to Admin Portal</a></div>
+    <div class="container">
+        <div class="card">
+            <h2>
+                <span>All Contexts <span id="count" class="badge">0</span></span>
+                <button class="btn" onclick="loadContexts()">Refresh</button>
+            </h2>
+            <div class="context-list" id="contexts">
+                <div class="loading">Loading...</div>
+            </div>
+        </div>
+    </div>
+    <script>
+        async function loadContexts() {
+            try {
+                const res = await fetch('/admin/contexts');
+                const data = await res.json();
+                renderContexts(data);
+            } catch (e) {
+                document.getElementById('contexts').innerHTML = '<div style="color: var(--error)">Failed to load contexts</div>';
+            }
+        }
+        function renderContexts(data) {
+            document.getElementById('count').textContent = data.total || 0;
+            const el = document.getElementById('contexts');
+            if (!data.contexts || data.contexts.length === 0) {
+                el.innerHTML = '<div class="loading">No contexts found</div>';
+                return;
+            }
+            el.innerHTML = data.contexts.map(c => `
+                <div class="context">
+                    <div class="context-name">${escapeHtml(c.name)}</div>
+                    <div class="context-id">${c.id}</div>
+                    <div class="context-meta">
+                        <span>Type: <span class="badge">${c.type}</span></span>
+                        <span>Conversations: ${c.conversation_count}</span>
+                        <span>OAuth tokens: ${c.oauth_token_count}</span>
+                        <span>Tool permissions: ${c.tool_permission_count}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+        loadContexts();
+    </script>
+</body>
+</html>"""
 
 
 class ContextInfo(BaseModel):

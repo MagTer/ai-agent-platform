@@ -13,14 +13,11 @@ from fastapi.responses import HTMLResponse
 from core.core.config import Settings, get_settings
 from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
 
-from .admin_auth import verify_admin_api_key
-
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/admin/diagnostics",
     tags=["admin", "diagnostics"],
-    dependencies=[Depends(verify_admin_api_key)],
 )
 
 
