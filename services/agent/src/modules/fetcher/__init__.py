@@ -101,10 +101,21 @@ class WebFetcher:
 
         self._check_rate_limit()
         try:
+            # Use realistic browser headers to avoid 403 blocks
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+                "Accept-Language": "sv-SE,sv;q=0.9,en-US;q=0.8,en;q=0.7",
+                # Don't specify Accept-Encoding - let httpx handle it
+                # (brotli 'br' is not auto-decompressed by httpx)
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
             r = await self.http_client.get(
                 url,
                 timeout=self.request_timeout,
-                headers={"User-Agent": "Mozilla/5.0 (Agent Platform)"},
+                headers=headers,
             )
             r.raise_for_status()
             raw_html = r.text
@@ -123,9 +134,8 @@ class WebFetcher:
             return data
         except Exception as e:
             logger.error(f"Fetch failed for {url}: {e}")
-            data = {"url": url, "ok": False, "error": str(e), "text": ""}
-            self._cache_set(url, data)
-            return data
+            # Don't cache failed responses - they should be retried
+            return {"url": url, "ok": False, "error": str(e), "text": ""}
 
     async def search(self, query: str, k: int = 5, lang: str = "en") -> dict[str, Any]:
         url = self.searxng_url.rstrip("/") + "/search"

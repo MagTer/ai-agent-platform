@@ -16,6 +16,14 @@ from modules.price_tracker.models import PricePoint, PriceWatch, Product, Produc
 logger = logging.getLogger(__name__)
 
 
+def _utc_now() -> datetime:
+    """Return naive UTC datetime for database operations.
+
+    Returns naive datetime to match TIMESTAMP WITHOUT TIME ZONE columns.
+    """
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 class PriceTrackerService:
     """Service for managing price tracking operations.
 
@@ -80,13 +88,13 @@ class PriceTrackerService:
                 offer_details=price_data.get("offer_details"),
                 in_stock=price_data.get("in_stock", True),
                 raw_data=price_data.get("raw_data"),
-                checked_at=datetime.now(UTC),
+                checked_at=_utc_now(),
             )
 
             session.add(price_point)
 
             # Update ProductStore last_checked_at
-            product_store.last_checked_at = datetime.now(UTC)
+            product_store.last_checked_at = _utc_now()
 
             await session.commit()
             await session.refresh(price_point)
@@ -116,7 +124,7 @@ class PriceTrackerService:
         async with self.session_factory() as session:
             try:
                 product_uuid = uuid.UUID(product_id)
-                cutoff_date = datetime.now(UTC) - timedelta(days=days)
+                cutoff_date = _utc_now() - timedelta(days=days)
 
                 stmt = (
                     select(PricePoint, Store)
@@ -162,7 +170,7 @@ class PriceTrackerService:
         async with self.session_factory() as session:
             try:
                 # Subquery to get latest price point for each product-store
-                cutoff = datetime.now(UTC) - timedelta(days=1)
+                cutoff = _utc_now() - timedelta(days=1)
 
                 stmt = (
                     select(PricePoint, Product, Store)

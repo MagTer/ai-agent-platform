@@ -2,12 +2,16 @@
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from decimal import Decimal
 
-from litellm import acompletion
+import httpx
 
 logger = logging.getLogger(__name__)
+
+# LiteLLM proxy base URL
+LITELLM_API_BASE = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
 
 
 @dataclass
@@ -100,14 +104,21 @@ Return a JSON object with exactly these fields:
 Only output the JSON object, no explanation or markdown."""
 
     async def _extract_with_model(self, prompt: str, model: str) -> PriceExtractionResult:
-        """Extract using specified model."""
-        response = await acompletion(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0,
-        )
+        """Extract using specified model via LiteLLM proxy."""
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{LITELLM_API_BASE}/v1/chat/completions",
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0,
+                },
+                headers={"Content-Type": "application/json"},
+            )
+            response.raise_for_status()
+            data = response.json()
 
-        content = response.choices[0].message.content
+        content = data["choices"][0]["message"]["content"]
         # Handle potential markdown code blocks
         if content.startswith("```"):
             content = content.split("```")[1]

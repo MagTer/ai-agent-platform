@@ -83,3 +83,20 @@ model_list:
         provider:
           zdr: true
         repetition_penalty: 1.05
+
+  # Price tracker models (Haiku-first with Sonnet fallback)
+  - model_name: haiku
+    litellm_params:
+      model: openrouter/anthropic/claude-3-5-haiku
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0
+      max_tokens: 2048
+      rpm: 60
+
+  - model_name: sonnet
+    litellm_params:
+      model: openrouter/anthropic/claude-sonnet-4
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0
+      max_tokens: 4096
+      rpm: 30
