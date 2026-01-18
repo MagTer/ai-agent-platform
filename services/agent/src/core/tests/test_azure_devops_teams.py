@@ -218,8 +218,11 @@ class TestTeamAwareQuerying:
         }
 
     @pytest.fixture
-    def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
-        """Create tool instance with mocked mappings."""
+    def tool(
+        self, mock_mappings: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> AzureDevOpsTool:
+        """Create tool instance with mocked mappings and env vars."""
+        monkeypatch.setenv("AZURE_DEVOPS_PROJECT", "TestProject")
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
             return AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
 
@@ -403,8 +406,11 @@ class TestBackwardsCompatibility:
         }
 
     @pytest.fixture
-    def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
-        """Create tool instance with mocked mappings."""
+    def tool(
+        self, mock_mappings: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> AzureDevOpsTool:
+        """Create tool instance with mocked mappings and env vars."""
+        monkeypatch.setenv("AZURE_DEVOPS_PROJECT", "TestProject")
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
             return AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
 
