@@ -12,6 +12,7 @@ from fastapi.responses import HTMLResponse
 
 from core.core.config import Settings, get_settings
 from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
+from interfaces.http.admin_auth import verify_admin_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def get_diagnostics_service(
     return DiagnosticsService(settings)
 
 
-@router.get("/traces", response_model=list[TraceGroup])
+@router.get("/traces", response_model=list[TraceGroup], dependencies=[Depends(verify_admin_user)])
 async def get_traces(
     limit: int = 1000,
     show_all: bool = False,
@@ -45,12 +46,12 @@ async def get_traces(
         List of trace groups
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     return service.get_recent_traces(limit, show_all=show_all)
 
 
-@router.get("/metrics")
+@router.get("/metrics", dependencies=[Depends(verify_admin_user)])
 async def get_metrics(
     window: int = 60,
     service: DiagnosticsService = Depends(get_diagnostics_service),
@@ -65,12 +66,12 @@ async def get_metrics(
         System health metrics including error rates and insights
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     return service.get_system_health_metrics(window=window)
 
 
-@router.post("/run", response_model=list[TestResult])
+@router.post("/run", response_model=list[TestResult], dependencies=[Depends(verify_admin_user)])
 async def run_diagnostics(
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> list[TestResult]:
@@ -80,12 +81,12 @@ async def run_diagnostics(
         List of test results with component status and latency
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     return await service.run_diagnostics()
 
 
-@router.get("/summary")
+@router.get("/summary", dependencies=[Depends(verify_admin_user)])
 async def get_diagnostics_summary(
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> dict[str, Any]:
@@ -101,12 +102,12 @@ async def get_diagnostics_summary(
     This endpoint is optimized for AI agent self-diagnosis and automated remediation.
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     return await service.get_diagnostics_summary()
 
 
-@router.get("/crash-log")
+@router.get("/crash-log", dependencies=[Depends(verify_admin_user)])
 async def get_crash_log() -> dict[str, Any]:
     """Expose last_crash.log for AI agent consumption.
 
@@ -119,7 +120,7 @@ async def get_crash_log() -> dict[str, Any]:
     for troubleshooting without requiring file system access.
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     log_path = Path("services/agent/last_crash.log")
     if not log_path.exists():
@@ -138,7 +139,7 @@ async def get_crash_log() -> dict[str, Any]:
         return {"exists": False, "content": None, "message": f"Read error: {e}"}
 
 
-@router.post("/retention")
+@router.post("/retention", dependencies=[Depends(verify_admin_user)])
 async def run_retention(
     message_days: int = 30,
     inactive_days: int = 90,
@@ -155,7 +156,7 @@ async def run_retention(
         Summary of deleted records
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     from core.db.engine import AsyncSessionLocal
     from core.db.retention import run_retention_cleanup
@@ -178,7 +179,7 @@ async def run_retention(
         }
 
 
-@router.get("/mcp")
+@router.get("/mcp", dependencies=[Depends(verify_admin_user)])
 async def get_mcp_health() -> dict[str, Any]:
     """Get health status of all MCP server connections.
 
@@ -190,7 +191,7 @@ async def get_mcp_health() -> dict[str, Any]:
     This endpoint enables monitoring of MCP integrations.
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     from core.tools.mcp_loader import get_mcp_health as fetch_mcp_health
 
@@ -218,7 +219,7 @@ async def get_mcp_health() -> dict[str, Any]:
         }
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
 async def diagnostics_dashboard(
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> str:
@@ -228,13 +229,13 @@ async def diagnostics_dashboard(
         HTML dashboard for monitoring system health
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
 
     Note:
         The dashboard makes AJAX calls to other admin endpoints,
-        so the X-API-Key header must be included in all requests.
+        so authentication must be provided via Entra ID headers.
     """
-    # Professional Split-Pane Dashboard
+    # Professional Split-Pane Dashboard (same as /diagnostics but with admin endpoints)
     # ruff: noqa: E501
     html_content = """
 <!DOCTYPE html>
@@ -250,89 +251,601 @@ async def diagnostics_dashboard(
         /* Header */
         .header { background: #fff; border-bottom: 1px solid var(--border); padding: 0 20px; height: 56px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; z-index: 10; }
         .brand { font-weight: 600; font-size: 16px; display: flex; align-items: center; gap: 8px; }
-        .notice { background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 6px; font-size: 12px; }
 
-        /* Alert banner */
-        .alert { padding: 12px 20px; background: #fef2f2; border-bottom: 1px solid #fecaca; color: #b91c1c; font-size: 13px; }
+        /* Layout */
+        .layout { display: flex; flex: 1; overflow: hidden; flex-direction: row; }
 
-        /* Content */
-        .content { flex: 1; overflow-y: auto; padding: 40px; max-width: 1200px; margin: 0 auto; width: 100%; }
+        /* Sidebar */
+        .sidebar { width: var(--sidebar-w); background: #fff; border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+        .sidebar-header { padding: 12px; border-bottom: 1px solid var(--border); background: #f9fafb; font-size: 12px; font-weight: 600; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; }
+        .request-list { flex: 1; overflow-y: auto; }
 
-        h1 { font-size: 24px; margin: 0 0 24px 0; }
-        h2 { font-size: 18px; margin: 32px 0 16px 0; color: var(--text); }
+        .req-card { padding: 16px; border-bottom: 1px solid var(--border); cursor: pointer; transition: all 0.1s; border-left: 3px solid transparent; }
+        .req-card:hover { background: #f9fafb; }
+        .req-card.active { background: #eff6ff; border-left-color: var(--primary); }
+        .req-card.error { border-left-color: var(--error); background: #fef2f2; }
 
-        .card { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 24px; margin-bottom: 24px; }
+        .req-top { display: flex; justify-content: space-between; margin-bottom: 6px; }
+        .req-status { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); display: inline-block; }
+        .req-status.ok { background: var(--success); }
+        .req-status.err { background: var(--error); }
 
-        .button { background: var(--primary); color: white; border: none; padding: 8px 16px; border-radius: 6px; font-weight: 500; cursor: pointer; font-size: 14px; }
-        .button:hover { opacity: 0.9; }
-        .button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .req-time { font-size: 11px; color: var(--text-muted); font-weight: 500; }
+        .req-query { font-size: 13px; font-weight: 500; margin-bottom: 8px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
-        code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+        .req-meta { display: flex; gap: 12px; font-size: 11px; color: var(--text-muted); }
+        .badge { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
 
-        pre { background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+        /* Main View */
+        .main { flex: 1; display: flex; flex-direction: column; background: #fff; overflow: hidden; position: relative; }
+        .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--text-muted); flex-direction: column; }
 
-        .info-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 16px; margin: 16px 0; }
+        .trace-detail { display: flex; flex-direction: column; height: 100%; }
+        .detail-header { padding: 20px; border-bottom: 1px solid var(--border); background: #fff; }
+        .dh-title { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+        .dh-meta { display: flex; gap: 20px; font-size: 12px; color: var(--text-muted); font-family: monospace; }
+
+        .waterfall-scroll { flex: 1; overflow-y: auto; padding: 20px; position: relative; background: #fafafa; }
+        .waterfall-canvas { position: relative; min-height: 200px; }
+
+        .span-row { position: relative; height: 32px; margin-bottom: 4px; }
+        .span-bar { position: absolute; height: 24px; border-radius: 4px; font-size: 11px; color: white; display: flex; align-items: center; padding: 0 8px; overflow: hidden; white-space: nowrap; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.05); transition: opacity 0.2s; }
+        .span-bar:hover { opacity: 0.9; z-index: 10; }
+
+        .bg-ai { background: #3b82f6; }
+        .bg-tool { background: #14b8a6; }
+        .bg-db { background: #f59e0b; }
+        .bg-err { background: #ef4444; }
+        .bg-def { background: #9ca3af; }
+
+        /* Tabs */
+        .screen { display: none; height: 100%; width: 100%; overflow-y: auto; box-sizing: border-box; }
+        .tab-nav { display: flex; gap: 24px; font-size: 13px; font-weight: 500; height: 100%; }
+        .nav-item { display: flex; align-items: center; cursor: pointer; border-bottom: 2px solid transparent; color: var(--text-muted); transition: all 0.2s; padding: 0 4px; }
+        .nav-item:hover { color: var(--primary); }
+        .nav-item.active { border-bottom-color: var(--primary); color: var(--primary); }
+
+        /* Health & Metrics Screen */
+        .health-screen { padding: 40px; background: #fafafa; }
+        .metric-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+        .m-card { background: white; padding: 24px; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .m-title { color: var(--text-muted); font-size: 13px; font-weight: 500; margin-bottom: 8px; text-transform: uppercase; }
+        .m-value { font-size: 28px; font-weight: 700; color: var(--text); }
+        .m-card.bad .m-value { color: var(--error); }
+
+        .section-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: var(--text); }
+
+        table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); font-size: 13px; }
+        th { text-align: left; padding: 12px 16px; background: #f9fafb; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+        td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; }
+        tr:last-child td { border-bottom: none; }
+
+        .reason-tag { display: inline-block; background: #fef2f2; color: #b91c1c; padding: 2px 8px; border-radius: 12px; font-size: 11px; margin-right: 4px; border: 1px solid #fecaca; margin-bottom: 4px; }
+
+        /* Health Grid */
+        .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+        .health-card { background: white; padding: 20px; border-radius: 8px; border: 1px solid var(--border); border-top-width: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+        .health-card.ok { border-top-color: var(--success); }
+        .health-card.fail { border-top-color: var(--error); }
+
+        /* Drawer - Bottom Panel */
+        .drawer { position: fixed; bottom: -350px; left: 0; right: 0; height: 350px; background: white; border-top: 1px solid var(--border); box-shadow: 0 -4px 15px rgba(0,0,0,0.1); transition: bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1); z-index: 100; display: flex; flex-direction: column; }
+        .drawer.open { bottom: 0; }
+        .drawer-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: #fff; }
+        .drawer-content { flex: 1; overflow-y: auto; padding: 20px; background: #f9fafb; display: flex; gap: 24px; }
+        .drawer-attrs { flex: 1; min-width: 300px; }
+        .drawer-json { flex: 1; min-width: 300px; }
+        .attr-card { background: white; border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin-bottom: 8px; }
+        .attr-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px; }
+        .attr-value { font-size: 13px; font-weight: 500; word-break: break-all; }
+        #drawerPre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto; font-family: 'Menlo', monospace; max-height: 250px; }
+        .close-drawer { cursor: pointer; font-size: 20px; color: var(--text-muted); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
+
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
     <div class="header">
-        <div class="brand">🔐 Admin Diagnostics Dashboard</div>
-        <div class="notice">Secured with API Key</div>
+        <div class="brand">Admin Diagnostics Dashboard</div>
+
+        <div class="tab-nav">
+            <div id="tab-traces" class="nav-item active" onclick="switchTab('traces')">Trace Waterfall</div>
+            <div id="tab-metrics" class="nav-item" onclick="switchTab('metrics')">Metrics & Insights</div>
+            <div id="tab-health" class="nav-item" onclick="switchTab('health')">System Health</div>
+        </div>
+
+        <div style="display:flex; gap:10px">
+            <button onclick="refreshCurrent()" style="padding:6px 12px; border:1px solid #d1d5db; border-radius:6px; background:white; font-size:13px; cursor:pointer">Refresh</button>
+        </div>
     </div>
 
-    <div class="alert" id="authAlert" style="display:none;">
-        ⚠️ Authentication required. The dashboard is trying to load but may fail if X-API-Key header is not set.
-    </div>
+    <!-- Trace Screen -->
+    <div class="layout screen" id="view-traces" style="display:flex">
+        <div class="sidebar">
+            <div class="sidebar-header" style="flex-direction:column; gap:8px; padding:12px">
+                <div style="display:flex; justify-content:space-between; align-items:center; width:100%">
+                    <span>RECENT REQUESTS</span>
+                    <span id="trace-count">0</span>
+                </div>
+                <input type="text" id="traceSearch" placeholder="Search by Trace ID..."
+                       oninput="onTraceSearchInput()"
+                       style="width:100%; padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:12px; box-sizing:border-box;">
+                <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); cursor:pointer">
+                    <input type="checkbox" id="showAllTraces" onchange="loadTraces()">
+                    Show diagnostic/health traces
+                </label>
+            </div>
+            <div class="request-list" id="reqList"></div>
+        </div>
 
-    <div class="content">
-        <h1>System Diagnostics & Monitoring</h1>
+        <div class="main">
+            <div id="emptyState" class="empty-state">
+                <div style="font-size:40px; margin-bottom:10px">Select a request</div>
+                <div>Select a request to view details</div>
+            </div>
 
-        <div class="card">
-            <h2>Dashboard Access Note</h2>
-            <div class="info-box">
-                <p><strong>Important:</strong> This dashboard requires admin authentication via <code>X-API-Key</code> header.</p>
-                <p>The interactive features on this page make AJAX requests to secured endpoints. To use the dashboard:</p>
-                <ol>
-                    <li>Access this page with <code>X-API-Key: YOUR_ADMIN_KEY</code> header</li>
-                    <li>Or use the full diagnostics endpoints via API (recommended for automation)</li>
-                </ol>
-                <p>Available endpoints (all require <code>X-API-Key</code> header):</p>
-                <ul>
-                    <li><code>GET /admin/diagnostics/traces</code> - Get recent traces</li>
-                    <li><code>GET /admin/diagnostics/metrics</code> - Get system metrics</li>
-                    <li><code>POST /admin/diagnostics/run</code> - Run integration tests</li>
-                    <li><code>GET /admin/diagnostics/summary</code> - Get diagnostics summary</li>
-                    <li><code>GET /admin/diagnostics/crash-log</code> - Get crash log</li>
-                    <li><code>POST /admin/diagnostics/retention</code> - Run retention cleanup</li>
-                    <li><code>GET /admin/diagnostics/mcp</code> - Get MCP health</li>
-                </ul>
+            <div id="detailView" class="trace-detail hidden">
+                <div class="detail-header">
+                    <div class="dh-title" id="dTitle">Query...</div>
+                    <div class="dh-meta">
+                        <span id="dId">ID</span>
+                        <span id="dTime">Time</span>
+                        <span id="dDur">Duration</span>
+                    </div>
+                </div>
+
+                <div class="waterfall-scroll">
+                    <div class="waterfall-canvas" id="waterfall"></div>
+                </div>
             </div>
         </div>
+    </div>
 
-        <div class="card">
-            <h2>Quick Actions</h2>
-            <p>Use these commands to interact with the diagnostics API:</p>
+    <!-- Health Screen -->
+    <div class="screen health-screen" id="view-health">
+        <div style="max-width: 1000px; margin: 0 auto;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px">
+                <div>
+                    <h2 class="section-title" style="margin:0">Component Health Status</h2>
+                    <div style="color:var(--text-muted); font-size:13px; margin-top:4px">Real-time integration tests</div>
+                </div>
+                <button onclick="runHealthChecks()" style="background:var(--primary); color:white; border:none; padding:8px 16px; border-radius:6px; font-weight:500; cursor:pointer">Run Integration Tests</button>
+            </div>
 
-            <h3 style="margin-top: 20px; font-size: 14px;">Get System Summary</h3>
-            <pre>curl -H "X-API-Key: YOUR_KEY" http://localhost:8000/admin/diagnostics/summary</pre>
-
-            <h3 style="margin-top: 20px; font-size: 14px;">Run Integration Tests</h3>
-            <pre>curl -X POST -H "X-API-Key: YOUR_KEY" http://localhost:8000/admin/diagnostics/run</pre>
-
-            <h3 style="margin-top: 20px; font-size: 14px;">Get Recent Traces</h3>
-            <pre>curl -H "X-API-Key: YOUR_KEY" http://localhost:8000/admin/diagnostics/traces?limit=10</pre>
-
-            <h3 style="margin-top: 20px; font-size: 14px;">Check MCP Health</h3>
-            <pre>curl -H "X-API-Key: YOUR_KEY" http://localhost:8000/admin/diagnostics/mcp</pre>
-        </div>
-
-        <div class="card">
-            <h2>Alternative: Use Original Diagnostics Dashboard</h2>
-            <p>For the full interactive dashboard experience without authentication requirements, use the legacy endpoint:</p>
-            <p><a href="/diagnostics" style="color: var(--primary);">/diagnostics</a> (No authentication required)</p>
-            <p><em>Note: The legacy diagnostics endpoint will be deprecated in favor of this secured admin version.</em></p>
+            <div class="health-grid" id="healthGrid">
+                <div style="grid-column: 1/-1; padding:40px; text-align:center; color:var(--text-muted); border: 2px dashed var(--border); border-radius:8px;">
+                    Click "Run Integration Tests" to start probing.
+                </div>
+            </div>
         </div>
     </div>
+
+    <!-- Metrics Screen -->
+    <div class="screen health-screen" id="view-metrics">
+        <div style="max-width: 1000px; margin: 0 auto;">
+            <h2 class="section-title">System Metrics (Last 60 Traces)</h2>
+            <div class="metric-cards">
+                <div class="m-card">
+                    <div class="m-title">Total Requests</div>
+                    <div class="m-value" id="mTotal">-</div>
+                </div>
+                <div class="m-card">
+                    <div class="m-title">Error Rate</div>
+                    <div class="m-value" id="mRate">-</div>
+                </div>
+                <div class="m-card">
+                    <div class="m-title">Failed Requests</div>
+                    <div class="m-value" id="mCount">-</div>
+                </div>
+            </div>
+
+            <h2 class="section-title">Insights: Failing Components</h2>
+            <table id="hotspotsTable">
+                <thead>
+                    <tr>
+                        <th style="width:200px">Component / Tool</th>
+                        <th style="width:100px">Failures</th>
+                        <th>Top Error Reasons</th>
+                    </tr>
+                </thead>
+                <tbody id="hotspotsBody">
+                    <tr><td colspan="3" style="text-align:center; color:#999">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Drawer -->
+    <div class="drawer" id="attrDrawer">
+        <div class="drawer-header">
+            <h3 style="margin:0; font-size:14px;">Span Details</h3>
+            <div class="close-drawer" onclick="closeDrawer()">&times;</div>
+        </div>
+        <div class="drawer-content" id="drawerContent"></div>
+    </div>
+
+    <script>
+        // API base path for admin endpoints
+        const API_BASE = '/admin/diagnostics';
+
+        let currentTab = 'traces';
+        let traceGroups = [];
+        let selectedTraceId = null;
+
+        window.switchTab = switchTab;
+        window.refreshCurrent = refreshCurrent;
+        window.runHealthChecks = runHealthChecks;
+        window.closeDrawer = closeDrawer;
+
+        loadTraces();
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.getElementById(`tab-${tab}`).classList.add('active');
+
+            document.querySelectorAll('.screen').forEach(el => el.style.display = 'none');
+            const view = document.getElementById(`view-${tab}`);
+
+            if (tab === 'traces') {
+                view.style.display = 'flex';
+                loadTraces();
+            } else {
+                view.style.display = 'block';
+                if (tab === 'metrics') loadMetrics();
+            }
+        }
+
+        async function refreshCurrent() {
+            const btn = event?.target;
+            if (btn) {
+                btn.disabled = true;
+                btn.innerText = 'Loading...';
+            }
+            try {
+                if (currentTab === 'traces') await loadTraces();
+                else if (currentTab === 'metrics') await loadMetrics();
+                else await runHealthChecks();
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerText = 'Refresh';
+                }
+            }
+        }
+
+        async function loadMetrics() {
+            try {
+                const res = await fetch(`${API_BASE}/metrics?window=60`);
+                const data = await res.json();
+
+                document.getElementById('mTotal').innerText = data.metrics.total_requests;
+                document.getElementById('mCount').innerText = data.metrics.error_count;
+
+                const rateEl = document.getElementById('mRate');
+                const rate = (data.metrics.error_rate * 100).toFixed(1) + '%';
+                rateEl.innerText = rate;
+                if(data.metrics.error_rate > 0.1) rateEl.parentElement.classList.add('bad');
+                else rateEl.parentElement.classList.remove('bad');
+
+                const tbody = document.getElementById('hotspotsBody');
+                tbody.innerHTML = '';
+
+                if (data.metrics.error_count === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:30px; color:#999">No errors detected in the last window.</td></tr>';
+                    return;
+                }
+
+                if (data.insights && data.insights.hotspots) {
+                    data.insights.hotspots.forEach(h => {
+                        const tr = document.createElement('tr');
+
+                        let reasonsHtml = '';
+                        h.top_reasons.forEach(r => {
+                            reasonsHtml += `<span class="reason-tag">${escapeHtml(r)}</span>`;
+                        });
+
+                        tr.innerHTML = `
+                            <td style="font-weight:600">${escapeHtml(h.name)}</td>
+                            <td>${h.count}</td>
+                            <td>${reasonsHtml}</td>
+                        `;
+                        tbody.appendChild(tr);
+                    });
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function runHealthChecks() {
+            const grid = document.getElementById('healthGrid');
+            grid.innerHTML = '<div style="padding:20px; text-align:center">Running integration tests...</div>';
+
+            try {
+                const res = await fetch(`${API_BASE}/run`, {method: 'POST'});
+                const results = await res.json();
+                grid.innerHTML = '';
+
+                results.forEach(r => {
+                    const isOk = r.status === 'ok';
+                    const cls = isOk ? 'ok' : 'fail';
+                    const icon = isOk ? 'Active' : 'Failed';
+
+                    const el = document.createElement('div');
+                    el.className = `health-card ${cls}`;
+                    el.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; margin-bottom:10px">
+                            <span style="font-weight:600; font-size:14px">${escapeHtml(r.component)}</span>
+                            <span style="font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px"
+                                  class="${isOk ? 'bg-tool' : 'bg-err'}" style="color:white; opacity:0.8">${icon}</span>
+                        </div>
+                        <div style="font-size:24px; font-weight:700; margin-bottom:4px">${r.latency_ms.toFixed(0)}<span style="font-size:12px; font-weight:400; color:#999; margin-left:4px">ms</span></div>
+                        ${!isOk && r.message ? `<div style="font-size:12px; color:var(--error); margin-top:8px">${escapeHtml(r.message)}</div>` : ''}
+                    `;
+                    grid.appendChild(el);
+                });
+            } catch (e) {
+                grid.innerHTML = `<div style="color:red">Failed to run checks: ${e}</div>`;
+            }
+        }
+
+        let filteredTraceGroups = [];
+
+        async function loadTraces(searchTraceId = null) {
+            const list = document.getElementById('reqList');
+            const showAll = document.getElementById('showAllTraces')?.checked || false;
+            try {
+                let url = `${API_BASE}/traces?limit=500&show_all=${showAll}`;
+                if (searchTraceId && searchTraceId.length >= 8) {
+                    url += `&trace_id=${encodeURIComponent(searchTraceId)}`;
+                }
+
+                const res = await fetch(url);
+                if(!res.ok) throw new Error("API " + res.status);
+                traceGroups = await res.json();
+                filterTraces();
+
+                if (selectedTraceId) {
+                    const idx = traceGroups.findIndex(g => g.trace_id === selectedTraceId);
+                    if (idx >= 0) {
+                        selectTrace(idx);
+                    }
+                }
+            } catch (e) {
+                list.innerHTML = `<div style="padding:20px; color:red">Error: ${e}</div>`;
+            }
+        }
+
+        function filterTraces() {
+            const query = (document.getElementById('traceSearch')?.value || '').toLowerCase();
+            if (query) {
+                filteredTraceGroups = traceGroups.filter(g =>
+                    g.trace_id.toLowerCase().includes(query)
+                );
+            } else {
+                filteredTraceGroups = traceGroups;
+            }
+            renderTraceList(document.getElementById('reqList'));
+        }
+
+        let searchTimeout = null;
+        function onTraceSearchInput() {
+            const query = document.getElementById('traceSearch')?.value || '';
+            clearTimeout(searchTimeout);
+
+            if (query.length >= 8 && /^[a-f0-9]+$/i.test(query)) {
+                searchTimeout = setTimeout(() => loadTraces(query), 300);
+            } else {
+                filterTraces();
+            }
+        }
+
+        function renderTraceList(list) {
+            list.innerHTML = '';
+            document.getElementById('trace-count').innerText = filteredTraceGroups.length;
+
+            filteredTraceGroups.forEach((g, idx) => {
+                const el = document.createElement('div');
+                el.className = `req-card ${g.status === 'ERR' ? 'error' : ''}`;
+                const originalIdx = traceGroups.findIndex(t => t.trace_id === g.trace_id);
+                el.onclick = () => selectTrace(originalIdx);
+
+                const time = new Date(g.start_time).toLocaleTimeString();
+                const intent = extractUserIntent(g.root);
+
+                el.innerHTML = `
+                    <div class="req-top">
+                        <span class="req-status ${g.status === 'ERR' ? 'err' : 'ok'}"></span>
+                        <span class="req-time">${time}</span>
+                    </div>
+                    <div class="req-query">${escapeHtml(intent)}</div>
+                    <div class="req-meta">
+                         <span class="badge" title="${g.trace_id}" style="font-family:monospace; font-size:10px">${g.trace_id.substring(0,8)}</span>
+                         <span class="badge">${(g.total_duration_ms/1000).toFixed(1)}s</span>
+                         <span class="badge">${g.spans.length} spans</span>
+                    </div>
+                `;
+                list.appendChild(el);
+            });
+        }
+
+        function selectTrace(idx) {
+             const g = traceGroups[idx];
+             if(!g) return;
+
+             selectedTraceId = g.trace_id;
+
+             document.getElementById('emptyState').classList.add('hidden');
+             document.getElementById('detailView').classList.remove('hidden');
+
+             document.getElementById('dTitle').innerText = extractUserIntent(g.root);
+             document.getElementById('dId').innerText = g.trace_id;
+             document.getElementById('dDur').innerText = `${g.total_duration_ms.toFixed(0)} ms`;
+             document.getElementById('dTime').innerText = new Date(g.start_time).toLocaleString();
+
+             renderWaterfall(g);
+        }
+
+        function renderWaterfall(g) {
+            const container = document.getElementById('waterfall');
+            container.innerHTML = '';
+
+            const totalDur = Math.max(g.total_duration_ms, 1);
+            const baseTime = new Date(g.start_time).getTime();
+
+            g.spans.forEach(span => {
+                const start = new Date(span.start_time).getTime();
+                const offset = start - baseTime;
+
+                let bg = 'bg-def';
+                const name = (span.name || '').toLowerCase();
+                const type = (span.attributes?.type);
+
+                if (span.status === 'ERROR' || span.status === 'fail') bg = 'bg-err';
+                else if (name.includes('completion') || type === 'ai') bg = 'bg-ai';
+                else if (name.includes('tool') || span.attributes?.['tool.name']) bg = 'bg-tool';
+                else if (name.includes('postgres') || name.includes('db')) bg = 'bg-db';
+
+                const left = (offset / totalDur) * 100;
+                const width = Math.max((span.duration_ms / totalDur) * 100, 0.5);
+
+                const row = document.createElement('div');
+                row.className = 'span-row';
+
+                const bar = document.createElement('div');
+                bar.className = `span-bar ${bg}`;
+                bar.style.left = `${left}%`;
+                bar.style.width = `${width}%`;
+                bar.title = `${span.name} (Status: ${span.status})`;
+
+                let label = span.name;
+                const attrs = span.attributes || {};
+
+                if(label.startsWith('executor.step_run')) {
+                    label = `Step ${attrs.step || '?'}`;
+                } else if(label.startsWith('skill.tool.') || label.includes('tool.call.')) {
+                    const toolName = attrs['tool.name'] || label.split('.').pop();
+                    const query = attrs['search.query'];
+                    const url = attrs['fetch.url'];
+                    const filePath = attrs['file.path'];
+
+                    if(query) {
+                        label = `Search ${toolName}: "${query.substring(0, 40)}${query.length > 40 ? '...' : ''}"`;
+                    } else if(url) {
+                        const shortUrl = url.length > 50 ? url.substring(0, 47) + '...' : url;
+                        label = `Fetch ${toolName}: ${shortUrl}`;
+                    } else if(filePath) {
+                        label = `File ${toolName}: ${filePath.split('/').pop()}`;
+                    } else {
+                        label = `Tool ${toolName}`;
+                    }
+                } else if(label.startsWith('skill.execution.')) {
+                    const skillName = label.replace('skill.execution.', '');
+                    label = `Skill: ${skillName}`;
+                } else if(label.startsWith('skill.turn.')) {
+                    const turn = label.replace('skill.turn.', '');
+                    label = `Turn ${turn}`;
+                }
+
+                bar.innerText = label;
+                bar.onclick = () => showDetails(span);
+
+                row.appendChild(bar);
+                container.appendChild(row);
+            });
+        }
+
+        function showDetails(span) {
+             const drawer = document.getElementById('attrDrawer');
+             const content = document.getElementById('drawerContent');
+             const attrs = span.attributes || {};
+
+             let attrCards = '';
+             const keyAttrs = [
+                 { key: 'search.query', label: 'Search Query', icon: 'Search' },
+                 { key: 'fetch.url', label: 'Fetched URL', icon: 'URL' },
+                 { key: 'file.path', label: 'File Path', icon: 'File' },
+                 { key: 'tool.name', label: 'Tool Name', icon: 'Tool' },
+                 { key: 'tool.output_preview', label: 'Output Preview', icon: 'Output' },
+                 { key: 'tool.status', label: 'Status', icon: 'Status' },
+                 { key: 'tool.error', label: 'Error', icon: 'Error' },
+                 { key: 'goal', label: 'Skill Goal', icon: 'Goal' },
+             ];
+
+             keyAttrs.forEach(({key, label, icon}) => {
+                 if(attrs[key]) {
+                     attrCards += `
+                         <div class="attr-card">
+                             <div class="attr-label">${icon}: ${label}</div>
+                             <div class="attr-value">${escapeHtml(String(attrs[key]))}</div>
+                         </div>
+                     `;
+                 }
+             });
+
+             if(attrs['tool.args']) {
+                 try {
+                     const args = JSON.parse(attrs['tool.args']);
+                     attrCards += `
+                         <div class="attr-card">
+                             <div class="attr-label">Tool Arguments</div>
+                             <div class="attr-value" style="font-family:monospace; font-size:11px">${escapeHtml(JSON.stringify(args, null, 2))}</div>
+                         </div>
+                     `;
+                 } catch(e) {
+                     attrCards += `
+                         <div class="attr-card">
+                             <div class="attr-label">Tool Arguments</div>
+                             <div class="attr-value">${escapeHtml(attrs['tool.args'])}</div>
+                         </div>
+                     `;
+                 }
+             }
+
+             content.innerHTML = `
+                <div class="drawer-attrs">
+                    <div style="font-weight:600; font-size:16px; margin-bottom:12px">${escapeHtml(span.name)}</div>
+                    <div style="margin-bottom:16px">
+                        <span class="badge ${span.status==='ERROR' ? 'bg-err' : 'bg-ai'}" style="color:white">${span.status}</span>
+                        <span class="badge">${span.duration_ms.toFixed(1)} ms</span>
+                    </div>
+                    ${attrCards || '<div style="color:var(--text-muted)">No key attributes</div>'}
+                </div>
+                <div class="drawer-json">
+                    <div class="attr-label" style="margin-bottom:8px">Raw Span Data</div>
+                    <pre id="drawerPre">${JSON.stringify(span, null, 2)}</pre>
+                </div>
+             `;
+
+             drawer.classList.add('open');
+        }
+
+        function closeDrawer() {
+             document.getElementById('attrDrawer').classList.remove('open');
+        }
+
+        function extractUserIntent(span) {
+            if (!span || !span.attributes) return "System Action";
+            const body = span.attributes['http.request.body'] || span.attributes['body'];
+            if (body) {
+                try {
+                     const obj = typeof body === 'string' ? JSON.parse(body) : body;
+                     if(obj.messages) {
+                         const user = obj.messages.find(m => m.role==='user');
+                         if(user) return user.content;
+                     }
+                     if(obj.prompt) return obj.prompt;
+                } catch(e) { if(typeof body==='string' && body.length>4) return body; }
+            }
+            return span.name;
+        }
+
+        function escapeHtml(str) {
+            if(!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        }
+    </script>
 </body>
 </html>
 """

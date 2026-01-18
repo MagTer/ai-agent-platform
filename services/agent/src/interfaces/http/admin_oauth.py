@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.engine import get_db
 from core.db.oauth_models import OAuthToken
 from core.tools.mcp_loader import get_mcp_client_pool
+from interfaces.http.admin_auth import verify_admin_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -26,9 +27,13 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
 async def oauth_dashboard() -> str:
-    """OAuth token management dashboard."""
+    """OAuth token management dashboard.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -166,7 +171,7 @@ class RevokeResponse(BaseModel):
     revoked_token_id: UUID
 
 
-@router.get("/tokens", response_model=OAuthTokenList)
+@router.get("/tokens", response_model=OAuthTokenList, dependencies=[Depends(verify_admin_user)])
 async def list_oauth_tokens(
     context_id: UUID | None = None,
     provider: str | None = None,
@@ -183,7 +188,7 @@ async def list_oauth_tokens(
         List of OAuth tokens (with sensitive data masked)
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     stmt = select(OAuthToken)
 
@@ -216,7 +221,9 @@ async def list_oauth_tokens(
     return OAuthTokenList(tokens=token_infos, total=len(token_infos))
 
 
-@router.delete("/tokens/{token_id}", response_model=RevokeResponse)
+@router.delete(
+    "/tokens/{token_id}", response_model=RevokeResponse, dependencies=[Depends(verify_admin_user)]
+)
 async def revoke_oauth_token(
     token_id: UUID,
     session: AsyncSession = Depends(get_db),
@@ -238,7 +245,7 @@ async def revoke_oauth_token(
         HTTPException: 404 if token not found
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     # Find token
     stmt = select(OAuthToken).where(OAuthToken.id == token_id)
@@ -275,7 +282,9 @@ async def revoke_oauth_token(
     )
 
 
-@router.get("/status/{context_id}", response_model=dict[str, Any])
+@router.get(
+    "/status/{context_id}", response_model=dict[str, Any], dependencies=[Depends(verify_admin_user)]
+)
 async def get_oauth_status(
     context_id: UUID,
     session: AsyncSession = Depends(get_db),
@@ -292,7 +301,7 @@ async def get_oauth_status(
         OAuth status summary
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     stmt = select(OAuthToken).where(OAuthToken.context_id == context_id)
     result = await session.execute(stmt)

@@ -50,6 +50,7 @@ langchain-text-splitters = "^1.1.0"
 pathspec = "^0.12.1"
 aiogram = "^3.10.0"
 torch = { version = "2.2.2", source = "pytorch-cpu" }
+cryptography = "^46.0.3"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "9.0.0"

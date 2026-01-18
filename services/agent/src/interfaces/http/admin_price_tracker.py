@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import AsyncSessionLocal, get_db
 from core.providers import get_fetcher
+from interfaces.http.admin_auth import verify_admin_user
 from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
 from modules.price_tracker.parser import PriceParser
 from modules.price_tracker.service import PriceTrackerService
@@ -42,7 +43,9 @@ def get_price_tracker_service() -> PriceTrackerService:
     return PriceTrackerService(AsyncSessionLocal)
 
 
-@router.get("/stores", response_model=list[StoreResponse])
+@router.get(
+    "/stores", response_model=list[StoreResponse], dependencies=[Depends(verify_admin_user)]
+)
 async def list_stores(
     session: AsyncSession = Depends(get_db),
 ) -> list[StoreResponse]:
@@ -52,7 +55,7 @@ async def list_stores(
         List of store information including slug, type, and status.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         stmt = select(Store).where(Store.is_active.is_(True)).order_by(Store.name)
@@ -75,7 +78,9 @@ async def list_stores(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/products", response_model=list[ProductResponse])
+@router.get(
+    "/products", response_model=list[ProductResponse], dependencies=[Depends(verify_admin_user)]
+)
 async def list_products(
     search: str | None = None,
     store_id: str | None = None,
@@ -92,7 +97,7 @@ async def list_products(
         List of products with linked stores.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         stmt = select(Product)
@@ -194,7 +199,7 @@ async def list_products(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/products", status_code=201)
+@router.post("/products", status_code=201, dependencies=[Depends(verify_admin_user)])
 async def create_product(
     data: ProductCreate,
     service: PriceTrackerService = Depends(get_price_tracker_service),
@@ -209,7 +214,7 @@ async def create_product(
         Dictionary with product_id and success message.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         product = await service.create_product(
@@ -224,7 +229,11 @@ async def create_product(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/products/{product_id}", response_model=ProductResponse)
+@router.get(
+    "/products/{product_id}",
+    response_model=ProductResponse,
+    dependencies=[Depends(verify_admin_user)],
+)
 async def get_product(
     product_id: str,
     session: AsyncSession = Depends(get_db),
@@ -239,7 +248,7 @@ async def get_product(
         Product data with linked stores.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         product_uuid = uuid.UUID(product_id)
@@ -314,7 +323,9 @@ async def get_product(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/products/{product_id}/stores", status_code=201)
+@router.post(
+    "/products/{product_id}/stores", status_code=201, dependencies=[Depends(verify_admin_user)]
+)
 async def link_product_to_store(
     product_id: str,
     data: ProductStoreLink,
@@ -331,7 +342,7 @@ async def link_product_to_store(
         Dictionary with product_store_id and success message.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         product_store = await service.link_product_store(
@@ -349,7 +360,9 @@ async def link_product_to_store(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.delete("/products/{product_id}/stores/{store_id}")
+@router.delete(
+    "/products/{product_id}/stores/{store_id}", dependencies=[Depends(verify_admin_user)]
+)
 async def unlink_product_from_store(
     product_id: str,
     store_id: str,
@@ -366,7 +379,7 @@ async def unlink_product_from_store(
         Success message.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         product_uuid = uuid.UUID(product_id)
@@ -395,7 +408,11 @@ async def unlink_product_from_store(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/products/{product_id}/prices", response_model=list[PricePointResponse])
+@router.get(
+    "/products/{product_id}/prices",
+    response_model=list[PricePointResponse],
+    dependencies=[Depends(verify_admin_user)],
+)
 async def get_price_history(
     product_id: str,
     days: int = 30,
@@ -412,7 +429,7 @@ async def get_price_history(
         List of price points sorted by checked_at descending.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         product_uuid = uuid.UUID(product_id)
@@ -463,7 +480,7 @@ async def get_price_history(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/check/{product_store_id}")
+@router.post("/check/{product_store_id}", dependencies=[Depends(verify_admin_user)])
 async def trigger_price_check(
     product_store_id: str,
     session: AsyncSession = Depends(get_db),
@@ -485,7 +502,7 @@ async def trigger_price_check(
         Dictionary with extracted price data.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         ps_uuid = uuid.UUID(product_store_id)
@@ -578,7 +595,7 @@ async def trigger_price_check(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/deals", response_model=list[DealResponse])
+@router.get("/deals", response_model=list[DealResponse], dependencies=[Depends(verify_admin_user)])
 async def get_current_deals(
     store_type: str | None = None,
     session: AsyncSession = Depends(get_db),
@@ -593,7 +610,7 @@ async def get_current_deals(
         List of current deals sorted by checked_at descending.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         from datetime import timedelta
@@ -660,7 +677,7 @@ async def get_current_deals(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/watches")
+@router.get("/watches", dependencies=[Depends(verify_admin_user)])
 async def list_watches(
     context_id: str | None = None,
     session: AsyncSession = Depends(get_db),
@@ -675,7 +692,7 @@ async def list_watches(
         List of price watch configurations.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         stmt = select(PriceWatch, Product).join(Product, PriceWatch.product_id == Product.id)
@@ -725,7 +742,7 @@ async def list_watches(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/watches", status_code=201)
+@router.post("/watches", status_code=201, dependencies=[Depends(verify_admin_user)])
 async def create_watch(
     data: PriceWatchCreate,
     context_id: str,
@@ -742,7 +759,7 @@ async def create_watch(
         Dictionary with watch_id and success message.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         watch = await service.create_watch(
@@ -761,7 +778,7 @@ async def create_watch(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.delete("/watches/{watch_id}")
+@router.delete("/watches/{watch_id}", dependencies=[Depends(verify_admin_user)])
 async def delete_watch(
     watch_id: str,
     session: AsyncSession = Depends(get_db),
@@ -776,7 +793,7 @@ async def delete_watch(
         Success message.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         watch_uuid = uuid.UUID(watch_id)
@@ -802,7 +819,7 @@ async def delete_watch(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.delete("/products/{product_id}")
+@router.delete("/products/{product_id}", dependencies=[Depends(verify_admin_user)])
 async def delete_product(
     product_id: str,
     service: PriceTrackerService = Depends(get_price_tracker_service),
@@ -822,7 +839,7 @@ async def delete_product(
         Success message.
 
     Security:
-        Requires admin API key via X-API-Key header.
+        Requires admin role via Entra ID authentication.
     """
     try:
         await service.delete_product(product_id)
@@ -834,15 +851,15 @@ async def delete_product(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
 async def price_tracker_dashboard() -> str:
     """Server-rendered admin dashboard for price tracking.
 
     Returns:
         HTML dashboard for managing products, deals, and price watches.
 
-    Note:
-        No authentication required. Will be replaced with Entra ID later.
+    Security:
+        Requires admin role via Entra ID authentication.
     """
     return """<!DOCTYPE html>
 <html lang="en">

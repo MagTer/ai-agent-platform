@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+COPY pyproject.toml poetry.lock ./
 COPY alembic.ini ./
 COPY alembic ./alembic
 

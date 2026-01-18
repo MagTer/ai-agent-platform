@@ -37,6 +37,22 @@ The AI Agent Platform implements a **context-based multi-tenant architecture** w
 
 ## Core Concepts
 
+### User
+
+A `User` represents an authenticated user in the system. Users are auto-provisioned on first login.
+
+**Properties:**
+- `id` (int): Auto-increment primary key
+- `email` (string): Unique email address (case-insensitive, normalized to lowercase)
+- `name` (string): Display name from Entra ID
+- `role` (string): User role ("user" or "admin")
+- `created_at` (datetime): Account creation timestamp
+- `updated_at` (datetime): Last update timestamp
+
+**Relationships:**
+- `contexts`: Contexts this user has access to (many-to-many via `user_contexts`)
+- `credentials`: Encrypted credentials owned by this user
+
 ### Context
 
 A `Context` represents an isolated tenant environment. Think of it as a workspace or project.
@@ -49,9 +65,30 @@ A `Context` represents an isolated tenant environment. Think of it as a workspac
 - `default_cwd` (string): Default working directory
 
 **Relationships:**
+- `users`: Users who have access to this context (many-to-many via `user_contexts`)
 - `conversations`: All conversations in this context
 - `oauth_tokens`: OAuth tokens for MCP integrations
 - `tool_permissions`: Tool access controls
+
+### UserCredential
+
+A `UserCredential` stores encrypted credentials for external integrations on a per-user basis.
+
+**Properties:**
+- `id` (int): Auto-increment primary key
+- `user_id` (int): Foreign key to User
+- `credential_type` (string): Type of credential (e.g., "azure_devops_pat", "github_token")
+- `encrypted_value` (bytes): Fernet-encrypted credential value
+- `created_at` (datetime): Creation timestamp
+- `updated_at` (datetime): Last update timestamp
+
+**Unique Constraint:** `(user_id, credential_type)` - one credential per type per user
+
+**Supported Types:**
+- `azure_devops_pat`: Azure DevOps Personal Access Token
+- `github_token`: GitHub Personal Access Token
+- `gitlab_token`: GitLab Personal Access Token
+- `jira_api_token`: Jira API Token
 
 ### Conversation
 
@@ -301,31 +338,40 @@ client_b = McpClient(
 ```
 1. User sends message in OpenWebUI
    ↓
-2. OpenWebUI → POST /v1/chat/completions
+2. OpenWebUI → POST /v1/chat/completions with headers:
+   - X-OpenWebUI-User-Email: user@example.com
+   - X-OpenWebUI-User-Name: John Doe
+   - X-OpenWebUI-User-Role: user
    ↓
-3. OpenWebUI Adapter extracts conversation_id
+3. Extract user info from headers
+   - Normalize email to lowercase
+   - Get or create User record in database
    ↓
-4. Adapter queries database for conversation → context_id
+4. OpenWebUI Adapter extracts conversation_id
    ↓
-5. If new conversation:
+5. Adapter queries database for conversation → context_id
+   ↓
+6. If new conversation:
    - Create Context (name="openwebui_{uuid}")
    - Create Conversation (context_id=new_context.id)
+   - Link User to Context via user_contexts table
    ↓
-6. ServiceFactory.create_service(context_id, session)
+7. ServiceFactory.create_service(context_id, session)
    ↓
-7. ServiceFactory:
+8. ServiceFactory:
    - Clones base tool registry
    - Loads tool permissions for context_id
    - Filters tools by permissions
    - Loads MCP tools (with OAuth tokens for context_id)
    - Creates MemoryStore(context_id=context_id)
    ↓
-8. AgentService.handle_request(request)
+9. AgentService.handle_request(request)
    - Searches memory (filtered by context_id)
    - Calls tools (from context-specific registry)
    - Uses MCP clients (authenticated with context OAuth)
+   - Can access user's encrypted credentials if needed
    ↓
-9. Response returned to user
+10. Response returned to user
 ```
 
 ### /v1/agent Endpoint Flow
@@ -348,14 +394,21 @@ client_b = McpClient(
 
 ### Authentication Layers
 
-**User Layer (OpenWebUI/Telegram):**
-- Handled by interface platform (OpenWebUI, Telegram Bot)
+**User Layer (OpenWebUI):**
+- Entra ID authentication via Open WebUI
+- User information forwarded via headers:
+  - `X-OpenWebUI-User-Email`: User's email (normalized to lowercase)
+  - `X-OpenWebUI-User-Name`: User's display name
+  - `X-OpenWebUI-User-Id`: Open WebUI internal user ID
+  - `X-OpenWebUI-User-Role`: User's role ("user" or "admin")
+- Auto-provisioning on first login
 - Maps user → conversation → context
 
 **Admin Layer:**
-- API key authentication (`X-API-Key` header)
-- Environment variable: `AGENT_ADMIN_API_KEY`
-- Access to all contexts (for management)
+- Entra ID authentication forwarded from Open WebUI
+- Requires `X-OpenWebUI-User-Role: admin` header
+- Access to all contexts and credentials (for management)
+- No separate API key needed
 
 ### Authorization
 
@@ -371,10 +424,38 @@ client_b = McpClient(
 
 ### Data Access Rules
 
-1. **Conversations**: Can only be accessed by their context
-2. **Memories**: Automatically filtered by context_id
-3. **OAuth Tokens**: Unique per (context, provider)
-4. **MCP Clients**: Isolated by context, use context OAuth tokens
+1. **Users**: Auto-created on first login, identified by email
+2. **Conversations**: Can only be accessed by their context
+3. **Memories**: Automatically filtered by context_id
+4. **OAuth Tokens**: Unique per (context, provider)
+5. **User Credentials**: Encrypted per user, isolated by user_id
+6. **MCP Clients**: Isolated by context, use context OAuth tokens
+
+### Credential Security
+
+**Encryption:**
+- Fernet symmetric encryption (AES-128 in CBC mode)
+- Encryption key from `AGENT_CREDENTIAL_ENCRYPTION_KEY` environment variable
+- Credentials encrypted at rest in database
+- Decrypted only when needed for tool execution
+
+**Access Control:**
+- Users can only access their own credentials
+- Admin role required for credential management endpoints
+- Credentials scoped per user (not per context)
+- Credentials never exposed in API responses
+
+**Key Management:**
+```bash
+# Generate encryption key
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Add to .env
+AGENT_CREDENTIAL_ENCRYPTION_KEY=your_generated_key_here
+
+# Store in secrets manager (production)
+export AGENT_CREDENTIAL_ENCRYPTION_KEY=$(vault read -field=key secret/credential_key)
+```
 
 ---
 
@@ -449,8 +530,12 @@ poetry run python scripts/migrate_memory_context.py
 
 Add to `.env`:
 ```bash
-# Generate admin key: openssl rand -hex 32
-AGENT_ADMIN_API_KEY=your_generated_key_here
+# Generate credential encryption key
+# python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+AGENT_CREDENTIAL_ENCRYPTION_KEY=your_generated_key_here
+
+# Open WebUI must forward user headers
+ENABLE_FORWARD_USER_INFO_HEADERS=true  # In Open WebUI .env
 ```
 
 **4. Code Changes**

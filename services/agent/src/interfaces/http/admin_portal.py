@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
+
+from interfaces.http.admin_auth import verify_admin_user
 
 router = APIRouter(
     prefix="/admin",
@@ -12,12 +14,15 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
 async def admin_portal() -> str:
     """Unified admin portal landing page.
 
     Returns:
         HTML page with navigation to all admin sections.
+
+    Security:
+        Requires admin role via Entra ID authentication.
     """
     return """<!DOCTYPE html>
 <html lang="en">
@@ -228,6 +233,23 @@ async def admin_portal() -> str:
                 <h2>Diagnostics</h2>
                 <p>System health monitoring, trace analysis, and component status checks.</p>
                 <div class="endpoint">/admin/diagnostics/</div>
+            </a>
+        </div>
+
+        <div class="section-title">User Management</div>
+        <div class="grid">
+            <a href="/admin/users/" class="card">
+                <div class="card-icon blue">&#128100;</div>
+                <h2>Users</h2>
+                <p>Manage user accounts, roles, and permissions across the platform.</p>
+                <div class="endpoint">/admin/users/</div>
+            </a>
+
+            <a href="/admin/credentials/" class="card">
+                <div class="card-icon purple">&#128273;</div>
+                <h2>Credentials</h2>
+                <p>Manage encrypted credentials (PATs, API tokens) for users.</p>
+                <div class="endpoint">/admin/credentials/</div>
             </a>
         </div>
 

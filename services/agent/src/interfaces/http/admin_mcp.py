@@ -7,11 +7,12 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from core.tools.mcp_loader import get_mcp_client_pool, get_mcp_health, get_mcp_stats
+from interfaces.http.admin_auth import verify_admin_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,9 +22,13 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
 async def mcp_dashboard() -> str:
-    """MCP client management dashboard."""
+    """MCP client management dashboard.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -152,7 +157,7 @@ class DisconnectResponse(BaseModel):
     context_id: UUID
 
 
-@router.get("/health", response_model=MCPHealthResponse)
+@router.get("/health", response_model=MCPHealthResponse, dependencies=[Depends(verify_admin_user)])
 async def get_mcp_client_health() -> MCPHealthResponse:
     """Get health status of all MCP client pools across all contexts.
 
@@ -163,7 +168,7 @@ async def get_mcp_client_health() -> MCPHealthResponse:
         - Cache staleness
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
 
     Example response:
         {
@@ -189,7 +194,7 @@ async def get_mcp_client_health() -> MCPHealthResponse:
     return MCPHealthResponse(health=health)
 
 
-@router.get("/stats", response_model=MCPStatsResponse)
+@router.get("/stats", response_model=MCPStatsResponse, dependencies=[Depends(verify_admin_user)])
 async def get_mcp_client_stats() -> MCPStatsResponse:
     """Get overall MCP client pool statistics.
 
@@ -201,7 +206,7 @@ async def get_mcp_client_stats() -> MCPStatsResponse:
         - Number of disconnected clients
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
 
     Example response:
         {
@@ -217,7 +222,11 @@ async def get_mcp_client_stats() -> MCPStatsResponse:
     return MCPStatsResponse(stats=stats)
 
 
-@router.post("/disconnect/{context_id}", response_model=DisconnectResponse)
+@router.post(
+    "/disconnect/{context_id}",
+    response_model=DisconnectResponse,
+    dependencies=[Depends(verify_admin_user)],
+)
 async def disconnect_mcp_clients(context_id: UUID) -> DisconnectResponse:
     """Force disconnect all MCP clients for a context.
 
@@ -241,7 +250,7 @@ async def disconnect_mcp_clients(context_id: UUID) -> DisconnectResponse:
         HTTPException: 503 if MCP client pool not initialized
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     try:
         pool = get_mcp_client_pool()

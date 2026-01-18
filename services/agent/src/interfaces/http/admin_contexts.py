@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.engine import get_db
 from core.db.models import Context, Conversation, ToolPermission
 from core.db.oauth_models import OAuthToken
+from interfaces.http.admin_auth import verify_admin_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -26,9 +27,13 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
 async def contexts_dashboard() -> str:
-    """Context management dashboard."""
+    """Context management dashboard.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -181,7 +186,7 @@ class DeleteContextResponse(BaseModel):
     deleted_context_id: UUID
 
 
-@router.get("", response_model=ContextList)
+@router.get("", response_model=ContextList, dependencies=[Depends(verify_admin_user)])
 async def list_contexts(
     type_filter: str | None = None,
     session: AsyncSession = Depends(get_db),
@@ -196,7 +201,7 @@ async def list_contexts(
         List of contexts with counts of related entities
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     stmt = select(Context)
 
@@ -243,7 +248,9 @@ async def list_contexts(
     return ContextList(contexts=context_infos, total=len(context_infos))
 
 
-@router.get("/{context_id}", response_model=ContextDetailResponse)
+@router.get(
+    "/{context_id}", response_model=ContextDetailResponse, dependencies=[Depends(verify_admin_user)]
+)
 async def get_context_details(
     context_id: UUID,
     session: AsyncSession = Depends(get_db),
@@ -261,7 +268,7 @@ async def get_context_details(
         HTTPException: 404 if context not found
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     # Get context
     stmt = select(Context).where(Context.id == context_id)
@@ -333,7 +340,7 @@ async def get_context_details(
     )
 
 
-@router.post("", response_model=CreateContextResponse)
+@router.post("", response_model=CreateContextResponse, dependencies=[Depends(verify_admin_user)])
 async def create_context(
     request: CreateContextRequest,
     session: AsyncSession = Depends(get_db),
@@ -351,7 +358,7 @@ async def create_context(
         HTTPException: 400 if context name already exists
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     # Check if context name already exists
     stmt = select(Context).where(Context.name == request.name)
@@ -386,7 +393,9 @@ async def create_context(
     )
 
 
-@router.delete("/{context_id}", response_model=DeleteContextResponse)
+@router.delete(
+    "/{context_id}", response_model=DeleteContextResponse, dependencies=[Depends(verify_admin_user)]
+)
 async def delete_context(
     context_id: UUID,
     session: AsyncSession = Depends(get_db),
@@ -409,7 +418,7 @@ async def delete_context(
         HTTPException: 404 if context not found
 
     Security:
-        Requires admin API key via X-API-Key header
+        Requires admin role via Entra ID authentication.
     """
     stmt = select(Context).where(Context.id == context_id)
     result = await session.execute(stmt)

@@ -7,12 +7,16 @@ This module defines database models for OAuth 2.0 tokens and temporary state sto
 
 import uuid
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db.models import Base
+
+if TYPE_CHECKING:
+    from core.db.models import User
 
 
 def _utc_now() -> datetime:
@@ -32,6 +36,7 @@ class OAuthToken(Base):
     Attributes:
         id: Primary key
         context_id: Foreign key to Context (multi-tenant isolation)
+        user_id: Foreign key to User (optional, for user-specific tokens)
         provider: OAuth provider name (e.g., "homey", "github")
         access_token: Bearer token for API authentication
         refresh_token: Token for automatic refresh (optional)
@@ -49,6 +54,9 @@ class OAuthToken(Base):
     context_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("contexts.id", ondelete="CASCADE"), index=True
     )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     provider: Mapped[str] = mapped_column(String, index=True)
     access_token: Mapped[str] = mapped_column(String)
     refresh_token: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -59,7 +67,12 @@ class OAuthToken(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
-    __table_args__ = (UniqueConstraint("context_id", "provider", name="uq_context_provider"),)
+    # Relationships
+    user: Mapped["User | None"] = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        UniqueConstraint("context_id", "provider", "user_id", name="uq_context_provider_user"),
+    )
 
 
 class OAuthState(Base):
@@ -71,6 +84,7 @@ class OAuthState(Base):
     Attributes:
         state: Random state string (primary key, used for CSRF protection)
         context_id: Foreign key to Context
+        user_id: Optional foreign key to User (for user-specific OAuth flows)
         provider: OAuth provider name
         code_verifier: PKCE code verifier (stored for token exchange)
         expires_at: State expiration timestamp (10 minutes)
@@ -81,6 +95,9 @@ class OAuthState(Base):
 
     state: Mapped[str] = mapped_column(String, primary_key=True)
     context_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("contexts.id"))
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True
+    )
     provider: Mapped[str] = mapped_column(String)
     code_verifier: Mapped[str] = mapped_column(String)
     expires_at: Mapped[datetime] = mapped_column(DateTime)

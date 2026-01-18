@@ -82,7 +82,9 @@ class OAuthClient:
 
         return code_verifier, code_challenge_b64
 
-    async def get_authorization_url(self, provider: str, context_id: UUID) -> tuple[str, str]:
+    async def get_authorization_url(
+        self, provider: str, context_id: UUID, user_id: UUID | None = None
+    ) -> tuple[str, str]:
         """Generate OAuth authorization URL with PKCE.
 
         Creates PKCE parameters and state, stores them in database, and returns
@@ -91,6 +93,7 @@ class OAuthClient:
         Args:
             provider: OAuth provider name
             context_id: Context UUID
+            user_id: Optional user UUID for user-specific tokens
 
         Returns:
             Tuple of (authorization_url, state)
@@ -111,6 +114,7 @@ class OAuthClient:
             oauth_state = OAuthState(
                 state=state,
                 context_id=context_id,
+                user_id=user_id,
                 provider=provider,
                 code_verifier=code_verifier,
                 expires_at=datetime.now(UTC).replace(tzinfo=None) + timedelta(minutes=10),
@@ -167,6 +171,7 @@ class OAuthClient:
 
             provider = oauth_state.provider
             context_id = oauth_state.context_id
+            user_id = oauth_state.user_id
             code_verifier = oauth_state.code_verifier
 
             # Get provider config
@@ -214,11 +219,19 @@ class OAuthClient:
             # Parse token response
             token_response = TokenResponse(**token_response_data)
 
-            # Delete or update existing token
-            stmt = select(OAuthToken).where(
-                OAuthToken.context_id == context_id,
-                OAuthToken.provider == provider,
-            )
+            # Delete or update existing token for this user/context
+            if user_id:
+                stmt = select(OAuthToken).where(
+                    OAuthToken.context_id == context_id,
+                    OAuthToken.provider == provider,
+                    OAuthToken.user_id == user_id,
+                )
+            else:
+                stmt = select(OAuthToken).where(
+                    OAuthToken.context_id == context_id,
+                    OAuthToken.provider == provider,
+                    OAuthToken.user_id.is_(None),
+                )
             result = await session.execute(stmt)
             existing_token = result.scalar_one_or_none()
 
@@ -237,6 +250,7 @@ class OAuthClient:
                 # Create new token
                 new_token = OAuthToken(
                     context_id=context_id,
+                    user_id=user_id,
                     provider=provider,
                     access_token=token_response.access_token,
                     refresh_token=token_response.refresh_token,
@@ -255,26 +269,47 @@ class OAuthClient:
                 extra={"provider": provider, "context_id": str(context_id)},
             )
 
-    async def get_token(self, provider: str, context_id: UUID) -> str | None:
+    async def get_token(
+        self, provider: str, context_id: UUID, user_id: UUID | None = None
+    ) -> str | None:
         """Get valid access token, refreshing if needed.
 
         Retrieves token from database and checks expiration. If expired and
         refresh_token exists, automatically refreshes the token.
 
+        Supports both user-specific and context-level tokens. If user_id is provided,
+        prefers user-specific token but falls back to context-level token.
+
         Args:
             provider: OAuth provider name
             context_id: Context UUID
+            user_id: Optional user UUID for user-specific tokens
 
         Returns:
             Valid access token or None if unavailable
         """
         async with self._session_factory() as session:
-            stmt = select(OAuthToken).where(
-                OAuthToken.context_id == context_id,
-                OAuthToken.provider == provider,
-            )
-            result = await session.execute(stmt)
-            token = result.scalar_one_or_none()
+            token = None
+
+            # First try user-specific token if user_id provided
+            if user_id:
+                stmt = select(OAuthToken).where(
+                    OAuthToken.context_id == context_id,
+                    OAuthToken.provider == provider,
+                    OAuthToken.user_id == user_id,
+                )
+                result = await session.execute(stmt)
+                token = result.scalar_one_or_none()
+
+            # Fall back to context-level token (user_id is NULL)
+            if not token:
+                stmt = select(OAuthToken).where(
+                    OAuthToken.context_id == context_id,
+                    OAuthToken.provider == provider,
+                    OAuthToken.user_id.is_(None),
+                )
+                result = await session.execute(stmt)
+                token = result.scalar_one_or_none()
 
             if not token:
                 return None
@@ -366,18 +401,31 @@ class OAuthClient:
             extra={"provider": provider, "context_id": str(token.context_id)},
         )
 
-    async def revoke_token(self, provider: str, context_id: UUID) -> None:
+    async def revoke_token(
+        self, provider: str, context_id: UUID, user_id: UUID | None = None
+    ) -> None:
         """Revoke and delete OAuth token from database.
 
         Args:
             provider: OAuth provider name
             context_id: Context UUID
+            user_id: Optional user UUID for user-specific tokens
         """
         async with self._session_factory() as session:
-            stmt = select(OAuthToken).where(
-                OAuthToken.context_id == context_id,
-                OAuthToken.provider == provider,
-            )
+            # Revoke user-specific token if user_id provided
+            if user_id:
+                stmt = select(OAuthToken).where(
+                    OAuthToken.context_id == context_id,
+                    OAuthToken.provider == provider,
+                    OAuthToken.user_id == user_id,
+                )
+            else:
+                # Revoke context-level token
+                stmt = select(OAuthToken).where(
+                    OAuthToken.context_id == context_id,
+                    OAuthToken.provider == provider,
+                    OAuthToken.user_id.is_(None),
+                )
             result = await session.execute(stmt)
             token = result.scalar_one_or_none()
 
@@ -386,5 +434,9 @@ class OAuthClient:
                 await session.commit()
                 LOGGER.info(
                     "OAuth token revoked",
-                    extra={"provider": provider, "context_id": str(context_id)},
+                    extra={
+                        "provider": provider,
+                        "context_id": str(context_id),
+                        "user_id": str(user_id) if user_id else None,
+                    },
                 )

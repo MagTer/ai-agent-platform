@@ -7,12 +7,14 @@ from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth.header_auth import extract_user_from_headers
+from core.auth.user_service import get_or_create_user, get_user_default_context
 from core.core.config import Settings, get_settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.service import AgentService
@@ -87,23 +89,52 @@ def get_dispatcher(settings: Settings = Depends(get_settings_dep)) -> Dispatcher
 
 async def get_or_create_context_id(
     request: ChatCompletionRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_db),
 ) -> UUID:
     """Extract or create context_id from OpenWebUI conversation.
 
     Flow:
-    1. Get conversation_id from request (chat_id, session_id, or metadata)
-    2. Look up conversation in database to get context_id
-    3. If conversation doesn't exist yet, create a default context
-    4. Return context_id for use in context-aware services
+    1. Try to extract user from X-OpenWebUI-* headers
+    2. If user exists: Get or create user + return their personal context
+    3. If anonymous: Use existing ephemeral context logic (chat_id-based)
 
     Args:
         request: OpenWebUI chat completion request
+        http_request: FastAPI Request object (for headers)
         session: Database session
 
     Returns:
         Context UUID for this conversation
     """
+    # Step 1: Try to extract authenticated user from headers
+    identity = extract_user_from_headers(http_request)
+
+    if identity:
+        # Step 2: Get or create user (auto-provisions on first login)
+        user = await get_or_create_user(identity, session)
+
+        # Step 3: Get user's default (personal) context
+        context = await get_user_default_context(user, session)
+        if context:
+            LOGGER.debug(f"Using personal context {context.id} for user {user.email}")
+            return context.id
+
+        # Fallback: Create context if somehow missing (shouldn't happen)
+        LOGGER.warning(f"User {user.email} has no default context, creating one")
+        context = Context(
+            name=f"personal_{user.id}",
+            type="personal",
+            config={"owner_email": user.email},
+            default_cwd="/tmp",  # noqa: S108
+        )
+        session.add(context)
+        await session.flush()
+        return context.id
+
+    # Step 4: Anonymous user - use existing ephemeral context logic
+    LOGGER.debug("No user headers found, using anonymous context logic")
+
     # Extract conversation_id from OpenWebUI request
     conversation_id_str = (
         request.chat_id or request.session_id or (request.metadata or {}).get("conversation_id")
@@ -219,6 +250,7 @@ async def get_agent_service(
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
+    http_request: Request,
     dispatcher: Dispatcher = Depends(get_dispatcher),
     agent_service: AgentService = Depends(get_agent_service),
     session: AsyncSession = Depends(get_db),

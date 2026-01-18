@@ -2,10 +2,15 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 import yaml
 from azure.devops.connection import Connection
 from msrest.authentication import BasicAuthentication
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.auth.credential_service import CredentialService
+from core.core.config import get_settings
 
 from .base import Tool
 
@@ -249,6 +254,39 @@ class AzureDevOpsTool(Tool):
 
         return warnings
 
+    async def _get_pat_for_user(
+        self,
+        user_id: UUID | None,
+        session: AsyncSession | None,
+    ) -> str:
+        """Get PAT for user, falling back to global PAT.
+
+        Args:
+            user_id: User ID to get credential for.
+            session: Database session for credential lookup.
+
+        Returns:
+            User-specific PAT if found, otherwise global PAT from environment.
+        """
+        if user_id and session:
+            settings = get_settings()
+            if settings.credential_encryption_key:
+                cred_service = CredentialService(settings.credential_encryption_key)
+                try:
+                    user_pat = await cred_service.get_credential(
+                        user_id=user_id,
+                        credential_type="azure_devops_pat",
+                        session=session,
+                    )
+                    if user_pat:
+                        LOGGER.debug(f"Using user-specific Azure DevOps PAT for user {user_id}")
+                        return user_pat
+                except Exception as e:
+                    LOGGER.warning(f"Failed to get user credential for {user_id}: {e}")
+
+        # Fall back to global PAT
+        return self.pat or os.environ.get("AZURE_DEVOPS_PAT", "")
+
     async def run(
         self,
         action: str = "create",
@@ -266,6 +304,8 @@ class AzureDevOpsTool(Tool):
         state: str | None = None,
         query: str | None = None,
         top: int = 20,
+        user_id: UUID | None = None,
+        session: AsyncSession | None = None,
         **kwargs: Any,
     ) -> str:
         """
@@ -289,12 +329,19 @@ class AzureDevOpsTool(Tool):
             state: Filter by state: 'New', 'Active', 'Closed' (for list).
             query: Search text for WIQL query (for search action).
             top: Max results to return (default 20, for list/search).
+            user_id: Optional user ID for per-user PAT lookup.
+            session: Optional database session for credential lookup.
         """
-        if not self.org_url or not self.pat:
-            return "❌ Error: Azure DevOps configuration (ORG_URL or PAT) is missing."
+        if not self.org_url:
+            return "❌ Error: Azure DevOps configuration (ORG_URL) is missing."
+
+        # Get PAT for user (with fallback to global PAT)
+        pat = await self._get_pat_for_user(user_id, session)
+        if not pat:
+            return "❌ Error: Azure DevOps PAT not configured (no user PAT or global PAT found)."
 
         try:
-            credentials = BasicAuthentication("", self.pat)
+            credentials = BasicAuthentication("", pat)
             connection = Connection(base_url=self.org_url, creds=credentials)
             wit_client = connection.clients.get_work_item_tracking_client()
 

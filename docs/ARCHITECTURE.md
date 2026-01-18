@@ -52,7 +52,111 @@ The system follows a **Modular Monolith** architecture with a strict unidirectio
 
 ## Multi-Tenant Architecture
 
-The platform implements **context-based multi-tenancy** for complete isolation between users, workspaces, or projects.
+The platform implements **user and context-based multi-tenancy** for complete isolation between users, workspaces, or projects.
+
+### Data Model
+
+**User Model:**
+```python
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)  # Normalized lowercase
+    name: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(50), default="user")  # "user" or "admin"
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    contexts: Mapped[list["Context"]] = relationship(secondary="user_contexts", back_populates="users")
+    credentials: Mapped[list["UserCredential"]] = relationship(back_populates="user", cascade="all, delete-orphan")
+```
+
+**Context Model:**
+```python
+class Context(Base):
+    __tablename__ = "contexts"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    type: Mapped[str] = mapped_column(String(50))
+    config: Mapped[dict] = mapped_column(JSONB, default=dict)
+    default_cwd: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+
+    # Relationships
+    users: Mapped[list["User"]] = relationship(secondary="user_contexts", back_populates="contexts")
+    conversations: Mapped[list["Conversation"]] = relationship(back_populates="context", cascade="all, delete-orphan")
+    oauth_tokens: Mapped[list["OAuthToken"]] = relationship(back_populates="context", cascade="all, delete-orphan")
+```
+
+**UserCredential Model:**
+```python
+class UserCredential(Base):
+    __tablename__ = "user_credentials"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    credential_type: Mapped[str] = mapped_column(String(50))  # azure_devops_pat, github_token, etc.
+    encrypted_value: Mapped[bytes] = mapped_column(LargeBinary)  # Fernet encrypted
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user: Mapped["User"] = relationship(back_populates="credentials")
+
+    # Unique constraint
+    __table_args__ = (UniqueConstraint("user_id", "credential_type"),)
+```
+
+### User Auto-Provisioning
+
+Users are automatically created on first login when Open WebUI forwards authentication headers:
+
+```python
+async def get_or_create_user(email: str, name: str, role: str, session: AsyncSession) -> User:
+    # Normalize email to lowercase
+    email = email.lower()
+
+    # Check if user exists
+    stmt = select(User).where(User.email == email)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user:
+        # Create new user
+        user = User(email=email, name=name, role=role)
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+
+    return user
+```
+
+### Credential Encryption
+
+User credentials are encrypted using Fernet symmetric encryption:
+
+```python
+from cryptography.fernet import Fernet
+
+# Initialize cipher with key from environment
+encryption_key = os.getenv("AGENT_CREDENTIAL_ENCRYPTION_KEY")
+cipher = Fernet(encryption_key.encode())
+
+# Encrypt credential
+encrypted_value = cipher.encrypt(credential_value.encode())
+
+# Decrypt credential
+decrypted_value = cipher.decrypt(encrypted_value).decode()
+```
+
+**Security:**
+- Encryption key must be 32 URL-safe base64-encoded bytes
+- Generate key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+- Store key securely (environment variable, secrets manager)
+- Losing the key makes all credentials unrecoverable
 
 ### Service Factory Pattern
 
@@ -103,16 +207,20 @@ See [Multi-Tenant Architecture](./MULTI_TENANT_ARCHITECTURE.md) for details.
 
 ### Admin API
 
-The platform includes admin endpoints for managing contexts, OAuth tokens, and MCP clients:
+The platform includes admin endpoints for managing users, contexts, credentials, OAuth tokens, and MCP clients:
 
 ```bash
-# List contexts
+# Context management
 GET /admin/contexts
-
-# Create context
 POST /admin/contexts
+DELETE /admin/contexts/{context_id}
 
-# Manage OAuth tokens
+# Credential management
+GET /admin/credentials/
+POST /admin/credentials/
+DELETE /admin/credentials/{credential_id}
+
+# OAuth token management
 GET /admin/oauth/tokens
 DELETE /admin/oauth/tokens/{token_id}
 
@@ -121,7 +229,7 @@ GET /admin/mcp/health
 POST /admin/mcp/disconnect/{context_id}
 ```
 
-All admin endpoints require API key authentication (`X-API-Key` header).
+All admin endpoints require Entra ID authentication forwarded from Open WebUI with admin role.
 
 See [Admin API Reference](./ADMIN_API.md) for complete documentation.
 

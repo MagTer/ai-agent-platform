@@ -135,6 +135,16 @@ class Settings(BaseModel):
         description="API key for admin dashboard access (generate with: openssl rand -hex 32)",
     )
 
+    # User Credential Encryption
+    credential_encryption_key: str = Field(
+        default="",
+        description=(
+            "Fernet key for encrypting user credentials "
+            "(generate: python -c 'from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())')"
+        ),
+    )
+
     context7_mcp_url: HttpUrl | None = Field(
         default=None,
         description="URL for the Context7 Model Context Protocol (MCP) server.",
