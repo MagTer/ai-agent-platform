@@ -26,10 +26,11 @@ def main() -> None:
     repo_root = Path(__file__).resolve().parent
     agent_service = repo_root / "services" / "agent"
 
-    # Check if we're in a virtual environment
+    # Check if we're in a virtual environment or CI mode (dependencies installed globally)
     in_venv = sys.prefix != sys.base_prefix or os.environ.get("VIRTUAL_ENV") is not None
+    ci_mode = os.environ.get("CI") is not None  # GitHub Actions sets CI=true
 
-    if not in_venv:
+    if not in_venv and not ci_mode:
         # Re-execute via Poetry
         import shutil
 
