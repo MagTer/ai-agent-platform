@@ -9,9 +9,10 @@
 
 2.  **Code Check**: Before committing or PRs, run the quality suite.
     ```bash
-    poetry run python scripts/code_check.py
+    ./stack check
     ```
     This runs Ruff (lint/format), Black (format), mypy (types), and pytest (tests).
+    You can also run individual checks: `./stack lint`, `./stack typecheck`, `./stack test`.
 
 3.  **Pre-commit Hooks** (Optional but recommended):
     ```bash

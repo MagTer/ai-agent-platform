@@ -364,6 +364,18 @@ For detailed skill format, see [SKILLS_FORMAT.md](SKILLS_FORMAT.md).
 # Unit tests only
 python -m pytest services/agent/src/
 
-# Full quality check
-python scripts/code_check.py
+# Full quality check (lint, format, typecheck, test)
+./stack check
+
+# Fast linting and formatting only
+./stack lint
+
+# Type checking only
+./stack typecheck
+
+# Tests only
+./stack test
+
+# CI mode (no auto-fix)
+./stack check --no-fix
 ```

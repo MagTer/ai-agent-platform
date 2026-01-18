@@ -1,0 +1,73 @@
+# =============================================================================
+# DEVELOPMENT ENVIRONMENT
+# =============================================================================
+# Used when running: stack dev up
+#
+# This configuration:
+# - Uses different ports to allow prod to run simultaneously
+# - Uses separate database volumes to isolate dev data from prod
+# - Does NOT use Traefik (direct port access for debugging)
+#
+# Access points:
+#   Open WebUI:  http://localhost:3001
+#   Agent API:   http://localhost:8001
+#   PostgreSQL:  localhost:5433
+#   Qdrant:      localhost:6334
+#   LiteLLM:     localhost:4001
+#   SearxNG:     localhost:8081
+# =============================================================================
+
+services:
+  # Agent with dev port
+  agent:
+    ports:
+      - "8001:8000"
+    environment:
+      AGENT_ENVIRONMENT: development
+      # Use dev database (same credentials as prod, different db name)
+      POSTGRES_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/agent_db_dev
+
+  # Open WebUI with dev port (no Traefik)
+  open-webui:
+    ports:
+      - "3001:8080"
+    environment:
+      - WEBUI_URL=http://localhost:3001
+      # Disable automatic signup - admin creates users manually
+      - ENABLE_OAUTH_SIGNUP=false
+    # Disable Traefik routing for dev (avoid conflict with prod)
+    labels:
+      - "traefik.enable=false"
+
+  # PostgreSQL with dev port and separate volume
+  postgres:
+    ports:
+      - "5433:5432"
+    environment:
+      # Use same credentials as prod but different database name
+      POSTGRES_DB: agent_db_dev
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+
+  # Qdrant with dev port and separate data
+  qdrant:
+    ports:
+      - "6334:6333"
+    volumes:
+      - ./data/qdrant_dev:/qdrant/storage
+
+  # LiteLLM with dev port
+  litellm:
+    ports:
+      - "4001:4000"
+
+  # SearxNG with dev port
+  searxng:
+    ports:
+      - "8081:8080"
+
+volumes:
+  # Separate volume for dev database
+  postgres_data_dev:

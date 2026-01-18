@@ -3,19 +3,21 @@
 
 from __future__ import annotations
 
+import html
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
-from interfaces.http.admin_auth import verify_admin_user
+from interfaces.http.admin_auth import AdminUser, verify_admin_user
 
 router = APIRouter(
-    prefix="/admin",
-    tags=["admin"],
+    prefix="/platformadmin",
+    tags=["platform-admin"],
 )
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
-async def admin_portal() -> str:
+@router.get("/", response_class=HTMLResponse)
+async def admin_portal(admin: AdminUser = Depends(verify_admin_user)) -> str:
     """Unified admin portal landing page.
 
     Returns:
@@ -24,6 +26,22 @@ async def admin_portal() -> str:
     Security:
         Requires admin role via Entra ID authentication.
     """
+    # Escape user data for safe HTML rendering
+    user_email = html.escape(admin.email)
+    user_name = html.escape(admin.display_name or admin.email.split("@")[0])
+    user_initial = user_name[0].upper()
+
+    # Use string replacement to avoid escaping all CSS braces
+    template = _get_admin_portal_template()
+    return (
+        template.replace("{{USER_NAME}}", user_name)
+        .replace("{{USER_EMAIL}}", user_email)
+        .replace("{{USER_INITIAL}}", user_initial)
+    )
+
+
+def _get_admin_portal_template() -> str:
+    """Return the admin portal HTML template."""
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -57,7 +75,18 @@ async def admin_portal() -> str:
         .header {
             background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
             color: white;
-            padding: 40px 20px;
+            padding: 20px 20px 40px;
+        }
+
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1000px;
+            margin: 0 auto 20px;
+        }
+
+        .header-content {
             text-align: center;
         }
 
@@ -71,6 +100,57 @@ async def admin_portal() -> str:
             margin: 0;
             opacity: 0.8;
             font-size: 14px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .user-details {
+            text-align: left;
+        }
+
+        .user-name {
+            font-weight: 500;
+        }
+
+        .user-email {
+            font-size: 12px;
+            opacity: 0.7;
+        }
+
+        .logout-btn {
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
         }
 
         .container {
@@ -213,8 +293,21 @@ async def admin_portal() -> str:
 </head>
 <body>
     <div class="header">
-        <h1>Admin Portal</h1>
-        <p>AI Agent Platform Administration</p>
+        <div class="header-top">
+            <div></div>
+            <div class="user-info">
+                <div class="user-avatar">{{USER_INITIAL}}</div>
+                <div class="user-details">
+                    <div class="user-name">{{USER_NAME}}</div>
+                    <div class="user-email">{{USER_EMAIL}}</div>
+                </div>
+                <a href="/" class="logout-btn" title="Return to Open WebUI">Logout</a>
+            </div>
+        </div>
+        <div class="header-content">
+            <h1>Admin Portal</h1>
+            <p>AI Agent Platform Administration</p>
+        </div>
     </div>
 
     <div class="container">
@@ -228,59 +321,59 @@ async def admin_portal() -> str:
 
         <div class="section-title">Monitoring & Diagnostics</div>
         <div class="grid">
-            <a href="/admin/diagnostics/" class="card">
+            <a href="/platformadmin/diagnostics/" class="card">
                 <div class="card-icon blue">&#128200;</div>
                 <h2>Diagnostics</h2>
                 <p>System health monitoring, trace analysis, and component status checks.</p>
-                <div class="endpoint">/admin/diagnostics/</div>
+                <div class="endpoint">/platformadmin/diagnostics/</div>
             </a>
         </div>
 
         <div class="section-title">User Management</div>
         <div class="grid">
-            <a href="/admin/users/" class="card">
+            <a href="/platformadmin/users/" class="card">
                 <div class="card-icon blue">&#128100;</div>
                 <h2>Users</h2>
                 <p>Manage user accounts, roles, and permissions across the platform.</p>
-                <div class="endpoint">/admin/users/</div>
+                <div class="endpoint">/platformadmin/users/</div>
             </a>
 
-            <a href="/admin/credentials/" class="card">
+            <a href="/platformadmin/credentials/" class="card">
                 <div class="card-icon purple">&#128273;</div>
                 <h2>Credentials</h2>
                 <p>Manage encrypted credentials (PATs, API tokens) for users.</p>
-                <div class="endpoint">/admin/credentials/</div>
+                <div class="endpoint">/platformadmin/credentials/</div>
             </a>
         </div>
 
         <div class="section-title">Feature Management</div>
         <div class="grid">
-            <a href="/admin/price-tracker/" class="card">
+            <a href="/platformadmin/price-tracker/" class="card">
                 <div class="card-icon green">&#128181;</div>
                 <h2>Price Tracker</h2>
                 <p>Manage product price tracking, store links, deals monitoring, and price alerts.</p>
-                <div class="endpoint">/admin/price-tracker/</div>
+                <div class="endpoint">/platformadmin/price-tracker/</div>
             </a>
 
-            <a href="/admin/mcp/" class="card">
+            <a href="/platformadmin/mcp/" class="card">
                 <div class="card-icon purple">&#128268;</div>
                 <h2>MCP Servers</h2>
                 <p>Configure and monitor Model Context Protocol server connections.</p>
-                <div class="endpoint">/admin/mcp/</div>
+                <div class="endpoint">/platformadmin/mcp/</div>
             </a>
 
-            <a href="/admin/contexts/" class="card">
+            <a href="/platformadmin/contexts/" class="card">
                 <div class="card-icon orange">&#128451;</div>
                 <h2>Contexts</h2>
                 <p>Manage conversation contexts and associated resources.</p>
-                <div class="endpoint">/admin/contexts/</div>
+                <div class="endpoint">/platformadmin/contexts/</div>
             </a>
 
-            <a href="/admin/oauth/" class="card">
+            <a href="/platformadmin/oauth/" class="card">
                 <div class="card-icon pink">&#128274;</div>
                 <h2>OAuth Settings</h2>
                 <p>Configure OAuth providers and manage authentication tokens.</p>
-                <div class="endpoint">/admin/oauth/</div>
+                <div class="endpoint">/platformadmin/oauth/</div>
             </a>
         </div>
     </div>
@@ -298,7 +391,7 @@ async def admin_portal() -> str:
             text.textContent = 'Checking system health...';
 
             try {
-                const response = await fetch('/admin/diagnostics/summary');
+                const response = await fetch('/platformadmin/diagnostics/summary');
                 if (response.ok) {
                     const data = await response.json();
                     const status = data.overall_status || 'UNKNOWN';

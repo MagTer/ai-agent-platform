@@ -362,8 +362,13 @@ class Settings(BaseSettings):
 
 **Run quality-check:**
 ```bash
-python scripts/code_check.py
+./stack check
 ```
+
+**Or run individual checks:**
+- `./stack lint` - Ruff + Black
+- `./stack typecheck` - Mypy
+- `./stack test` - Pytest
 
 **Expected checks:**
 - [ ] Ruff linting passes
@@ -484,7 +489,7 @@ curl -X POST http://localhost:8000/v1/new-feature \
    - [ ] Manual testing passes
 
 2. **Quality:**
-   - [ ] `python scripts/code_check.py` passes
+   - [ ] `./stack check` passes
    - [ ] Architecture compliance verified
    - [ ] Security review clean
 

@@ -22,8 +22,8 @@ from interfaces.http.admin_auth import verify_admin_user
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/admin/oauth",
-    tags=["admin", "oauth"],
+    prefix="/platformadmin/oauth",
+    tags=["platform-admin", "oauth"],
 )
 
 
@@ -73,7 +73,7 @@ async def oauth_dashboard() -> str:
         <h1>OAuth Tokens</h1>
         <p>Manage OAuth authentication tokens</p>
     </div>
-    <div class="nav"><a href="/admin/">&larr; Back to Admin Portal</a></div>
+    <div class="nav"><a href="/platformadmin/">&larr; Back to Admin Portal</a></div>
     <div class="container">
         <div class="card">
             <h2>
@@ -88,7 +88,7 @@ async def oauth_dashboard() -> str:
     <script>
         async function loadTokens() {
             try {
-                const res = await fetch('/admin/oauth/tokens');
+                const res = await fetch('/platformadmin/oauth/tokens');
                 const data = await res.json();
                 renderTokens(data);
             } catch (e) {

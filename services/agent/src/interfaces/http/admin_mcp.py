@@ -17,8 +17,8 @@ from interfaces.http.admin_auth import verify_admin_user
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/admin/mcp",
-    tags=["admin", "mcp"],
+    prefix="/platformadmin/mcp",
+    tags=["platform-admin", "mcp"],
 )
 
 
@@ -68,7 +68,7 @@ async def mcp_dashboard() -> str:
         <h1>MCP Servers</h1>
         <p>Model Context Protocol client management</p>
     </div>
-    <div class="nav"><a href="/admin/">&larr; Back to Admin Portal</a></div>
+    <div class="nav"><a href="/platformadmin/">&larr; Back to Admin Portal</a></div>
     <div class="container">
         <div class="card">
             <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -90,8 +90,8 @@ async def mcp_dashboard() -> str:
         async function loadData() {
             try {
                 const [statsRes, healthRes] = await Promise.all([
-                    fetch('/admin/mcp/stats'),
-                    fetch('/admin/mcp/health')
+                    fetch('/platformadmin/mcp/stats'),
+                    fetch('/platformadmin/mcp/health')
                 ]);
                 const stats = await statsRes.json();
                 const health = await healthRes.json();

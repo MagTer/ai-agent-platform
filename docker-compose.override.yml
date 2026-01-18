@@ -1,0 +1,39 @@
+# =============================================================================
+# DEVELOPMENT OVERRIDES
+# =============================================================================
+# This file is automatically loaded when running: docker compose up
+# It exposes ports for local debugging and development tools.
+#
+# For production, use: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# =============================================================================
+
+services:
+  # Expose agent port for direct API testing
+  agent:
+    ports:
+      - "8000:8000"
+
+  # Expose Open WebUI directly (no Traefik in dev)
+  open-webui:
+    ports:
+      - "3000:8080"
+
+  # Expose database for local tools (DBeaver, pgAdmin, etc.)
+  postgres:
+    ports:
+      - "5432:5432"
+
+  # Expose Qdrant dashboard
+  qdrant:
+    ports:
+      - "6333:6333"
+
+  # Expose LiteLLM for debugging
+  litellm:
+    ports:
+      - "4000:4000"
+
+  # Expose SearxNG for testing searches
+  searxng:
+    ports:
+      - "${SEARXNG_PORT:-8080}:8080"

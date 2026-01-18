@@ -62,12 +62,15 @@ class TokenManager:
 
         self._oauth_client = OAuthClient(session_factory, provider_configs)
 
-    async def get_authorization_url(self, provider: str, context_id: UUID) -> tuple[str, str]:
+    async def get_authorization_url(
+        self, provider: str, context_id: UUID, user_id: UUID
+    ) -> tuple[str, str]:
         """Generate OAuth authorization URL for user.
 
         Args:
             provider: OAuth provider name (e.g., "homey")
             context_id: Context UUID
+            user_id: User UUID (REQUIRED for CSRF protection)
 
         Returns:
             Tuple of (authorization_url, state)
@@ -75,7 +78,7 @@ class TokenManager:
         Raises:
             ValueError: If provider not configured
         """
-        return await self._oauth_client.get_authorization_url(provider, context_id)
+        return await self._oauth_client.get_authorization_url(provider, context_id, user_id)
 
     async def exchange_code_for_token(self, authorization_code: str, state: str) -> None:
         """Exchange authorization code for access token.

@@ -16,6 +16,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
@@ -34,6 +36,7 @@ from interfaces.http.oauth import router as oauth_router
 from interfaces.http.oauth_webui import router as oauth_webui_router
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
+from ..middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
 from ..tools.mcp_loader import set_mcp_client_pool, shutdown_all_mcp_clients
 from .config import Settings, get_settings
 from .litellm_client import LiteLLMClient, LiteLLMError
@@ -73,9 +76,23 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     # Store test service if provided (for legacy endpoint testing)
     if service is not None:
         app.state.test_service = service
+
+    # Configure rate limiting (disabled in test environment)
+    if settings.environment != "test":
+        limiter = create_rate_limiter()
+        app.state.limiter = limiter
+        app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+        app.add_middleware(SlowAPIMiddleware)
+
+    # Configure CORS with allowed origins from settings
+    allowed_origins = (
+        [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]
+        if settings.cors_allowed_origins
+        else []
+    )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

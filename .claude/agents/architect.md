@@ -113,9 +113,11 @@ set_embedder(embedder)
 
 **Quality Gate (MANDATORY):**
 ```bash
-python scripts/code_check.py
+stack check
 ```
 This runs: Ruff (linting) → Black (formatting) → Mypy (types) → Pytest (tests)
+
+Use `stack check --no-fix` for CI-style check-only mode.
 
 ---
 
@@ -179,7 +181,7 @@ Every plan MUST include a section specifying what each agent handles:
 - Fix complex Mypy errors
 
 ### QA (Haiku - 12x cheaper) - Quality Assurance
-- Run quality gate: `python scripts/code_check.py`
+- Run quality gate: `stack check`
 - Fix simple lint errors (auto-fixable)
 - Update documentation
 - Report test results
@@ -352,7 +354,7 @@ A successful plan enables:
 
 **If Engineer asks many questions during implementation, the plan was insufficient.**
 
-**Cost metric:** If Engineer runs `python scripts/code_check.py` directly instead of delegating to QA, the plan failed to specify delegation properly.
+**Cost metric:** If Engineer runs `stack check` directly instead of delegating to QA, the plan failed to specify delegation properly.
 
 ---
 

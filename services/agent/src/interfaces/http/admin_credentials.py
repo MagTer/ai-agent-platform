@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -16,12 +16,18 @@ from core.auth.credential_service import CredentialService
 from core.core.config import Settings, get_settings
 from core.db.engine import get_db
 from core.db.models import User, UserCredential
+from core.observability.security_logger import (
+    CREDENTIAL_CREATED,
+    CREDENTIAL_DELETED,
+    get_client_ip,
+    log_security_event,
+)
 from interfaces.http.admin_auth import AdminUser, verify_admin_user
 
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/admin/credentials",
+    prefix="/platformadmin/credentials",
     tags=["admin", "credentials"],
 )
 
@@ -186,7 +192,7 @@ async def credentials_dashboard() -> str:
         <h1>User Credentials</h1>
         <p>Manage encrypted credentials for users</p>
     </div>
-    <div class="nav"><a href="/admin/">&larr; Back to Admin Portal</a></div>
+    <div class="nav"><a href="/platformadmin/">&larr; Back to Admin Portal</a></div>
     <div class="container">
         <div class="stats">
             <div class="stat-box">
@@ -268,7 +274,7 @@ async def credentials_dashboard() -> str:
 
         async function loadCredentials() {
             try {
-                const res = await fetch('/admin/credentials/list');
+                const res = await fetch('/platformadmin/credentials/list');
                 const data = await res.json();
                 renderCredentials(data);
             } catch (e) {
@@ -278,7 +284,7 @@ async def credentials_dashboard() -> str:
 
         async function loadUsers() {
             try {
-                const res = await fetch('/admin/users/list');
+                const res = await fetch('/platformadmin/users/list');
                 const users = await res.json();
                 const select = document.getElementById('userId');
                 select.innerHTML = '<option value="">Select user...</option>' +
@@ -369,7 +375,7 @@ async def credentials_dashboard() -> str:
             }
 
             try {
-                const res = await fetch('/admin/credentials/create', {
+                const res = await fetch('/platformadmin/credentials/create', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -397,7 +403,7 @@ async def credentials_dashboard() -> str:
             if (!confirm(`Delete this ${credType} credential? This cannot be undone.`)) return;
 
             try {
-                const res = await fetch(`/admin/credentials/${credId}`, { method: 'DELETE' });
+                const res = await fetch(`/platformadmin/credentials/${credId}`, { method: 'DELETE' });
                 const data = await res.json();
 
                 if (res.ok) {
@@ -528,6 +534,7 @@ async def list_credential_types(
 @router.post("/create", response_model=CredentialCreateResponse)
 async def create_credential(
     request: CredentialCreateRequest,
+    http_request: Request,
     admin: AdminUser = Depends(verify_admin_user),
     session: AsyncSession = Depends(get_db),
     cred_service: CredentialService = Depends(_get_credential_service),
@@ -579,6 +586,21 @@ async def create_credential(
         f"Admin {admin.email} created {request.credential_type} credential for user {user.email}"
     )
 
+    # Log security event
+    log_security_event(
+        event_type=CREDENTIAL_CREATED,
+        user_email=admin.email,
+        user_id=str(admin.user_id),
+        ip_address=get_client_ip(http_request) if http_request else None,
+        endpoint="/platformadmin/credentials/create",
+        details={
+            "credential_type": request.credential_type,
+            "target_user_email": user.email,
+            "target_user_id": str(user_uuid),
+        },
+        severity="INFO",
+    )
+
     return CredentialCreateResponse(
         success=True,
         message=f"Credential {request.credential_type} saved for {user.email}",
@@ -589,6 +611,7 @@ async def create_credential(
 @router.delete("/{credential_id}", response_model=CredentialDeleteResponse)
 async def delete_credential(
     credential_id: UUID,
+    http_request: Request,
     admin: AdminUser = Depends(verify_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> CredentialDeleteResponse:
@@ -617,6 +640,21 @@ async def delete_credential(
     await session.commit()
 
     LOGGER.info(f"Admin {admin.email} deleted {cred_type} credential for user {user_email}")
+
+    # Log security event
+    log_security_event(
+        event_type=CREDENTIAL_DELETED,
+        user_email=admin.email,
+        user_id=str(admin.user_id),
+        ip_address=get_client_ip(http_request) if http_request else None,
+        endpoint=f"/platformadmin/credentials/{credential_id}",
+        details={
+            "credential_type": cred_type,
+            "target_user_email": user_email,
+            "target_user_id": str(credential.user_id),
+        },
+        severity="INFO",
+    )
 
     return CredentialDeleteResponse(
         success=True,

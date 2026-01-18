@@ -147,6 +147,14 @@ class PriceCheckScheduler:
             product_name=product_store.product.name,
         )
 
+        # Skip recording if no price was extracted (required field)
+        if extraction.price_sek is None:
+            logger.warning(
+                f"Could not extract price for {product_store.product.name} "
+                f"at {product_store.store.name} - skipping"
+            )
+            return
+
         # Record price point
         price_point = PricePoint(
             product_store_id=product_store.id,

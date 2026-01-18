@@ -87,7 +87,7 @@ class DummyMemory:
 
 
 async def build_service(tmp_path: Path) -> AgentService:
-    settings = Settings(sqlite_state_path=tmp_path / "state.sqlite")
+    settings = Settings(sqlite_state_path=tmp_path / "state.sqlite", environment="test")
     memory = cast(MemoryStore, DummyMemory())
     await memory.ainit()
     service = AgentService(

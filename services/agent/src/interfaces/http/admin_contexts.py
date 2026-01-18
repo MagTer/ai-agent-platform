@@ -22,8 +22,8 @@ from interfaces.http.admin_auth import verify_admin_user
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/admin/contexts",
-    tags=["admin", "contexts"],
+    prefix="/platformadmin/contexts",
+    tags=["platform-admin", "contexts"],
 )
 
 
@@ -71,7 +71,7 @@ async def contexts_dashboard() -> str:
         <h1>Contexts</h1>
         <p>Manage conversation contexts and resources</p>
     </div>
-    <div class="nav"><a href="/admin/">&larr; Back to Admin Portal</a></div>
+    <div class="nav"><a href="/platformadmin/">&larr; Back to Admin Portal</a></div>
     <div class="container">
         <div class="card">
             <h2>
@@ -86,7 +86,7 @@ async def contexts_dashboard() -> str:
     <script>
         async function loadContexts() {
             try {
-                const res = await fetch('/admin/contexts');
+                const res = await fetch('/platformadmin/contexts');
                 const data = await res.json();
                 renderContexts(data);
             } catch (e) {

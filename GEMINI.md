@@ -5,11 +5,11 @@ You are the **Senior AI Platform Architect** for this project.
 Your primary directive is: **"Code First, Verify Always."**
 
 **MANDATORY WORKFLOW:**
-Before marking ANY task as complete, you MUST execute the Quality Assurance script.
-> **Command:** `python scripts/code_check.py`
+Before marking ANY task as complete, you MUST execute the Quality Assurance CLI.
+> **Command:** `./stack check`
 
-* If this script fails (red output), you **MUST** fix the errors before proceeding.
-* **NEVER** set `CI=true` when running locally. This allows the script to install dependencies system-wide, breaking your environment.
+* If this command fails (red output), you **MUST** fix the errors before proceeding.
+* Use `./stack check --no-fix` for CI mode (no auto-fix).
 * **Ruff/Black:** Do not argue with the linter. Fix the code.
 * **Mypy:** strict typing is enforced. No `Any`. Use `list[str]`, not `List[str]`.
 * **Tests:** If you write logic, you MUST write a test.
@@ -17,6 +17,7 @@ Before marking ANY task as complete, you MUST execute the Quality Assurance scri
 
 ## 🚑 TROUBLESHOOTING
 * **Logs:** If you encounter issues, always check `services/agent/stack_up.log` using the `File Fetcher` before making assumptions.
+* **Quality checks:** Use `./stack check` for fast verification of code changes. See next section for available commands.
 
 ---
 
@@ -73,11 +74,16 @@ We use `pytest`. You are required to maintain the **Testing Pyramid**.
 
 ### 4.1 Running Tests
 ```bash
-# Full quality check (recommended)
-python3 scripts/code_check.py
+# Full quality check (recommended) - Ruff, Black, Mypy, Pytest
+./stack check
 
-# Integration tests with live agent
-python3 scripts/test_integration.py
+# Individual checks
+./stack lint       # Ruff + Black only (fast)
+./stack typecheck  # Mypy only
+./stack test       # Pytest only
+
+# CI mode (no auto-fix)
+./stack check --no-fix
 ```
 
 ### 4.2 Test Layers
@@ -198,17 +204,23 @@ Use these endpoints for autonomous troubleshooting:
 
 ### Common Commands
 ```bash
-# Run quality check
-python scripts/code_check.py
+# Run quality check (lint, format, typecheck, test)
+./stack check
 
 # Run specific test file
 python -m pytest src/core/tests/test_skill_delegate.py -v
 
-# Run mypy only
-python -m mypy
+# Run typecheck only
+./stack typecheck
 
-# Run ruff only
-python -m ruff check .
+# Run linting and formatting only
+./stack lint
+
+# Run tests only
+./stack test
+
+# CI mode (no auto-fix)
+./stack check --no-fix
 ```
 
 ### Important Paths
@@ -218,9 +230,9 @@ python -m ruff check .
 | `core/providers.py` | Implementation providers |
 | `core/observability/error_codes.py` | Structured error codes |
 | `core/tests/mocks.py` | Test mocks (MockLLMClient, InMemoryAsyncSession) |
-| `scripts/code_check.py` | Quality assurance script |
+| `./stack` | Quality check CLI (lint, typecheck, test) |
 
 ---
 
 **REMINDER:**
-Run `python scripts/code_check.py` now if you have modified any code.
+Run `./stack check` now if you have modified any code.

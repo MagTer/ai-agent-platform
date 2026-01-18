@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Stack CLI - Self-bootstrapping entry point.
+
+This script automatically handles Poetry virtual environment activation.
+If not running inside a virtualenv, it re-executes itself via Poetry.
+
+Usage:
+    ./stack check        # Run all quality checks
+    ./stack lint         # Run linting only (fast)
+    ./stack typecheck    # Run type checking only
+    ./stack test         # Run tests only
+    ./stack up           # Start the stack
+    ./stack dev up       # Start dev environment
+    ./stack --help       # Show all commands
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+
+def main() -> None:
+    """Entry point that bootstraps via Poetry if needed."""
+    repo_root = Path(__file__).resolve().parent
+    agent_service = repo_root / "services" / "agent"
+
+    # Check if we're in a virtual environment
+    in_venv = sys.prefix != sys.base_prefix or os.environ.get("VIRTUAL_ENV") is not None
+
+    if not in_venv:
+        # Re-execute via Poetry
+        import shutil
+
+        poetry_bin = shutil.which("poetry")
+        if not poetry_bin:
+            print("Error: Poetry not found. Please install Poetry first.")
+            print("  curl -sSL https://install.python-poetry.org | python3 -")
+            sys.exit(1)
+
+        # Use execvp to replace current process with poetry run
+        os.execvp(
+            poetry_bin,
+            [
+                poetry_bin,
+                "-C",
+                str(agent_service),
+                "run",
+                "python",
+                __file__,
+                *sys.argv[1:],
+            ],
+        )
+
+    # Now we're in the virtualenv - import and run the CLI
+    # Add the src directory to path so we can import stack
+    src_path = agent_service / "src"
+    if str(src_path) not in sys.path:
+        sys.path.insert(0, str(src_path))
+
+    from stack.cli import app
+
+    app()
+
+
+if __name__ == "__main__":
+    main()

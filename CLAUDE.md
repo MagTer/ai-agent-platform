@@ -176,10 +176,12 @@ All agent instructions are in `.claude/agents/*.md`:
 Before completing ANY code changes:
 
 ```bash
-python scripts/code_check.py
+stack check
 ```
 
 This runs: Ruff → Black → Mypy → Pytest
+
+Use `stack check --no-fix` for CI-style check-only mode.
 
 **If this fails, you MUST fix errors. No exceptions.**
 

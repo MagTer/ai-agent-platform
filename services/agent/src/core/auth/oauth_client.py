@@ -83,7 +83,7 @@ class OAuthClient:
         return code_verifier, code_challenge_b64
 
     async def get_authorization_url(
-        self, provider: str, context_id: UUID, user_id: UUID | None = None
+        self, provider: str, context_id: UUID, user_id: UUID
     ) -> tuple[str, str]:
         """Generate OAuth authorization URL with PKCE.
 
@@ -93,7 +93,7 @@ class OAuthClient:
         Args:
             provider: OAuth provider name
             context_id: Context UUID
-            user_id: Optional user UUID for user-specific tokens
+            user_id: User UUID (REQUIRED for CSRF protection)
 
         Returns:
             Tuple of (authorization_url, state)
@@ -139,7 +139,11 @@ class OAuthClient:
 
         LOGGER.info(
             "Generated OAuth authorization URL",
-            extra={"provider": provider, "context_id": str(context_id)},
+            extra={
+                "provider": provider,
+                "context_id": str(context_id),
+                "user_id": str(user_id),
+            },
         )
 
         return authorization_url, state
@@ -266,7 +270,11 @@ class OAuthClient:
 
             LOGGER.info(
                 "OAuth token stored successfully",
-                extra={"provider": provider, "context_id": str(context_id)},
+                extra={
+                    "provider": provider,
+                    "context_id": str(context_id),
+                    "user_id": str(user_id) if user_id else None,
+                },
             )
 
     async def get_token(

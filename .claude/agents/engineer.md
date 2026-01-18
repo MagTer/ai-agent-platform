@@ -147,7 +147,7 @@ embedder = get_embedder()  # Gets injected implementation
 
 **Before completing ANY task:**
 ```bash
-python scripts/code_check.py
+stack check
 ```
 
 **This runs:**
@@ -155,6 +155,10 @@ python scripts/code_check.py
 2. **Black** - Formatting (auto-formats)
 3. **Mypy** - Strict type checking
 4. **Pytest** - All tests must pass
+
+**Options:**
+- `stack check` - Run with auto-fix enabled (default)
+- `stack check --no-fix` - Check only, no auto-fix (CI mode)
 
 **If this fails, you MUST fix errors. No exceptions.**
 
@@ -240,7 +244,7 @@ Task(
     description="Final quality check and docs",
     prompt="""Run final quality checks and update documentation:
 
-1. Run python scripts/code_check.py
+1. Run stack check
 2. If all checks pass, update relevant documentation
 3. Report results concisely
 
@@ -518,18 +522,23 @@ async def run_agent(
 
 ## Diagnostics API (For Debugging)
 
-When implementation fails or debugging is needed, use the diagnostics API:
+When implementation fails or debugging is needed, use the diagnostics API.
+
+**Access URLs:**
+- Dev environment: `http://localhost:8001/diagnostics/`
+- Production (via Traefik): `https://$DOMAIN/platformadmin/diagnostics/`
 
 **Fetch trace by ID (when user reports errors with TraceID):**
 ```bash
-curl -s "http://localhost:8000/diagnostics/traces?limit=500&show_all=true" | \
+# Dev environment
+curl -s "http://localhost:8001/diagnostics/traces?limit=500&show_all=true" | \
   jq '.[] | select(.trace_id | contains("TRACE_ID_HERE"))'
 ```
 
 **Example trace analysis:**
 ```bash
 # Get trace
-curl -s "http://localhost:8000/diagnostics/traces?limit=500" | \
+curl -s "http://localhost:8001/diagnostics/traces?limit=500" | \
   jq '.[] | select(.trace_id | contains("abc123"))' > trace.json
 
 # Inspect which tools were called
@@ -541,16 +550,16 @@ cat trace.json | jq '.spans[] | select(.status == "ERROR")'
 
 **Check system health:**
 ```bash
-curl -s http://localhost:8000/diagnostics/summary | jq '.'
+curl -s http://localhost:8001/diagnostics/summary | jq '.'
 ```
 
 **View crash log:**
 ```bash
-curl -s http://localhost:8000/diagnostics/crash-log | jq -r '.content'
+curl -s http://localhost:8001/diagnostics/crash-log | jq -r '.content'
 ```
 
 **Dashboard (visual debugging):**
-Open: `http://localhost:8000/diagnostics/`
+Open: `http://localhost:8001/diagnostics/`
 - Waterfall view shows tool execution timeline
 - Click spans to see detailed attributes
 - Search by TraceID
@@ -622,7 +631,52 @@ pytest services/agent/tests/unit/test_my_feature.py -v
 
 **Quality Checks:**
 ```bash
-python scripts/code_check.py  # MANDATORY before completion
+stack check  # MANDATORY before completion
+stack check --no-fix  # CI-style check only
+```
+
+---
+
+## Stack CLI Commands
+
+The `stack` CLI provides all operational commands:
+
+**Quality:**
+```bash
+stack check           # Run all quality checks with auto-fix
+stack check --no-fix  # Check only (CI mode)
+```
+
+**Development Environment:**
+```bash
+stack dev up          # Start isolated dev environment (port 3001)
+stack dev down        # Stop dev environment
+stack dev logs -f     # Tail dev logs
+stack dev status      # Show dev container status
+stack dev restart     # Restart dev environment
+```
+
+**Production:**
+```bash
+stack up --prod       # Start production stack
+stack down --prod     # Stop production stack
+stack deploy          # Deploy changes to production (main branch only)
+stack deploy --force  # Force deploy from any branch (dangerous!)
+stack logs -f agent   # Tail production logs
+stack status          # Show container status
+```
+
+**Deployment Workflow:**
+```bash
+# Feature development
+stack dev up --build  # Start dev with fresh build
+# ... make changes ...
+stack check           # Run quality checks
+
+# Deploy to production
+git checkout main
+git merge feature/my-branch
+stack deploy          # Build + restart production
 ```
 
 ---

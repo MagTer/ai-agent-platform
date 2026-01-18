@@ -26,12 +26,12 @@ Handle routine maintenance tasks quickly and cheaply. Run tests, fix linting, up
 
 ---
 
-## Quality Gate: code_check.py
+## Quality Gate: stack check
 
-**PRIMARY TOOL:** Always use `code_check.py` - it's the single source of truth for quality checks.
+**PRIMARY TOOL:** Always use `stack check` - it's the single source of truth for quality checks.
 
 ```bash
-python scripts/code_check.py
+stack check
 ```
 
 **What it runs (in order):**
@@ -41,19 +41,23 @@ python scripts/code_check.py
 4. **Pytest** - Unit and integration tests
 5. **Semantic tests** - End-to-end tests (local only, skipped in CI)
 
+**Options:**
+- `stack check` - Run with auto-fix enabled (default)
+- `stack check --no-fix` - Check only, no auto-fix (CI mode)
+
 **Key features:**
 - Auto-detects CI mode (disables auto-fix, enables strict checks)
 - Auto-restarts via Poetry if not in virtual environment
 - Uses central config from `services/agent/pyproject.toml`
-- Same script runs in CI workflow (ensures consistency)
+- Same checks run in CI workflow (ensures consistency)
 
 **Report format (concise):**
 ```
-Quality: ✅ All checks passing
+Quality: All checks passing
 
 OR
 
-Quality: ❌ Failed at Mypy stage
+Quality: Failed at Mypy stage
 - 5 type errors in services/agent/src/modules/rag/manager.py
 Action: Escalate to Builder
 ```
@@ -142,7 +146,7 @@ Task(
 Files affected:
 {list_of_affected_files}
 
-After fixing, run: python scripts/code_check.py
+After fixing, run: stack check
 
 Report back when all checks pass.
 """
@@ -150,7 +154,7 @@ Report back when all checks pass.
 ```
 
 **After Engineer fixes errors:**
-- Re-run `python scripts/code_check.py`
+- Re-run `stack check`
 - Verify all checks pass
 - Report success to parent agent
 
@@ -294,26 +298,31 @@ Reason: [Why it's complex / fix attempt failed]
 
 ## Diagnostics API (For Debugging)
 
-When tests fail or errors occur, use the diagnostics API to investigate:
+When tests fail or errors occur, use the diagnostics API to investigate.
+
+**Access URLs:**
+- Dev environment: `http://localhost:8001/diagnostics/`
+- Production (via Traefik): `https://$DOMAIN/platformadmin/diagnostics/`
 
 **Fetch trace by ID (from error messages):**
 ```bash
-curl -s "http://localhost:8000/diagnostics/traces?limit=500&show_all=true" | \
+# Dev environment
+curl -s "http://localhost:8001/diagnostics/traces?limit=500&show_all=true" | \
   jq '.[] | select(.trace_id | contains("TRACE_ID_HERE"))'
 ```
 
 **Check system health:**
 ```bash
-curl -s http://localhost:8000/diagnostics/summary | jq '.'
+curl -s http://localhost:8001/diagnostics/summary | jq '.'
 ```
 
 **Get crash log:**
 ```bash
-curl -s http://localhost:8000/diagnostics/crash-log | jq -r '.content'
+curl -s http://localhost:8001/diagnostics/crash-log | jq -r '.content'
 ```
 
 **View dashboard (HTML):**
-Open browser: `http://localhost:8000/diagnostics/`
+Open browser: `http://localhost:8001/diagnostics/`
 
 **When to use:**
 - Test failures with mysterious errors

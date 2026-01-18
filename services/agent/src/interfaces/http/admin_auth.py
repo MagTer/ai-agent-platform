@@ -11,6 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.header_auth import UserIdentity, extract_user_from_headers
 from core.db.engine import get_db
 from core.db.models import User
+from core.observability.security_logger import (
+    AUTH_FAILURE,
+    AUTH_SUCCESS,
+    get_client_ip,
+    log_security_event,
+)
 
 
 class AdminUser:
@@ -58,6 +64,13 @@ async def get_admin_user(
     # Extract identity from headers
     identity = extract_user_from_headers(request)
     if not identity:
+        log_security_event(
+            event_type=AUTH_FAILURE,
+            ip_address=get_client_ip(request),
+            endpoint=request.url.path,
+            details={"reason": "Missing X-OpenWebUI-User-Email header"},
+            severity="WARNING",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required. Missing X-OpenWebUI-User-Email header.",
@@ -70,12 +83,29 @@ async def get_admin_user(
     db_user = result.scalar_one_or_none()
 
     if not db_user:
+        log_security_event(
+            event_type=AUTH_FAILURE,
+            user_email=identity.email,
+            ip_address=get_client_ip(request),
+            endpoint=request.url.path,
+            details={"reason": "User not found in database"},
+            severity="WARNING",
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"User {identity.email} not found. Login via Open WebUI first.",
         )
 
     if not db_user.is_active:
+        log_security_event(
+            event_type=AUTH_FAILURE,
+            user_email=identity.email,
+            user_id=str(db_user.id),
+            ip_address=get_client_ip(request),
+            endpoint=request.url.path,
+            details={"reason": "User account is disabled"},
+            severity="WARNING",
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is disabled.",
@@ -85,10 +115,30 @@ async def get_admin_user(
     # Trust header role if present, otherwise use DB role
     effective_role = identity.role or db_user.role
     if effective_role != "admin":
+        log_security_event(
+            event_type=AUTH_FAILURE,
+            user_email=identity.email,
+            user_id=str(db_user.id),
+            ip_address=get_client_ip(request),
+            endpoint=request.url.path,
+            details={"reason": f"Admin access required. User role: {effective_role}"},
+            severity="WARNING",
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required. Your role: " + effective_role,
         )
+
+    # Log successful admin authentication
+    log_security_event(
+        event_type=AUTH_SUCCESS,
+        user_email=identity.email,
+        user_id=str(db_user.id),
+        ip_address=get_client_ip(request),
+        endpoint=request.url.path,
+        details={"role": effective_role},
+        severity="INFO",
+    )
 
     return AdminUser(identity=identity, db_user=db_user)
 
@@ -118,4 +168,108 @@ def verify_admin_user(
 verify_admin_api_key = verify_admin_user
 
 
-__all__ = ["AdminUser", "get_admin_user", "verify_admin_user", "verify_admin_api_key"]
+class AuthenticatedUser:
+    """Authenticated user (not necessarily admin)."""
+
+    def __init__(self, identity: UserIdentity, db_user: User) -> None:
+        self.identity = identity
+        self.db_user = db_user
+
+    @property
+    def user_id(self) -> UUID:
+        """Return the database user ID."""
+        return self.db_user.id
+
+    @property
+    def email(self) -> str:
+        """Return the user's email."""
+        return self.db_user.email
+
+
+async def get_authenticated_user(
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> AuthenticatedUser:
+    """Extract and verify any authenticated user from headers.
+
+    Unlike get_admin_user, this does NOT require admin role.
+    Use for endpoints that any logged-in user can access.
+
+    Raises:
+        HTTPException 401: Missing or invalid user headers
+        HTTPException 403: User account is disabled
+    """
+    identity = extract_user_from_headers(request)
+    if not identity:
+        log_security_event(
+            event_type=AUTH_FAILURE,
+            ip_address=get_client_ip(request),
+            endpoint=request.url.path,
+            details={"reason": "Missing X-OpenWebUI-User-Email header"},
+            severity="WARNING",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required. Missing X-OpenWebUI-User-Email header.",
+            headers={"WWW-Authenticate": "OpenWebUI"},
+        )
+
+    stmt = select(User).where(User.email == identity.email.lower())
+    result = await session.execute(stmt)
+    db_user = result.scalar_one_or_none()
+
+    if not db_user:
+        log_security_event(
+            event_type=AUTH_FAILURE,
+            user_email=identity.email,
+            ip_address=get_client_ip(request),
+            endpoint=request.url.path,
+            details={"reason": "User not found in database"},
+            severity="WARNING",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"User {identity.email} not found. Login via Open WebUI first.",
+        )
+
+    if not db_user.is_active:
+        log_security_event(
+            event_type=AUTH_FAILURE,
+            user_email=identity.email,
+            user_id=str(db_user.id),
+            ip_address=get_client_ip(request),
+            endpoint=request.url.path,
+            details={"reason": "User account is disabled"},
+            severity="WARNING",
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is disabled.",
+        )
+
+    return AuthenticatedUser(identity=identity, db_user=db_user)
+
+
+def verify_user(
+    user: AuthenticatedUser = Depends(get_authenticated_user),
+) -> AuthenticatedUser:
+    """Dependency that verifies user is authenticated.
+
+    Use this for endpoints that any logged-in user can access:
+
+        @router.get("/something", dependencies=[Depends(verify_user)])
+        async def endpoint():
+            ...
+    """
+    return user
+
+
+__all__ = [
+    "AdminUser",
+    "AuthenticatedUser",
+    "get_admin_user",
+    "get_authenticated_user",
+    "verify_admin_user",
+    "verify_admin_api_key",
+    "verify_user",
+]

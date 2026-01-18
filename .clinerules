@@ -32,12 +32,19 @@ Use the right model for the task to optimize costs. When switching models is nee
 ## Critical Workflow (MANDATORY)
 Before marking ANY task as complete, you MUST run the quality assurance script:
 ```bash
-python scripts/code_check.py
+./stack check
 ```
 
 **If this fails (red output), you MUST fix errors before proceeding.**
 
-- Never set `CI=true` locally (breaks environment)
+**Available commands:**
+- `./stack check` - Full check (lint, format, typecheck, test)
+- `./stack lint` - Fast linting and formatting
+- `./stack typecheck` - Type checking only
+- `./stack test` - Tests only
+- `./stack check --no-fix` - CI mode (no auto-fix)
+
+**Guidelines:**
 - Ruff/Black: Don't argue with the linter, just fix the code
 - Mypy: Strict typing enforced. No `Any`. Use `list[str]`, not `List[str]`
 - Tests: If you write logic, you MUST write a test
@@ -116,7 +123,7 @@ Crash logs: `services/agent/last_crash.log` (access via API, not file system)
 | `core/providers.py` | Implementation providers |
 | `core/observability/error_codes.py` | Structured error codes |
 | `core/tests/mocks.py` | Test mocks (MockLLMClient, InMemoryAsyncSession) |
-| `scripts/code_check.py` | Quality assurance script (MANDATORY) |
+| `./stack` | Quality assurance CLI (check, lint, typecheck, test) |
 | `skills/` | Platform's agent skills (NOT Claude Code skills) |
 | `docs/` | Documentation index (start at docs/README.md) |
 
@@ -124,7 +131,11 @@ Crash logs: `services/agent/last_crash.log` (access via API, not file system)
 
 ```bash
 # ALWAYS use this for quality checks
-python scripts/code_check.py
+./stack check                  # Full check (lint, format, typecheck, test)
+./stack lint                   # Fast linting and formatting only
+./stack typecheck              # Type checking only
+./stack test                   # Tests only
+./stack check --no-fix         # CI mode (no auto-fix)
 
 # Stack management
 python -m stack up              # Start services
@@ -135,9 +146,6 @@ python -m stack logs agent      # View logs
 # Testing
 python -m pytest services/agent/src/core/tests/test_skill_delegate.py -v
 python services/agent/scripts/run_semantic_eval.py
-
-# Type checking only
-python -m mypy
 ```
 
 ## Remember

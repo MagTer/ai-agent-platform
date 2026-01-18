@@ -20,14 +20,13 @@ Run these commands before committing. The PR template requires you to confirm ea
 
 ```bash
 poetry install
-poetry run python scripts/code_check.py
-poetry run mypy src
-poetry run pytest
+./stack check
 ```
 
-The consolidated helper (`scripts/code_check.py`) executes Ruff, Black, mypy, and pytest
-in sequence. Re-run it until all issues are fixed. When iterating on type-only changes,
-run `mypy` and `pytest` individually to ensure the fixes hold without the auto-formatters.
+The consolidated helper (`./stack check`) executes Ruff, Black, mypy, and pytest in sequence.
+Re-run it until all issues are fixed. When iterating on type-only changes, run
+`./stack typecheck` and `./stack test` individually to ensure the fixes hold without the
+auto-formatters. Use `./stack lint` for a fast lint-and-format pass.
 
 ## Dependency and documentation hygiene
 - **Dependencies**: Update `pyproject.toml` and regenerate `poetry.lock` when adding or

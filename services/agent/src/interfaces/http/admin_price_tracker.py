@@ -33,8 +33,8 @@ from .schemas.price_tracker import (
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/admin/price-tracker",
-    tags=["admin", "price-tracker"],
+    prefix="/platformadmin/price-tracker",
+    tags=["platform-admin", "price-tracker"],
 )
 
 
@@ -1492,7 +1492,7 @@ async def price_tracker_dashboard() -> str:
     </div>
 
     <script>
-        const BASE_URL = '/admin/price-tracker';
+        const BASE_URL = '/platformadmin/price-tracker';
         let stores = [];
         let products = [];
         let deals = [];

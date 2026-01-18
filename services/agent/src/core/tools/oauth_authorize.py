@@ -17,7 +17,7 @@ class OAuthAuthorizeTool(Tool):
     for external services like Homey.
     """
 
-    def __init__(self, context_id: UUID | None = None):
+    def __init__(self, context_id: UUID | None = None, user_id: UUID | None = None):
         self.name = "oauth_authorize"
         self.description = (
             "Initiate OAuth authorization for external services (Homey, GitHub, etc.). "
@@ -37,6 +37,7 @@ class OAuthAuthorizeTool(Tool):
         }
         self.category = "oauth"
         self._context_id = context_id
+        self._user_id = user_id
 
     async def run(self, provider: str, **kwargs: Any) -> str:
         """Run OAuth authorization flow.
@@ -53,11 +54,18 @@ class OAuthAuthorizeTool(Tool):
                 "Please contact your administrator."
             )
 
+        if not self._user_id:
+            return (
+                "❌ OAuth authorization requires user authentication. "
+                "Please contact your administrator."
+            )
+
         try:
             token_manager = get_token_manager()
             authorization_url, state = await token_manager.get_authorization_url(
                 provider=provider.lower(),
                 context_id=self._context_id,
+                user_id=self._user_id,
             )
 
             provider_name = provider.capitalize()

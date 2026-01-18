@@ -1112,8 +1112,7 @@ class TestListCredentialsEndpoint:
 After implementation, run:
 
 ```bash
-cd /home/magnus/dev/ai-agent-platform/services/agent
-python scripts/code_check.py
+./stack check
 ```
 
 This runs:
@@ -1174,7 +1173,7 @@ Example: `Admin admin@company.com created azure_devops_pat credential for user d
    - No breaking changes to API contracts
 
 4. **Quality:**
-   - All code_check.py tests pass
+   - All quality checks pass (./stack check)
    - No Mypy errors
    - Test coverage for new code
 

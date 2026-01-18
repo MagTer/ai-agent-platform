@@ -13,6 +13,7 @@ from core.db.engine import get_db
 from core.db.models import Conversation
 from core.db.oauth_models import OAuthToken
 from core.providers import get_token_manager
+from interfaces.http.admin_auth import AuthenticatedUser, verify_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ async def get_oauth_status(
     conversation_id: str,
     provider: str,
     session: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(verify_user),
 ) -> OAuthStatusResponse:
     """Check OAuth authorization status for a provider in this conversation.
 
@@ -130,6 +132,7 @@ async def get_oauth_status(
         authorization_url, _ = await token_manager.get_authorization_url(
             provider=provider.lower(),
             context_id=context_id,
+            user_id=user.user_id,
         )
 
         provider_name = provider.capitalize()
@@ -159,6 +162,7 @@ async def get_oauth_status(
 async def initiate_oauth(
     request: InitiateOAuthRequest,
     session: AsyncSession = Depends(get_db),
+    user: AuthenticatedUser = Depends(verify_user),
 ) -> InitiateOAuthResponse:
     """Initiate OAuth authorization flow for a provider.
 
@@ -186,6 +190,7 @@ async def initiate_oauth(
         authorization_url, _ = await token_manager.get_authorization_url(
             provider=request.provider.lower(),
             context_id=context_id,
+            user_id=user.user_id,
         )
 
         provider_name = request.provider.capitalize()
@@ -220,7 +225,7 @@ async def initiate_oauth(
         ) from e
 
 
-@router.get("/providers")
+@router.get("/providers", dependencies=[Depends(verify_user)])
 async def list_oauth_providers() -> dict[str, Any]:
     """List all configured OAuth providers.
 

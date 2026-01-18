@@ -19,8 +19,8 @@ from interfaces.http.admin_auth import verify_admin_api_key
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter(
-    prefix="/admin/users",
-    tags=["admin", "users"],
+    prefix="/platformadmin/users",
+    tags=["platform-admin", "users"],
 )
 
 
@@ -90,7 +90,7 @@ async def users_dashboard() -> str:
         <h1>User Management</h1>
         <p>Manage user accounts and permissions</p>
     </div>
-    <div class="nav"><a href="/admin/">&larr; Back to Admin Portal</a></div>
+    <div class="nav"><a href="/platformadmin/">&larr; Back to Admin Portal</a></div>
     <div class="container">
         <div class="stats">
             <div class="stat-box">
@@ -132,7 +132,7 @@ async def users_dashboard() -> str:
     <script>
         async function loadUsers() {
             try {
-                const res = await fetch('/admin/users/list');
+                const res = await fetch('/platformadmin/users/list');
                 const users = await res.json();
                 renderUsers(users);
             } catch (e) {
