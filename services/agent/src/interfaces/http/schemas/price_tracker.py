@@ -53,7 +53,7 @@ class ProductResponse(BaseModel):
     brand: str | None
     category: str | None
     unit: str | None
-    stores: list[dict[str, str | int | None]]
+    stores: list[dict[str, str | int | float | None]]
 
 
 class PricePointResponse(BaseModel):
@@ -81,6 +81,9 @@ class DealResponse(BaseModel):
     offer_price_sek: float
     offer_type: str
     offer_details: str | None
+    checked_at: str
+    discount_percent: float
+    product_url: str
 
 
 __all__ = [

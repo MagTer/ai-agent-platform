@@ -2,7 +2,7 @@
 
 **Purpose:** Entry point for Claude Code sessions. Defines the tri-agent workflow.
 
-**Last Updated:** 2026-01-10
+**Last Updated:** 2026-01-18
 
 ---
 
@@ -12,7 +12,9 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 
 ---
 
-## The Tri-Agent Workflow
+## The Agent Workflow
+
+**Four agents** optimized for different task types and costs:
 
 ### 1. Architect (Opus - High Reasoning)
 
@@ -89,6 +91,32 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 
 ---
 
+### 4. Simple Tasks (Haiku - Cost Saver)
+
+**Model:** `claude-3-5-haiku` (cheapest)
+
+**Use for:**
+- Text translations/fixes (e.g., Swedish -> English)
+- Find-and-replace across files
+- Adding type hints or docstrings
+- Simple boilerplate generation
+- Formatting cleanup
+
+**No slash command** - delegate via Task tool with `model: "haiku"`:
+
+```python
+Task(
+    subagent_type="simple-tasks",
+    model="haiku",
+    description="Fix Swedish UI text",
+    prompt="Change all Swedish UI strings to English in admin_dashboard.py"
+)
+```
+
+**Why this matters:** Simple repetitive tasks don't need Opus/Sonnet reasoning. Haiku is 10-20x cheaper and fast enough for find-replace style work.
+
+---
+
 ## Workflow Examples
 
 ### Complex Feature (Full Workflow)
@@ -137,6 +165,7 @@ All agent instructions are in `.claude/agents/*.md`:
 - **`architect.md`** - Planning logic, architecture rules, security checklist, Engineer spawning
 - **`engineer.md`** - Coding standards, implementation patterns, QA delegation
 - **`qa.md`** - Quality assurance, testing, docs, Engineer escalation for complex Mypy
+- **`simple-tasks.md`** - Cost-efficient agent for repetitive edits (text fixes, find-replace)
 
 **The markdown files contain ALL priming instructions.** No need to read separate PRIMER.md files.
 
@@ -169,8 +198,9 @@ This runs: Ruff → Black → Mypy → Pytest
 - Async-first: all I/O must be async
 - Absolute imports only (no relative imports)
 
-**Documentation:**
-- Swedish for user-facing text; English for code/config
+**Language:**
+- Swedish ONLY for conversation with user (chat messages)
+- English for ALL code, web content, UI text, config, comments, docs
 - ASCII-safe punctuation (no emojis or smart quotes)
 - Copy/pasteable examples
 
@@ -191,6 +221,29 @@ This runs: Ruff → Black → Mypy → Pytest
 | Running tests | QA | Haiku | $ |
 | Fixing simple linting | QA | Haiku | $ |
 | Updating docs | QA | Haiku | $ |
+| Text translations | Simple Tasks | Haiku | $ |
+| Find-and-replace | Simple Tasks | Haiku | $ |
+| Adding type hints | Simple Tasks | Haiku | $ |
+
+**CRITICAL - Delegate Simple Tasks:**
+
+When in an Opus/Sonnet session and you encounter simple, repetitive tasks:
+- **DO NOT** do them in the main context
+- **DO** spawn a Haiku agent via Task tool
+
+Examples of tasks to delegate:
+- Translating UI text (Swedish -> English)
+- Renaming a variable across 10 files
+- Adding docstrings to functions
+- Fixing the same typo in multiple places
+
+```python
+# GOOD - delegate to Haiku
+Task(subagent_type="simple-tasks", model="haiku", prompt="...")
+
+# BAD - doing repetitive edits in Opus context
+Edit(...) Edit(...) Edit(...) Edit(...)  # Expensive!
+```
 
 **Token Savings:**
 - Agents spawn with fresh context (no bloat from parent agent)
@@ -198,6 +251,7 @@ This runs: Ruff → Black → Mypy → Pytest
 - QA auto-spawns Engineer only when complex errors detected
 - Use Haiku for all maintenance tasks (10x cheaper than Sonnet)
 - Markdown-embedded instructions avoid loading separate files
+- **Proactively delegate simple repetitive tasks to Haiku**
 
 ---
 
@@ -223,6 +277,13 @@ This runs: Ruff → Black → Mypy → Pytest
 - Updating documentation
 - Summarizing changes
 - **QA will auto-spawn Engineer for complex Mypy errors**
+
+### ✅ Delegate to Simple Tasks (Haiku) when:
+- Translating/fixing text across files
+- Find-and-replace operations
+- Adding boilerplate (type hints, docstrings)
+- Any repetitive edit task (5+ similar edits)
+- **Spawn via Task tool with `model: "haiku"`**
 
 ### ❌ Don't use workflow for:
 - Simple bug fixes (1-2 lines)
@@ -258,7 +319,8 @@ This runs: Ruff → Black → Mypy → Pytest
 1. **For complex features:** Start with `/plan`
 2. **For implementation:** Use `/build` with plan file
 3. **For cleanup:** Use `/clean` for maintenance
-4. **For simple tasks:** Just do them directly
+4. **For simple repetitive tasks:** Delegate to Haiku via `Task(subagent_type="simple-tasks", model="haiku", ...)`
+5. **For trivial one-off fixes:** Do directly (1-2 edits max)
 
 ---
 

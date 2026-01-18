@@ -325,7 +325,7 @@ class PriceTrackerService:
             return product
 
     async def link_product_store(
-        self, product_id: str, store_id: str, store_url: str
+        self, product_id: str, store_id: str, store_url: str, check_frequency_hours: int = 24
     ) -> ProductStore:
         """Link a product to a store.
 
@@ -333,6 +333,7 @@ class PriceTrackerService:
             product_id: UUID string of the product.
             store_id: UUID string of the store.
             store_url: URL to the product page on the store website.
+            check_frequency_hours: How often to check price (default 24 hours).
 
         Returns:
             Created ProductStore instance.
@@ -345,6 +346,7 @@ class PriceTrackerService:
                 product_id=product_uuid,
                 store_id=store_uuid,
                 store_url=store_url,
+                check_frequency_hours=check_frequency_hours,
             )
 
             session.add(product_store)
@@ -404,6 +406,39 @@ class PriceTrackerService:
 
             logger.info(f"Created price watch for product {product_id} (Watch ID: {watch.id})")
             return watch
+
+    async def delete_product(self, product_id: str) -> None:
+        """Delete a product and all associated data.
+
+        This cascades to delete:
+        - ProductStore links (which cascade to PricePoints)
+        - PriceWatches
+
+        Args:
+            product_id: UUID string of the product to delete.
+
+        Raises:
+            ValueError: If product_id is invalid or product not found.
+        """
+        async with self.session_factory() as session:
+            try:
+                product_uuid = uuid.UUID(product_id)
+            except ValueError as e:
+                raise ValueError(f"Invalid product_id format: {product_id}") from e
+
+            # Get the product
+            stmt = select(Product).where(Product.id == product_uuid)
+            result = await session.execute(stmt)
+            product = result.scalar_one_or_none()
+
+            if not product:
+                raise ValueError(f"Product not found: {product_id}")
+
+            # Delete the product (cascading will handle related records)
+            await session.delete(product)
+            await session.commit()
+
+            logger.info(f"Deleted product {product_id} ({product.name})")
 
 
 __all__ = ["PriceTrackerService"]

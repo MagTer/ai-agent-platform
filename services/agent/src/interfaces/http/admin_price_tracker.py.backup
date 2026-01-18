@@ -158,19 +158,9 @@ async def list_products(
                     "store_slug": store.slug,
                     "store_url": ps.store_url,
                     "check_frequency_hours": ps.check_frequency_hours,
-                    "last_checked_at": (
-                        ps.last_checked_at.isoformat() if ps.last_checked_at else None
-                    ),
-                    "price_sek": (
-                        float(latest_price.price_sek)
-                        if latest_price and latest_price.price_sek
-                        else None
-                    ),
-                    "unit_price_sek": (
-                        float(latest_price.unit_price_sek)
-                        if latest_price and latest_price.unit_price_sek
-                        else None
-                    ),
+                    "last_checked_at": ps.last_checked_at.isoformat() if ps.last_checked_at else None,
+                    "price_sek": float(latest_price.price_sek) if latest_price and latest_price.price_sek else None,
+                    "unit_price_sek": float(latest_price.unit_price_sek) if latest_price and latest_price.unit_price_sek else None,
                     "in_stock": latest_price.in_stock if latest_price else None,
                 }
                 stores_data.append(store_data)
@@ -285,16 +275,8 @@ async def get_product(
                 "store_url": ps.store_url,
                 "check_frequency_hours": ps.check_frequency_hours,
                 "last_checked_at": ps.last_checked_at.isoformat() if ps.last_checked_at else None,
-                "price_sek": (
-                    float(latest_price.price_sek)
-                    if latest_price and latest_price.price_sek
-                    else None
-                ),
-                "unit_price_sek": (
-                    float(latest_price.unit_price_sek)
-                    if latest_price and latest_price.unit_price_sek
-                    else None
-                ),
+                "price_sek": float(latest_price.price_sek) if latest_price and latest_price.price_sek else None,
+                "unit_price_sek": float(latest_price.unit_price_sek) if latest_price and latest_price.unit_price_sek else None,
                 "in_stock": latest_price.in_stock if latest_price else None,
             }
             stores_data.append(store_data)
@@ -604,7 +586,7 @@ async def get_current_deals(
         cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1)
 
         stmt = (
-            select(PricePoint, Product, Store, ProductStore)
+            select(PricePoint, Product, Store)
             .join(ProductStore, PricePoint.product_store_id == ProductStore.id)
             .join(Product, ProductStore.product_id == Product.id)
             .join(Store, ProductStore.store_id == Store.id)
@@ -623,20 +605,11 @@ async def get_current_deals(
         seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
         deals: list[DealResponse] = []
 
-        for price_point, product, store, product_store in rows:
+        for price_point, product, store in rows:
             key = (product.id, store.id)
             if key in seen:
                 continue
             seen.add(key)
-
-            # Calculate discount percentage
-            discount_percent = 0.0
-            if price_point.price_sek and price_point.offer_price_sek:
-                discount_percent = (
-                    (float(price_point.price_sek) - float(price_point.offer_price_sek))
-                    / float(price_point.price_sek)
-                    * 100
-                )
 
             deals.append(
                 DealResponse(
@@ -648,9 +621,6 @@ async def get_current_deals(
                     offer_price_sek=float(price_point.offer_price_sek),
                     offer_type=price_point.offer_type or "unknown",
                     offer_details=price_point.offer_details,
-                    checked_at=price_point.checked_at.isoformat(),
-                    discount_percent=discount_percent,
-                    product_url=product_store.store_url,
                 )
             )
 
@@ -799,38 +769,6 @@ async def delete_watch(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to delete watch {watch_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.delete("/products/{product_id}")
-async def delete_product(
-    product_id: str,
-    service: PriceTrackerService = Depends(get_price_tracker_service),
-) -> dict[str, str]:
-    """Delete a product and all associated data.
-
-    This will cascade delete:
-    - ProductStore links
-    - PricePoints
-    - PriceWatches
-
-    Args:
-        product_id: Product UUID.
-        service: Price tracker service.
-
-    Returns:
-        Success message.
-
-    Security:
-        Requires admin API key via X-API-Key header.
-    """
-    try:
-        await service.delete_product(product_id)
-        return {"message": "Product deleted successfully"}
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
-    except Exception as e:
-        LOGGER.exception(f"Failed to delete product {product_id}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -1458,17 +1396,17 @@ async def price_tracker_dashboard() -> str:
     <div class="modal" id="modal-priceHistory">
         <div class="modal-content" style="max-width: 800px;">
             <div class="modal-header">
-                <h3>Price History</h3>
+                <h3>Prishistorik</h3>
                 <button class="btn" onclick="hideModal('priceHistory')">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="date-range-buttons">
-                    <button class="date-range-btn" onclick="loadPriceHistory(7)">7 days</button>
-                    <button class="date-range-btn active" onclick="loadPriceHistory(30)">30 days</button>
-                    <button class="date-range-btn" onclick="loadPriceHistory(90)">90 days</button>
+                    <button class="date-range-btn" onclick="loadPriceHistory(7)">7 dagar</button>
+                    <button class="date-range-btn active" onclick="loadPriceHistory(30)">30 dagar</button>
+                    <button class="date-range-btn" onclick="loadPriceHistory(90)">90 dagar</button>
                 </div>
                 <div id="priceHistoryContent">
-                    <div class="loading">Loading price history...</div>
+                    <div class="loading">Laddar prishistorik...</div>
                 </div>
             </div>
         </div>
@@ -1495,23 +1433,6 @@ async def price_tracker_dashboard() -> str:
                 throw new Error(error);
             }
             return response.json();
-        }
-
-        function relativeTime(isoString) {
-            if (!isoString) return 'Never';
-            const date = new Date(isoString);
-            const now = new Date();
-            const diffMs = now - date;
-            const diffMins = Math.floor(diffMs / 60000);
-            const diffHours = Math.floor(diffMs / 3600000);
-            const diffDays = Math.floor(diffMs / 86400000);
-
-            if (diffMins < 1) return 'Just now';
-            if (diffMins < 60) return `${diffMins}min ago`;
-            if (diffHours < 24) return `${diffHours}h ago`;
-            if (diffDays === 1) return '1 day ago';
-            if (diffDays < 30) return `${diffDays} days ago`;
-            return date.toLocaleDateString('sv-SE');
         }
 
         function showToast(message, type = 'success') {
@@ -1560,38 +1481,23 @@ async def price_tracker_dashboard() -> str:
 
                 grid.innerHTML = products.map(p => `
                     <div class="card">
-                        <div style="display: flex; justify-content: space-between; align-items: start;">
-                            <div class="card-title">${escapeHtml(p.name)}</div>
-                            <button class="btn btn-sm" onclick="deleteProduct('${p.id}')" style="background: var(--error); color: white;" title="Delete product">Delete</button>
-                        </div>
+                        <div class="card-title">${escapeHtml(p.name)}</div>
                         <div class="card-meta">
                             ${p.brand ? escapeHtml(p.brand) : ''}
                             ${p.category ? '&middot; ' + escapeHtml(p.category) : ''}
                             ${p.unit ? '&middot; ' + escapeHtml(p.unit) : ''}
                         </div>
-                        ${p.stores.map(s => `
-                            <div style="border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px;">
-                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                                    <strong style="font-size: 13px;">${escapeHtml(s.store_name)}</strong>
-                                    <button class="btn btn-sm btn-secondary" onclick="triggerCheck('${s.product_store_id}')">Check price</button>
-                                    <button class="btn btn-sm" onclick="unlinkStore('${p.id}', '${s.store_id}')" style="background: transparent; color: var(--text-muted); padding: 2px 4px; margin-left: 4px;" title="Remove store link">&times;</button>
+                        <div class="store-pills">
+                            ${p.stores.map(s => `
+                                <div class="pill">
+                                    <span>${escapeHtml(s.store_name)}</span>
+                                    <button class="btn btn-sm btn-secondary" onclick="triggerCheck('${s.product_store_id}')">Kolla pris</button>
                                 </div>
-                                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">
-                                    Last checked: ${relativeTime(s.last_checked_at)}
-                                    &middot; Every ${s.check_frequency_hours} hours
-                                </div>
-                                ${s.price_sek ? `
-                                    <div style="font-size: 13px; margin-top: 4px;">
-                                        Price: <strong>${s.price_sek.toFixed(2)} kr</strong>
-                                        ${s.unit_price_sek ? ` (${s.unit_price_sek.toFixed(2)} kr/${p.unit || 'unit'})` : ''}
-                                        &middot; ${s.in_stock ? '<span class="badge badge-success">In stock</span>' : '<span class="badge badge-error">Out of stock</span>'}
-                                    </div>
-                                ` : '<div style="font-size: 12px; color: var(--text-muted);">No price recorded</div>'}
-                            </div>
-                        `).join('')}
+                            `).join('')}
+                        </div>
                         <div style="display: flex; gap: 8px; margin-top: 12px;">
-                            <button class="btn btn-sm btn-secondary" onclick="showAddStoreModal('${p.id}')">Add store</button>
-                            <button class="btn btn-sm btn-secondary" onclick="showPriceHistory('${p.id}')">History</button>
+                            <button class="btn btn-sm btn-secondary" onclick="showAddStoreModal('${p.id}')">Lagg till butik</button>
+                            <button class="btn btn-sm btn-secondary" onclick="showPriceHistory('${p.id}')">Historik</button>
                         </div>
                     </div>
                 `).join('');
@@ -1613,14 +1519,8 @@ async def price_tracker_dashboard() -> str:
 
                 grid.innerHTML = deals.map(d => `
                     <div class="card">
-                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                            <div class="card-title"><a href="${d.product_url}" target="_blank" style="color: inherit; text-decoration: none;">${escapeHtml(d.product_name)}</a></div>
-                            ${d.discount_percent > 0 ? `<span class="badge badge-error" style="font-size: 14px;">-${d.discount_percent.toFixed(0)}%</span>` : ''}
-                        </div>
-                        <div class="card-meta">
-                            ${escapeHtml(d.store_name)}
-                            &middot; ${relativeTime(d.checked_at)}
-                        </div>
+                        <div class="card-title">${escapeHtml(d.product_name)}</div>
+                        <div class="card-meta">${escapeHtml(d.store_name)}</div>
                         <div style="margin: 12px 0;">
                             ${d.price_sek ? `<span class="price-old">${d.price_sek.toFixed(2)} kr</span>` : ''}
                             <span class="price">${d.offer_price_sek.toFixed(2)} kr</span>
@@ -1646,13 +1546,12 @@ async def price_tracker_dashboard() -> str:
 
                 list.innerHTML = watches.map(w => {
                     const conditions = [];
-                    if (w.target_price_sek) conditions.push(`Target price: ${w.target_price_sek} kr`);
-                    if (w.price_drop_threshold_percent) conditions.push(`Price drop: ${w.price_drop_threshold_percent}%`);
-                    if (w.unit_price_target_sek) conditions.push(`Unit price: ${w.unit_price_target_sek} kr`);
-                    if (w.unit_price_drop_threshold_percent) conditions.push(`Unit price drop: ${w.unit_price_drop_threshold_percent}%`);
+                    if (w.target_price_sek) conditions.push(`Target: ${w.target_price_sek} SEK`);
+                    if (w.price_drop_threshold_percent) conditions.push(`Drop: ${w.price_drop_threshold_percent}%`);
+                    if (w.unit_price_target_sek) conditions.push(`Unit target: ${w.unit_price_target_sek} SEK/unit`);
+                    if (w.unit_price_drop_threshold_percent) conditions.push(`Unit drop: ${w.unit_price_drop_threshold_percent}%`);
                     if (w.alert_on_any_offer) conditions.push('Any offer');
                     const conditionText = conditions.length > 0 ? conditions.join(' &middot; ') : 'No conditions';
-                    const contextShort = w.context_id.substring(0, 8);
 
                     return `
                     <div class="watch-item">
@@ -1660,12 +1559,7 @@ async def price_tracker_dashboard() -> str:
                             <div style="font-weight: 600;">${escapeHtml(w.product_name)}</div>
                             <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
                                 ${conditionText}
-                            </div>
-                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
-                                <strong>Email:</strong> ${escapeHtml(w.email_address)}
-                                &middot; <strong>Context:</strong> ${contextShort}
-                                &middot; <strong>Created:</strong> ${relativeTime(w.created_at)}
-                                &middot; <strong>Last notified:</strong> ${relativeTime(w.last_alerted_at)}
+                                &middot; ${escapeHtml(w.email_address)}
                             </div>
                         </div>
                         <button class="btn btn-sm btn-secondary" onclick="deleteWatch('${w.watch_id}')">Delete</button>
@@ -1740,10 +1634,10 @@ async def price_tracker_dashboard() -> str:
         async function triggerCheck(productStoreId) {
             try {
                 await apiRequest(`/check/${productStoreId}`, { method: 'POST' });
-                showToast('Price check completed!', 'success');
+                showToast('Priskontroll slutford!', 'success');
                 await loadProducts();
             } catch (e) {
-                showToast('Price check failed: ' + e.message, 'error');
+                showToast('Priskontroll misslyckades: ' + e.message, 'error');
             }
         }
 
@@ -1761,11 +1655,11 @@ async def price_tracker_dashboard() -> str:
             event.target.classList.add('active');
 
             try {
-                content.innerHTML = '<div class="loading">Loading price history...</div>';
+                content.innerHTML = '<div class="loading">Laddar prishistorik...</div>';
                 const history = await apiRequest(`/products/${currentHistoryProductId}/prices?days=${days}`);
 
                 if (history.length === 0) {
-                    content.innerHTML = '<div class="empty-state">No price history available.</div>';
+                    content.innerHTML = '<div class="empty-state">Ingen prishistorik tillganglig.</div>';
                     return;
                 }
 
@@ -1773,12 +1667,12 @@ async def price_tracker_dashboard() -> str:
                     <table class="history-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Store</th>
-                                <th>Price</th>
-                                <th>Offer</th>
-                                <th>Unit price</th>
-                                <th>Stock</th>
+                                <th>Datum</th>
+                                <th>Butik</th>
+                                <th>Pris</th>
+                                <th>Erbjudande</th>
+                                <th>Enhetspris</th>
+                                <th>Lager</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -1792,7 +1686,7 @@ async def price_tracker_dashboard() -> str:
                                         <td>${h.price_sek ? h.price_sek.toFixed(2) + ' kr' : '-'}</td>
                                         <td>${h.offer_price_sek ? h.offer_price_sek.toFixed(2) + ' kr' : '-'}</td>
                                         <td>${h.unit_price_sek ? h.unit_price_sek.toFixed(2) + ' kr' : '-'}</td>
-                                        <td><span class="badge ${h.in_stock ? 'badge-ok' : 'badge-err'}">${h.in_stock ? 'Yes' : 'No'}</span></td>
+                                        <td><span class="badge ${h.in_stock ? 'badge-ok' : 'badge-err'}">${h.in_stock ? 'Ja' : 'Nej'}</span></td>
                                     </tr>
                                 `;
                             }).join('')}
@@ -1800,7 +1694,7 @@ async def price_tracker_dashboard() -> str:
                     </table>
                 `;
             } catch (e) {
-                content.innerHTML = `<div class="error-msg">Failed to load price history: ${e.message}</div>`;
+                content.innerHTML = `<div class="error-msg">Misslyckades att ladda prishistorik: ${e.message}</div>`;
             }
         }
 
@@ -1832,7 +1726,6 @@ async def price_tracker_dashboard() -> str:
                 });
 
                 hideModal('addWatch');
-                showToast('Price watch created!', 'success');
                 await loadWatches();
             } catch (e) {
                 document.getElementById('addWatchError').innerHTML = `<div class="error-msg">${e.message}</div>`;
@@ -1840,41 +1733,13 @@ async def price_tracker_dashboard() -> str:
         }
 
         async function deleteWatch(watchId) {
-            const confirmed = await confirmAction('Are you sure you want to delete this watch?');
-            if (!confirmed) return;
+            if (!confirm('Are you sure you want to delete this watch?')) return;
 
             try {
                 await apiRequest(`/watches/${watchId}`, { method: 'DELETE' });
-                showToast('Watch deleted!', 'success');
                 await loadWatches();
             } catch (e) {
-                showToast('Failed to delete watch: ' + e.message, 'error');
-            }
-        }
-
-        async function deleteProduct(productId) {
-            const confirmed = await confirmAction('Are you sure you want to delete this product? This will also delete all store links and price history.');
-            if (!confirmed) return;
-
-            try {
-                await apiRequest(`/products/${productId}`, { method: 'DELETE' });
-                showToast('Product deleted!', 'success');
-                await loadProducts();
-            } catch (e) {
-                showToast('Failed to delete product: ' + e.message, 'error');
-            }
-        }
-
-        async function unlinkStore(productId, storeId) {
-            const confirmed = await confirmAction('Remove store link?');
-            if (!confirmed) return;
-
-            try {
-                await apiRequest(`/products/${productId}/stores/${storeId}`, { method: 'DELETE' });
-                showToast('Store link removed!', 'success');
-                await loadProducts();
-            } catch (e) {
-                showToast('Failed to remove store link: ' + e.message, 'error');
+                alert('Failed to delete watch: ' + e.message);
             }
         }
 
@@ -1899,39 +1764,19 @@ async def price_tracker_dashboard() -> str:
 
         function showModal(name) {
             const modal = document.getElementById(`modal-${name}`);
+            modal.classList.add('open');
 
-            // Clear all form inputs
-            modal.querySelectorAll('input[type="text"], input[type="email"], input[type="url"], input[type="number"]').forEach(input => {
-                input.value = '';
-            });
-
-            // Clear all checkboxes
-            modal.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
-                checkbox.checked = false;
-            });
-
-            // Reset selects to first option
-            modal.querySelectorAll('select').forEach(select => {
-                select.selectedIndex = 0;
-            });
-
-            // Clear error messages
-            modal.querySelectorAll('.error-msg').forEach(el => el.remove());
-            modal.querySelectorAll('[id$="Error"]').forEach(el => el.innerHTML = '');
-
-            // Special handling for specific modals
             if (name === 'addWatch') {
                 const select = document.getElementById('watchProductId');
                 select.innerHTML = products.map(p =>
                     `<option value="${p.id}">${escapeHtml(p.name)}</option>`
                 ).join('');
             }
-
-            modal.classList.add('open');
         }
 
         function hideModal(name) {
             document.getElementById(`modal-${name}`).classList.remove('open');
+            document.querySelectorAll(`#modal-${name} .error-msg`).forEach(el => el.remove());
         }
 
         function escapeHtml(str) {
@@ -1942,62 +1787,11 @@ async def price_tracker_dashboard() -> str:
         }
 
         document.getElementById('searchProducts').addEventListener('input', (e) => {
-            const query = e.target.value.trim();
-
-            // Clear previous timeout
-            if (searchTimeout) {
-                clearTimeout(searchTimeout);
-            }
-
-            // Debounce: wait 300ms after user stops typing
-            searchTimeout = setTimeout(async () => {
-                const grid = document.getElementById('productGrid');
-
-                if (!query) {
-                    // If search is empty, load all products
-                    await loadProducts();
-                    return;
-                }
-
-                try {
-                    grid.innerHTML = '<div class="loading">Searching...</div>';
-                    products = await apiRequest(`/products?search=${encodeURIComponent(query)}`);
-
-                    if (products.length === 0) {
-                        grid.innerHTML = '<div class="empty-state">No products found.</div>';
-                        return;
-                    }
-
-                    grid.innerHTML = products.map(p => `
-                        <div class="card">
-                            <div style="display: flex; justify-content: space-between; align-items: start;">
-                            <div class="card-title">${escapeHtml(p.name)}</div>
-                            <button class="btn btn-sm" onclick="deleteProduct('${p.id}')" style="background: var(--error); color: white;" title="Delete product">Delete</button>
-                        </div>
-                            <div class="card-meta">
-                                ${p.brand ? escapeHtml(p.brand) : ''}
-                                ${p.category ? '&middot; ' + escapeHtml(p.category) : ''}
-                                ${p.unit ? '&middot; ' + escapeHtml(p.unit) : ''}
-                            </div>
-                            <div class="store-pills">
-                                ${p.stores.map(s => `
-                                    <div class="pill">
-                                        <span>${escapeHtml(s.store_name)}</span>
-                                        <button class="btn btn-sm btn-secondary" onclick="triggerCheck('${s.product_store_id}')">Check price</button>
-                                    <button class="btn btn-sm" onclick="unlinkStore('${p.id}', '${s.store_id}')" style="background: transparent; color: var(--text-muted); padding: 2px 4px; margin-left: 4px;" title="Remove store link">&times;</button>
-                                    </div>
-                                `).join('')}
-                            </div>
-                            <div style="display: flex; gap: 8px; margin-top: 12px;">
-                                <button class="btn btn-sm btn-secondary" onclick="showAddStoreModal('${p.id}')">Add store</button>
-                                <button class="btn btn-sm btn-secondary" onclick="showPriceHistory('${p.id}')">History</button>
-                            </div>
-                        </div>
-                    `).join('');
-                } catch (e) {
-                    grid.innerHTML = `<div class="error-msg">Search failed: ${e.message}</div>`;
-                }
-            }, 300);
+            const query = e.target.value.toLowerCase();
+            document.querySelectorAll('#productGrid .card').forEach(card => {
+                const text = card.textContent.toLowerCase();
+                card.style.display = text.includes(query) ? 'block' : 'none';
+            });
         });
 
         // Load data on page load
