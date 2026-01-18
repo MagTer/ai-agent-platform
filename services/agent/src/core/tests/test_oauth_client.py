@@ -111,8 +111,9 @@ class TestAuthorizationURL:
         factory, mock_session = mock_session_factory
         client = OAuthClient(factory, {"test_provider": provider_config})
         context_id = uuid.uuid4()
+        user_id = uuid.uuid4()
 
-        url, state = await client.get_authorization_url("test_provider", context_id)
+        url, state = await client.get_authorization_url("test_provider", context_id, user_id)
 
         # Verify state was added to session
         mock_session.add.assert_called_once()
@@ -130,8 +131,9 @@ class TestAuthorizationURL:
         factory, mock_session = mock_session_factory
         client = OAuthClient(factory, {"test_provider": provider_config})
         context_id = uuid.uuid4()
+        user_id = uuid.uuid4()
 
-        url, state = await client.get_authorization_url("test_provider", context_id)
+        url, state = await client.get_authorization_url("test_provider", context_id, user_id)
 
         assert url.startswith("https://auth.example.com/authorize?")
         assert "client_id=test_client_id" in url
@@ -147,9 +149,10 @@ class TestAuthorizationURL:
         factory, _ = mock_session_factory
         client = OAuthClient(factory, {})
         context_id = uuid.uuid4()
+        user_id = uuid.uuid4()
 
         with pytest.raises(ValueError, match="not configured"):
-            await client.get_authorization_url("unknown", context_id)
+            await client.get_authorization_url("unknown", context_id, user_id)
 
     async def test_get_authorization_url_state_expires(
         self, provider_config: Any, mock_session_factory: Any
@@ -158,9 +161,10 @@ class TestAuthorizationURL:
         factory, mock_session = mock_session_factory
         client = OAuthClient(factory, {"test_provider": provider_config})
         context_id = uuid.uuid4()
+        user_id = uuid.uuid4()
 
         before = datetime.now(UTC).replace(tzinfo=None)
-        await client.get_authorization_url("test_provider", context_id)
+        await client.get_authorization_url("test_provider", context_id, user_id)
         after = datetime.now(UTC).replace(tzinfo=None)
 
         added_state = mock_session.add.call_args[0][0]

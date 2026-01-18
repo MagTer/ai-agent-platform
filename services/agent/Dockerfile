@@ -3,9 +3,8 @@ FROM python:3.11-slim
 ENV POETRY_VERSION=1.8.2 \
     POETRY_HOME="/opt/poetry" \
     POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_CREATE=false
-
-ENV PYTHONPATH="/app/src:${PYTHONPATH}"
+    POETRY_VIRTUALENVS_CREATE=false \
+    PYTHONPATH="/app/src"
 
 # Install Node.js and npm (required for Gemini CLI)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -21,7 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+COPY pyproject.toml poetry.lock ./
 COPY alembic.ini ./
 COPY alembic ./alembic
 
@@ -29,6 +28,13 @@ COPY alembic ./alembic
 RUN poetry install --no-root --only main --no-cache
 
 COPY src ./src
+
+# Create non-root user for security (container should not run as root)
+RUN groupadd --gid 1000 appgroup \
+    && useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser \
+    && chown -R appuser:appgroup /app
+
+USER appuser
 
 EXPOSE 8000
 

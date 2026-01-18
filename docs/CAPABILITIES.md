@@ -24,6 +24,43 @@ The previous n8n-focused catalog is being replaced with agent-native definitions
 
 Update the catalog whenever a capability graduates from planned to available and mirror the status in this document.
 
+## Implemented Capabilities
+
+### Team-Aware Azure DevOps Management
+
+The platform understands Azure DevOps team structure for intelligent backlog management:
+
+**Skills:**
+- `backlog_manager` - List, search, analyze work items by team
+- `requirements_drafter` - Create work items with team validation and suggestions
+
+**Team Discovery:**
+```
+User: "List all configured teams"
+→ backlog_manager uses azure_devops(action="get_teams")
+→ Returns teams with area paths and default types
+```
+
+**Team-Specific Queries:**
+```
+User: "What's the Platform team working on?"
+→ backlog_manager lists Platform's active work items
+
+User: "Create a security incident for the Security team"
+→ requirements_drafter validates team, creates with correct area/tags
+```
+
+**Configuration:**
+Teams are defined in `services/agent/config/ado_mappings.yaml`. See [Team Structure Guide](AZURE_DEVOPS_TEAMS.md) for details.
+
+**Key Features:**
+- Automatic team validation with smart suggestions (Levenshtein distance)
+- Resolved configuration preview before work item creation
+- Cross-team workload comparison and analytics
+- Keyword-based team suggestions (security, infra, platform)
+
+---
+
 ## Planned Capabilities
 - `agent.web_research` – orchestrated retrieval across Qdrant memory and live web data.
 - `agent.file_summarise` – ingest local Markdown/PDF documents and summarise with citations.

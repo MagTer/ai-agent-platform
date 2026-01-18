@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 
 from core.core.config import Settings, get_settings
 from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
+from interfaces.http.admin_auth import verify_admin_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,10 +22,11 @@ def get_diagnostics_service(
     return DiagnosticsService(settings)
 
 
-@router.get("/traces", response_model=list[TraceGroup])
+@router.get("/traces", response_model=list[TraceGroup], dependencies=[Depends(verify_admin_user)])
 async def get_traces(
     limit: int = 5000,
     show_all: bool = False,
+    trace_id: str | None = None,
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> list[TraceGroup]:
     """Get recent traces, filtering out diagnostic/health-check traces by default.
@@ -32,25 +34,42 @@ async def get_traces(
     Args:
         limit: Maximum number of traces to return.
         show_all: If True, include diagnostic/health traces. Default False.
+        trace_id: If provided, filter traces containing this ID (partial match).
     """
-    return service.get_recent_traces(limit, show_all=show_all)
+    return service.get_recent_traces(limit, show_all=show_all, trace_id=trace_id)
 
 
-@router.get("/metrics")
+@router.get(
+    "/span/{trace_id}", response_model=TraceGroup | None, dependencies=[Depends(verify_admin_user)]
+)
+async def get_span_by_trace_id(
+    trace_id: str,
+    service: DiagnosticsService = Depends(get_diagnostics_service),
+) -> TraceGroup | None:
+    """Get all spans for a specific trace ID.
+
+    Searches the entire spans.jsonl file to find all spans matching the trace_id.
+    This is useful for debugging older traces that fall outside the recent window.
+    """
+    traces = service.get_recent_traces(limit=10000, show_all=True, trace_id=trace_id)
+    return traces[0] if traces else None
+
+
+@router.get("/metrics", dependencies=[Depends(verify_admin_user)])
 async def get_metrics(
     window: int = 60, service: DiagnosticsService = Depends(get_diagnostics_service)
 ) -> dict:
     return service.get_system_health_metrics(window=window)
 
 
-@router.post("/run", response_model=list[TestResult])
+@router.post("/run", response_model=list[TestResult], dependencies=[Depends(verify_admin_user)])
 async def run_diagnostics(
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> list[TestResult]:
     return await service.run_diagnostics()
 
 
-@router.get("/summary")
+@router.get("/summary", dependencies=[Depends(verify_admin_user)])
 async def get_diagnostics_summary(
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> dict:
@@ -68,7 +87,7 @@ async def get_diagnostics_summary(
     return await service.get_diagnostics_summary()
 
 
-@router.get("/crash-log")
+@router.get("/crash-log", dependencies=[Depends(verify_admin_user)])
 async def get_crash_log() -> dict[str, Any]:
     """Expose last_crash.log for AI agent consumption.
 
@@ -97,7 +116,7 @@ async def get_crash_log() -> dict[str, Any]:
         return {"exists": False, "content": None, "message": f"Read error: {e}"}
 
 
-@router.post("/retention")
+@router.post("/retention", dependencies=[Depends(verify_admin_user)])
 async def run_retention(
     message_days: int = 30,
     inactive_days: int = 90,
@@ -133,7 +152,7 @@ async def run_retention(
         }
 
 
-@router.get("/mcp")
+@router.get("/mcp", dependencies=[Depends(verify_admin_user)])
 async def get_mcp_health() -> dict[str, Any]:
     """Get health status of all MCP server connections.
 
@@ -170,7 +189,159 @@ async def get_mcp_health() -> dict[str, Any]:
         }
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/events", dependencies=[Depends(verify_admin_user)])
+async def get_system_events(
+    limit: int = 500,
+    event_type: str | None = None,
+    severity: str | None = None,
+) -> dict[str, Any]:
+    """Get system events that occurred outside of request context.
+
+    These are security and system events that couldn't be attached to a trace,
+    such as startup events, background job events, or events that occur before
+    tracing is initialized.
+
+    Args:
+        limit: Maximum number of events to return (default 500).
+        event_type: Filter by event type (e.g., AUTH_FAILURE, RATE_LIMIT_EXCEEDED).
+        severity: Filter by severity (INFO, WARNING, ERROR, CRITICAL).
+
+    Returns:
+        - events: List of system events (newest first)
+        - total_count: Total events in file
+        - filters_applied: Applied filters
+
+    Note: Most security events during normal requests are attached to traces
+    and available via /diagnostics/traces endpoint.
+    """
+    import json
+    from collections import deque
+
+    events_path = Path("data/system_events.jsonl")
+
+    if not events_path.exists():
+        return {
+            "events": [],
+            "total_count": 0,
+            "filters_applied": {"event_type": event_type, "severity": severity},
+            "message": "No system events file found",
+        }
+
+    try:
+        # Read last N*2 lines to allow for filtering
+        with events_path.open("r", encoding="utf-8") as f:
+            lines = deque(f, maxlen=limit * 2)
+
+        events = []
+        for line in reversed(list(lines)):
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+                # Apply filters
+                if event_type and event.get("event_type") != event_type:
+                    continue
+                if severity and event.get("severity") != severity.upper():
+                    continue
+                events.append(event)
+                if len(events) >= limit:
+                    break
+            except json.JSONDecodeError:
+                continue
+
+        return {
+            "events": events,
+            "total_count": len(events),
+            "filters_applied": {"event_type": event_type, "severity": severity},
+        }
+    except Exception as e:
+        LOGGER.error(f"Failed to read system events: {e}")
+        return {
+            "events": [],
+            "total_count": 0,
+            "filters_applied": {"event_type": event_type, "severity": severity},
+            "error": str(e),
+        }
+
+
+@router.get("/logs", dependencies=[Depends(verify_admin_user)])
+async def get_application_logs(
+    limit: int = 500,
+    level: str | None = None,
+    logger_name: str | None = None,
+    search: str | None = None,
+) -> dict[str, Any]:
+    """Get application logs (warnings, errors, and critical messages).
+
+    These are standard Python logging messages from the application,
+    captured at WARNING level and above.
+
+    Args:
+        limit: Maximum number of log entries to return (default 500).
+        level: Filter by log level (WARNING, ERROR, CRITICAL).
+        logger_name: Filter by logger name (e.g., "core.core.service").
+        search: Search in log message text.
+
+    Returns:
+        - logs: List of log entries (newest first)
+        - total_count: Number of entries returned
+        - filters_applied: Applied filters
+
+    Note: Only WARNING level and above are written to file to reduce noise.
+    """
+    import json
+    from collections import deque
+
+    logs_path = Path("data/app_logs.jsonl")
+
+    if not logs_path.exists():
+        return {
+            "logs": [],
+            "total_count": 0,
+            "filters_applied": {"level": level, "logger_name": logger_name, "search": search},
+            "message": "No application logs file found",
+        }
+
+    try:
+        # Read last N*2 lines to allow for filtering
+        with logs_path.open("r", encoding="utf-8") as f:
+            lines = deque(f, maxlen=limit * 2)
+
+        logs = []
+        for line in reversed(list(lines)):
+            if not line.strip():
+                continue
+            try:
+                log_entry = json.loads(line)
+                # Apply filters
+                if level and log_entry.get("level") != level.upper():
+                    continue
+                if logger_name and not log_entry.get("name", "").startswith(logger_name):
+                    continue
+                if search and search.lower() not in log_entry.get("message", "").lower():
+                    continue
+                logs.append(log_entry)
+                if len(logs) >= limit:
+                    break
+            except json.JSONDecodeError:
+                continue
+
+        return {
+            "logs": logs,
+            "total_count": len(logs),
+            "filters_applied": {"level": level, "logger_name": logger_name, "search": search},
+        }
+    except Exception as e:
+        LOGGER.error(f"Failed to read application logs: {e}")
+        return {
+            "logs": [],
+            "total_count": 0,
+            "filters_applied": {"level": level, "logger_name": logger_name, "search": search},
+            "error": str(e),
+        }
+
+
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
 async def diagnostics_dashboard(
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> str:
@@ -278,7 +449,15 @@ async def diagnostics_dashboard(
         .attr-value { font-size: 13px; font-weight: 500; word-break: break-all; }
         #drawerPre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto; font-family: 'Menlo', monospace; max-height: 250px; }
         .close-drawer { cursor: pointer; font-size: 20px; color: var(--text-muted); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 4px; }
-        
+
+        /* Modal for Crash Log */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center; }
+        .modal.open { display: flex; }
+        .modal-content { background: white; border-radius: 8px; width: 90%; max-width: 900px; max-height: 80vh; display: flex; flex-direction: column; box-shadow: 0 4px 20px rgba(0,0,0,0.2); }
+        .modal-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+        .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+        .modal-pre { background: #1e293b; color: #e2e8f0; padding: 16px; border-radius: 6px; font-size: 12px; overflow-x: auto; font-family: 'Menlo', monospace; white-space: pre-wrap; }
+
         .hidden { display: none !important; }
     </style>
 </head>
@@ -290,9 +469,11 @@ async def diagnostics_dashboard(
             <div id="tab-traces" class="nav-item active" onclick="switchTab('traces')">Trace Waterfall</div>
             <div id="tab-metrics" class="nav-item" onclick="switchTab('metrics')">Metrics & Insights</div>
             <div id="tab-health" class="nav-item" onclick="switchTab('health')">System Health</div>
+            <div id="tab-logs" class="nav-item" onclick="switchTab('logs')">Logs & Events</div>
         </div>
 
         <div style="display:flex; gap:10px">
+            <button onclick="viewCrashLog()" style="padding:6px 12px; border:1px solid #d1d5db; border-radius:6px; background:white; font-size:13px; cursor:pointer">View Crash Log</button>
             <button onclick="refreshCurrent()" style="padding:6px 12px; border:1px solid #d1d5db; border-radius:6px; background:white; font-size:13px; cursor:pointer">Refresh</button>
         </div>
     </div>
@@ -306,7 +487,7 @@ async def diagnostics_dashboard(
                     <span id="trace-count">0</span>
                 </div>
                 <input type="text" id="traceSearch" placeholder="Search by Trace ID..." 
-                       oninput="filterTraces()" 
+                       oninput="onTraceSearchInput()" 
                        style="width:100%; padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:12px; box-sizing:border-box;">
                 <label style="display:flex; align-items:center; gap:6px; font-size:11px; color:var(--text-muted); cursor:pointer">
                     <input type="checkbox" id="showAllTraces" onchange="loadTraces()">
@@ -355,6 +536,13 @@ async def diagnostics_dashboard(
                     Click "Run Integration Tests" to start probing.
                 </div>
             </div>
+
+            <h2 class="section-title" style="margin-top:40px; margin-bottom:16px">MCP Server Status</h2>
+            <div id="mcpStatusContainer">
+                <div style="padding:40px; text-align:center; color:var(--text-muted); border: 2px dashed var(--border); border-radius:8px; background:white;">
+                    Loading MCP server status...
+                </div>
+            </div>
         </div>
     </div>
 
@@ -393,6 +581,66 @@ async def diagnostics_dashboard(
         </div>
     </div>
 
+    <!-- Logs & Events Screen -->
+    <div class="screen health-screen" id="view-logs">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <h2 class="section-title">Application Logs</h2>
+            <div style="margin-bottom:16px; display:flex; gap:12px; align-items:center">
+                <select id="logLevelFilter" onchange="loadLogs()" style="padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:13px">
+                    <option value="">All Levels</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                </select>
+                <input type="text" id="logSearchBox" placeholder="Search logs..." oninput="loadLogs()" style="padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:13px; flex:1; max-width:400px">
+            </div>
+            <div style="overflow-x:auto; margin-bottom:40px">
+                <table id="logsTable">
+                    <thead>
+                        <tr>
+                            <th style="width:150px">Timestamp</th>
+                            <th style="width:80px">Level</th>
+                            <th style="width:200px">Logger</th>
+                            <th>Message</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logsBody">
+                        <tr><td colspan="4" style="text-align:center; color:#999">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h2 class="section-title">System Events</h2>
+            <div style="margin-bottom:16px; display:flex; gap:12px; align-items:center">
+                <select id="eventTypeFilter" onchange="loadEvents()" style="padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:13px">
+                    <option value="">All Event Types</option>
+                </select>
+                <select id="eventSeverityFilter" onchange="loadEvents()" style="padding:6px 10px; border:1px solid var(--border); border-radius:4px; font-size:13px">
+                    <option value="">All Severities</option>
+                    <option value="INFO">INFO</option>
+                    <option value="WARNING">WARNING</option>
+                    <option value="ERROR">ERROR</option>
+                    <option value="CRITICAL">CRITICAL</option>
+                </select>
+            </div>
+            <div style="overflow-x:auto">
+                <table id="eventsTable">
+                    <thead>
+                        <tr>
+                            <th style="width:150px">Timestamp</th>
+                            <th style="width:150px">Event Type</th>
+                            <th style="width:100px">Severity</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="eventsBody">
+                        <tr><td colspan="4" style="text-align:center; color:#999">Loading...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- Drawer -->
     <div class="drawer" id="attrDrawer">
         <div class="drawer-header">
@@ -400,6 +648,19 @@ async def diagnostics_dashboard(
             <div class="close-drawer" onclick="closeDrawer()">&times;</div>
         </div>
         <div class="drawer-content" id="drawerContent"></div>
+    </div>
+
+    <!-- Crash Log Modal -->
+    <div class="modal" id="crashLogModal" onclick="if(event.target===this) closeCrashLogModal()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 style="margin:0; font-size:16px; font-weight:600">Crash Log</h3>
+                <div class="close-drawer" onclick="closeCrashLogModal()">&times;</div>
+            </div>
+            <div class="modal-body">
+                <div id="crashLogContent">Loading...</div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -412,7 +673,11 @@ async def diagnostics_dashboard(
         window.refreshCurrent = refreshCurrent;
         window.runHealthChecks = runHealthChecks;
         window.closeDrawer = closeDrawer;
-        
+        window.viewCrashLog = viewCrashLog;
+        window.closeCrashLogModal = closeCrashLogModal;
+        window.loadLogs = loadLogs;
+        window.loadEvents = loadEvents;
+
         loadTraces();
 
         function switchTab(tab) {
@@ -431,6 +696,11 @@ async def diagnostics_dashboard(
             } else {
                 view.style.display = 'block';
                 if (tab === 'metrics') loadMetrics();
+                else if (tab === 'health') loadMcpStatus();
+                else if (tab === 'logs') {
+                    loadLogs();
+                    loadEvents();
+                }
             }
         }
 
@@ -532,14 +802,179 @@ async def diagnostics_dashboard(
             }
         }
 
+        async function loadMcpStatus() {
+            const container = document.getElementById('mcpStatusContainer');
+            try {
+                const res = await fetch('/diagnostics/mcp');
+                const data = await res.json();
+                container.innerHTML = '';
+
+                if (!data.servers || Object.keys(data.servers).length === 0) {
+                    container.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted); border: 2px dashed var(--border); border-radius:8px; background:white;">No MCP servers configured</div>';
+                    return;
+                }
+
+                const grid = document.createElement('div');
+                grid.className = 'health-grid';
+
+                Object.entries(data.servers).forEach(([name, info]) => {
+                    const isConnected = info.connected;
+                    const cls = isConnected ? 'ok' : 'fail';
+                    const statusText = isConnected ? 'Connected' : 'Disconnected';
+
+                    const card = document.createElement('div');
+                    card.className = `health-card ${cls}`;
+                    card.innerHTML = `
+                        <div style="display:flex; justify-content:space-between; margin-bottom:10px">
+                            <span style="font-weight:600; font-size:14px">${escapeHtml(name)}</span>
+                            <span style="font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px; color:white"
+                                  class="${isConnected ? 'bg-tool' : 'bg-err'}">${statusText}</span>
+                        </div>
+                        <div style="font-size:24px; font-weight:700; margin-bottom:4px">${info.tools_count || 0}<span style="font-size:12px; font-weight:400; color:#999; margin-left:4px">tools</span></div>
+                        ${info.error ? `<div style="font-size:12px; color:var(--error); margin-top:8px">${escapeHtml(info.error)}</div>` : ''}
+                    `;
+                    grid.appendChild(card);
+                });
+
+                container.appendChild(grid);
+            } catch (e) {
+                container.innerHTML = `<div style="color:red; padding:20px">Failed to load MCP status: ${e}</div>`;
+            }
+        }
+
+        async function loadLogs() {
+            const tbody = document.getElementById('logsBody');
+            const level = document.getElementById('logLevelFilter')?.value || '';
+            const search = document.getElementById('logSearchBox')?.value || '';
+
+            try {
+                let url = '/diagnostics/logs?limit=100';
+                if (level) url += `&level=${encodeURIComponent(level)}`;
+                if (search) url += `&search=${encodeURIComponent(search)}`;
+
+                const res = await fetch(url);
+                const data = await res.json();
+                tbody.innerHTML = '';
+
+                if (!data.logs || data.logs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#999">No logs found</td></tr>';
+                    return;
+                }
+
+                data.logs.forEach(log => {
+                    const tr = document.createElement('tr');
+                    const levelColor = log.level === 'CRITICAL' ? 'var(--error)' : log.level === 'ERROR' ? '#f59e0b' : 'var(--text-muted)';
+                    tr.innerHTML = `
+                        <td style="font-family:monospace; font-size:11px">${escapeHtml(log.timestamp || '')}</td>
+                        <td><span style="color:${levelColor}; font-weight:600; font-size:11px">${escapeHtml(log.level || '')}</span></td>
+                        <td style="font-family:monospace; font-size:11px">${escapeHtml(log.name || '')}</td>
+                        <td style="font-size:12px">${escapeHtml(log.message || '')}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="4" style="color:red; padding:20px">Failed to load logs: ${e}</td></tr>`;
+            }
+        }
+
+        async function loadEvents() {
+            const tbody = document.getElementById('eventsBody');
+            const eventType = document.getElementById('eventTypeFilter')?.value || '';
+            const severity = document.getElementById('eventSeverityFilter')?.value || '';
+
+            try {
+                let url = '/diagnostics/events?limit=100';
+                if (eventType) url += `&event_type=${encodeURIComponent(eventType)}`;
+                if (severity) url += `&severity=${encodeURIComponent(severity)}`;
+
+                const res = await fetch(url);
+                const data = await res.json();
+                tbody.innerHTML = '';
+
+                if (!data.events || data.events.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#999">No events found</td></tr>';
+                    return;
+                }
+
+                // Populate event type filter if empty
+                const eventTypeFilter = document.getElementById('eventTypeFilter');
+                if (eventTypeFilter.options.length === 1) {
+                    const eventTypes = new Set(data.events.map(e => e.event_type).filter(Boolean));
+                    eventTypes.forEach(type => {
+                        const option = document.createElement('option');
+                        option.value = type;
+                        option.textContent = type;
+                        eventTypeFilter.appendChild(option);
+                    });
+                }
+
+                data.events.forEach(event => {
+                    const tr = document.createElement('tr');
+                    const severityColor = event.severity === 'CRITICAL' || event.severity === 'ERROR' ? 'var(--error)' : event.severity === 'WARNING' ? '#f59e0b' : 'var(--text)';
+                    const details = typeof event.details === 'object' ? JSON.stringify(event.details) : event.details || '';
+                    tr.innerHTML = `
+                        <td style="font-family:monospace; font-size:11px">${escapeHtml(event.timestamp || '')}</td>
+                        <td style="font-weight:600; font-size:11px">${escapeHtml(event.event_type || '')}</td>
+                        <td><span style="color:${severityColor}; font-weight:600; font-size:11px">${escapeHtml(event.severity || '')}</span></td>
+                        <td style="font-size:12px">${escapeHtml(details)}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="4" style="color:red; padding:20px">Failed to load events: ${e}</td></tr>`;
+            }
+        }
+
+        async function viewCrashLog() {
+            const modal = document.getElementById('crashLogModal');
+            const content = document.getElementById('crashLogContent');
+            content.innerHTML = 'Loading...';
+            modal.classList.add('open');
+
+            try {
+                const res = await fetch('/diagnostics/crash-log');
+                const data = await res.json();
+
+                if (!data.exists) {
+                    content.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted)">No crash log found</div>';
+                    return;
+                }
+
+                const pre = document.createElement('pre');
+                pre.className = 'modal-pre';
+                pre.textContent = data.content;
+                content.innerHTML = '';
+                content.appendChild(pre);
+
+                if (data.modified) {
+                    const timestamp = document.createElement('div');
+                    timestamp.style.cssText = 'font-size:12px; color:var(--text-muted); margin-top:12px';
+                    timestamp.textContent = `Last modified: ${new Date(data.modified).toLocaleString()}`;
+                    content.appendChild(timestamp);
+                }
+            } catch (e) {
+                content.innerHTML = `<div style="color:red; padding:20px">Failed to load crash log: ${e}</div>`;
+            }
+        }
+
+        function closeCrashLogModal() {
+            document.getElementById('crashLogModal').classList.remove('open');
+        }
+
         // --- Traces ---
         let filteredTraceGroups = [];
         
-        async function loadTraces() {
+        async function loadTraces(searchTraceId = null) {
             const list = document.getElementById('reqList');
             const showAll = document.getElementById('showAllTraces')?.checked || false;
             try {
-                const res = await fetch(`/diagnostics/traces?limit=500&show_all=${showAll}`);
+                // If searchTraceId is provided, do full-file search via API
+                let url = `/diagnostics/traces?limit=500&show_all=${showAll}`;
+                if (searchTraceId && searchTraceId.length >= 8) {
+                    url += `&trace_id=${encodeURIComponent(searchTraceId)}`;
+                }
+                
+                const res = await fetch(url);
                 if(!res.ok) throw new Error("API " + res.status);
                 traceGroups = await res.json();
                 filterTraces();
@@ -566,6 +1001,21 @@ async def diagnostics_dashboard(
                 filteredTraceGroups = traceGroups;
             }
             renderTraceList(document.getElementById('reqList'));
+        }
+        
+        // Debounce search to trigger server-side lookup for trace IDs
+        let searchTimeout = null;
+        function onTraceSearchInput() {
+            const query = document.getElementById('traceSearch')?.value || '';
+            clearTimeout(searchTimeout);
+            
+            // If query looks like a trace ID (8+ hex chars), do server-side search
+            if (query.length >= 8 && /^[a-f0-9]+$/i.test(query)) {
+                searchTimeout = setTimeout(() => loadTraces(query), 300);
+            } else {
+                // Just filter locally
+                filterTraces();
+            }
         }
 
         function renderTraceList(list) {

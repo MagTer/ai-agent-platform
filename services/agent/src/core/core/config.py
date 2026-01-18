@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal, cast
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 # Ensure .env values are loaded before settings initialisation.
 load_dotenv()
@@ -50,8 +50,8 @@ class Settings(BaseModel):
         description="Model identifier for the Supervisor agent.",
     )
     model_agentchat: str = Field(
-        default="agentchat",
-        description="Model identifier for general agent chat/tools.",
+        default="skillsrunner-complex",
+        description="Model for general agent chat/tools (deprecated).",
     )
     litellm_timeout: float = Field(
         default=180.0,
@@ -135,6 +135,16 @@ class Settings(BaseModel):
         description="API key for admin dashboard access (generate with: openssl rand -hex 32)",
     )
 
+    # User Credential Encryption
+    credential_encryption_key: str = Field(
+        default="",
+        description=(
+            "Fernet key for encrypting user credentials "
+            "(generate: python -c 'from cryptography.fernet import Fernet; "
+            "print(Fernet.generate_key().decode())')"
+        ),
+    )
+
     context7_mcp_url: HttpUrl | None = Field(
         default=None,
         description="URL for the Context7 Model Context Protocol (MCP) server.",
@@ -159,6 +169,38 @@ class Settings(BaseModel):
     )
 
     log_level: str = Field(default="INFO", description="Python logging level for the service.")
+
+    # CORS Configuration
+    cors_allowed_origins: str = Field(
+        default="",
+        description="Comma-separated list of allowed CORS origins. Empty list disables CORS.",
+    )
+
+    # Price Tracker Settings
+    resend_api_key: str | None = Field(
+        default=None,
+        description="Resend API key for email notifications.",
+    )
+    price_tracker_from_email: str = Field(
+        default="prisspaning@noreply.local",
+        description="From email address for price alerts.",
+    )
+    price_tracker_check_interval_hours: int = Field(
+        default=6,
+        description="Default interval between automatic price checks.",
+    )
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> Settings:
+        """Validate that required secrets are set in production mode."""
+        if self.environment == "production":
+            if not self.credential_encryption_key:
+                raise ValueError(
+                    "AGENT_CREDENTIAL_ENCRYPTION_KEY must be set in production. "
+                    'Generate one with: python -c "from cryptography.fernet import Fernet; '
+                    'print(Fernet.generate_key().decode())"'
+                )
+        return self
 
     def __init__(self, **data: Any) -> None:  # noqa: D401 - inherited docstring
         env_values = type(self)._load_environment_values()

@@ -50,6 +50,8 @@ langchain-text-splitters = "^1.1.0"
 pathspec = "^0.12.1"
 aiogram = "^3.10.0"
 torch = { version = "2.2.2", source = "pytorch-cpu" }
+cryptography = "^46.0.3"
+slowapi = "^0.1.9"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "9.0.0"
@@ -62,6 +64,7 @@ types-PyYAML = "^6.0.12"
 coverage = "7.11.3"
 pyyaml = "^6.0.3"
 colorama = "^0.4.6"
+aiosqlite = "^0.22.1"
 
 [tool.poetry.scripts]
 stack = "stack.cli:app"
@@ -156,6 +159,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.ruff.lint.per-file-ignores]
 "src/core/models/gemini_cli.py" = ["S603"]
+"**/stack/checks.py" = ["S603"]
 "**/tests/**/*.py" = ["S105", "S106"]
 
 

@@ -82,7 +82,7 @@ class SkillDelegateTool(Tool):
     description = (
         "Delegates a task to a specialized worker persona. "
         "`skill` MUST be an existing markdown filename (e.g., 'researcher', "
-        "'requirements_engineer') available in the system. "
+        "'requirements_drafter') available in the system. "
         "Do not pass atomic tool names here."
     )
     category = "orchestration"
@@ -159,6 +159,12 @@ class SkillDelegateTool(Tool):
         today = datetime.now().strftime("%Y-%m-%d")
         year = datetime.now().year
 
+        # Get max_turns from skill metadata, default to 10 if not specified
+        max_turns = metadata.get("max_turns", 10)
+        if not isinstance(max_turns, int) or max_turns < 1:
+            LOGGER.warning(f"Invalid max_turns for skill '{skill}', using default 10")
+            max_turns = 10
+
         system_context = (
             "SYSTEM CONTEXT:\n"
             f"- Current Date & Time: {now}\n"
@@ -166,24 +172,25 @@ class SkillDelegateTool(Tool):
             f"- Treat all retrieved documents dated up to {today} "
             "as HISTORICAL FACTS, not predictions.\n"
             "\n"
-            "## EXECUTION PROTOCOL (STRICT - VIOLATIONS WILL CAUSE ERRORS)\n"
+            "## EXECUTION PROTOCOL\n"
             "\n"
-            "RULE 1 - ONE CALL PER QUERY: Each unique question = exactly ONE tool call.\n"
-            "RULE 2 - NO REPEATS: If you called a tool, you CANNOT call it again "
-            "with same/similar args.\n"
-            "RULE 3 - RESULTS ARE FINAL: When you receive tool output, that data is "
-            "complete. Respond immediately.\n"
+            "RULE 1 - PROGRESSIVE RESEARCH: You may call tools multiple times "
+            "to gather information.\n"
+            "RULE 2 - AVOID EXACT DUPLICATES: Don't repeat identical tool calls "
+            "(same args).\n"
+            "RULE 3 - STOP WHEN SUFFICIENT: After gathering enough data, "
+            "provide your final answer.\n"
             "\n"
             "CORRECT FLOW:\n"
             "1. User asks question\n"
-            "2. You call ONE tool\n"
-            "3. You receive results\n"
-            "4. You provide final answer using those results (NO more tool calls)\n"
+            "2. Call tools as needed (search, fetch, query)\n"
+            "3. Analyze results, call more tools if needed\n"
+            "4. When you have sufficient information, provide final answer\n"
             "\n"
-            "WRONG (will be blocked):\n"
-            "- Calling the same tool twice\n"
-            "- Calling a tool after you already have the data\n"
-            "- Trying variations of the same query\n"
+            "BUDGET:\n"
+            f"- Maximum turns: {max_turns}\n"
+            "- Maximum calls per tool type: 3\n"
+            "- Use tools strategically to avoid wasting budget\n"
             "\n"
         )
 
@@ -200,12 +207,6 @@ class SkillDelegateTool(Tool):
 
         # Import tracing only inside method to avoid circular imports
         from core.observability.tracing import set_span_attributes, start_span
-
-        # Get max_turns from skill metadata, default to 10 if not specified
-        max_turns = metadata.get("max_turns", 10)
-        if not isinstance(max_turns, int) or max_turns < 1:
-            LOGGER.warning(f"Invalid max_turns for skill '{skill}', using default 10")
-            max_turns = 10
 
         source_count = 0  # Track number of tool calls (sources)
         seen_calls: set[tuple[str, str]] = set()  # Track executed calls to prevent loops

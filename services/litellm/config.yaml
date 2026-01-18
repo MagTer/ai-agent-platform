@@ -9,9 +9,13 @@ logging:
   level: INFO
 
 model_list:
+  # ZDR-COMPATIBLE FAST SETUP
+  # Based on OpenRouter /api/v1/endpoints/zdr
+  
   - model_name: planner
     litellm_params:
-      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      # Qwen3 32B via Groq - extremely fast, ZDR supported
+      model: openrouter/qwen/qwen3-32b
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
       max_tokens: 8192
@@ -22,7 +26,8 @@ model_list:
 
   - model_name: supervisor
     litellm_params:
-      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      # DeepSeek v3.2 - best reasoning for critical reviews
+      model: openrouter/deepseek/deepseek-v3.2
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
       max_tokens: 16384
@@ -42,8 +47,21 @@ model_list:
         provider:
           zdr: true
 
-  - model_name: agentchat
+  - model_name: composer
     litellm_params:
+      # Qwen3 32B via Nebius - cheaper, fast, ZDR
+      model: openrouter/qwen/qwen3-32b
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.3
+      max_tokens: 4096
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+
+  - model_name: skillsrunner-complex
+    litellm_params:
+      # Llama 3.3 70B - stable for skill execution
       model: openrouter/meta-llama/llama-3.3-70b-instruct
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.2
@@ -52,5 +70,33 @@ model_list:
       extra_body:
         provider:
           zdr: true
-        # Llama 3.3 benefits from repetition penalty to reduce tool-call loops
         repetition_penalty: 1.05
+
+  - model_name: skillsrunner
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.2
+      max_tokens: 4096
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+        repetition_penalty: 1.05
+
+  # Price tracker models (Haiku-first with Sonnet fallback)
+  - model_name: haiku
+    litellm_params:
+      model: openrouter/anthropic/claude-3-5-haiku
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0
+      max_tokens: 2048
+      rpm: 60
+
+  - model_name: sonnet
+    litellm_params:
+      model: openrouter/anthropic/claude-sonnet-4
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0
+      max_tokens: 4096
+      rpm: 30

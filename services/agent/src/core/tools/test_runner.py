@@ -14,6 +14,21 @@ class TestRunnerTool(Tool):
     name = "test_runner"
     description = "Executes pytest on a specific file or directory to verify code changes."
     category = "development"
+    parameters = {
+        "type": "object",
+        "properties": {
+            "test_path": {
+                "type": "string",
+                "description": "Relative path to test file or directory",
+            },
+            "args": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Additional pytest arguments",
+            },
+        },
+        "required": ["test_path"],
+    }
 
     async def run(self, test_path: str, args: list[str] | None = None) -> str:
         """

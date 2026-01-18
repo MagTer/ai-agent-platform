@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from core.observability.error_codes import ErrorCode
 
 import httpx
+from cryptography.fernet import Fernet
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -21,6 +22,9 @@ from core.core.embedder import EmbedderClient
 from core.db.engine import engine
 
 LOGGER = logging.getLogger(__name__)
+
+# Test data for encryption round-trip
+_ENCRYPTION_TEST_VALUE = "diagnostic_test_value_12345"
 
 
 class TraceSpan(BaseModel):
@@ -177,12 +181,16 @@ class DiagnosticsService:
         }
 
     async def run_diagnostics(self) -> list[TestResult]:
-        """Run functional health checks on system components."""
+        """Run functional health checks on system components.
+
+        Tests both basic connectivity (health checks) and functional tests
+        that verify components work correctly end-to-end.
+        """
         results: list[TestResult | BaseException] = []
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=10.0) as client:
                 # Use return_exceptions=True so one crash doesn't kill the batch
-                # Note: Ollama check removed - no longer part of the architecture
+                # Core infrastructure tests
                 results = await asyncio.gather(
                     self._check_qdrant(client),
                     self._check_litellm(client),
@@ -192,6 +200,13 @@ class DiagnosticsService:
                     self._check_searxng(client),
                     self._check_internet(client),
                     self._check_workspace(),
+                    # New functional/integration tests
+                    self._check_mcp_connections(),
+                    self._check_oauth_tokens(),
+                    self._check_azure_devops(client),
+                    self._check_searxng_functional(client),
+                    self._check_credential_encryption(),
+                    self._check_price_tracker(),
                     return_exceptions=True,
                 )
         except Exception as e:
@@ -345,6 +360,12 @@ class DiagnosticsService:
             "internet": ErrorCode.NET_CONNECTION_REFUSED,
             "workspace": ErrorCode.CONFIG_PERMISSION,
             "openwebui": ErrorCode.NET_CONNECTION_REFUSED,
+            # New integration test components
+            "mcp": ErrorCode.NET_CONNECTION_REFUSED,
+            "oauth": ErrorCode.CONFIG_MISSING,
+            "azure": ErrorCode.NET_CONNECTION_REFUSED,
+            "credential": ErrorCode.CONFIG_INVALID,
+            "price": ErrorCode.DB_CONNECTION_FAILED,
         }
 
         for key, code in mapping.items():
@@ -609,6 +630,398 @@ class DiagnosticsService:
                 message=str(e),
             )
 
+    # -------------------------------------------------------------------------
+    # New Integration Tests (Functional Validation)
+    # -------------------------------------------------------------------------
+
+    async def _check_mcp_connections(self) -> TestResult:
+        """Check MCP server connections and tool availability.
+
+        Tests:
+        - MCP client pool is initialized
+        - Configured servers are reachable
+        - Tools are discoverable
+        """
+        start = time.perf_counter()
+        try:
+            from core.tools.mcp_loader import get_mcp_health, get_mcp_stats
+
+            stats = get_mcp_stats()
+            health = await get_mcp_health()
+            latency = (time.perf_counter() - start) * 1000
+
+            total_servers = stats.get("total_clients", 0)
+            connected = stats.get("connected_clients", 0)
+
+            if total_servers == 0:
+                return TestResult(
+                    component="MCP Servers",
+                    status="ok",
+                    latency_ms=latency,
+                    message="No MCP servers configured",
+                )
+
+            if connected == total_servers:
+                total_tools = sum(s.get("tools_count", 0) for s in health.values())
+                return TestResult(
+                    component="MCP Servers",
+                    status="ok",
+                    latency_ms=latency,
+                    message=f"{connected}/{total_servers} connected, {total_tools} tools",
+                )
+
+            # Some servers disconnected
+            disconnected_names = [
+                name for name, info in health.items() if not info.get("connected")
+            ]
+            disconnected_str = ", ".join(disconnected_names)
+            return TestResult(
+                component="MCP Servers",
+                status="fail",
+                latency_ms=latency,
+                message=f"{connected}/{total_servers} connected. Down: {disconnected_str}",
+            )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="MCP Servers",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    async def _check_oauth_tokens(self) -> TestResult:
+        """Check OAuth token validity and expiration status.
+
+        Tests:
+        - Tokens exist in database
+        - Tokens are not expired
+        - Warns about tokens expiring soon (within 1 hour)
+        """
+        from datetime import timedelta
+
+        from sqlalchemy import func, select
+
+        from core.db.oauth_models import OAuthToken
+
+        start = time.perf_counter()
+        try:
+            async with engine.connect() as conn:
+                # Count total tokens
+                total_result = await conn.execute(select(func.count()).select_from(OAuthToken))
+                total_tokens = total_result.scalar() or 0
+
+                if total_tokens == 0:
+                    latency = (time.perf_counter() - start) * 1000
+                    return TestResult(
+                        component="OAuth Tokens",
+                        status="ok",
+                        latency_ms=latency,
+                        message="No OAuth tokens configured",
+                    )
+
+                # Count expired tokens
+                now = datetime.now(UTC).replace(tzinfo=None)
+                expired_result = await conn.execute(
+                    select(func.count()).select_from(OAuthToken).where(OAuthToken.expires_at < now)
+                )
+                expired_count = expired_result.scalar() or 0
+
+                # Count tokens expiring within 1 hour
+                soon = now + timedelta(hours=1)
+                expiring_result = await conn.execute(
+                    select(func.count())
+                    .select_from(OAuthToken)
+                    .where(OAuthToken.expires_at >= now)
+                    .where(OAuthToken.expires_at < soon)
+                )
+                expiring_count = expiring_result.scalar() or 0
+
+                latency = (time.perf_counter() - start) * 1000
+
+                if expired_count > 0:
+                    return TestResult(
+                        component="OAuth Tokens",
+                        status="fail",
+                        latency_ms=latency,
+                        message=f"{expired_count}/{total_tokens} tokens expired",
+                    )
+
+                if expiring_count > 0:
+                    return TestResult(
+                        component="OAuth Tokens",
+                        status="ok",
+                        latency_ms=latency,
+                        message=f"{expiring_count}/{total_tokens} tokens expiring soon",
+                    )
+
+                return TestResult(
+                    component="OAuth Tokens",
+                    status="ok",
+                    latency_ms=latency,
+                    message=f"{total_tokens} tokens valid",
+                )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="OAuth Tokens",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    async def _check_azure_devops(self, client: httpx.AsyncClient) -> TestResult:
+        """Check Azure DevOps connectivity using configured PAT.
+
+        Tests:
+        - PAT is configured
+        - PAT is valid (can authenticate)
+        - API is reachable
+        """
+        import os
+
+        start = time.perf_counter()
+        try:
+            # Get config from environment (same as AzureDevOpsTool)
+            org_url = os.environ.get("AZURE_DEVOPS_ORG_URL")
+            if not org_url:
+                org = os.environ.get("AZURE_DEVOPS_ORG")
+                if org:
+                    org_url = f"https://dev.azure.com/{org}"
+            pat = os.environ.get("AZURE_DEVOPS_PAT")
+
+            if not org_url or not pat:
+                latency = (time.perf_counter() - start) * 1000
+                return TestResult(
+                    component="Azure DevOps",
+                    status="ok",
+                    latency_ms=latency,
+                    message="Not configured (no org URL or PAT)",
+                )
+
+            # Test API connectivity with projects endpoint
+            import base64
+
+            auth_str = base64.b64encode(f":{pat}".encode()).decode()
+            headers = {"Authorization": f"Basic {auth_str}"}
+
+            # Use _apis/projects endpoint to verify authentication
+            api_url = f"{org_url.rstrip('/')}/_apis/projects?api-version=7.0&$top=1"
+
+            resp = await client.get(api_url, headers=headers, timeout=10.0)
+            latency = (time.perf_counter() - start) * 1000
+
+            if resp.status_code == 200:
+                data = resp.json()
+                project_count = data.get("count", 0)
+                return TestResult(
+                    component="Azure DevOps",
+                    status="ok",
+                    latency_ms=latency,
+                    message=f"Connected ({project_count} projects accessible)",
+                )
+            elif resp.status_code == 401:
+                return TestResult(
+                    component="Azure DevOps",
+                    status="fail",
+                    latency_ms=latency,
+                    message="PAT authentication failed (401 Unauthorized)",
+                )
+            elif resp.status_code == 403:
+                return TestResult(
+                    component="Azure DevOps",
+                    status="fail",
+                    latency_ms=latency,
+                    message="PAT lacks permissions (403 Forbidden)",
+                )
+            else:
+                return TestResult(
+                    component="Azure DevOps",
+                    status="fail",
+                    latency_ms=latency,
+                    message=f"API error: HTTP {resp.status_code}",
+                )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="Azure DevOps",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    async def _check_searxng_functional(self, client: httpx.AsyncClient) -> TestResult:
+        """Run an actual search query against SearXNG.
+
+        Tests:
+        - Search endpoint is functional
+        - Returns valid results
+        - Response time is acceptable
+        """
+        start = time.perf_counter()
+        try:
+            base_url = str(self._settings.searxng_url).rstrip("/")
+            search_url = f"{base_url}/search"
+
+            # Use a simple, fast query
+            params = {
+                "q": "test",
+                "format": "json",
+                "categories": "general",
+            }
+
+            resp = await client.get(search_url, params=params, timeout=10.0)
+            latency = (time.perf_counter() - start) * 1000
+
+            if resp.status_code == 200:
+                try:
+                    data = resp.json()
+                    result_count = len(data.get("results", []))
+                    return TestResult(
+                        component="SearXNG Search",
+                        status="ok",
+                        latency_ms=latency,
+                        message=f"Search returned {result_count} results",
+                    )
+                except Exception:
+                    return TestResult(
+                        component="SearXNG Search",
+                        status="fail",
+                        latency_ms=latency,
+                        message="Invalid JSON response",
+                    )
+            else:
+                return TestResult(
+                    component="SearXNG Search",
+                    status="fail",
+                    latency_ms=latency,
+                    message=f"HTTP {resp.status_code}",
+                )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="SearXNG Search",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    async def _check_credential_encryption(self) -> TestResult:
+        """Test credential encryption/decryption round-trip.
+
+        Tests:
+        - Encryption key is configured
+        - Fernet encryption works correctly
+        - Round-trip produces same value
+        """
+        start = time.perf_counter()
+        try:
+            encryption_key = self._settings.credential_encryption_key
+
+            if not encryption_key:
+                latency = (time.perf_counter() - start) * 1000
+                return TestResult(
+                    component="Credential Encryption",
+                    status="ok",
+                    latency_ms=latency,
+                    message="Not configured (no encryption key)",
+                )
+
+            # Test encryption round-trip
+            key_bytes = (
+                encryption_key.encode() if isinstance(encryption_key, str) else encryption_key
+            )
+            fernet = Fernet(key_bytes)
+
+            # Encrypt and decrypt test value
+            encrypted = fernet.encrypt(_ENCRYPTION_TEST_VALUE.encode())
+            decrypted = fernet.decrypt(encrypted).decode()
+
+            latency = (time.perf_counter() - start) * 1000
+
+            if decrypted == _ENCRYPTION_TEST_VALUE:
+                return TestResult(
+                    component="Credential Encryption",
+                    status="ok",
+                    latency_ms=latency,
+                    message="Encryption round-trip successful",
+                )
+            else:
+                return TestResult(
+                    component="Credential Encryption",
+                    status="fail",
+                    latency_ms=latency,
+                    message="Decrypted value does not match original",
+                )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="Credential Encryption",
+                status="fail",
+                latency_ms=latency,
+                message=f"Encryption error: {e}",
+            )
+
+    async def _check_price_tracker(self) -> TestResult:
+        """Check price tracker module status.
+
+        Tests:
+        - Database table is accessible
+        - Checks if any tracked products exist
+        """
+        start = time.perf_counter()
+        try:
+            from sqlalchemy import text
+
+            # Check if price_tracker_products table exists and is accessible
+            async with engine.connect() as conn:
+                # First check if table exists
+                table_check = await conn.execute(
+                    text(
+                        "SELECT EXISTS ("
+                        "SELECT FROM information_schema.tables "
+                        "WHERE table_name = 'price_tracker_products'"
+                        ")"
+                    )
+                )
+                table_exists = table_check.scalar()
+
+                if not table_exists:
+                    latency = (time.perf_counter() - start) * 1000
+                    return TestResult(
+                        component="Price Tracker",
+                        status="ok",
+                        latency_ms=latency,
+                        message="Not configured (table not found)",
+                    )
+
+                # Count tracked products
+                count_result = await conn.execute(
+                    text("SELECT COUNT(*) FROM price_tracker_products")
+                )
+                product_count = count_result.scalar() or 0
+
+                latency = (time.perf_counter() - start) * 1000
+
+                return TestResult(
+                    component="Price Tracker",
+                    status="ok",
+                    latency_ms=latency,
+                    message=f"{product_count} products tracked",
+                )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="Price Tracker",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    # -------------------------------------------------------------------------
+    # Trace Analysis Methods
+    # -------------------------------------------------------------------------
+
     # Patterns for diagnostic/health-check traces to hide by default
     _HIDE_PATTERNS = [
         "GET /diagnostics",
@@ -628,47 +1041,75 @@ class DiagnosticsService:
         combined = f"{root_name} {target}"
         return any(pattern.lower() in combined.lower() for pattern in self._HIDE_PATTERNS)
 
-    def get_recent_traces(self, limit: int = 1000, show_all: bool = False) -> list[TraceGroup]:
+    def _parse_span(self, data: dict[str, Any]) -> TraceSpan | None:
+        """Parse a span from JSON data."""
+        try:
+            context = data.get("context", {})
+            start_str = data.get("start_time")
+            if start_str:
+                start_dt = datetime.fromisoformat(start_str)
+            else:
+                start_dt = datetime.now(UTC).replace(tzinfo=None)
+
+            return TraceSpan(
+                trace_id=context.get("trace_id", "unknown"),
+                span_id=context.get("span_id", "unknown"),
+                parent_id=context.get("parent_id"),
+                name=data.get("name", "unknown"),
+                start_time=start_dt,
+                duration_ms=data.get("duration_ms", 0.0),
+                status=data.get("status", "UNSET"),
+                attributes=data.get("attributes", {}),
+            )
+        except (KeyError, ValueError):
+            return None
+
+    def get_recent_traces(
+        self, limit: int = 1000, show_all: bool = False, trace_id: str | None = None
+    ) -> list[TraceGroup]:
         """
         Read log, group by trace_id, and return valid trace groups.
 
         Args:
             limit: Maximum number of trace lines to read.
             show_all: If True, include diagnostic/health-check traces. Default False.
+            trace_id: If provided, filter to traces containing this ID (partial match).
         """
         if not self._trace_log_path.exists():
             LOGGER.warning(f"Trace log not found at {self._trace_log_path}")
             return []
 
         # 1. Read Raw Spans
+        # When trace_id is specified, search the entire file for matching spans
+        # Otherwise, read only the last N lines for performance
         raw_spans: list[TraceSpan] = []
         try:
-            with self._trace_log_path.open("r", encoding="utf-8") as f:
-                last_lines = deque(f, maxlen=limit)
+            if trace_id:
+                # Full-file search for specific trace_id
+                with self._trace_log_path.open("r", encoding="utf-8") as f:
+                    for line in f:
+                        if trace_id not in line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                            span = self._parse_span(data)
+                            if span:
+                                raw_spans.append(span)
+                        except (json.JSONDecodeError, ValueError):
+                            continue
+            else:
+                # Tail-based reading for recent traces
+                with self._trace_log_path.open("r", encoding="utf-8") as f:
+                    last_lines = deque(f, maxlen=limit)
 
-            for line in last_lines:
-                try:
-                    data = json.loads(line)
-                    context = data.get("context", {})
-                    start_str = data.get("start_time")
-                    if start_str:
-                        start_dt = datetime.fromisoformat(start_str)
-                    else:
-                        start_dt = datetime.now(UTC).replace(tzinfo=None)
-
-                    span = TraceSpan(
-                        trace_id=context.get("trace_id", "unknown"),
-                        span_id=context.get("span_id", "unknown"),
-                        parent_id=context.get("parent_id"),
-                        name=data.get("name", "unknown"),
-                        start_time=start_dt,
-                        duration_ms=data.get("duration_ms", 0.0),
-                        status=data.get("status", "UNSET"),
-                        attributes=data.get("attributes", {}),
-                    )
-                    raw_spans.append(span)
-                except (json.JSONDecodeError, ValueError):
-                    continue
+                for line in last_lines:
+                    try:
+                        data = json.loads(line)
+                        span = self._parse_span(data)
+                        if span:
+                            raw_spans.append(span)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
         except Exception as e:
             LOGGER.error(f"Error reading trace log: {e}")
             return []
@@ -732,7 +1173,12 @@ class DiagnosticsService:
         trace_groups.sort(key=lambda g: g.start_time, reverse=True)
 
         # 5. Filter out diagnostic/health-check traces unless show_all is True
-        if not show_all:
+        #    OR when a specific trace_id is requested (always show explicit requests)
+        if not show_all and not trace_id:
             trace_groups = [g for g in trace_groups if not self._should_hide_trace(g)]
+
+        # 6. Filter by specific trace_id if provided (partial match)
+        if trace_id:
+            trace_groups = [g for g in trace_groups if trace_id in g.trace_id]
 
         return trace_groups

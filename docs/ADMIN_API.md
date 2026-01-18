@@ -5,7 +5,9 @@ The Admin API provides management endpoints for multi-tenant operations, secured
 ## Table of Contents
 
 - [Authentication](#authentication)
+- [User Management](#user-management)
 - [Context Management](#context-management)
+- [Credential Management](#credential-management)
 - [OAuth Token Management](#oauth-token-management)
 - [MCP Client Management](#mcp-client-management)
 - [Diagnostics](#diagnostics)
@@ -15,43 +17,99 @@ The Admin API provides management endpoints for multi-tenant operations, secured
 
 ## Authentication
 
-All admin endpoints require an API key passed via the `X-API-Key` header.
+All admin endpoints require Entra ID authentication forwarded from Open WebUI with admin role.
 
 ### Setup
 
+Configure Open WebUI to forward user information:
+
 ```bash
-# Generate a secure API key
-openssl rand -hex 32
+# In Open WebUI .env
+ENABLE_FORWARD_USER_INFO_HEADERS=true
 
-# Add to .env
-AGENT_ADMIN_API_KEY=your_generated_key_here
-
-# Restart the agent service
+# Open WebUI must be configured with Entra ID OAuth
 ```
 
-### Usage
+### Headers
 
-```bash
-# All admin requests require this header
-curl -H "X-API-Key: your_generated_key_here" \
-  http://localhost:8000/admin/contexts
+Open WebUI forwards these headers on every request:
+
+- `X-OpenWebUI-User-Email`: User's email address (normalized to lowercase)
+- `X-OpenWebUI-User-Name`: User's display name
+- `X-OpenWebUI-User-Id`: Open WebUI internal user ID
+- `X-OpenWebUI-User-Role`: User's role (must be "admin" for admin endpoints)
+
+### Authorization
+
+The admin portal requires the `admin` role:
+
+```python
+# All admin endpoints check:
+if user_role != "admin":
+    raise HTTPException(status_code=403, detail="Admin role required")
 ```
 
 ### Error Responses
 
-**401 Unauthorized** - Missing or invalid API key:
+**401 Unauthorized** - Missing authentication headers:
 ```json
 {
-  "detail": "Missing X-API-Key header"
+  "detail": "Missing X-OpenWebUI-User-Email header"
 }
 ```
 
-**503 Service Unavailable** - Admin API key not configured:
+**403 Forbidden** - Non-admin user:
 ```json
 {
-  "detail": "Admin API key not configured. Set AGENT_ADMIN_API_KEY environment variable."
+  "detail": "Admin role required"
 }
 ```
+
+---
+
+## User Management
+
+Manage users and their context associations.
+
+### Auto-Provisioning
+
+Users are automatically created on first login when Open WebUI forwards authentication headers:
+
+```python
+# On every request:
+1. Extract email from X-OpenWebUI-User-Email (normalized to lowercase)
+2. Check if user exists in database
+3. If not exists:
+   - Create User record
+   - Store name, role from headers
+4. Return user for request processing
+```
+
+### User Model
+
+Users have the following properties:
+
+- `id` (int): Auto-increment primary key
+- `email` (str): Unique email address (case-insensitive, normalized)
+- `name` (str): Display name from Entra ID
+- `role` (str): User role ("user" or "admin")
+- `created_at` (datetime): Account creation timestamp
+- `updated_at` (datetime): Last update timestamp
+
+### User-Context Relationship
+
+Users can be associated with multiple contexts via the `user_contexts` junction table:
+
+```sql
+CREATE TABLE user_contexts (
+    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    context_id UUID REFERENCES contexts(id) ON DELETE CASCADE,
+    created_at TIMESTAMP,
+    PRIMARY KEY (user_id, context_id)
+);
+```
+
+**Note:** The admin API does not currently expose user management endpoints. Users are managed through Open WebUI's Entra ID integration.
 
 ---
 
@@ -72,7 +130,8 @@ GET /admin/contexts
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   "http://localhost:8000/admin/contexts?type_filter=virtual"
 ```
 
@@ -106,7 +165,8 @@ GET /admin/contexts/{context_id}
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/contexts/abc-123-def-456
 ```
 
@@ -173,7 +233,8 @@ POST /admin/contexts
 **Example:**
 ```bash
 curl -X POST \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "staging",
@@ -210,7 +271,8 @@ DELETE /admin/contexts/{context_id}
 **Example:**
 ```bash
 curl -X DELETE \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/contexts/abc-123-def-456
 ```
 
@@ -224,6 +286,201 @@ curl -X DELETE \
 ```
 
 **⚠️ Warning:** This is a destructive operation. All conversations, messages, OAuth tokens, and tool permissions for the context will be permanently deleted via CASCADE.
+
+---
+
+## Credential Management
+
+Manage per-user encrypted credentials for external integrations.
+
+### Credential Model
+
+User credentials are encrypted using Fernet symmetric encryption:
+
+- `id` (int): Auto-increment primary key
+- `user_id` (int): Foreign key to users table
+- `credential_type` (str): Type of credential
+- `encrypted_value` (bytes): Fernet-encrypted credential
+- `created_at` (datetime): Creation timestamp
+- `updated_at` (datetime): Last update timestamp
+
+**Unique Constraint:** `(user_id, credential_type)` - one credential per type per user.
+
+### Supported Credential Types
+
+- `azure_devops_pat`: Azure DevOps Personal Access Token
+- `github_token`: GitHub Personal Access Token
+- `gitlab_token`: GitLab Personal Access Token
+- `jira_api_token`: Jira API Token
+
+### Encryption Setup
+
+Credentials are encrypted using the `AGENT_CREDENTIAL_ENCRYPTION_KEY` environment variable:
+
+```bash
+# Generate encryption key (32 bytes for Fernet)
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Add to .env
+AGENT_CREDENTIAL_ENCRYPTION_KEY=your_generated_key_here
+```
+
+**WARNING:** If you lose this key, all encrypted credentials become unrecoverable.
+
+### List Credentials
+
+Get all credentials for the current user (values are never returned).
+
+```http
+GET /admin/credentials/
+```
+
+**Example:**
+```bash
+curl -H "X-OpenWebUI-User-Email: user@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
+  http://localhost:8000/admin/credentials/
+```
+
+**Response:**
+```json
+{
+  "credentials": [
+    {
+      "id": 1,
+      "credential_type": "azure_devops_pat",
+      "created_at": "2026-01-18T10:00:00Z",
+      "updated_at": "2026-01-18T10:00:00Z"
+    },
+    {
+      "id": 2,
+      "credential_type": "github_token",
+      "created_at": "2026-01-18T11:00:00Z",
+      "updated_at": "2026-01-18T11:00:00Z"
+    }
+  ],
+  "total": 2
+}
+```
+
+**Note:** The `encrypted_value` is never exposed in API responses for security.
+
+### Create or Update Credential
+
+Create a new credential or update an existing one for the current user.
+
+```http
+POST /admin/credentials/
+```
+
+**Request Body:**
+```json
+{
+  "credential_type": "azure_devops_pat",
+  "value": "your_personal_access_token_here"
+}
+```
+
+**Example:**
+```bash
+curl -X POST \
+  -H "X-OpenWebUI-User-Email: user@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "credential_type": "azure_devops_pat",
+    "value": "abcdef123456"
+  }' \
+  http://localhost:8000/admin/credentials/
+```
+
+**Response (201 Created):**
+```json
+{
+  "success": true,
+  "message": "Credential created successfully",
+  "credential": {
+    "id": 1,
+    "credential_type": "azure_devops_pat",
+    "created_at": "2026-01-18T10:00:00Z",
+    "updated_at": "2026-01-18T10:00:00Z"
+  }
+}
+```
+
+**Response (200 OK - Updated):**
+```json
+{
+  "success": true,
+  "message": "Credential updated successfully",
+  "credential": {
+    "id": 1,
+    "credential_type": "azure_devops_pat",
+    "created_at": "2026-01-18T10:00:00Z",
+    "updated_at": "2026-01-18T12:00:00Z"
+  }
+}
+```
+
+**Error - Missing Encryption Key (500):**
+```json
+{
+  "detail": "Credential encryption not configured. Set AGENT_CREDENTIAL_ENCRYPTION_KEY."
+}
+```
+
+### Delete Credential
+
+Delete a credential for the current user.
+
+```http
+DELETE /admin/credentials/{credential_id}
+```
+
+**Example:**
+```bash
+curl -X DELETE \
+  -H "X-OpenWebUI-User-Email: user@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
+  http://localhost:8000/admin/credentials/1
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Credential deleted successfully",
+  "deleted_credential_id": 1
+}
+```
+
+**Error - Not Found or Unauthorized (404):**
+```json
+{
+  "detail": "Credential not found or unauthorized"
+}
+```
+
+### Security Considerations
+
+**Encryption:**
+- Credentials encrypted at rest using Fernet (AES-128 in CBC mode)
+- Encryption key must be stored securely (not in git)
+- Key rotation requires re-encrypting all credentials
+
+**Access Control:**
+- Users can only access their own credentials
+- Admin role required for credential management endpoints
+- Credentials scoped per user (not per context)
+
+**Best Practices:**
+```bash
+# Store encryption key in secrets manager
+export AGENT_CREDENTIAL_ENCRYPTION_KEY=$(vault read -field=key secret/credential_key)
+
+# Rotate encryption key (requires migration script)
+python scripts/rotate_credential_encryption_key.py --old-key $OLD_KEY --new-key $NEW_KEY
+```
 
 ---
 
@@ -245,7 +502,8 @@ GET /admin/oauth/tokens
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   "http://localhost:8000/admin/oauth/tokens?provider=homey"
 ```
 
@@ -283,7 +541,8 @@ DELETE /admin/oauth/tokens/{token_id}
 **Example:**
 ```bash
 curl -X DELETE \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/oauth/tokens/token-123
 ```
 
@@ -310,7 +569,8 @@ GET /admin/oauth/status/{context_id}
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/oauth/status/abc-456
 ```
 
@@ -348,7 +608,8 @@ GET /admin/mcp/health
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/mcp/health
 ```
 
@@ -384,7 +645,8 @@ GET /admin/mcp/stats
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/mcp/stats
 ```
 
@@ -416,7 +678,8 @@ POST /admin/mcp/disconnect/{context_id}
 **Example:**
 ```bash
 curl -X POST \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/mcp/disconnect/abc-456
 ```
 
@@ -454,7 +717,8 @@ GET /admin/diagnostics/traces
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   "http://localhost:8000/admin/diagnostics/traces?limit=10&show_all=true"
 ```
 
@@ -471,7 +735,8 @@ GET /admin/diagnostics/metrics
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/diagnostics/metrics
 ```
 
@@ -486,7 +751,8 @@ POST /admin/diagnostics/run
 **Example:**
 ```bash
 curl -X POST \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/diagnostics/run
 ```
 
@@ -518,7 +784,8 @@ GET /admin/diagnostics/summary
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/diagnostics/summary
 ```
 
@@ -532,7 +799,8 @@ GET /admin/diagnostics/crash-log
 
 **Example:**
 ```bash
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/diagnostics/crash-log
 ```
 
@@ -561,7 +829,8 @@ POST /admin/diagnostics/retention
 **Example:**
 ```bash
 curl -X POST \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   "http://localhost:8000/admin/diagnostics/retention?message_days=30"
 ```
 
@@ -590,7 +859,8 @@ curl -X POST \
 **1. Always Check Status Codes:**
 ```bash
 response=$(curl -s -w "\n%{http_code}" \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/contexts)
 
 http_code=$(echo "$response" | tail -n1)
@@ -603,14 +873,8 @@ else
 fi
 ```
 
-**2. Secure API Key Storage:**
-```bash
-# Use environment variable
-export ADMIN_KEY=$(cat .admin_key)
-
-# Or read from secure storage
-ADMIN_KEY=$(vault read -field=key secret/admin_api_key)
-```
+**2. Authentication via Open WebUI:**
+Admin endpoints are designed to be accessed through the Open WebUI admin portal, which automatically forwards authentication headers. Direct API access requires manually setting the headers.
 
 **3. Rate Limiting:**
 Admin endpoints are not rate-limited, but avoid excessive polling. Use webhooks or event-driven approaches where possible.
@@ -624,7 +888,8 @@ Admin endpoints are not rate-limited, but avoid excessive polling. Use webhooks 
 ```bash
 # 1. Create context
 CONTEXT_RESPONSE=$(curl -s -X POST \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   -H "Content-Type: application/json" \
   -d '{"name": "user_alice", "type": "virtual", "default_cwd": "/tmp"}' \
   http://localhost:8000/admin/contexts)
@@ -638,7 +903,8 @@ CONTEXT_ID=$(echo $CONTEXT_RESPONSE | jq -r '.context_id')
 # Guide user to /auth/oauth/authorize endpoint
 
 # 4. Verify setup
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/contexts/$CONTEXT_ID
 ```
 
@@ -646,14 +912,16 @@ curl -H "X-API-Key: $ADMIN_KEY" \
 
 ```bash
 # 1. Get context ID for user
-CONTEXTS=$(curl -s -H "X-API-Key: $ADMIN_KEY" \
+CONTEXTS=$(curl -s -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/contexts)
 
 CONTEXT_ID=$(echo $CONTEXTS | jq -r '.contexts[] | select(.name=="user_alice") | .id')
 
 # 2. Delete context (deletes everything)
 curl -X DELETE \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/contexts/$CONTEXT_ID
 ```
 
@@ -661,16 +929,19 @@ curl -X DELETE \
 
 ```bash
 # 1. Check OAuth status
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/oauth/status/$CONTEXT_ID
 
 # 2. Check MCP health
-curl -H "X-API-Key: $ADMIN_KEY" \
+curl -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/mcp/health
 
 # 3. Force reconnect
 curl -X POST \
-  -H "X-API-Key: $ADMIN_KEY" \
+  -H "X-OpenWebUI-User-Email: admin@example.com" \
+  -H "X-OpenWebUI-User-Role: admin" \
   http://localhost:8000/admin/mcp/disconnect/$CONTEXT_ID
 ```
 
@@ -678,33 +949,18 @@ curl -X POST \
 
 ## Security Considerations
 
-### API Key Management
+### Entra ID Authentication
 
-**Generation:**
-```bash
-# Use cryptographically secure random generator
-openssl rand -hex 32  # 64-character hex string
-```
+**Requirements:**
+- Open WebUI must be configured with Entra ID OAuth
+- `ENABLE_FORWARD_USER_INFO_HEADERS=true` in Open WebUI
+- Users must have admin role in Entra ID
 
-**Storage:**
-- ✅ Environment variable in production
-- ✅ Secrets manager (Vault, AWS Secrets Manager)
-- ❌ Never commit to git
-- ❌ Never expose in logs
-
-**Rotation:**
-```bash
-# 1. Generate new key
-NEW_KEY=$(openssl rand -hex 32)
-
-# 2. Update .env
-echo "AGENT_ADMIN_API_KEY=$NEW_KEY" >> .env
-
-# 3. Restart service
-docker-compose restart agent
-
-# 4. Update all admin clients
-```
+**Security Benefits:**
+- Centralized identity management
+- No API key rotation needed
+- Audit trail via Entra ID logs
+- Multi-factor authentication support
 
 ### Network Security
 
@@ -722,18 +978,16 @@ location /admin/ {
 
 ### Audit Logging
 
-Consider implementing audit logging for admin actions:
+Admin actions are automatically logged with user identification:
 
 ```python
-# Custom middleware
-@app.middleware("http")
-async def audit_admin_requests(request: Request, call_next):
-    if request.url.path.startswith("/admin/"):
-        logger.info(
-            f"Admin request: {request.method} {request.url.path} "
-            f"from {request.client.host}"
-        )
-    return await call_next(request)
+# All admin endpoints log:
+# - User email
+# - User role
+# - Action performed
+# - Timestamp
+# Example:
+logger.info(f"Admin action: {user_email} ({user_role}) - {action}")
 ```
 
 ---

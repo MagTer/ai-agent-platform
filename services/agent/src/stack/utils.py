@@ -14,7 +14,11 @@ PROJECT_NAME_ENV = "STACK_PROJECT_NAME"
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_ENV_PATH = PROJECT_ROOT / ".env"
 DEFAULT_COMPOSE_FILE = PROJECT_ROOT / "docker-compose.yml"
+DEV_COMPOSE_FILE = PROJECT_ROOT / "docker-compose.dev.yml"
+PROD_COMPOSE_FILE = PROJECT_ROOT / "docker-compose.prod.yml"
 DEFAULT_PROJECT_NAME = "ai-agent-platform"
+DEV_PROJECT_NAME = "ai-agent-platform-dev"
+PROD_PROJECT_NAME = "ai-agent-platform-prod"
 
 
 def load_environment(env_path: Path | None = None) -> dict[str, str]:
@@ -34,11 +38,32 @@ def load_environment(env_path: Path | None = None) -> dict[str, str]:
     return {key: str(value) for key, value in merged.items() if value is not None}
 
 
-def resolve_compose_files(env: Mapping[str, str] | None = None) -> list[Path]:
-    """Return the compose files to apply, honouring overrides from the environment."""
+def resolve_compose_files(
+    env: Mapping[str, str] | None = None,
+    *,
+    prod: bool = False,
+    dev: bool = False,
+) -> list[Path]:
+    """Return the compose files to apply, honouring overrides from the environment.
 
+    Args:
+        env: Environment mapping to use (defaults to os.environ)
+        prod: If True, use production compose file (docker-compose.prod.yml)
+        dev: If True, use development compose file (docker-compose.dev.yml)
+
+    Note: prod and dev are mutually exclusive. If both are False, uses base only.
+    """
     if env is None:
         env = os.environ
+
+    # Production mode: use base + prod overlay
+    if prod:
+        return [DEFAULT_COMPOSE_FILE, PROD_COMPOSE_FILE]
+
+    # Development mode: use base + dev overlay
+    if dev:
+        return [DEFAULT_COMPOSE_FILE, DEV_COMPOSE_FILE]
+
     raw = env.get(COMPOSE_FILES_ENV)
     if not raw:
         return [DEFAULT_COMPOSE_FILE]
@@ -65,6 +90,23 @@ def resolve_compose_files(env: Mapping[str, str] | None = None) -> list[Path]:
     return files
 
 
+def resolve_project_name_for_env(*, prod: bool = False, dev: bool = False) -> str:
+    """Return the project name for the specified environment.
+
+    Args:
+        prod: If True, return production project name
+        dev: If True, return development project name
+
+    Returns:
+        Project name string for docker compose -p flag
+    """
+    if prod:
+        return PROD_PROJECT_NAME
+    if dev:
+        return DEV_PROJECT_NAME
+    return DEFAULT_PROJECT_NAME
+
+
 def resolve_project_name(env: Mapping[str, str] | None = None) -> str:
     """Return the compose project name, falling back to the default."""
 
@@ -88,10 +130,15 @@ __all__ = [
     "PROJECT_ROOT",
     "DEFAULT_ENV_PATH",
     "DEFAULT_COMPOSE_FILE",
+    "DEV_COMPOSE_FILE",
+    "PROD_COMPOSE_FILE",
     "DEFAULT_PROJECT_NAME",
+    "DEV_PROJECT_NAME",
+    "PROD_PROJECT_NAME",
     "PROJECT_NAME_ENV",
     "COMPOSE_FILES_ENV",
     "load_environment",
     "resolve_compose_files",
     "resolve_project_name",
+    "resolve_project_name_for_env",
 ]

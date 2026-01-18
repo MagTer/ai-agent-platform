@@ -49,6 +49,10 @@ class ListDirectoryTool(Tool):
         "List files and directories in the specified path. "
         "Args: path (str, optional) - Relative path to list (defaults to root)."
     )
+    parameters = {
+        "type": "object",
+        "properties": {"path": {"type": "string", "description": "Relative path (default: '.')"}},
+    }
 
     def __init__(self, base_path: str) -> None:
         self._base_path = base_path
@@ -87,6 +91,11 @@ class ReadFileTool(Tool):
 
     name = "read_file"
     description = "Read the contents of a file. " "Args: path (str) - Relative path to the file."
+    parameters = {
+        "type": "object",
+        "properties": {"path": {"type": "string", "description": "File path to read"}},
+        "required": ["path"],
+    }
 
     def __init__(self, base_path: str, max_length: int = 10000) -> None:
         self._base_path = base_path
@@ -129,6 +138,15 @@ class EditFileTool(Tool):
         "target (str) - Exact text block to replace. "
         "replacement (str) - New text content."
     )
+    parameters = {
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path"},
+            "target": {"type": "string", "description": "Exact text to replace"},
+            "replacement": {"type": "string", "description": "New text content"},
+        },
+        "required": ["path", "target", "replacement"],
+    }
 
     requires_confirmation = True
 

@@ -14,6 +14,13 @@ class SearchCodeBaseTool(Tool):
         "without knowing exact paths. Args: query (str)"
     )
     activity_hint = {"query": 'Searching code: "{query}"'}
+    parameters = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query for code snippets"}
+        },
+        "required": ["query"],
+    }
 
     async def run(self, query: str) -> str:
         try:

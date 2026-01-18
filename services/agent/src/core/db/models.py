@@ -79,6 +79,48 @@ class Message(Base):
     session = relationship("Session", back_populates="messages")
 
 
+class User(Base):
+    """User account linked to Open WebUI identity."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String, unique=True, index=True)  # Primary identifier
+    display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    role: Mapped[str] = mapped_column(String, default="user")  # "user" or "admin"
+    # Open WebUI's internal ID
+    openwebui_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    last_login_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    # Relationships
+    user_contexts = relationship("UserContext", back_populates="user", cascade="all, delete-orphan")
+
+
+class UserContext(Base):
+    """Junction table linking users to contexts with role."""
+
+    __tablename__ = "user_contexts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    role: Mapped[str] = mapped_column(String, default="owner")  # "owner", "member", "viewer"
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)  # User's personal context
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+
+    # Relationships
+    user = relationship("User", back_populates="user_contexts")
+    context = relationship("Context")
+
+    __table_args__ = (UniqueConstraint("user_id", "context_id", name="uq_user_context"),)
+
+
 class ToolPermission(Base):
     """Per-context tool access permissions.
 
@@ -98,3 +140,27 @@ class ToolPermission(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
     __table_args__ = (UniqueConstraint("context_id", "tool_name", name="uq_context_tool"),)
+
+
+class UserCredential(Base):
+    """Encrypted credential storage per user."""
+
+    __tablename__ = "user_credentials"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    # Type: 'azure_devops_pat', 'github_token', etc.
+    credential_type: Mapped[str] = mapped_column(String, index=True)
+    encrypted_value: Mapped[str] = mapped_column(String)  # Fernet encrypted
+    # Non-sensitive metadata (org URL, etc.)
+    credential_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default={})
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "credential_type", name="uq_user_credential_type"),
+    )

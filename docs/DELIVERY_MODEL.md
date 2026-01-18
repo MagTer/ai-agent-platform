@@ -2,7 +2,7 @@
 
 ## Cadence
 - Deliver in 2–3 hour increments that produce runnable artefacts, updated docs, and automated checks.
-- Use focused PRs and include the output from `poetry run python scripts/code_check.py` (Ruff, Black, mypy, pytest) in the description.
+- Use focused PRs and include the output from `./stack check` (Ruff, Black, mypy, pytest) in the description.
 
 ## Definition of Done (DoD)
 - Stack CLI commands (`python -m stack up/down/status`) succeed twice consecutively.
@@ -20,11 +20,11 @@
 
 ## Tooling Conventions
 - Poetry manages dependencies; update `pyproject.toml` and run `poetry lock` when adding packages.
-- Formatting via `ruff` and `black`; typing enforced with `mypy`—all bundled in `poetry run python scripts/code_check.py` as documented in `docs/architecture/04_dev_practices.md`.
+- Formatting via `ruff` and `black`; typing enforced with `mypy`—all bundled in `./stack check` as documented in `docs/architecture/04_dev_practices.md`.
 - Stack CLI logic lives in `src/stack/`; prefer pure functions and unit tests under `src/stack/tests/`.
 - Avoid PowerShell scripts for orchestration; use Python modules or documented CLI commands instead.
-- Run `poetry run python scripts/code_check.py` plus explicit `mypy` and `pytest` invocations
-  before requesting review, matching the Codex checklist.
+- Run `./stack check` before requesting review, matching the Codex checklist.
+  For targeted iteration, use `./stack typecheck` or `./stack test` individually.
 
 ## Branches & Labels
 - Branch naming: `feature/*`, `fix/*`, `chore/*` depending on scope.

@@ -3,15 +3,48 @@
 ## Project Identity
 You are working on a **local-first AI Agent Platform** - a modular monolith orchestrating LiteLLM, Qdrant, PostgreSQL, and tools via FastAPI. This is production-grade infrastructure for running autonomous AI agents.
 
+## Tri-Model Workflow (MANDATORY)
+
+**Before starting any work, read:** `/CLAUDE.md` (root entry point with context hygiene rules)
+
+### Plan-First Approach
+
+Before writing code for non-trivial tasks:
+1. Check if a plan exists in `.claude/plans/CURRENT_PLAN.md` or `.claude/plans/YYYY-MM-DD-feature.md`
+2. For complex tasks (3+ files, architectural changes), a plan is REQUIRED
+3. If no plan exists, use `/architect` to create one FIRST
+4. Never write code without a plan for complex features
+
+### Model Selection Guide
+
+- **Opus (`/architect`)**: Planning, architecture review, security audits, complex reasoning
+- **Sonnet (`/builder`)**: Implementation, debugging, API design, code writing
+- **Haiku (`/janitor`)**: Testing, linting, docs, simple fixes, maintenance
+
+Use the right model for the task to optimize costs. When switching models is needed, ask the user explicitly.
+
+### Always Read These First
+
+1. `/CLAUDE.md` - Workflow and context hygiene (THIS FILE)
+2. `.claude/PRIMER.md` - Project essentials (architecture, standards, patterns)
+3. Plan file - If implementing from a plan
+
 ## Critical Workflow (MANDATORY)
 Before marking ANY task as complete, you MUST run the quality assurance script:
 ```bash
-python scripts/code_check.py
+./stack check
 ```
 
 **If this fails (red output), you MUST fix errors before proceeding.**
 
-- Never set `CI=true` locally (breaks environment)
+**Available commands:**
+- `./stack check` - Full check (lint, format, typecheck, test)
+- `./stack lint` - Fast linting and formatting
+- `./stack typecheck` - Type checking only
+- `./stack test` - Tests only
+- `./stack check --no-fix` - CI mode (no auto-fix)
+
+**Guidelines:**
 - Ruff/Black: Don't argue with the linter, just fix the code
 - Mypy: Strict typing enforced. No `Any`. Use `list[str]`, not `List[str]`
 - Tests: If you write logic, you MUST write a test
@@ -67,7 +100,7 @@ Context -> Conversation -> Session -> Message
 
 ## Documentation Style
 
-- **Language:** Swedish for user-facing text; English for code/config
+- **Language:** English for ALL code, GUI, config, and admin interfaces. Swedish only for end-user chat responses.
 - **No Emojis:** Unless explicitly requested by user
 - **ASCII-safe:** Use `->`, `--`, quotes `'"`  (no smart punctuation)
 
@@ -90,7 +123,7 @@ Crash logs: `services/agent/last_crash.log` (access via API, not file system)
 | `core/providers.py` | Implementation providers |
 | `core/observability/error_codes.py` | Structured error codes |
 | `core/tests/mocks.py` | Test mocks (MockLLMClient, InMemoryAsyncSession) |
-| `scripts/code_check.py` | Quality assurance script (MANDATORY) |
+| `./stack` | Quality assurance CLI (check, lint, typecheck, test) |
 | `skills/` | Platform's agent skills (NOT Claude Code skills) |
 | `docs/` | Documentation index (start at docs/README.md) |
 
@@ -98,7 +131,11 @@ Crash logs: `services/agent/last_crash.log` (access via API, not file system)
 
 ```bash
 # ALWAYS use this for quality checks
-python scripts/code_check.py
+./stack check                  # Full check (lint, format, typecheck, test)
+./stack lint                   # Fast linting and formatting only
+./stack typecheck              # Type checking only
+./stack test                   # Tests only
+./stack check --no-fix         # CI mode (no auto-fix)
 
 # Stack management
 python -m stack up              # Start services
@@ -109,9 +146,6 @@ python -m stack logs agent      # View logs
 # Testing
 python -m pytest services/agent/src/core/tests/test_skill_delegate.py -v
 python services/agent/scripts/run_semantic_eval.py
-
-# Type checking only
-python -m mypy
 ```
 
 ## Remember

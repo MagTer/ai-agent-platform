@@ -55,7 +55,7 @@ CLASSIFIER_SYSTEM_PROMPT = (
     '2. "agentic" - Requires tools, research, file operations, current data, '
     "anything time-sensitive\n"
     '3. "skill" - User explicitly used a slash command '
-    "(e.g., /researcher, /requirements_engineer)\n\n"
+    "(e.g., /researcher, /requirements_drafter, /requirements_writer)\n\n"
     'AGENTIC TRIGGERS (always return "agentic"):\n'
     "- Words: check, verify, search, research, find, look up, analyze, "
     "create, write, read, run\n"

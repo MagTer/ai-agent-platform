@@ -16,20 +16,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
 from core.db.models import Context, Conversation
 from core.observability.tracing import configure_tracing
 from interfaces.http.admin_contexts import router as admin_contexts_router
+from interfaces.http.admin_credentials import router as admin_credentials_router
 from interfaces.http.admin_diagnostics import router as admin_diagnostics_router
 from interfaces.http.admin_mcp import router as admin_mcp_router
 from interfaces.http.admin_oauth import router as admin_oauth_router
+from interfaces.http.admin_portal import router as admin_portal_router
+from interfaces.http.admin_price_tracker import router as admin_price_tracker_router
+from interfaces.http.admin_users import router as admin_users_router
 from interfaces.http.diagnostics import router as diagnostics_router
 from interfaces.http.oauth import router as oauth_router
 from interfaces.http.oauth_webui import router as oauth_webui_router
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
+from ..middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
 from ..tools.mcp_loader import set_mcp_client_pool, shutdown_all_mcp_clients
 from .config import Settings, get_settings
 from .litellm_client import LiteLLMClient, LiteLLMError
@@ -69,9 +76,23 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     # Store test service if provided (for legacy endpoint testing)
     if service is not None:
         app.state.test_service = service
+
+    # Configure rate limiting (disabled in test environment)
+    if settings.environment != "test":
+        limiter = create_rate_limiter()
+        app.state.limiter = limiter
+        app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+        app.add_middleware(SlowAPIMiddleware)
+
+    # Configure CORS with allowed origins from settings
+    allowed_origins = (
+        [o.strip() for o in settings.cors_allowed_origins.split(",") if o.strip()]
+        if settings.cors_allowed_origins
+        else []
+    )
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -197,6 +218,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         # Dependency Injection: Register module implementations
         # This is the ONLY place where modules are wired to core protocols.
         from core.providers import (
+            get_fetcher,
             set_code_indexer_factory,
             set_embedder,
             set_fetcher,
@@ -273,9 +295,33 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         asyncio.create_task(retention_cleanup_loop())
         LOGGER.info("Retention cleanup scheduled (startup + daily)")
 
+        # Price Tracker Scheduler - runs background price checks
+        from modules.price_tracker.scheduler import PriceCheckScheduler
+
+        # Create notifier if API key is configured
+        notifier = None
+        if settings.resend_api_key:
+            from modules.price_tracker.notifier import PriceNotifier
+
+            notifier = PriceNotifier(
+                api_key=settings.resend_api_key,
+                from_email=settings.price_tracker_from_email,
+            )
+            LOGGER.info("Price alert notifier initialized")
+
+        # Create and start scheduler
+        scheduler = PriceCheckScheduler(
+            session_factory=AsyncSessionLocal,
+            fetcher=get_fetcher(),
+            notifier=notifier,
+        )
+        await scheduler.start()
+        LOGGER.info("Price check scheduler started")
+
         yield  # Application runs here
 
         # --- SHUTDOWN ---
+        await scheduler.stop()
         await shutdown_all_mcp_clients()
         await litellm_client.aclose()
         await token_manager.shutdown()
@@ -481,10 +527,14 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     app.include_router(oauth_webui_router)
 
     # Admin routers (secured with API key)
+    app.include_router(admin_portal_router)
     app.include_router(admin_contexts_router)
+    app.include_router(admin_credentials_router)
     app.include_router(admin_oauth_router)
     app.include_router(admin_mcp_router)
     app.include_router(admin_diagnostics_router)
+    app.include_router(admin_price_tracker_router)
+    app.include_router(admin_users_router)
 
     return app
 

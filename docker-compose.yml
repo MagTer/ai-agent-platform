@@ -1,8 +1,8 @@
 services:
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
-    ports:
-      - "4000:4000"
+    expose:
+      - "4000"
     volumes:
       - ./services/litellm/config.yaml:/app/config.yaml
     command: [ "--config", "/app/config.yaml", "--port", "4000" ]
@@ -29,7 +29,7 @@ services:
       - ./services/agent/pyproject.toml:/app/pyproject.toml
       - ./services/agent/data:/app/data  # Bind mount for trace logs (accessible from host)
     environment:
-      AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
+      AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-development}
       QDRANT_URL: http://qdrant:6333
       SEARXNG_URL: http://searxng:8080
       POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/agent_db}
@@ -39,8 +39,12 @@ services:
       AZURE_DEVOPS_ORG: ${AZURE_DEVOPS_ORG:-}
       AZURE_DEVOPS_PROJECT: ${AZURE_DEVOPS_PROJECT:-}
       AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
-    ports:
-      - "8000:8000"
+    # Port NOT exposed externally - only accessible via internal Docker network
+    # This is a SECURITY REQUIREMENT: agent trusts X-OpenWebUI-* headers
+    # ports:
+    #   - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
       qdrant:
         condition: service_started
@@ -55,17 +59,32 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    labels:
+      # Traefik routing for admin portal (direct to agent)
+      - "traefik.enable=true"
+      # Admin portal router - PathPrefix rule with higher priority
+      - "traefik.http.routers.platformadmin.rule=Host(`${DOMAIN:-agent.falle.se}`) && PathPrefix(`/platformadmin`)"
+      - "traefik.http.routers.platformadmin.entrypoints=websecure"
+      - "traefik.http.routers.platformadmin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.platformadmin.priority=100"
+      # Service port
+      - "traefik.http.services.platformadmin.loadbalancer.server.port=8000"
+      # Security middleware - strip external X-OpenWebUI-* headers (CRITICAL!)
+      - "traefik.http.routers.platformadmin.middlewares=strip-openwebui-headers,security-headers"
 
   postgres:
     image: postgres:15-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable required}
       POSTGRES_DB: ${POSTGRES_DB:-agent_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Internal only - uncomment for local debugging
+    # ports:
+    #   - "5432:5432"
+    expose:
+      - "5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
@@ -74,25 +93,31 @@ services:
 
   qdrant:
     image: qdrant/qdrant:latest
-    ports:
-      - "6333:6333"
+    # Internal only - uncomment for local debugging
+    # ports:
+    #   - "6333:6333"
+    expose:
+      - "6333"
     volumes:
       - ./data/qdrant:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:6333/healthz || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6333' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 10
 
   searxng:
     image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
-    ports:
-      - "${SEARXNG_PORT:-8080}:8080"
+    # Internal only - uncomment for local debugging
+    # ports:
+    #   - "${SEARXNG_PORT:-8080}:8080"
+    expose:
+      - "8080"
     volumes:
       - ./services/searxng/settings.yml:/etc/searxng/settings.yml
     environment:
       SEARXNG_BASE_URL: http://searxng:8080/
-      SEARXNG_SECRET: "super-secret-key-fix-diagnostics-123"
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?SEARXNG_SECRET environment variable required}
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
       interval: 10s
@@ -100,16 +125,52 @@ services:
       retries: 10
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    ports:
-      - "3000:8080"
+    image: ghcr.io/open-webui/open-webui:0.7.2
+    # Port exposed via Traefik, not directly
+    # ports:
+    #   - "3000:8080"
     environment:
+      # OpenAI-compatible backend (our agent)
       - OPENAI_API_BASE_URL=http://agent:8000/v1
       - OPENAI_API_KEY=sk-dummy
+      # Microsoft Entra ID Authentication
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
+      - MICROSOFT_CLIENT_TENANT_ID=${MICROSOFT_CLIENT_TENANT_ID:-}
+      - OPENID_PROVIDER_URL=https://login.microsoftonline.com/${MICROSOFT_CLIENT_TENANT_ID:-common}/v2.0/.well-known/openid-configuration
+      # Forward user identity to backend
+      - ENABLE_FORWARD_USER_INFO_HEADERS=true
+      # Allow new users to sign up via OAuth
+      - ENABLE_OAUTH_SIGNUP=true
+      # Session settings
+      - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET}
+      # Public URL for OAuth callbacks
+      - WEBUI_URL=https://${DOMAIN:-agent.falle.se}
     volumes:
       - ./data/openwebui:/app/backend/data
     depends_on:
       - agent
+    labels:
+      # Enable Traefik
+      - "traefik.enable=true"
+      # HTTPS Router
+      - "traefik.http.routers.openwebui.rule=Host(`${DOMAIN:-agent.falle.se}`)"
+      - "traefik.http.routers.openwebui.entrypoints=websecure"
+      - "traefik.http.routers.openwebui.tls.certresolver=letsencrypt"
+      # Service port
+      - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
+      # Security middleware - strip external X-OpenWebUI-* headers (CRITICAL!)
+      - "traefik.http.middlewares.strip-openwebui-headers.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-openwebui-headers.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-openwebui-headers.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-openwebui-headers.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      # Security headers
+      - "traefik.http.middlewares.security-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.security-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.security-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.security-headers.headers.frameDeny=true"
+      # Apply middlewares
+      - "traefik.http.routers.openwebui.middlewares=strip-openwebui-headers,security-headers"
 
 volumes:
   postgres_data:

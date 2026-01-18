@@ -11,13 +11,15 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import auth, compose, health, qdrant, tooling, utils
+from . import auth, checks, compose, health, qdrant, tooling, utils
 
 console = Console()
 app = typer.Typer(help="Manage the local AI agent platform stack.")
+dev_app = typer.Typer(help="Development environment commands (isolated from production).")
 repo_app = typer.Typer(help="Repository snapshot utilities.")
 n8n_app = typer.Typer(help="Import or export n8n workflows.")
 openwebui_app = typer.Typer(help="Manage Open WebUI database exports and restores.")
+app.add_typer(dev_app, name="dev")
 app.add_typer(repo_app, name="repo")
 app.add_typer(n8n_app, name="n8n")
 app.add_typer(openwebui_app, name="openwebui")
@@ -33,14 +35,13 @@ def _ensure_text(value: str | bytes | None) -> str:
     return value.decode("utf-8")
 
 
-DEFAULT_MODELS = ["llama3.1:8b"]
 DEFAULT_LOG_SERVICES = [
-    "n8n",
     "litellm",
-    "ollama",
-    "openwebui",
+    "open-webui",
     "qdrant",
     "searxng",
+    "agent",
+    "postgres",
 ]
 
 
@@ -149,13 +150,6 @@ def _compose_overrides(bind_mounts: bool) -> list[Path]:
     return overrides
 
 
-def _ensure_models(repo_root: Path) -> None:
-    models = tooling.read_models_file(repo_root) or DEFAULT_MODELS
-    if models:
-        console.print(f"[cyan]Ensuring models: {', '.join(models)}[/cyan]")
-        tooling.ensure_models(models)
-
-
 def _wait_for_service(
     *,
     name: str,
@@ -197,11 +191,18 @@ def up(
         False,
         help="Wait for LiteLLM health after bringing the stack up.",
     ),
+    prod: bool = typer.Option(
+        False,
+        "--prod",
+        help="Use production configuration (Traefik + SSL). Uses docker-compose.prod.yml.",
+    ),
 ) -> None:
-    """Start services defined in docker-compose.yml and confirm core health checks."""
+    """Start services defined in docker-compose.yml and confirm core health checks.
 
+    For development (default): Uses docker-compose.yml + docker-compose.override.yml
+    For production (--prod): Uses docker-compose.yml + docker-compose.prod.yml
+    """
     tooling.ensure_docker()
-    repo_root = _repo_root()
     env = utils.load_environment()
     try:
         tooling.ensure_secrets(env)
@@ -211,17 +212,12 @@ def up(
 
     overrides = _compose_overrides(bind_mounts)
 
-    console.print("[bold green]Starting stack via docker compose…[/bold green]")
-    compose.compose_up(detach=detach, build=build, extra_files=overrides)
-
-    _wait_for_service(
-        name="ollama",
-        container="ollama",
-        port=11434,
-        path="/api/version",
-        timeout=120,
-    )
-    _ensure_models(repo_root)
+    if prod:
+        env_label = "[bold magenta]PRODUCTION[/bold magenta]"
+    else:
+        env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
+    console.print(f"[bold green]Starting stack ({env_label}) via docker compose…[/bold green]")
+    compose.compose_up(detach=detach, build=build, extra_files=overrides, prod=prod)
 
     service_checks: list[ServiceCheck] = [
         {
@@ -276,7 +272,7 @@ def up(
         timeout=30,
     )
 
-    status = compose.run_compose(["ps"], extra_files=overrides)
+    status = compose.run_compose(["ps"], extra_files=overrides, prod=prod)
     console.print("[bold cyan]Stack is running. Current container status:[/bold cyan]")
     console.print(_ensure_text(status.stdout))
 
@@ -292,14 +288,376 @@ def down(
         False,
         help="Include docker-compose.bind.yml overrides when stopping the stack.",
     ),
+    prod: bool = typer.Option(
+        False,
+        "--prod",
+        help="Stop production stack (uses docker-compose.prod.yml).",
+    ),
 ) -> None:
-    """Stop the running stack."""
+    """Stop the running stack.
 
+    For development (default): Uses docker-compose.yml + docker-compose.override.yml
+    For production (--prod): Uses docker-compose.yml + docker-compose.prod.yml
+    """
     tooling.ensure_docker()
     overrides = _compose_overrides(bind_mounts)
-    console.print("[bold yellow]Stopping stack…[/bold yellow]")
-    compose.compose_down(remove_volumes=remove_volumes, extra_files=overrides)
+    if prod:
+        env_label = "[bold magenta]PRODUCTION[/bold magenta]"
+    else:
+        env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
+    console.print(f"[bold yellow]Stopping stack ({env_label})…[/bold yellow]")
+    compose.compose_down(remove_volumes=remove_volumes, extra_files=overrides, prod=prod)
     console.print("[bold green]Stack stopped.[/bold green]")
+
+
+@app.command()
+def restart(
+    build: bool = typer.Option(False, help="Build images before starting containers."),
+    prod: bool = typer.Option(
+        False,
+        "--prod",
+        help="Restart production stack (uses docker-compose.prod.yml).",
+    ),
+) -> None:
+    """Restart the stack (stop then start).
+
+    For development (default): Uses docker-compose.yml + docker-compose.override.yml
+    For production (--prod): Uses docker-compose.yml + docker-compose.prod.yml
+    """
+    tooling.ensure_docker()
+    if prod:
+        env_label = "[bold magenta]PRODUCTION[/bold magenta]"
+    else:
+        env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
+    console.print(f"[bold yellow]Restarting stack ({env_label})…[/bold yellow]")
+    compose.compose_down(prod=prod)
+    compose.compose_up(detach=True, build=build, prod=prod)
+    console.print("[bold green]Stack restarted.[/bold green]")
+
+
+# =============================================================================
+# DEVELOPMENT ENVIRONMENT COMMANDS
+# =============================================================================
+
+
+@dev_app.command("up")
+def dev_up(
+    build: bool = typer.Option(False, help="Build images before starting containers."),
+) -> None:
+    """Start the development environment.
+
+    Uses docker-compose.yml + docker-compose.dev.yml with isolated:
+    - Project name (ai-agent-platform-dev)
+    - Ports (3001, 8001, 5433, 6334, 4001, 8081)
+    - Database volumes (postgres_data_dev)
+
+    This allows running dev alongside production without conflicts.
+    """
+    tooling.ensure_docker()
+    env = utils.load_environment()
+    try:
+        tooling.ensure_secrets(env)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    console.print("[bold cyan]Starting DEVELOPMENT environment…[/bold cyan]")
+    console.print("[dim]Project: ai-agent-platform-dev[/dim]")
+    console.print("[dim]Open WebUI: http://localhost:3001[/dim]")
+    console.print("[dim]Agent API:  http://localhost:8001[/dim]")
+    compose.compose_up(detach=True, build=build, dev=True)
+
+    # Show status
+    status = compose.run_compose(["ps"], dev=True)
+    console.print("[bold cyan]Development stack is running:[/bold cyan]")
+    console.print(_ensure_text(status.stdout))
+
+
+@dev_app.command("down")
+def dev_down(
+    remove_volumes: bool = typer.Option(
+        False,
+        "--volumes",
+        "-v",
+        help="Remove dev volumes (deletes dev database!).",
+    ),
+) -> None:
+    """Stop the development environment.
+
+    This only affects the dev stack (ai-agent-platform-dev).
+    Production remains running.
+    """
+    tooling.ensure_docker()
+    console.print("[bold yellow]Stopping DEVELOPMENT environment…[/bold yellow]")
+    compose.compose_down(remove_volumes=remove_volumes, dev=True)
+    console.print("[bold green]Development stack stopped.[/bold green]")
+
+
+@dev_app.command("logs")
+def dev_logs(
+    service: list[str] | None = typer.Argument(
+        None,
+        help="Optional services to tail; defaults to all.",
+    ),
+    follow: bool = typer.Option(
+        False,
+        "--follow",
+        "-f",
+        help="Continue streaming logs.",
+    ),
+    tail: int = typer.Option(
+        100,
+        "--tail",
+        "-t",
+        help="Number of lines to show.",
+    ),
+) -> None:
+    """View logs from the development environment."""
+    tooling.ensure_docker()
+    args = ["logs"]
+    if follow:
+        args.append("-f")
+    if tail > 0:
+        args.append(f"--tail={tail}")
+    if service:
+        args.extend(service)
+    compose.run_compose(args, dev=True, capture_output=False)
+
+
+@dev_app.command("status")
+def dev_status() -> None:
+    """Show status of the development environment."""
+    tooling.ensure_docker()
+    result = compose.run_compose(["ps"], dev=True)
+    console.print("[bold cyan]Development environment status:[/bold cyan]")
+    console.print(_ensure_text(result.stdout))
+
+
+@dev_app.command("restart")
+def dev_restart(
+    build: bool = typer.Option(False, help="Build images before restarting."),
+) -> None:
+    """Restart the development environment."""
+    tooling.ensure_docker()
+    console.print("[bold yellow]Restarting DEVELOPMENT environment…[/bold yellow]")
+    compose.compose_down(dev=True)
+    compose.compose_up(detach=True, build=build, dev=True)
+    console.print("[bold green]Development stack restarted.[/bold green]")
+
+
+# =============================================================================
+# DEPLOYMENT COMMAND
+# =============================================================================
+
+
+@app.command()
+def lint(
+    fix: bool = typer.Option(
+        True,
+        "--fix/--no-fix",
+        help="Auto-fix linting errors (default: yes).",
+    ),
+) -> None:
+    """Run linting checks (Ruff + Black).
+
+    This is the fast quality check - recommended for QA agents.
+    Only runs formatters/linters, no type checking or tests.
+
+    Example:
+        stack lint           # Run with auto-fix (default)
+        stack lint --no-fix  # Check only
+    """
+    checks.ensure_dependencies()
+    results = checks.run_lint(fix=fix, repo_root=_repo_root())
+
+    if all(r.success for r in results):
+        console.print("[bold green]Linting passed.[/bold green]")
+    else:
+        failed = [r for r in results if not r.success]
+        console.print(f"[bold red]Linting failed: {failed[0].name}[/bold red]")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def typecheck() -> None:
+    """Run Mypy type checker.
+
+    Checks for type errors without running tests.
+    Use this to see type issues separately from test failures.
+
+    Example:
+        stack typecheck
+    """
+    checks.ensure_dependencies()
+    result = checks.run_mypy(repo_root=_repo_root())
+
+    if result.success:
+        console.print("[bold green]Type checking passed.[/bold green]")
+    else:
+        console.print("[bold red]Type checking failed.[/bold red]")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def test(
+    semantic: bool = typer.Option(
+        False,
+        "--semantic",
+        help="Include semantic end-to-end tests (requires running agent).",
+    ),
+) -> None:
+    """Run pytest test suite.
+
+    Runs unit and integration tests. Use --semantic to also run
+    end-to-end tests (requires a running agent).
+
+    Example:
+        stack test            # Unit + integration tests
+        stack test --semantic # Include e2e tests
+    """
+    checks.ensure_dependencies()
+    result = checks.run_pytest(repo_root=_repo_root())
+
+    if not result.success:
+        console.print("[bold red]Tests failed.[/bold red]")
+        raise typer.Exit(code=1)
+
+    if semantic:
+        semantic_result = checks.run_semantic_tests(repo_root=_repo_root())
+        if not semantic_result.success:
+            console.print("[bold red]Semantic tests failed.[/bold red]")
+            raise typer.Exit(code=1)
+
+    console.print("[bold green]All tests passed.[/bold green]")
+
+
+@app.command()
+def check(
+    fix: bool = typer.Option(
+        True,
+        "--fix/--no-fix",
+        help="Auto-fix linting errors (default: yes).",
+    ),
+    semantic: bool = typer.Option(
+        False,
+        "--semantic",
+        help="Include semantic end-to-end tests (requires running agent).",
+    ),
+) -> None:
+    """Run all quality checks (ruff, black, mypy, pytest).
+
+    This is the full quality gate that runs:
+    1. Ruff - Linting with optional auto-fix
+    2. Black - Code formatting with optional auto-fix
+    3. Mypy - Type checking
+    4. Pytest - Unit and integration tests
+
+    Use --no-fix for CI-style check-only mode.
+    Use --semantic to include end-to-end tests (requires running agent).
+
+    Example:
+        stack check              # Full check with auto-fix
+        stack check --no-fix     # CI mode (no auto-fix)
+        stack check --semantic   # Include e2e tests
+    """
+    checks.ensure_dependencies()
+    results = checks.run_all_checks(
+        fix=fix,
+        include_semantic=semantic,
+        repo_root=_repo_root(),
+    )
+
+    if all(r.success for r in results):
+        console.print("[bold green]All quality checks passed.[/bold green]")
+    else:
+        failed = [r for r in results if not r.success]
+        console.print(f"[bold red]Quality checks failed at: {failed[0].name}[/bold red]")
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def deploy(
+    skip_checks: bool = typer.Option(
+        False,
+        "--skip-checks",
+        help="Skip running quality checks before deploying.",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Force deploy even if not on main branch (dangerous!).",
+    ),
+    service: list[str] | None = typer.Argument(
+        None,
+        help="Specific services to rebuild (default: agent only).",
+    ),
+) -> None:
+    """Deploy changes to production.
+
+    This command:
+    1. Verifies you're on the main branch (safety check)
+    2. Runs quality checks (ruff, black, mypy, pytest)
+    3. Rebuilds the agent container (or specified services)
+    4. Restarts the production stack with zero downtime
+
+    Typical workflow:
+        git checkout main
+        git merge feature/my-feature
+        stack deploy
+    """
+    tooling.ensure_docker()
+    repo_root = _repo_root()
+
+    # Step 0: Branch safety check
+    current_branch = tooling.current_branch(repo_root)
+    if current_branch != "main":
+        if force:
+            console.print(
+                f"[bold yellow]⚠ WARNING: Deploying from branch '{current_branch}' "
+                f"(not main)[/bold yellow]"
+            )
+        else:
+            console.print(f"[bold red]✗ Cannot deploy from branch '{current_branch}'[/bold red]")
+            console.print("[yellow]Production deployments must be from 'main' branch.[/yellow]")
+            console.print("")
+            console.print("[dim]To deploy from main:[/dim]")
+            console.print("  git checkout main")
+            console.print("  git merge feature/your-branch")
+            console.print("  stack deploy")
+            console.print("")
+            console.print("[dim]To force deploy anyway (dangerous!):[/dim]")
+            console.print("  stack deploy --force")
+            raise typer.Exit(code=1)
+
+    # Step 1: Quality checks
+    if not skip_checks:
+        console.print("[bold cyan]Running quality checks…[/bold cyan]")
+        try:
+            _run_quality_checks(repo_root)
+            console.print("[bold green]✓ All checks passed[/bold green]")
+        except Exception as exc:
+            console.print(f"[bold red]✗ Quality checks failed: {exc}[/bold red]")
+            console.print("[yellow]Use --skip-checks to bypass (not recommended)[/yellow]")
+            raise typer.Exit(code=1) from exc
+
+    # Step 2: Determine services to rebuild
+    services_to_build = list(service) if service else ["agent"]
+
+    # Step 3: Build
+    console.print(f"[bold cyan]Building: {', '.join(services_to_build)}…[/bold cyan]")
+    build_args = ["build"] + services_to_build
+    compose.run_compose(build_args, prod=True, capture_output=False)
+
+    # Step 4: Rolling restart (recreate only changed containers)
+    console.print("[bold cyan]Deploying to production…[/bold cyan]")
+    up_args = ["up", "-d", "--no-deps"] + services_to_build
+    compose.run_compose(up_args, prod=True, capture_output=False)
+
+    # Step 5: Show status
+    console.print("[bold green]✓ Deployment complete![/bold green]")
+    result = compose.run_compose(["ps"], prod=True)
+    console.print(_ensure_text(result.stdout))
 
 
 @app.command()
@@ -552,20 +910,11 @@ def repo_publish(
 
 def _run_quality_checks(repo_root: Path) -> None:
     console.print("[cyan]Running local quality checks (ruff, black, mypy, pytest)...[/cyan]")
-    tooling.run_command(
-        [
-            "python",
-            "-m",
-            "poetry",
-            "run",
-            "--directory",
-            "services/agent",
-            "python",
-            "scripts/code_check.py",
-        ],
-        cwd=repo_root,
-        capture_output=False,
-    )
+    checks.ensure_dependencies()
+    results = checks.run_all_checks(fix=True, include_semantic=False, repo_root=repo_root)
+    if not all(r.success for r in results):
+        failed = [r for r in results if not r.success]
+        raise tooling.CommandError(f"Quality check failed: {failed[0].name}")
 
 
 @n8n_app.command("export")

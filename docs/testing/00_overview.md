@@ -10,7 +10,7 @@ testing aligns with the Codex compliance checklist.
 Use the consolidated helper to match CI locally. This script mirrors the CI pipeline exactly, ensuring that if it passes locally, it will pass in CI.
 
 ```bash
-python scripts/code_check.py
+./stack check
 ```
 
 The script executes the following in order:
@@ -24,6 +24,12 @@ Pytest is configured to search the first-party test directories under `tests/`,
 `src/agent/tests/`, and `src/stack/tests/`, so a single invocation exercises the
 end-to-end checks that CI runs. Ruff and Black apply fixes in-place so that rerunning the
 script clears style violations automatically.
+
+**Faster alternatives** (when you only need specific checks):
+- `./stack lint` - Ruff + Black only (fast formatting check)
+- `./stack typecheck` - Mypy only
+- `./stack test` - Pytest only
+- `./stack check --no-fix` - CI mode (no auto-fix)
 
 ## Optional automations
 

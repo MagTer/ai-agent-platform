@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Any
 
 from pythonjsonlogger import jsonlogger
@@ -16,6 +18,9 @@ from core.models.pydantic_schemas import (
     ToolCallEvent,
     UserFacingEvent,
 )
+
+# Application logs file path
+APP_LOGS_PATH = Path("data/app_logs.jsonl")
 
 # Common event types for type hinting
 LoggableEvent = StepEvent | PlanEvent | SupervisorDecision | ToolCallEvent | UserFacingEvent
@@ -38,9 +43,18 @@ class CustomJsonFormatter(jsonlogger.JsonFormatter):
             log_record["level"] = record.levelname
 
 
-def setup_logging(level: str = "INFO", service_name: str = "agent") -> None:
-    """Configure root logger with JSON formatting."""
+def setup_logging(
+    level: str = "INFO",
+    service_name: str = "agent",
+    log_to_file: bool = True,
+) -> None:
+    """Configure root logger with JSON formatting and optional file output.
 
+    Args:
+        level: Minimum log level (default INFO).
+        service_name: Service name for log context.
+        log_to_file: If True, also write logs to app_logs.jsonl (default True).
+    """
     log_level = getattr(logging, level.upper(), logging.INFO)
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
@@ -49,13 +63,15 @@ def setup_logging(level: str = "INFO", service_name: str = "agent") -> None:
     for handler in root_logger.handlers:
         root_logger.removeHandler(handler)
 
+    # JSON formatter for both stdout and file
+    json_formatter = CustomJsonFormatter(  # type: ignore[no-untyped-call]
+        "%(timestamp)s %(level)s %(name)s %(message)s", json_ensure_ascii=False
+    )
+
     # Check env to decide format (helpful for local dev to keep text)
     if os.environ.get("LOG_FORMAT", "json").lower() == "json":
         log_handler = logging.StreamHandler(sys.stdout)
-        formatter = CustomJsonFormatter(  # type: ignore[no-untyped-call]
-            "%(timestamp)s %(level)s %(name)s %(message)s", json_ensure_ascii=False
-        )
-        log_handler.setFormatter(formatter)
+        log_handler.setFormatter(json_formatter)
         root_logger.addHandler(log_handler)
     else:
         # Rich Text Format
@@ -69,6 +85,24 @@ def setup_logging(level: str = "INFO", service_name: str = "agent") -> None:
         )
         # RichHandler handles formatting internally, no need for setFormatter
         root_logger.addHandler(rich_handler)
+
+    # File handler for application logs (WARNING and above)
+    # This makes logs accessible via /diagnostics/logs API
+    if log_to_file:
+        try:
+            APP_LOGS_PATH.parent.mkdir(parents=True, exist_ok=True)
+            file_handler = RotatingFileHandler(
+                APP_LOGS_PATH,
+                maxBytes=10 * 1024 * 1024,  # 10 MB
+                backupCount=3,
+                encoding="utf-8",
+            )
+            file_handler.setLevel(logging.WARNING)  # Only WARNING and above to file
+            file_handler.setFormatter(json_formatter)
+            root_logger.addHandler(file_handler)
+        except Exception as e:
+            # Don't fail if we can't write to file
+            root_logger.warning(f"Could not set up file logging: {e}")
 
     # Silence noisy libs
     logging.getLogger("httpx").setLevel(logging.WARNING)

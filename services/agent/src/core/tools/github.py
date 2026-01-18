@@ -25,6 +25,19 @@ class GitHubTool(Tool):
         "file_path (str) - Optional path for 'read_file'."
     )
     activity_hint = {"action": "GitHub: {action}"}
+    parameters = {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["get_readme", "list_files", "read_file"],
+                "description": "Action to perform",
+            },
+            "repo_url": {"type": "string", "description": "Full GitHub repo URL"},
+            "file_path": {"type": "string", "description": "File path (for read_file action)"},
+        },
+        "required": ["action", "repo_url"],
+    }
 
     def __init__(self, token: str | None = None) -> None:
         self._token = token or os.getenv("GITHUB_TOKEN")

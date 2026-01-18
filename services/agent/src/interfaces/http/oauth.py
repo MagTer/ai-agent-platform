@@ -2,7 +2,7 @@
 
 This module provides HTTP endpoints for OAuth 2.0 Authorization Code Grant:
 - /auth/oauth/authorize - Start OAuth flow, return authorization URL
-- /auth/oauth/callback - Handle OAuth provider callback
+- /auth/oauth/callback - Handle OAuth provider callback (NO AUTH - external redirect)
 - /auth/oauth/revoke - Revoke OAuth token
 - /auth/oauth/status - Check OAuth token status
 """
@@ -11,12 +11,19 @@ import logging
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from core.auth.models import AuthorizeRequest, AuthorizeResponse, OAuthError
+from core.observability.security_logger import (
+    OAUTH_COMPLETED,
+    OAUTH_FAILED,
+    OAUTH_INITIATED,
+    log_security_event,
+)
 from core.providers import get_token_manager
+from interfaces.http.admin_auth import AuthenticatedUser, verify_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,7 +31,10 @@ router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 
 
 @router.post("/authorize", response_model=AuthorizeResponse)
-async def start_authorization(request: AuthorizeRequest) -> AuthorizeResponse:
+async def start_authorization(
+    request: AuthorizeRequest,
+    user: AuthenticatedUser = Depends(verify_user),
+) -> AuthorizeResponse:
     """Generate OAuth authorization URL for user to visit.
 
     Agent calls this when tool fails due to missing OAuth credentials.
@@ -44,6 +54,14 @@ async def start_authorization(request: AuthorizeRequest) -> AuthorizeResponse:
         authorization_url, state = await token_manager.get_authorization_url(
             provider=request.provider,
             context_id=UUID(request.context_id),
+            user_id=user.user_id,
+        )
+        log_security_event(
+            event_type=OAUTH_INITIATED,
+            user_email=user.email,
+            user_id=str(user.user_id),
+            endpoint="/auth/oauth/authorize",
+            details={"provider": request.provider, "context_id": request.context_id},
         )
     except ValueError as e:
         LOGGER.error(f"OAuth authorization failed: {e}")
@@ -89,7 +107,12 @@ async def oauth_callback(
     """
     # Handle user denial
     if error:
-        LOGGER.warning(f"OAuth authorization denied: {error}")
+        log_security_event(
+            event_type=OAUTH_FAILED,
+            endpoint="/auth/oauth/callback",
+            details={"error": error, "reason": "user_denied"},
+            severity="WARNING",
+        )
         return HTMLResponse(
             content="""
             <!DOCTYPE html>
@@ -119,7 +142,11 @@ async def oauth_callback(
         )
 
         # Return success page
-        LOGGER.info("OAuth authorization successful")
+        log_security_event(
+            event_type=OAUTH_COMPLETED,
+            endpoint="/auth/oauth/callback",
+            details={"state": state[:8] + "..."},  # Partial state for correlation
+        )
         return HTMLResponse(
             content="""
             <!DOCTYPE html>
@@ -146,7 +173,12 @@ async def oauth_callback(
         )
 
     except OAuthError as e:
-        LOGGER.error(f"OAuth callback error: {e.error} - {e.description}")
+        log_security_event(
+            event_type=OAUTH_FAILED,
+            endpoint="/auth/oauth/callback",
+            details={"error": e.error, "description": e.description},
+            severity="ERROR",
+        )
         # ruff: noqa: E501
         return HTMLResponse(
             content=f"""
@@ -202,7 +234,7 @@ class RevokeRequest(BaseModel):
     context_id: str
 
 
-@router.post("/revoke")
+@router.post("/revoke", dependencies=[Depends(verify_user)])
 async def revoke_token(request: RevokeRequest) -> dict[str, str]:
     """Revoke and delete OAuth token.
 
@@ -234,7 +266,7 @@ class StatusRequest(BaseModel):
     context_id: str
 
 
-@router.post("/status")
+@router.post("/status", dependencies=[Depends(verify_user)])
 async def check_token_status(request: StatusRequest) -> dict[str, Any]:
     """Check OAuth token status.
 

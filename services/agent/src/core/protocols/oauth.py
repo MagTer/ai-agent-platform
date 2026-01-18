@@ -15,7 +15,9 @@ class IOAuthClient(Protocol):
     and automatic token refresh.
     """
 
-    async def get_authorization_url(self, provider: str, context_id: UUID) -> tuple[str, str]:
+    async def get_authorization_url(
+        self, provider: str, context_id: UUID, user_id: UUID
+    ) -> tuple[str, str]:
         """Generate OAuth authorization URL for user to visit.
 
         Creates PKCE parameters (code_verifier, code_challenge) and stores them
@@ -25,6 +27,7 @@ class IOAuthClient(Protocol):
         Args:
             provider: OAuth provider name (e.g., "homey", "github")
             context_id: Context UUID for multi-tenant isolation
+            user_id: User UUID (REQUIRED for CSRF protection)
 
         Returns:
             Tuple of (authorization_url, state) where:
