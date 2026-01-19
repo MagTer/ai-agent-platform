@@ -2,7 +2,7 @@
 
 **Purpose:** Entry point for Claude Code sessions. Defines the tri-agent workflow.
 
-**Last Updated:** 2026-01-18
+**Last Updated:** 2026-01-19
 
 ---
 
@@ -184,6 +184,61 @@ This runs: Ruff → Black → Mypy → Pytest
 Use `stack check --no-fix` for CI-style check-only mode.
 
 **If this fails, you MUST fix errors. No exceptions.**
+
+---
+
+## Git Workflow (Branch Protection)
+
+**IMPORTANT:** The `main` branch has branch protection enabled. Direct pushes are blocked.
+
+### Commit Process
+
+1. **Run quality checks** (MANDATORY for code changes):
+   ```bash
+   stack check
+   ```
+   This runs Ruff, Black, Mypy, and Pytest. **Do not proceed if this fails.**
+
+2. **Create a feature branch** from your changes:
+   ```bash
+   git checkout -b feat/description   # or fix/description
+   ```
+
+3. **Commit your changes:**
+   ```bash
+   git add -A && git commit -m "feat: Description"
+   ```
+
+4. **Push the branch** to origin:
+   ```bash
+   git push -u origin feat/description
+   ```
+
+5. **Create a PR** using GitHub CLI:
+   ```bash
+   gh pr create --title "feat: Description" --body "..."
+   ```
+
+6. **Reset main** to origin/main:
+   ```bash
+   git checkout main && git reset --hard origin/main
+   ```
+
+### Branch Naming
+
+| Type | Pattern | Example |
+|------|---------|---------|
+| Feature | `feat/description` | `feat/email-service` |
+| Bug fix | `fix/description` | `fix/oauth-redirect` |
+| Refactor | `refactor/description` | `refactor/tool-registry` |
+| Docs | `docs/description` | `docs/architecture-diagram` |
+
+### Never Do
+
+- Push without running `stack check` first - CI will fail
+- `git push origin main` - Will be rejected by branch protection
+- `git push --force` on shared branches - Destructive
+- Skip PR review for non-trivial changes
 
 ---
 
