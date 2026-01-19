@@ -199,27 +199,34 @@ Use `stack check --no-fix` for CI-style check-only mode.
    ```
    This runs Ruff, Black, Mypy, and Pytest. **Do not proceed if this fails.**
 
-2. **Create a feature branch** from your changes:
+2. **Check for auto-fixed files** (IMPORTANT):
+   ```bash
+   git status
+   ```
+   `stack check` auto-fixes import sorting and formatting. If files were modified,
+   they must be included in your commit or CI will fail (CI runs with `--no-fix`).
+
+3. **Create a feature branch** from your changes:
    ```bash
    git checkout -b feat/description   # or fix/description
    ```
 
-3. **Commit your changes:**
+4. **Commit ALL changes** (including auto-fixed files):
    ```bash
    git add -A && git commit -m "feat: Description"
    ```
 
-4. **Push the branch** to origin:
+5. **Push the branch** to origin:
    ```bash
    git push -u origin feat/description
    ```
 
-5. **Create a PR** using GitHub CLI:
+6. **Create a PR** using GitHub CLI:
    ```bash
    gh pr create --title "feat: Description" --body "..."
    ```
 
-6. **Reset main** to origin/main:
+7. **Reset main** to origin/main:
    ```bash
    git checkout main && git reset --hard origin/main
    ```
