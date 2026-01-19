@@ -10,9 +10,9 @@ from collections.abc import AsyncGenerator, Iterable
 from typing import Any
 
 import httpx
+from shared.streaming import AgentChunk
 
 from core.observability.tracing import add_span_event, set_span_attributes
-from shared.streaming import AgentChunk
 
 from .config import Settings
 from .models import AgentMessage

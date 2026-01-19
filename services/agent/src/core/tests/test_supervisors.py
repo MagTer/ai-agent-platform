@@ -5,11 +5,11 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from shared.models import Plan, PlanStep, StepResult
 
 from core.agents.supervisor_plan import PlanSupervisorAgent
 from core.agents.supervisor_step import StepSupervisorAgent
 from core.tools.registry import ToolRegistry
-from shared.models import Plan, PlanStep, StepResult
 
 
 class TestPlanSupervisorAgent:

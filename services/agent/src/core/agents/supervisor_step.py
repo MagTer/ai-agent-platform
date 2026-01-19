@@ -6,11 +6,12 @@ import json
 import logging
 from typing import Literal
 
+from shared.models import AgentMessage, PlanStep, StepResult
+
 from core.core.litellm_client import LiteLLMClient
 from core.models.pydantic_schemas import SupervisorDecision, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
-from shared.models import AgentMessage, PlanStep, StepResult
 
 LOGGER = logging.getLogger(__name__)
 

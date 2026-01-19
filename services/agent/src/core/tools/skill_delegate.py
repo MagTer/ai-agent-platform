@@ -10,11 +10,12 @@ from datetime import datetime
 from typing import Any, cast
 from urllib.parse import urlparse
 
+from shared.models import AgentMessage
+
 from core.command_loader import load_command
 from core.core.litellm_client import LiteLLMClient
 from core.tools.base import Tool
 from core.tools.registry import ToolRegistry
-from shared.models import AgentMessage
 
 LOGGER = logging.getLogger(__name__)
 
