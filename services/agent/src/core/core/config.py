@@ -135,6 +135,24 @@ class Settings(BaseModel):
         description="API key for admin dashboard access (generate with: openssl rand -hex 32)",
     )
 
+    # Entra ID (Azure AD) Configuration for Admin Portal
+    entra_client_id: str | None = Field(
+        default=None,
+        description="Microsoft Entra ID application (client) ID for admin portal OAuth.",
+    )
+    entra_client_secret: str | None = Field(
+        default=None,
+        description="Microsoft Entra ID client secret for admin portal OAuth.",
+    )
+    entra_tenant_id: str | None = Field(
+        default=None,
+        description="Microsoft Entra ID tenant ID (directory ID).",
+    )
+    admin_jwt_secret: str | None = Field(
+        default=None,
+        description="Secret key for signing admin session JWTs (generate: openssl rand -hex 32).",
+    )
+
     # User Credential Encryption
     credential_encryption_key: str = Field(
         default="",

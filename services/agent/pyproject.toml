@@ -52,6 +52,7 @@ aiogram = "^3.10.0"
 torch = { version = "2.2.2", source = "pytorch-cpu" }
 cryptography = "^46.0.3"
 slowapi = "^0.1.9"
+pyjwt = "^2.10.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "9.0.0"
