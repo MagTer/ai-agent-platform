@@ -39,6 +39,11 @@ services:
       AZURE_DEVOPS_ORG: ${AZURE_DEVOPS_ORG:-}
       AZURE_DEVOPS_PROJECT: ${AZURE_DEVOPS_PROJECT:-}
       AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
+      # Entra ID OAuth for Admin Portal
+      AGENT_ENTRA_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      AGENT_ENTRA_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      AGENT_ENTRA_TENANT_ID: ${MICROSOFT_CLIENT_TENANT_ID:-}
+      AGENT_ADMIN_JWT_SECRET: ${AGENT_ADMIN_JWT_SECRET:-}
     # Port NOT exposed externally - only accessible via internal Docker network
     # This is a SECURITY REQUIREMENT: agent trusts X-OpenWebUI-* headers
     # ports:
@@ -60,17 +65,20 @@ services:
       timeout: 5s
       retries: 5
     labels:
-      # Traefik routing for admin portal (direct to agent)
+      # Enable Traefik for direct admin portal access
       - "traefik.enable=true"
-      # Admin portal router - PathPrefix rule with higher priority
-      - "traefik.http.routers.platformadmin.rule=Host(`${DOMAIN:-agent.falle.se}`) && PathPrefix(`/platformadmin`)"
-      - "traefik.http.routers.platformadmin.entrypoints=websecure"
-      - "traefik.http.routers.platformadmin.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.platformadmin.priority=100"
-      # Service port
-      - "traefik.http.services.platformadmin.loadbalancer.server.port=8000"
-      # Security middleware - strip external X-OpenWebUI-* headers (CRITICAL!)
-      - "traefik.http.routers.platformadmin.middlewares=strip-openwebui-headers,security-headers"
+      # HTTPS Router for /platformadmin (direct OAuth access)
+      - "traefik.http.routers.agent-admin.rule=Host(`${DOMAIN:-agent.falle.se}`) && PathPrefix(`/platformadmin`)"
+      - "traefik.http.routers.agent-admin.entrypoints=websecure"
+      - "traefik.http.routers.agent-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.services.agent-admin.loadbalancer.server.port=8000"
+      # Security: Strip external X-OpenWebUI-* headers (prevent header spoofing)
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      # Apply security middleware
+      - "traefik.http.routers.agent-admin.middlewares=strip-agent-headers"
 
   postgres:
     image: postgres:15-alpine

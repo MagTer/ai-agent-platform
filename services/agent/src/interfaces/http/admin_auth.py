@@ -46,7 +46,11 @@ async def get_admin_user(
     request: Request,
     session: AsyncSession = Depends(get_db),
 ) -> AdminUser:
-    """Extract and verify admin user from Entra ID headers.
+    """Extract and verify admin user from Entra ID headers or JWT cookie.
+
+    Authentication methods (in order of priority):
+    1. X-OpenWebUI-User-* headers (forwarded by Open WebUI)
+    2. JWT session cookie (for direct OAuth access)
 
     Headers expected (forwarded by Open WebUI):
         X-OpenWebUI-User-Email: user@example.com (required)
@@ -58,11 +62,33 @@ async def get_admin_user(
         AdminUser with identity and database record
 
     Raises:
-        HTTPException 401: Missing or invalid user headers
+        HTTPException 401: Missing or invalid authentication
         HTTPException 403: User is not an admin
     """
-    # Extract identity from headers
+    # Try header authentication first (Open WebUI)
     identity = extract_user_from_headers(request)
+
+    # If no headers, try JWT cookie (direct OAuth)
+    if not identity:
+        from core.auth.admin_session import get_jwt_from_request, verify_admin_jwt
+        from core.core.config import get_settings
+
+        settings = get_settings()
+        if settings.admin_jwt_secret:
+            jwt_token = get_jwt_from_request(request)
+            if jwt_token:
+                payload = verify_admin_jwt(jwt_token, settings.admin_jwt_secret)
+                if payload:
+                    # Create identity from JWT payload
+                    from core.auth.header_auth import UserIdentity
+
+                    identity = UserIdentity(
+                        email=payload.get("email", ""),
+                        name=payload.get("name"),
+                        openwebui_id=None,
+                        role=payload.get("role", "user"),
+                    )
+
     if not identity:
         log_security_event(
             event_type=AUTH_FAILURE,
