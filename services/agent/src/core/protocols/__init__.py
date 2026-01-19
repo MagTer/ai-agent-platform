@@ -9,6 +9,7 @@ The dependency flow is:
 - `interfaces/` wires them together at startup
 """
 
+from .email import EmailMessage, EmailResult, IEmailService
 from .embedder import IEmbedder
 from .fetcher import IFetcher
 from .indexer import ICodeIndexer
@@ -17,6 +18,9 @@ from .price_tracker import IPriceTracker
 from .rag import IRAGManager
 
 __all__ = [
+    "EmailMessage",
+    "EmailResult",
+    "IEmailService",
     "IEmbedder",
     "IFetcher",
     "ICodeIndexer",

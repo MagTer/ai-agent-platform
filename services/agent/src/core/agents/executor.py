@@ -328,6 +328,16 @@ class StepExecutorAgent:
                 if has_cwd or has_kwargs:
                     final_args["cwd"] = cwd
 
+            # Inject user_email for send_email tool (from request metadata)
+            if step.tool == "send_email":
+                user_email = (request.metadata or {}).get("user_email")
+                if user_email:
+                    sig = inspect.signature(tool.run)
+                    has_user_email = "user_email" in sig.parameters
+                    has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                    if has_user_email or has_kwargs:
+                        final_args["user_email"] = user_email
+
             with start_span(f"tool.call.{step.tool}"):
                 try:
                     run_args = (final_args or {}).copy()

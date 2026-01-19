@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import joinedload
 
-from core.protocols import IFetcher
+from core.protocols import IEmailService, IFetcher
 
 from .models import PricePoint, PriceWatch, ProductStore
 from .notifier import PriceNotifier
@@ -29,12 +29,15 @@ class PriceCheckScheduler:
         self,
         session_factory: async_sessionmaker[AsyncSession],
         fetcher: IFetcher,
-        notifier: PriceNotifier | None = None,
+        email_service: IEmailService | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.fetcher = fetcher
         self.parser = PriceParser()
-        self.notifier = notifier
+        # Create notifier wrapper if email service is provided
+        self.notifier: PriceNotifier | None = None
+        if email_service is not None:
+            self.notifier = PriceNotifier(email_service)
         self._running = False
         self._task: asyncio.Task[None] | None = None
 

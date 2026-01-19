@@ -1,11 +1,34 @@
 """Tests for price notifier module."""
 
 from decimal import Decimal
-from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from core.protocols.email import EmailMessage, EmailResult
 from modules.price_tracker.notifier import PriceNotifier
+
+
+class MockEmailService:
+    """Mock email service for testing."""
+
+    def __init__(self, should_succeed: bool = True) -> None:
+        self.should_succeed = should_succeed
+        self.sent_messages: list[EmailMessage] = []
+
+    async def send(self, message: EmailMessage) -> EmailResult:
+        self.sent_messages.append(message)
+        if self.should_succeed:
+            return EmailResult(success=True, message_id="test_id")
+        return EmailResult(success=False, error="Mock error")
+
+    async def send_batch(self, messages: list[EmailMessage]) -> list[EmailResult]:
+        results = []
+        for msg in messages:
+            results.append(await self.send(msg))
+        return results
+
+    def is_configured(self) -> bool:
+        return True
 
 
 class TestPriceNotifier:
@@ -13,15 +36,16 @@ class TestPriceNotifier:
 
     def test_build_alert_html_contains_expected_content(self) -> None:
         """Test _build_alert_html generates valid HTML with all fields."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
 
         html = notifier._build_alert_html(
-            product_name="Mjölk Arla Standard 3%",
+            product_name="Mjolk Arla Standard 3%",
             store_name="ICA Maxi",
             current_price=Decimal("19.90"),
             target_price=Decimal("25.00"),
             offer_type="stammispris",
-            offer_details="Köp 2 betala för 1",
+            offer_details="Kop 2 betala for 1",
             product_url="https://www.ica.se/handla/produkt/test-123",
         )
 
@@ -32,21 +56,22 @@ class TestPriceNotifier:
 
         # Check content elements
         assert "Prisvarning!" in html
-        assert "Mjölk Arla Standard 3%" in html
+        assert "Mjolk Arla Standard 3%" in html
         assert "ICA Maxi" in html
         assert "19.90 kr" in html
         assert "25.00 kr" in html  # Target price
         assert "stammispris" in html
-        assert "Köp 2 betala för 1" in html
+        assert "Kop 2 betala for 1" in html
         assert "https://www.ica.se/handla/produkt/test-123" in html
         assert "Se produkten" in html  # Link button
 
     def test_build_alert_html_without_optional_fields(self) -> None:
         """Test _build_alert_html without target price and offer."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
 
         html = notifier._build_alert_html(
-            product_name="Smör Bregott",
+            product_name="Smor Bregott",
             store_name="Willys",
             current_price=Decimal("29.90"),
             target_price=None,
@@ -56,7 +81,7 @@ class TestPriceNotifier:
         )
 
         # Should still have basic content
-        assert "Smör Bregott" in html
+        assert "Smor Bregott" in html
         assert "Willys" in html
         assert "29.90 kr" in html
 
@@ -67,7 +92,8 @@ class TestPriceNotifier:
 
     def test_build_alert_html_with_offer_but_no_details(self) -> None:
         """Test _build_alert_html with offer type but no details."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
 
         html = notifier._build_alert_html(
             product_name="Yoghurt",
@@ -85,7 +111,8 @@ class TestPriceNotifier:
 
     def test_build_summary_html_handles_empty_lists(self) -> None:
         """Test _build_summary_html with empty deals and watched products."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
 
         html = notifier._build_summary_html(deals=[], watched_products=[])
 
@@ -100,17 +127,18 @@ class TestPriceNotifier:
 
     def test_build_summary_html_with_deals(self) -> None:
         """Test _build_summary_html with deals."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
 
         deals: list[dict[str, str | Decimal | None]] = [
             {
-                "product_name": "Mjölk Arla",
+                "product_name": "Mjolk Arla",
                 "store_name": "ICA Maxi",
                 "offer_price_sek": Decimal("19.90"),
                 "offer_type": "stammispris",
             },
             {
-                "product_name": "Smör Bregott",
+                "product_name": "Smor Bregott",
                 "store_name": "Willys",
                 "offer_price_sek": Decimal("29.90"),
                 "offer_type": "kampanj",
@@ -121,11 +149,11 @@ class TestPriceNotifier:
 
         # Should have deals section
         assert "Aktuella erbjudanden" in html
-        assert "Mjölk Arla" in html
+        assert "Mjolk Arla" in html
         assert "ICA Maxi" in html
         assert "19.90 kr" in html
         assert "stammispris" in html
-        assert "Smör Bregott" in html
+        assert "Smor Bregott" in html
         assert "Willys" in html
         assert "kampanj" in html
 
@@ -134,16 +162,17 @@ class TestPriceNotifier:
 
     def test_build_summary_html_with_watched_products(self) -> None:
         """Test _build_summary_html with watched products."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
 
         watched: list[dict[str, str | Decimal | None]] = [
             {
-                "name": "Mjölk Arla Standard 3%",
+                "name": "Mjolk Arla Standard 3%",
                 "lowest_price": Decimal("19.90"),
                 "store_name": "ICA Maxi",
             },
             {
-                "name": "Smör Bregott Original",
+                "name": "Smor Bregott Original",
                 "lowest_price": Decimal("29.90"),
                 "store_name": "Coop",
             },
@@ -153,10 +182,10 @@ class TestPriceNotifier:
 
         # Should have watched products section
         assert "Dina bevakade produkter" in html
-        assert "Mjölk Arla Standard 3%" in html
+        assert "Mjolk Arla Standard 3%" in html
         assert "19.90 kr" in html
         assert "ICA Maxi" in html
-        assert "Smör Bregott Original" in html
+        assert "Smor Bregott Original" in html
         assert "Coop" in html
 
         # Should NOT have deals section
@@ -164,7 +193,8 @@ class TestPriceNotifier:
 
     def test_build_summary_html_limits_deals_to_top_10(self) -> None:
         """Test _build_summary_html limits deals to top 10."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
 
         deals: list[dict[str, str | Decimal | None]] = [
             {
@@ -187,122 +217,77 @@ class TestPriceNotifier:
             assert f"Product {i}" not in html
 
     @pytest.mark.asyncio
-    async def test_send_email_success(self) -> None:
-        """Test _send_email with successful API response."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+    async def test_send_price_alert_success(self) -> None:
+        """Test send_price_alert with successful send."""
+        mock_service = MockEmailService(should_succeed=True)
+        notifier = PriceNotifier(email_service=mock_service)
 
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
+        result = await notifier.send_price_alert(
+            to_email="user@example.com",
+            product_name="Mjolk Arla",
+            store_name="ICA Maxi",
+            current_price=Decimal("19.90"),
+            target_price=Decimal("25.00"),
+            offer_type="stammispris",
+            offer_details="Kop 2 betala for 1",
+            product_url="https://www.ica.se/test",
+        )
 
-        with patch("httpx.AsyncClient.post", return_value=mock_response) as mock_post:
-            result = await notifier._send_email(
-                to_email="user@example.com",
-                subject="Test Subject",
-                html_body="<p>Test body</p>",
-            )
+        assert result is True
+        assert len(mock_service.sent_messages) == 1
 
-            assert result is True
-            mock_post.assert_called_once()
-            call_args = mock_post.call_args
-
-            # Verify API call parameters
-            assert call_args[0][0] == "https://api.resend.com/emails"
-            assert call_args[1]["headers"]["Authorization"] == "Bearer test_key"
-            assert call_args[1]["json"]["to"] == ["user@example.com"]
-            assert call_args[1]["json"]["subject"] == "Test Subject"
-            assert call_args[1]["json"]["html"] == "<p>Test body</p>"
-            assert call_args[1]["json"]["from"] == "noreply@test.com"
+        sent_msg = mock_service.sent_messages[0]
+        assert sent_msg.to == ["user@example.com"]
+        assert "Prisvarning: Mjolk Arla hos ICA Maxi" in sent_msg.subject
+        assert "Mjolk Arla" in sent_msg.html_body
 
     @pytest.mark.asyncio
-    async def test_send_email_failure(self) -> None:
-        """Test _send_email with failed API response."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+    async def test_send_price_alert_failure(self) -> None:
+        """Test send_price_alert with failed send."""
+        mock_service = MockEmailService(should_succeed=False)
+        notifier = PriceNotifier(email_service=mock_service)
 
-        mock_response = AsyncMock()
-        mock_response.status_code = 400
-        mock_response.text = "Bad Request"
+        result = await notifier.send_price_alert(
+            to_email="user@example.com",
+            product_name="Mjolk",
+            store_name="ICA",
+            current_price=Decimal("19.90"),
+            target_price=None,
+            offer_type=None,
+            offer_details=None,
+        )
 
-        with patch("httpx.AsyncClient.post", return_value=mock_response):
-            result = await notifier._send_email(
-                to_email="user@example.com",
-                subject="Test Subject",
-                html_body="<p>Test body</p>",
-            )
-
-            assert result is False
-
-    @pytest.mark.asyncio
-    async def test_send_email_exception(self) -> None:
-        """Test _send_email handles exceptions gracefully."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
-
-        with patch("httpx.AsyncClient.post", side_effect=Exception("Network error")):
-            result = await notifier._send_email(
-                to_email="user@example.com",
-                subject="Test Subject",
-                html_body="<p>Test body</p>",
-            )
-
-            assert result is False
+        assert result is False
 
     @pytest.mark.asyncio
-    async def test_send_price_alert(self) -> None:
-        """Test send_price_alert calls _send_email with correct parameters."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
-
-        with patch.object(notifier, "_send_email", new_callable=AsyncMock) as mock_send:
-            mock_send.return_value = True
-
-            result = await notifier.send_price_alert(
-                to_email="user@example.com",
-                product_name="Mjölk Arla",
-                store_name="ICA Maxi",
-                current_price=Decimal("19.90"),
-                target_price=Decimal("25.00"),
-                offer_type="stammispris",
-                offer_details="Köp 2 betala för 1",
-                product_url="https://www.ica.se/test",
-            )
-
-            assert result is True
-            mock_send.assert_called_once()
-            call_args = mock_send.call_args
-
-            assert call_args[0][0] == "user@example.com"
-            assert "Prisvarning: Mjölk Arla hos ICA Maxi" in call_args[0][1]
-            assert "Mjölk Arla" in call_args[0][2]
-
-    @pytest.mark.asyncio
-    async def test_send_weekly_summary(self) -> None:
-        """Test send_weekly_summary calls _send_email with correct parameters."""
-        notifier = PriceNotifier(api_key="test_key", from_email="noreply@test.com")
+    async def test_send_weekly_summary_success(self) -> None:
+        """Test send_weekly_summary with successful send."""
+        mock_service = MockEmailService(should_succeed=True)
+        notifier = PriceNotifier(email_service=mock_service)
 
         deals: list[dict[str, str | Decimal | None]] = [
             {
-                "product_name": "Mjölk",
+                "product_name": "Mjolk",
                 "store_name": "ICA",
                 "offer_price_sek": Decimal("19.90"),
                 "offer_type": "kampanj",
             }
         ]
         watched: list[dict[str, str | Decimal | None]] = [
-            {"name": "Smör", "lowest_price": Decimal("29.90"), "store_name": "Coop"}
+            {"name": "Smor", "lowest_price": Decimal("29.90"), "store_name": "Coop"}
         ]
 
-        with patch.object(notifier, "_send_email", new_callable=AsyncMock) as mock_send:
-            mock_send.return_value = True
+        result = await notifier.send_weekly_summary(
+            to_email="user@example.com",
+            deals=deals,
+            watched_products=watched,
+        )
 
-            result = await notifier.send_weekly_summary(
-                to_email="user@example.com",
-                deals=deals,
-                watched_products=watched,
-            )
+        assert result is True
+        assert len(mock_service.sent_messages) == 1
 
-            assert result is True
-            mock_send.assert_called_once()
-            call_args = mock_send.call_args
-
-            assert call_args[0][0] == "user@example.com"
-            assert "Veckans prisoversikt" in call_args[0][1]
-            assert "Mjölk" in call_args[0][2]
-            assert "Smör" in call_args[0][2]
+        sent_msg = mock_service.sent_messages[0]
+        assert sent_msg.to == ["user@example.com"]
+        assert "Veckans prisoversikt" in sent_msg.subject
+        assert "Mjolk" in sent_msg.html_body
+        assert "Smor" in sent_msg.html_body

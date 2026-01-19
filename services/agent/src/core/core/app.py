@@ -307,25 +307,28 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         asyncio.create_task(retention_cleanup_loop())
         LOGGER.info("Retention cleanup scheduled (startup + daily)")
 
+        # Email Service - platform-wide email capability
+        from core.providers import set_email_service
+        from modules.email.service import EmailConfig, ResendEmailService
+
+        email_service = None
+        if settings.resend_api_key:
+            email_config = EmailConfig(
+                api_key=settings.resend_api_key,
+                from_email=settings.email_from_address,
+            )
+            email_service = ResendEmailService(email_config)
+            set_email_service(email_service)
+            LOGGER.info("Email service initialized")
+
         # Price Tracker Scheduler - runs background price checks
         from modules.price_tracker.scheduler import PriceCheckScheduler
 
-        # Create notifier if API key is configured
-        notifier = None
-        if settings.resend_api_key:
-            from modules.price_tracker.notifier import PriceNotifier
-
-            notifier = PriceNotifier(
-                api_key=settings.resend_api_key,
-                from_email=settings.price_tracker_from_email,
-            )
-            LOGGER.info("Price alert notifier initialized")
-
-        # Create and start scheduler
+        # Create and start scheduler (pass email service directly)
         scheduler = PriceCheckScheduler(
             session_factory=AsyncSessionLocal,
             fetcher=get_fetcher(),
-            notifier=notifier,
+            email_service=email_service,
         )
         await scheduler.start()
         LOGGER.info("Price check scheduler started")
@@ -334,6 +337,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
         # --- SHUTDOWN ---
         await scheduler.stop()
+        # Clean up email service
+        if email_service is not None:
+            await email_service.close()
         await shutdown_all_mcp_clients()
         await litellm_client.aclose()
         await token_manager.shutdown()

@@ -1,21 +1,29 @@
-"""Email notifications via Resend API."""
+"""Price tracker notifications using platform email service."""
+
+from __future__ import annotations
 
 import logging
 from decimal import Decimal
 
-import httpx
+from core.protocols.email import EmailMessage, IEmailService
 
 logger = logging.getLogger(__name__)
 
 
 class PriceNotifier:
-    """Send price alerts via Resend email API."""
+    """Send price alerts using the platform email service.
 
-    RESEND_API_URL = "https://api.resend.com/emails"
+    This class handles price-specific email formatting and delegates
+    actual sending to the injected IEmailService.
+    """
 
-    def __init__(self, api_key: str, from_email: str) -> None:
-        self.api_key = api_key
-        self.from_email = from_email
+    def __init__(self, email_service: IEmailService) -> None:
+        """Initialize the price notifier.
+
+        Args:
+            email_service: The email service to use for sending.
+        """
+        self._email_service = email_service
 
     async def send_price_alert(
         self,
@@ -31,7 +39,11 @@ class PriceNotifier:
         unit_price_sek: Decimal | None = None,
         unit_price_drop_percent: float | None = None,
     ) -> bool:
-        """Send price drop alert email."""
+        """Send price drop alert email.
+
+        Returns:
+            True if email was sent successfully.
+        """
         subject = f"Prisvarning: {product_name} hos {store_name}"
         html_body = self._build_alert_html(
             product_name=product_name,
@@ -45,7 +57,15 @@ class PriceNotifier:
             unit_price_sek=unit_price_sek,
             unit_price_drop_percent=unit_price_drop_percent,
         )
-        return await self._send_email(to_email, subject, html_body)
+
+        message = EmailMessage(
+            to=[to_email],
+            subject=subject,
+            html_body=html_body,
+        )
+
+        result = await self._email_service.send(message)
+        return result.success
 
     async def send_weekly_summary(
         self,
@@ -53,10 +73,22 @@ class PriceNotifier:
         deals: list[dict[str, str | Decimal | None]],
         watched_products: list[dict[str, str | Decimal | None]],
     ) -> bool:
-        """Send weekly price summary email."""
+        """Send weekly price summary email.
+
+        Returns:
+            True if email was sent successfully.
+        """
         subject = "Veckans prisoversikt - Prisspaning"
         html_body = self._build_summary_html(deals, watched_products)
-        return await self._send_email(to_email, subject, html_body)
+
+        message = EmailMessage(
+            to=[to_email],
+            subject=subject,
+            html_body=html_body,
+        )
+
+        result = await self._email_service.send(message)
+        return result.success
 
     def _build_alert_html(
         self,
@@ -267,33 +299,3 @@ class PriceNotifier:
         </body>
         </html>
         """
-
-    async def _send_email(self, to_email: str, subject: str, html_body: str) -> bool:
-        """Send email via Resend API."""
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    self.RESEND_API_URL,
-                    headers={
-                        "Authorization": f"Bearer {self.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "from": self.from_email,
-                        "to": [to_email],
-                        "subject": subject,
-                        "html": html_body,
-                    },
-                    timeout=30.0,
-                )
-
-                if response.status_code == 200:
-                    logger.info(f"Email sent successfully to {to_email}")
-                    return True
-                else:
-                    logger.error(f"Failed to send email: {response.status_code} - {response.text}")
-                    return False
-
-        except Exception as e:
-            logger.error(f"Email send error: {e}")
-            return False
