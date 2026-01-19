@@ -193,22 +193,33 @@ Use `stack check --no-fix` for CI-style check-only mode.
 
 ### Commit Process
 
-1. **Create a feature branch** from your changes:
+1. **Run quality checks** (MANDATORY for code changes):
+   ```bash
+   stack check
+   ```
+   This runs Ruff, Black, Mypy, and Pytest. **Do not proceed if this fails.**
+
+2. **Create a feature branch** from your changes:
    ```bash
    git checkout -b feat/description   # or fix/description
    ```
 
-2. **Push the branch** to origin:
+3. **Commit your changes:**
+   ```bash
+   git add -A && git commit -m "feat: Description"
+   ```
+
+4. **Push the branch** to origin:
    ```bash
    git push -u origin feat/description
    ```
 
-3. **Create a PR** using GitHub CLI:
+5. **Create a PR** using GitHub CLI:
    ```bash
    gh pr create --title "feat: Description" --body "..."
    ```
 
-4. **Reset main** to origin (if you accidentally committed to main):
+6. **Reset main** to origin/main:
    ```bash
    git checkout main && git reset --hard origin/main
    ```
@@ -224,7 +235,8 @@ Use `stack check --no-fix` for CI-style check-only mode.
 
 ### Never Do
 
-- `git push origin main` - Will be rejected
+- Push without running `stack check` first - CI will fail
+- `git push origin main` - Will be rejected by branch protection
 - `git push --force` on shared branches - Destructive
 - Skip PR review for non-trivial changes
 
