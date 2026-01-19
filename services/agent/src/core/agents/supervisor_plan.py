@@ -5,11 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Literal
 
-from shared.models import Plan
-
 from core.models.pydantic_schemas import SupervisorDecision, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
+from shared.models import Plan
 
 if TYPE_CHECKING:
     from core.tools import ToolRegistry

@@ -41,3 +41,8 @@
   type: core.tools.price_tracker.PriceTrackerTool
   enabled: true
   description: "Track and compare grocery and pharmacy prices"
+
+- name: send_email
+  type: core.tools.send_email.SendEmailTool
+  enabled: true
+  description: "Send email to yourself with reports, summaries, or reminders"

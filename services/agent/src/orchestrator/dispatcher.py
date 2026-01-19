@@ -5,16 +5,16 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
-from shared.models import AgentMessage, AgentRequest, Plan, PlanStep, RoutingDecision
-from shared.streaming import AgentChunk
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from utils.template import substitute_variables
 
 from core.core.litellm_client import LiteLLMClient
 from core.core.routing import registry
 from core.db.models import Context, Conversation, Message, Session
 from core.routing import IntentClassifier
+from shared.models import AgentMessage, AgentRequest, Plan, PlanStep, RoutingDecision
+from shared.streaming import AgentChunk
+from utils.template import substitute_variables
 
 from .skill_loader import SkillLoader
 
@@ -53,6 +53,7 @@ class Dispatcher:
         db_session: AsyncSession | None = None,
         agent_service: Any = None,
         history: list | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> AsyncGenerator[AgentChunk, None]:
         """
         Routes and streams a user message.
@@ -93,12 +94,17 @@ class Dispatcher:
                     # If it's a plan-based skill, we might need more logic.
                     # For now, assume it's a prompt wrapper.
 
+                    # Merge metadata
+                    agent_metadata = {"skill": skill.name, "tools": skill.tools}
+                    if metadata:
+                        agent_metadata.update(metadata)
+
                     async for chunk in self._stream_agent_execution(
                         prompt=rendered_prompt,
                         conversation_id=conversation_id,
                         db_session=db_session,
                         agent_service=agent_service,
-                        metadata={"skill": skill.name, "tools": skill.tools},
+                        metadata=agent_metadata,
                         history=history,
                     ):
                         yield chunk
@@ -157,13 +163,18 @@ class Dispatcher:
                 description="Fast Path Plan",
             )
 
+            # Merge metadata
+            agent_metadata = {"plan": plan.model_dump()}
+            if metadata:
+                agent_metadata.update(metadata)
+
             # Execute with injected plan
             async for chunk in self._stream_agent_execution(
                 prompt=message,
                 conversation_id=conversation_id,
                 db_session=db_session,
                 agent_service=agent_service,
-                metadata={"plan": plan.model_dump()},
+                metadata=agent_metadata,
                 history=history,
             ):
                 yield chunk
@@ -256,12 +267,17 @@ class Dispatcher:
 
         else:
             # AGENTIC / TASK
+            # Merge metadata
+            agent_metadata = {"routing_decision": RoutingDecision.AGENTIC}
+            if metadata:
+                agent_metadata.update(metadata)
+
             async for chunk in self._stream_agent_execution(
                 prompt=message,
                 conversation_id=conversation_id,
                 db_session=db_session,
                 agent_service=agent_service,
-                metadata={"routing_decision": RoutingDecision.AGENTIC},
+                metadata=agent_metadata,
                 history=history,
             ):
                 yield chunk

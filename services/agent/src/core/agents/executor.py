@@ -9,8 +9,6 @@ import time
 from collections.abc import AsyncGenerator
 from typing import Any, Literal, cast
 
-from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
-
 from core.command_loader import load_command
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
@@ -18,6 +16,7 @@ from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, set_span_status, start_span
 from core.tools import ToolRegistry
+from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
 
 LOGGER = logging.getLogger(__name__)
 
@@ -327,6 +326,16 @@ class StepExecutorAgent:
                 has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
                 if has_cwd or has_kwargs:
                     final_args["cwd"] = cwd
+
+            # Inject user_email for send_email tool (from request metadata)
+            if step.tool == "send_email":
+                user_email = (request.metadata or {}).get("user_email")
+                if user_email:
+                    sig = inspect.signature(tool.run)
+                    has_user_email = "user_email" in sig.parameters
+                    has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                    if has_user_email or has_kwargs:
+                        final_args["user_email"] = user_email
 
             with start_span(f"tool.call.{step.tool}"):
                 try:

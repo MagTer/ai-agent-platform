@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from core.auth.token_manager import TokenManager
     from core.protocols import ICodeIndexer, IEmbedder, IFetcher, IPriceTracker, IRAGManager
+    from core.protocols.email import IEmailService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +30,7 @@ _rag_manager: IRAGManager | None = None
 _code_indexer_factory: type[ICodeIndexer] | None = None
 _token_manager: TokenManager | None = None
 _price_tracker: IPriceTracker | None = None
+_email_service: IEmailService | None = None
 
 
 class ProviderError(Exception):
@@ -129,6 +131,29 @@ def get_price_tracker() -> IPriceTracker:
     return _price_tracker
 
 
+# --- Email Service ---
+def set_email_service(service: IEmailService) -> None:
+    """Register the email service implementation."""
+    global _email_service
+    _email_service = service
+    LOGGER.info("Email Service provider registered")
+
+
+def get_email_service() -> IEmailService:
+    """Get the registered email service. Raises if not configured."""
+    if _email_service is None:
+        raise ProviderError("Email Service not configured. Call set_email_service() at startup.")
+    return _email_service
+
+
+def get_email_service_optional() -> IEmailService | None:
+    """Get the email service if configured, or None.
+
+    Use this when email is optional (e.g., notifications that can be skipped).
+    """
+    return _email_service
+
+
 __all__ = [
     "ProviderError",
     "set_embedder",
@@ -143,4 +168,7 @@ __all__ = [
     "get_token_manager",
     "set_price_tracker",
     "get_price_tracker",
+    "set_email_service",
+    "get_email_service",
+    "get_email_service_optional",
 ]

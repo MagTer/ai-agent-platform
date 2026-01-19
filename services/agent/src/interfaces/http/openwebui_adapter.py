@@ -268,6 +268,10 @@ async def chat_completions(
     OpenAI-compatible endpoint for Open WebUI.
     Routes requests via the Dispatcher and streams responses.
     """
+    # Extract user identity for tool context
+    identity = extract_user_from_headers(http_request)
+    user_email = identity.email if identity else None
+
     # 1. Extract latest user message
     user_message = ""
     for msg in request.messages:
@@ -329,6 +333,7 @@ async def chat_completions(
             agent_service,
             debug_mode,
             history,
+            user_email=user_email,
         ),
         media_type="text/event-stream",
         headers={"X-Trace-ID": trace_id} if trace_id else None,
@@ -344,6 +349,7 @@ async def stream_response_generator(
     agent_service: AgentService,
     debug_mode: bool = False,
     history: list | None = None,
+    user_email: str | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Generates SSE events compatible with OpenAI API from AgentChunks.
@@ -374,6 +380,11 @@ async def stream_response_generator(
             last_flush_time = time.time()
             yield _format_chunk(chunk_id, created, model_name, batched_content)
 
+    # Build metadata for tools
+    tool_metadata: dict[str, Any] = {}
+    if user_email:
+        tool_metadata["user_email"] = user_email
+
     try:
         async for agent_chunk in dispatcher.stream_message(
             session_id=session_id,
@@ -383,6 +394,7 @@ async def stream_response_generator(
             db_session=db_session,
             agent_service=agent_service,
             history=history,  # Pass conversation history to dispatcher
+            metadata=tool_metadata,
         ):
             chunk_type = agent_chunk["type"]
             content = agent_chunk.get("content")

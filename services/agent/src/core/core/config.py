@@ -194,14 +194,19 @@ class Settings(BaseModel):
         description="Comma-separated list of allowed CORS origins. Empty list disables CORS.",
     )
 
-    # Price Tracker Settings
+    # Email Service Settings
     resend_api_key: str | None = Field(
         default=None,
-        description="Resend API key for email notifications.",
+        description="Resend API key for platform email notifications.",
     )
+    email_from_address: str = Field(
+        default="noreply@ai-agent-platform.local",
+        description="Default from email address for platform notifications.",
+    )
+    # Backward compatibility alias
     price_tracker_from_email: str = Field(
-        default="prisspaning@noreply.local",
-        description="From email address for price alerts.",
+        default="",
+        description="DEPRECATED: Use email_from_address instead.",
     )
     price_tracker_check_interval_hours: int = Field(
         default=6,
@@ -218,6 +223,15 @@ class Settings(BaseModel):
                     'Generate one with: python -c "from cryptography.fernet import Fernet; '
                     'print(Fernet.generate_key().decode())"'
                 )
+        return self
+
+    @model_validator(mode="after")
+    def handle_email_backward_compat(self) -> Settings:
+        """Handle backward compatibility for email settings."""
+        # If old setting is used but new one is default, use old value
+        default_email = "noreply@ai-agent-platform.local"
+        if self.price_tracker_from_email and self.email_from_address == default_email:
+            object.__setattr__(self, "email_from_address", self.price_tracker_from_email)
         return self
 
     def __init__(self, **data: Any) -> None:  # noqa: D401 - inherited docstring

@@ -132,7 +132,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-ra"
+addopts = "-ra --import-mode=importlib"
 asyncio_mode = "auto"
 testpaths = ["../../tests", "src/core/tests", "src/stack/tests"]
 
