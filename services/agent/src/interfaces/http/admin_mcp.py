@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from core.tools.mcp_loader import get_mcp_client_pool, get_mcp_health, get_mcp_stats
-from interfaces.http.admin_auth import verify_admin_user
+from interfaces.http.admin_auth import require_admin_or_redirect, verify_admin_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(require_admin_or_redirect)])
 async def mcp_dashboard() -> str:
     """MCP client management dashboard.
 

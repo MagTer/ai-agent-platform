@@ -185,16 +185,25 @@ async def get_or_create_context_id(
         return conversation.context_id
 
     # Conversation doesn't exist yet (will be created by AgentService later)
-    # Create a default context for this new conversation
-    context = Context(
-        name=f"openwebui_{conversation_uuid}",
-        type="virtual",
-        config={"platform": "openwebui", "conversation_id": str(conversation_uuid)},
-        default_cwd="/tmp",  # noqa: S108
-    )
-    session.add(context)
-    await session.flush()
-    LOGGER.info(f"Created new context for conversation {conversation_uuid}: {context.id}")
+    # Check if context already exists for this conversation (handles retries)
+    ctx_name = f"openwebui_{conversation_uuid}"
+    ctx_stmt = select(Context).where(Context.name == ctx_name)
+    ctx_result = await session.execute(ctx_stmt)
+    context = ctx_result.scalar_one_or_none()
+
+    if not context:
+        context = Context(
+            name=ctx_name,
+            type="virtual",
+            config={"platform": "openwebui", "conversation_id": str(conversation_uuid)},
+            default_cwd="/tmp",  # noqa: S108
+        )
+        session.add(context)
+        await session.flush()
+        LOGGER.info(f"Created new context for conversation {conversation_uuid}: {context.id}")
+    else:
+        LOGGER.debug(f"Reusing existing context {context.id} for conversation {conversation_uuid}")
+
     return context.id
 
 
