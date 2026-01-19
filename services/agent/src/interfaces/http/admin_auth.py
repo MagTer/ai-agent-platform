@@ -5,7 +5,6 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,7 +19,7 @@ from core.observability.security_logger import (
 )
 
 
-class AuthRedirectException(Exception):
+class AuthRedirectError(Exception):
     """Exception that signals a redirect to login is needed."""
 
     def __init__(self, redirect_url: str = "/platformadmin/auth/login") -> None:
@@ -207,7 +206,7 @@ async def get_admin_user_or_redirect(
     request: Request,
     session: AsyncSession = Depends(get_db),
 ) -> AdminUser:
-    """Get admin user or raise AuthRedirectException for redirect to login.
+    """Get admin user or raise AuthRedirectError for redirect to login.
 
     Use this for HTML pages that should redirect to login instead of 401.
     API endpoints should use get_admin_user instead.
@@ -234,7 +233,7 @@ async def get_admin_user_or_redirect(
                     )
 
     if not identity:
-        raise AuthRedirectException()
+        raise AuthRedirectError()
 
     # Look up user in database
     stmt = select(User).where(User.email == identity.email.lower())
@@ -242,15 +241,15 @@ async def get_admin_user_or_redirect(
     db_user = result.scalar_one_or_none()
 
     if not db_user:
-        raise AuthRedirectException()
+        raise AuthRedirectError()
 
     if not db_user.is_active:
-        raise AuthRedirectException()
+        raise AuthRedirectError()
 
     # Check admin role
     effective_role = identity.role or db_user.role
     if effective_role != "admin":
-        raise AuthRedirectException()
+        raise AuthRedirectError()
 
     return AdminUser(identity=identity, db_user=db_user)
 
@@ -370,7 +369,7 @@ def verify_user(
 __all__ = [
     "AdminUser",
     "AuthenticatedUser",
-    "AuthRedirectException",
+    "AuthRedirectError",
     "get_admin_user",
     "get_admin_user_or_redirect",
     "get_authenticated_user",

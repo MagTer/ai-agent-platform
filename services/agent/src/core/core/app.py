@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.engine import get_db
 from core.db.models import Context, Conversation
 from core.observability.tracing import configure_tracing
-from interfaces.http.admin_auth import AuthRedirectException
+from interfaces.http.admin_auth import AuthRedirectError
 from interfaces.http.admin_auth_oauth import router as admin_auth_oauth_router
 from interfaces.http.admin_contexts import router as admin_contexts_router
 from interfaces.http.admin_credentials import router as admin_credentials_router
@@ -100,10 +100,8 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         allow_headers=["*"],
     )
 
-    @app.exception_handler(AuthRedirectException)
-    async def auth_redirect_handler(
-        request: Request, exc: AuthRedirectException
-    ) -> RedirectResponse:
+    @app.exception_handler(AuthRedirectError)
+    async def auth_redirect_handler(request: Request, exc: AuthRedirectError) -> RedirectResponse:
         """Redirect unauthenticated users to login page."""
         return RedirectResponse(url=exc.redirect_url, status_code=302)
 

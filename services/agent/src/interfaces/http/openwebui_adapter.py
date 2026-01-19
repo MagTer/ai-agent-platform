@@ -187,9 +187,9 @@ async def get_or_create_context_id(
     # Conversation doesn't exist yet (will be created by AgentService later)
     # Check if context already exists for this conversation (handles retries)
     ctx_name = f"openwebui_{conversation_uuid}"
-    stmt = select(Context).where(Context.name == ctx_name)
-    result = await session.execute(stmt)
-    context = result.scalar_one_or_none()
+    ctx_stmt = select(Context).where(Context.name == ctx_name)
+    ctx_result = await session.execute(ctx_stmt)
+    context = ctx_result.scalar_one_or_none()
 
     if not context:
         context = Context(
