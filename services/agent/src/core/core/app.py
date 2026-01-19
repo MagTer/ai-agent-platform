@@ -117,11 +117,16 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         # Log to stderr
         LOGGER.exception("Unhandled exception")
 
+        # Record exception to OpenTelemetry span for trace visibility
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.record_exception(exc)
+            span.set_attribute("error.type", type(exc).__name__)
+            span.set_attribute("error.message", str(exc)[:1000])  # Truncate long messages
+
         # Write to crash log
         try:
-            log_path = Path("services/agent/last_crash.log")
-            # Ensure directory exists? Usually services/agent exists.
-            # Append mode
+            log_path = Path("data/crash.log")
             with open(log_path, "a", encoding="utf-8") as f:
                 f.write(error_msg)
         except Exception as log_exc:
@@ -129,7 +134,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
         return JSONResponse(
             status_code=500,
-            content={"detail": "Internal Server Error. Check last_crash.log."},
+            content={"detail": "Internal Server Error. Check crash.log."},
         )
 
     @app.middleware("http")

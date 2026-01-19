@@ -1133,7 +1133,15 @@ async def diagnostics_dashboard(
                 bar.className = `span-bar ${bg}`;
                 bar.style.left = `${left}%`;
                 bar.style.width = `${width}%`;
-                bar.title = `${span.name} (Status: ${span.status})`;
+                // Build tooltip with error info if present
+                let tooltip = `${span.name} (Status: ${span.status})`;
+                if (attrs['error.type']) {
+                    tooltip += `\\n\\nError: ${attrs['error.type']}`;
+                    if (attrs['error.message']) {
+                        tooltip += `\\n${attrs['error.message'].substring(0, 200)}`;
+                    }
+                }
+                bar.title = tooltip;
 
                 let label = span.name;
                 const attrs = span.attributes || {};
@@ -1178,6 +1186,18 @@ async def diagnostics_dashboard(
              const attrs = span.attributes || {};
 
              let attrCards = '';
+
+             // Show error info prominently if present
+             if (attrs['error.type'] || attrs['error.message']) {
+                 attrCards += `
+                     <div class="attr-card" style="background:#fef2f2; border-color:#fecaca">
+                         <div class="attr-label" style="color:#b91c1c">Exception</div>
+                         <div class="attr-value" style="color:#b91c1c; font-weight:600">${escapeHtml(attrs['error.type'] || 'Error')}</div>
+                         ${attrs['error.message'] ? `<div class="attr-value" style="margin-top:8px; font-size:12px; color:#991b1b">${escapeHtml(attrs['error.message'])}</div>` : ''}
+                     </div>
+                 `;
+             }
+
              const keyAttrs = [
                  { key: 'search.query', label: 'Search Query', icon: 'Search' },
                  { key: 'fetch.url', label: 'Fetched URL', icon: 'URL' },
