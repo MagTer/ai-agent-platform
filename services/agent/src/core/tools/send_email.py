@@ -103,10 +103,7 @@ class SendEmailTool(Tool):
 
         if not email_service.is_configured():
             LOGGER.warning("Email service exists but is not properly configured")
-            return (
-                "Email service is not properly configured. "
-                "Please contact your administrator."
-            )
+            return "Email service is not properly configured. " "Please contact your administrator."
 
         # Validate user email
         if not user_email:

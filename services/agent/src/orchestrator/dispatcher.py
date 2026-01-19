@@ -5,16 +5,16 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
+from shared.models import AgentMessage, AgentRequest, Plan, PlanStep, RoutingDecision
+from shared.streaming import AgentChunk
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from utils.template import substitute_variables
 
 from core.core.litellm_client import LiteLLMClient
 from core.core.routing import registry
 from core.db.models import Context, Conversation, Message, Session
 from core.routing import IntentClassifier
-from shared.models import AgentMessage, AgentRequest, Plan, PlanStep, RoutingDecision
-from shared.streaming import AgentChunk
-from utils.template import substitute_variables
 
 from .skill_loader import SkillLoader
 
@@ -95,7 +95,7 @@ class Dispatcher:
                     # For now, assume it's a prompt wrapper.
 
                     # Merge metadata
-                    agent_metadata = {"skill": skill.name, "tools": skill.tools}
+                    agent_metadata: dict[str, Any] = {"skill": skill.name, "tools": skill.tools}
                     if metadata:
                         agent_metadata.update(metadata)
 
