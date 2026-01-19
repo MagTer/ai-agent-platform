@@ -38,4 +38,4 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "core.core.app:create_app", "--host", "0.0.0.0", "--port", "8000", "--factory"]
+CMD ["uvicorn", "core.core.app:create_app", "--host", "0.0.0.0", "--port", "8000", "--factory", "--proxy-headers", "--forwarded-allow-ips", "*"]

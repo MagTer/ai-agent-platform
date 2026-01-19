@@ -63,7 +63,10 @@ async def oauth_login(
     state = secrets.token_urlsafe(32)
 
     # Build authorization URL
-    base_url = str(request.base_url).rstrip("/")
+    # Detect correct scheme from X-Forwarded-Proto header (set by Traefik)
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("host") or request.url.netloc
+    base_url = f"{forwarded_proto}://{host}"
     redirect_uri = f"{base_url}/platformadmin/auth/callback"
 
     authorization_url = (
@@ -191,7 +194,10 @@ async def oauth_callback(
 
     # Exchange code for tokens
     token_url = f"https://login.microsoftonline.com/{settings.entra_tenant_id}/oauth2/v2.0/token"
-    base_url = str(request.base_url).rstrip("/")
+    # Detect correct scheme from X-Forwarded-Proto header (set by Traefik)
+    forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("host") or request.url.netloc
+    base_url = f"{forwarded_proto}://{host}"
     redirect_uri = f"{base_url}/platformadmin/auth/callback"
 
     token_data = {
