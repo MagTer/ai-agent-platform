@@ -13,7 +13,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from slowapi.errors import RateLimitExceeded
@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.engine import get_db
 from core.db.models import Context, Conversation
 from core.observability.tracing import configure_tracing
+from interfaces.http.admin_auth import AuthRedirectException
 from interfaces.http.admin_auth_oauth import router as admin_auth_oauth_router
 from interfaces.http.admin_contexts import router as admin_contexts_router
 from interfaces.http.admin_credentials import router as admin_credentials_router
@@ -98,6 +99,13 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(AuthRedirectException)
+    async def auth_redirect_handler(
+        request: Request, exc: AuthRedirectException
+    ) -> RedirectResponse:
+        """Redirect unauthenticated users to login page."""
+        return RedirectResponse(url=exc.redirect_url, status_code=302)
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:

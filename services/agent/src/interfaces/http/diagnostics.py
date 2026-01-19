@@ -9,7 +9,7 @@ from fastapi.responses import HTMLResponse
 
 from core.core.config import Settings, get_settings
 from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
-from interfaces.http.admin_auth import verify_admin_user
+from interfaces.http.admin_auth import require_admin_or_redirect, verify_admin_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -341,7 +341,7 @@ async def get_application_logs(
         }
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(require_admin_or_redirect)])
 async def diagnostics_dashboard(
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> str:

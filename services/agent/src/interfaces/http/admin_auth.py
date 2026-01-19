@@ -5,6 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,6 +18,14 @@ from core.observability.security_logger import (
     get_client_ip,
     log_security_event,
 )
+
+
+class AuthRedirectException(Exception):
+    """Exception that signals a redirect to login is needed."""
+
+    def __init__(self, redirect_url: str = "/platformadmin/auth/login") -> None:
+        self.redirect_url = redirect_url
+        super().__init__(f"Redirect to {redirect_url}")
 
 
 class AdminUser:
@@ -194,6 +203,74 @@ def verify_admin_user(
 verify_admin_api_key = verify_admin_user
 
 
+async def get_admin_user_or_redirect(
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> AdminUser:
+    """Get admin user or raise AuthRedirectException for redirect to login.
+
+    Use this for HTML pages that should redirect to login instead of 401.
+    API endpoints should use get_admin_user instead.
+    """
+    # Try header authentication first (Open WebUI)
+    identity = extract_user_from_headers(request)
+
+    # If no headers, try JWT cookie (direct OAuth)
+    if not identity:
+        from core.auth.admin_session import get_jwt_from_request, verify_admin_jwt
+        from core.core.config import get_settings
+
+        settings = get_settings()
+        if settings.admin_jwt_secret:
+            jwt_token = get_jwt_from_request(request)
+            if jwt_token:
+                payload = verify_admin_jwt(jwt_token, settings.admin_jwt_secret)
+                if payload:
+                    identity = UserIdentity(
+                        email=payload.get("email", ""),
+                        name=payload.get("name"),
+                        openwebui_id=None,
+                        role=payload.get("role", "user"),
+                    )
+
+    if not identity:
+        raise AuthRedirectException()
+
+    # Look up user in database
+    stmt = select(User).where(User.email == identity.email.lower())
+    result = await session.execute(stmt)
+    db_user = result.scalar_one_or_none()
+
+    if not db_user:
+        raise AuthRedirectException()
+
+    if not db_user.is_active:
+        raise AuthRedirectException()
+
+    # Check admin role
+    effective_role = identity.role or db_user.role
+    if effective_role != "admin":
+        raise AuthRedirectException()
+
+    return AdminUser(identity=identity, db_user=db_user)
+
+
+def require_admin_or_redirect(
+    admin: AdminUser = Depends(get_admin_user_or_redirect),
+) -> AdminUser:
+    """Dependency for HTML pages that redirects to login if not authenticated.
+
+    Use this for admin portal HTML pages:
+
+        @router.get("/admin/dashboard", response_class=HTMLResponse)
+        async def dashboard(admin: AdminUser = Depends(require_admin_or_redirect)):
+            ...
+
+    For API endpoints that should return 401, use verify_admin_user instead.
+    """
+    return admin
+
+
 class AuthenticatedUser:
     """Authenticated user (not necessarily admin)."""
 
@@ -293,8 +370,11 @@ def verify_user(
 __all__ = [
     "AdminUser",
     "AuthenticatedUser",
+    "AuthRedirectException",
     "get_admin_user",
+    "get_admin_user_or_redirect",
     "get_authenticated_user",
+    "require_admin_or_redirect",
     "verify_admin_user",
     "verify_admin_api_key",
     "verify_user",

@@ -8,7 +8,7 @@ import html
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
-from interfaces.http.admin_auth import AdminUser, verify_admin_user
+from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect
 
 router = APIRouter(
     prefix="/platformadmin",
@@ -17,7 +17,7 @@ router = APIRouter(
 
 
 @router.get("/", response_class=HTMLResponse)
-async def admin_portal(admin: AdminUser = Depends(verify_admin_user)) -> str:
+async def admin_portal(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """Unified admin portal landing page.
 
     Returns:

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import AsyncSessionLocal, get_db
 from core.providers import get_fetcher
-from interfaces.http.admin_auth import verify_admin_user
+from interfaces.http.admin_auth import require_admin_or_redirect, verify_admin_user
 from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
 from modules.price_tracker.parser import PriceParser
 from modules.price_tracker.service import PriceTrackerService
@@ -851,7 +851,7 @@ async def delete_product(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(require_admin_or_redirect)])
 async def price_tracker_dashboard() -> str:
     """Server-rendered admin dashboard for price tracking.
 

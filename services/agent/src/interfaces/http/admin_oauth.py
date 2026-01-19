@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.engine import get_db
 from core.db.oauth_models import OAuthToken
 from core.tools.mcp_loader import get_mcp_client_pool
-from interfaces.http.admin_auth import verify_admin_user
+from interfaces.http.admin_auth import require_admin_or_redirect, verify_admin_user
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(verify_admin_user)])
+@router.get("/", response_class=HTMLResponse, dependencies=[Depends(require_admin_or_redirect)])
 async def oauth_dashboard() -> str:
     """OAuth token management dashboard.
 
