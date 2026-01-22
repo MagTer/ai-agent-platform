@@ -71,6 +71,7 @@ services:
       - "traefik.http.routers.agent-admin.rule=Host(`${DOMAIN:-agent.falle.se}`) && PathPrefix(`/platformadmin`)"
       - "traefik.http.routers.agent-admin.entrypoints=websecure"
       - "traefik.http.routers.agent-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.agent-admin.service=agent-admin"
       - "traefik.http.services.agent-admin.loadbalancer.server.port=8000"
       # Security: Strip external X-OpenWebUI-* headers (prevent header spoofing)
       - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Email="
