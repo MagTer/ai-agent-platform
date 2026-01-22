@@ -6,19 +6,23 @@
 # This configuration:
 # - Uses different ports to allow prod to run simultaneously
 # - Uses separate database volumes to isolate dev data from prod
-# - Does NOT use Traefik (direct port access for debugging)
+# - Optionally exposes dev via Traefik when DOMAIN_DEV is set
 #
-# Access points:
+# Access points (direct):
 #   Open WebUI:  http://localhost:3001
 #   Agent API:   http://localhost:8001
 #   PostgreSQL:  localhost:5433
 #   Qdrant:      localhost:6334
 #   LiteLLM:     localhost:4001
 #   SearxNG:     localhost:8081
+#
+# Access points (via Traefik, when DOMAIN_DEV is set):
+#   Open WebUI:  https://${DOMAIN_DEV}
+#   Agent Admin: https://${DOMAIN_DEV}/platformadmin
 # =============================================================================
 
 services:
-  # Agent with dev port
+  # Agent with dev port and optional Traefik routing
   agent:
     ports:
       - "8001:8000"
@@ -26,18 +30,38 @@ services:
       AGENT_ENVIRONMENT: development
       # Use dev database (same credentials as prod, different db name)
       POSTGRES_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/agent_db_dev
+    labels:
+      # Enable Traefik routing for dev when DOMAIN_DEV is set
+      - "traefik.enable=${DOMAIN_DEV:+true}"
+      - "traefik.http.routers.agent-admin-dev.rule=Host(`${DOMAIN_DEV:-agent-dev.local}`) && PathPrefix(`/platformadmin`)"
+      - "traefik.http.routers.agent-admin-dev.entrypoints=websecure"
+      - "traefik.http.routers.agent-admin-dev.tls.certresolver=letsencrypt"
+      - "traefik.http.services.agent-admin-dev.loadbalancer.server.port=8000"
 
-  # Open WebUI with dev port (no Traefik)
+  # Open WebUI with dev port and optional Traefik routing
   open-webui:
     ports:
       - "3001:8080"
     environment:
-      - WEBUI_URL=http://localhost:3001
+      # Use DOMAIN_DEV for URL if set, otherwise localhost
+      - WEBUI_URL=${DOMAIN_DEV:+https://${DOMAIN_DEV}}${DOMAIN_DEV:-http://localhost:3001}
       # Disable automatic signup - admin creates users manually
       - ENABLE_OAUTH_SIGNUP=false
-    # Disable Traefik routing for dev (avoid conflict with prod)
     labels:
-      - "traefik.enable=false"
+      # Enable Traefik routing for dev when DOMAIN_DEV is set
+      - "traefik.enable=${DOMAIN_DEV:+true}"
+      - "traefik.http.routers.openwebui-dev.rule=Host(`${DOMAIN_DEV:-agent-dev.local}`)"
+      - "traefik.http.routers.openwebui-dev.entrypoints=websecure"
+      - "traefik.http.routers.openwebui-dev.tls.certresolver=letsencrypt"
+      - "traefik.http.services.openwebui-dev.loadbalancer.server.port=8080"
+      # Security: Strip untrusted headers from external requests
+      - "traefik.http.middlewares.strip-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      # Security: Enable HSTS
+      - "traefik.http.middlewares.security-dev.headers.stsSeconds=31536000"
+      - "traefik.http.routers.openwebui-dev.middlewares=strip-headers-dev,security-dev"
 
   # PostgreSQL with dev port and separate volume
   postgres:

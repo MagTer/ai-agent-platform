@@ -6,21 +6,42 @@ import numpy as np
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
 
-from modules.embedder import get_embedder
+from modules.embedder import Embedder, get_embedder
 
 logger = logging.getLogger(__name__)
 
 
 class RAGManager:
+    """RAG Manager with lazy loading for faster container startup."""
+
     def __init__(self) -> None:
+        # Configuration (loaded immediately - lightweight)
         self.qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
-        self.client = AsyncQdrantClient(url=self.qdrant_url)
-        self.embedder = get_embedder()
         self.top_k = int(os.getenv("QDRANT_TOP_K", "5"))
         self.mmr_lambda = float(os.getenv("MMR_LAMBDA", "0.7"))
         self.collection_name = os.getenv(
             "QDRANT_COLLECTION", "agent-memories"
         )  # Default from fetcher
+
+        # Lazy-loaded resources (NOT initialized here for faster startup)
+        self._client: AsyncQdrantClient | None = None
+        self._embedder: Embedder | None = None
+
+    @property
+    def client(self) -> AsyncQdrantClient:
+        """Lazy-load Qdrant client on first access."""
+        if self._client is None:
+            logger.info(f"Connecting to Qdrant at {self.qdrant_url} (lazy load)")
+            self._client = AsyncQdrantClient(url=self.qdrant_url)
+        return self._client
+
+    @property
+    def embedder(self) -> Embedder:
+        """Lazy-load embedder on first access."""
+        if self._embedder is None:
+            logger.info("Initializing embedder (lazy load)")
+            self._embedder = get_embedder()
+        return self._embedder
 
     def _cosine(self, a: np.ndarray, b: np.ndarray) -> float:
         da = np.linalg.norm(a) + 1e-9
@@ -208,4 +229,7 @@ class RAGManager:
             return 0
 
     async def close(self) -> None:
-        await self.client.close()
+        """Close the Qdrant client if it was initialized."""
+        if self._client is not None:
+            await self._client.close()
+            self._client = None
