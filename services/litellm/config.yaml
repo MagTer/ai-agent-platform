@@ -92,6 +92,9 @@ model_list:
       temperature: 0
       max_tokens: 2048
       rpm: 60
+      extra_body:
+        provider:
+          zdr: true
 
   - model_name: sonnet
     litellm_params:
@@ -100,3 +103,40 @@ model_list:
       temperature: 0
       max_tokens: 4096
       rpm: 30
+      extra_body:
+        provider:
+          zdr: true
+
+  # Cost-optimized price parser models (all with ZDR)
+  - model_name: price-parser-cheap
+    litellm_params:
+      model: openrouter/qwen/qwen3-32b
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0
+      max_tokens: 2048
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+
+  - model_name: price-parser-mid
+    litellm_params:
+      model: openrouter/deepseek/deepseek-v3.2
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0
+      max_tokens: 2048
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+
+  - model_name: price-parser-reliable
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0
+      max_tokens: 2048
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true

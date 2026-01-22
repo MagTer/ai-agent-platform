@@ -29,10 +29,26 @@ class PriceExtractionResult:
 
 
 class PriceParser:
-    """LLM-based price extractor with Haiku-first strategy."""
+    """LLM-based price extractor with cascading model strategy."""
 
-    HAIKU_MODEL = "haiku"  # Maps to claude-3-5-haiku via LiteLLM
-    SONNET_MODEL = "sonnet"  # Maps to claude-4-5-sonnet via LiteLLM
+    # Cascading model strategy (cheapest to most expensive)
+    MODEL_CASCADE = os.getenv(
+        "PRICE_PARSER_MODEL_CASCADE",
+        "price-parser-cheap,price-parser-mid,price-parser-reliable,haiku,sonnet",
+    ).split(",")
+
+    # Model-specific confidence thresholds
+    CONFIDENCE_THRESHOLDS = {
+        "price-parser-cheap": 0.75,
+        "price-parser-mid": 0.70,
+        "price-parser-reliable": 0.65,
+        "haiku": 0.60,
+        "sonnet": 0.0,  # Accept any confidence (last resort)
+    }
+
+    # Legacy constants for backward compatibility
+    HAIKU_MODEL = "haiku"
+    SONNET_MODEL = "sonnet"
     CONFIDENCE_THRESHOLD = 0.7
 
     def __init__(self) -> None:
@@ -51,25 +67,62 @@ class PriceParser:
         store_slug: str,
         product_name: str | None = None,
     ) -> PriceExtractionResult:
-        """Extract price data using LLM with Haiku-first strategy."""
+        """Extract price data using LLM with cascading model strategy."""
 
         store_hint = self._store_hints.get(store_slug, "")
 
         prompt = self._build_prompt(text_content, store_slug, store_hint, product_name)
 
-        # Try Haiku first (cheapest)
-        try:
-            result = await self._extract_with_model(prompt, self.HAIKU_MODEL)
+        # Try models in cascade order (cheapest to most expensive)
+        last_result = None
+        last_error = None
 
-            if result.confidence < self.CONFIDENCE_THRESHOLD:
-                logger.info(f"Low confidence ({result.confidence}), retrying with Sonnet")
-                result = await self._extract_with_model(prompt, self.SONNET_MODEL)
+        for model_name in self.MODEL_CASCADE:
+            threshold = self.CONFIDENCE_THRESHOLDS.get(model_name, 0.7)
 
-            return result
+            try:
+                logger.debug(
+                    f"Trying {model_name} (threshold: {threshold})",
+                    extra={"product": product_name, "store": store_slug},
+                )
 
-        except Exception as e:
-            logger.warning(f"Haiku extraction failed: {e}, trying Sonnet")
-            return await self._extract_with_model(prompt, self.SONNET_MODEL)
+                result = await self._extract_with_model(prompt, model_name)
+                last_result = result
+
+                if result.confidence >= threshold:
+                    logger.info(
+                        f"Price extracted with {model_name}",
+                        extra={
+                            "confidence": result.confidence,
+                            "product": product_name,
+                            "store": store_slug,
+                        },
+                    )
+                    return result
+
+                logger.debug(
+                    f"{model_name} confidence too low ({result.confidence:.2f} < {threshold}), "
+                    f"trying next model"
+                )
+
+            except Exception as e:
+                logger.warning(
+                    f"{model_name} extraction failed: {e}, trying next model",
+                    extra={"product": product_name, "store": store_slug},
+                )
+                last_error = e
+                continue
+
+        # If all models failed or returned low confidence, return last result or raise error
+        if last_result:
+            logger.warning(
+                f"All models below threshold, using {self.MODEL_CASCADE[-1]} anyway",
+                extra={"confidence": last_result.confidence, "product": product_name},
+            )
+            return last_result
+
+        # All models failed
+        raise RuntimeError(f"All models failed. Last error: {last_error}")
 
     def _build_prompt(
         self,

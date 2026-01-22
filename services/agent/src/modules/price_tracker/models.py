@@ -77,6 +77,7 @@ class ProductStore(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     check_frequency_hours: Mapped[int] = mapped_column(Integer, default=24)
+    next_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     product: Mapped["Product"] = relationship(back_populates="product_stores")
@@ -86,6 +87,13 @@ class ProductStore(Base):
     )
 
     __table_args__ = (UniqueConstraint("product_id", "store_id", name="uq_product_store"),)
+
+    def __repr__(self) -> str:
+        return (
+            f"<ProductStore(id={self.id}, product_id={self.product_id}, "
+            f"store_id={self.store_id}, is_active={self.is_active}, "
+            f"next_check_at={self.next_check_at})>"
+        )
 
 
 class PricePoint(Base):

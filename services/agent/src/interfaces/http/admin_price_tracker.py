@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import logging
+import random
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,9 +14,10 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth.user_service import get_user_default_context
 from core.db.engine import AsyncSessionLocal, get_db
 from core.providers import get_fetcher
-from interfaces.http.admin_auth import require_admin_or_redirect, verify_admin_user
+from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
 from modules.price_tracker.parser import PriceParser
 from modules.price_tracker.service import PriceTrackerService
@@ -41,6 +43,37 @@ router = APIRouter(
 def get_price_tracker_service() -> PriceTrackerService:
     """Get PriceTrackerService instance."""
     return PriceTrackerService(AsyncSessionLocal)
+
+
+@router.get("/me/context")
+async def get_my_context(
+    admin: AdminUser = Depends(verify_admin_user),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, str | None]:
+    """Get the authenticated user's default context_id.
+
+    Returns:
+        Dictionary with context_id and email.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    try:
+        user_context = await get_user_default_context(admin.db_user, session)
+        if not user_context:
+            return {
+                "context_id": None,
+                "email": admin.email,
+                "message": "No default context found",
+            }
+
+        return {
+            "context_id": str(user_context.id),
+            "email": admin.email,
+        }
+    except Exception as e:
+        LOGGER.exception("Failed to get user context")
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(
@@ -78,12 +111,12 @@ async def list_stores(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get(
-    "/products", response_model=list[ProductResponse], dependencies=[Depends(verify_admin_user)]
-)
+@router.get("/products", response_model=list[ProductResponse])
 async def list_products(
     search: str | None = None,
     store_id: str | None = None,
+    context_id: str | None = None,
+    admin: AdminUser = Depends(verify_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> list[ProductResponse]:
     """List products with optional search/filter.
@@ -91,6 +124,8 @@ async def list_products(
     Args:
         search: Search term for product name or brand.
         store_id: Filter by specific store UUID.
+        context_id: Filter by user context UUID (shows only products with watches in that context).
+        admin: Authenticated admin user.
         session: Database session.
 
     Returns:
@@ -98,9 +133,44 @@ async def list_products(
 
     Security:
         Requires admin role via Entra ID authentication.
+        Users can only query their own context_id.
     """
     try:
+        # Security check: if context_id provided, verify user has access to it
+        if context_id:
+            try:
+                context_uuid = uuid.UUID(context_id)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail="Invalid context_id format") from e
+
+            # Get user's default context
+            user_context = await get_user_default_context(admin.db_user, session)
+            if not user_context:
+                raise HTTPException(
+                    status_code=403,
+                    detail="User has no associated context",
+                )
+
+            # Verify user can only query their own context
+            if context_uuid != user_context.id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Access denied: you can only view products in your own context",
+                )
+
+        # Build query with proper join handling
         stmt = select(Product)
+        already_joined_product_store = False
+
+        # Apply context filter: show only products that have watches in this context
+        if context_id:
+            context_uuid = uuid.UUID(context_id)
+            stmt = (
+                stmt.join(PriceWatch, Product.id == PriceWatch.product_id)
+                .where(PriceWatch.context_id == context_uuid)
+                .where(PriceWatch.is_active.is_(True))
+                .distinct()
+            )
 
         # Apply search filter
         if search:
@@ -118,11 +188,10 @@ async def list_products(
         if store_id:
             try:
                 store_uuid = uuid.UUID(store_id)
-                stmt = (
-                    stmt.join(ProductStore, Product.id == ProductStore.product_id)
-                    .where(ProductStore.store_id == store_uuid)
-                    .distinct()
-                )
+                if not already_joined_product_store:
+                    stmt = stmt.join(ProductStore, Product.id == ProductStore.product_id)
+                    already_joined_product_store = True
+                stmt = stmt.where(ProductStore.store_id == store_uuid).distinct()
             except ValueError as e:
                 raise HTTPException(status_code=400, detail="Invalid store_id format") from e
 
@@ -344,6 +413,13 @@ async def link_product_to_store(
     Security:
         Requires admin role via Entra ID authentication.
     """
+    # Validate frequency range (24 hours to 7 days)
+    if not (24 <= data.check_frequency_hours <= 168):
+        raise HTTPException(
+            status_code=400,
+            detail="check_frequency_hours must be between 24 and 168 (inclusive)",
+        )
+
     try:
         product_store = await service.link_product_store(
             product_id=product_id,
@@ -357,6 +433,86 @@ async def link_product_to_store(
         }
     except Exception as e:
         LOGGER.exception(f"Failed to link product {product_id} to store {data.store_id}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.put(
+    "/products/{product_id}/stores/{store_id}/frequency",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def update_check_frequency(
+    product_id: str,
+    store_id: str,
+    request: dict[str, int],
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, str | None]:
+    """Update check frequency for a product-store link.
+
+    Args:
+        product_id: Product UUID.
+        store_id: Store UUID.
+        request: Dictionary containing check_frequency_hours.
+        session: Database session.
+
+    Returns:
+        Success message with updated next_check_at timestamp.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    try:
+        product_uuid = uuid.UUID(product_id)
+        store_uuid = uuid.UUID(store_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid UUID format") from e
+
+    check_frequency_hours = request.get("check_frequency_hours")
+    if check_frequency_hours is None:
+        raise HTTPException(status_code=400, detail="check_frequency_hours is required")
+
+    # Validate frequency range (24 hours to 7 days)
+    if not (24 <= check_frequency_hours <= 168):
+        raise HTTPException(
+            status_code=400,
+            detail="check_frequency_hours must be between 24 and 168 (inclusive)",
+        )
+
+    try:
+        stmt = select(ProductStore).where(
+            ProductStore.product_id == product_uuid, ProductStore.store_id == store_uuid
+        )
+        result = await session.execute(stmt)
+        product_store = result.scalar_one_or_none()
+
+        if not product_store:
+            raise HTTPException(status_code=404, detail="Product-store link not found")
+
+        # Update frequency
+        product_store.check_frequency_hours = check_frequency_hours
+
+        # Recalculate next_check_at with jitter (same logic as scheduler)
+        now_utc = datetime.now(UTC).replace(tzinfo=None)
+        jitter_percent = 0.1
+        jitter_hours = (
+            (random.random() * 2 - 1) * jitter_percent * check_frequency_hours  # noqa: S311
+        )
+        product_store.next_check_at = now_utc + timedelta(
+            hours=check_frequency_hours + jitter_hours
+        )
+
+        await session.commit()
+        await session.refresh(product_store)
+
+        return {
+            "message": "Frequency updated",
+            "next_check_at": (
+                product_store.next_check_at.isoformat() if product_store.next_check_at else None
+            ),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.exception(f"Failed to update frequency for product {product_id}, store {store_id}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -677,15 +833,17 @@ async def get_current_deals(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/watches", dependencies=[Depends(verify_admin_user)])
+@router.get("/watches")
 async def list_watches(
     context_id: str | None = None,
+    admin: AdminUser = Depends(verify_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> list[dict[str, Any]]:
     """List price watches, optionally filtered by context.
 
     Args:
-        context_id: Filter by context UUID. Optional.
+        context_id: Filter by context UUID. If not provided, defaults to user's context.
+        admin: Authenticated admin user.
         session: Database session.
 
     Returns:
@@ -693,13 +851,29 @@ async def list_watches(
 
     Security:
         Requires admin role via Entra ID authentication.
+        Users can only query their own context_id.
     """
     try:
+        # If no context_id provided, use user's default context
+        if not context_id:
+            user_context = await get_user_default_context(admin.db_user, session)
+            if user_context:
+                context_id = str(user_context.id)
+
         stmt = select(PriceWatch, Product).join(Product, PriceWatch.product_id == Product.id)
 
         if context_id:
             try:
                 context_uuid = uuid.UUID(context_id)
+
+                # Security check: verify user has access to this context
+                user_context = await get_user_default_context(admin.db_user, session)
+                if user_context and context_uuid != user_context.id:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="Access denied: you can only view watches in your own context",
+                    )
+
                 stmt = stmt.where(PriceWatch.context_id == context_uuid)
             except ValueError as e:
                 raise HTTPException(status_code=400, detail="Invalid context_id format") from e
@@ -1188,6 +1362,15 @@ async def price_tracker_dashboard() -> str:
             border-color: var(--primary);
         }
 
+        .context-info {
+            font-size: 12px;
+            color: var(--text-muted);
+            padding: 8px 12px;
+            background: #f9fafb;
+            border-radius: 6px;
+            margin-bottom: 16px;
+        }
+
         .watch-item {
             background: var(--white);
             border: 1px solid var(--border);
@@ -1305,7 +1488,38 @@ async def price_tracker_dashboard() -> str:
             color: white;
             border-color: var(--primary);
         }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+
+        .chart-details {
+            margin-top: 16px;
+            border-top: 1px solid var(--border);
+            padding-top: 16px;
+        }
+
+        .chart-details summary {
+            cursor: pointer;
+            font-weight: 500;
+            color: var(--primary);
+            user-select: none;
+            padding: 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .chart-details summary:hover {
+            background: var(--bg);
+        }
+
+        .chart-details[open] summary {
+            color: var(--text);
+        }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
     <!-- Toast Container -->
@@ -1323,6 +1537,9 @@ async def price_tracker_dashboard() -> str:
     <div class="container">
         <!-- Products Screen -->
         <div class="screen active" id="screen-products">
+            <div class="context-info" id="contextInfo" style="display: none;">
+                <strong>Your Context:</strong> <span id="contextEmail"></span>
+            </div>
             <div class="section-header">
                 <input type="text" id="searchProducts" class="search-box" placeholder="Search products...">
                 <button class="btn btn-primary" onclick="showModal('addProduct')">+ New Product</button>
@@ -1410,8 +1627,16 @@ async def price_tracker_dashboard() -> str:
                 <input type="url" id="linkStoreUrl" class="form-input" required>
             </div>
             <div class="form-group">
-                <label class="form-label">Check Frequency (hours)</label>
-                <input type="number" id="linkStoreFrequency" class="form-input" value="24" min="1">
+                <label class="form-label">Check Frequency *</label>
+                <select id="linkStoreFrequency" class="form-select">
+                    <option value="24">Daily (24h)</option>
+                    <option value="48">Every 2 days (48h)</option>
+                    <option value="72">Every 3 days (72h)</option>
+                    <option value="168">Weekly (168h)</option>
+                </select>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                    Minimum 24 hours, maximum 7 days
+                </div>
             </div>
             <div class="btn-group">
                 <button class="btn btn-primary" onclick="linkStore()">Add</button>
@@ -1473,16 +1698,16 @@ async def price_tracker_dashboard() -> str:
 
     <!-- Price History Modal -->
     <div class="modal" id="modal-priceHistory">
-        <div class="modal-content" style="max-width: 800px;">
+        <div class="modal-content" style="max-width: 900px;">
             <div class="modal-header">
                 <h3>Price History</h3>
                 <button class="btn" onclick="hideModal('priceHistory')">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="date-range-buttons">
-                    <button class="date-range-btn" onclick="loadPriceHistory(7)">7 days</button>
-                    <button class="date-range-btn active" onclick="loadPriceHistory(30)">30 days</button>
-                    <button class="date-range-btn" onclick="loadPriceHistory(90)">90 days</button>
+                    <button class="date-range-btn" onclick="loadPriceHistory(currentHistoryProductId, 7)">7 days</button>
+                    <button class="date-range-btn active" onclick="loadPriceHistory(currentHistoryProductId, 30)">30 days</button>
+                    <button class="date-range-btn" onclick="loadPriceHistory(currentHistoryProductId, 90)">90 days</button>
                 </div>
                 <div id="priceHistoryContent">
                     <div class="loading">Loading price history...</div>
@@ -1500,6 +1725,8 @@ async def price_tracker_dashboard() -> str:
         let currentDealFilter = null;
         let currentHistoryProductId = null;
         let searchTimeout = null;
+        let userContextId = null;
+        let userEmail = null;
 
         async function apiRequest(path, options = {}) {
             const headers = {
@@ -1531,6 +1758,22 @@ async def price_tracker_dashboard() -> str:
             return date.toLocaleDateString('sv-SE');
         }
 
+        function formatFrequency(hours) {
+            if (hours === 24) return 'Daily';
+            if (hours === 48) return 'Every 2 days';
+            if (hours === 72) return 'Every 3 days';
+            if (hours === 168) return 'Weekly';
+            if (hours < 24) return `Every ${hours}h`;
+            if (hours < 168) return `Every ${Math.round(hours / 24)} days`;
+            return `Every ${Math.round(hours / 168)} weeks`;
+        }
+
+        function estimateMonthlyChecks(hours) {
+            const checksPerDay = 24 / hours;
+            const checksPerMonth = Math.round(checksPerDay * 30);
+            return checksPerMonth;
+        }
+
         function showToast(message, type = 'success') {
             const container = document.getElementById('toastContainer');
             const toast = document.createElement('div');
@@ -1548,6 +1791,23 @@ async def price_tracker_dashboard() -> str:
             return new Promise((resolve) => {
                 resolve(confirm(message));
             });
+        }
+
+        async function loadUserContext() {
+            try {
+                const data = await apiRequest('/me/context');
+                userContextId = data.context_id;
+                userEmail = data.email;
+
+                if (userContextId) {
+                    const contextInfo = document.getElementById('contextInfo');
+                    const contextEmail = document.getElementById('contextEmail');
+                    contextEmail.textContent = userEmail;
+                    contextInfo.style.display = 'block';
+                }
+            } catch (e) {
+                console.error('Failed to load user context:', e);
+            }
         }
 
         async function loadStores() {
@@ -1568,7 +1828,9 @@ async def price_tracker_dashboard() -> str:
         async function loadProducts() {
             const grid = document.getElementById('productGrid');
             try {
-                products = await apiRequest('/products');
+                // Add context_id parameter if available
+                const path = userContextId ? `/products?context_id=${userContextId}` : '/products';
+                products = await apiRequest(path);
 
                 if (products.length === 0) {
                     grid.innerHTML = '<div class="empty-state">No products added yet. Click "+ New Product" to get started.</div>';
@@ -1590,12 +1852,14 @@ async def price_tracker_dashboard() -> str:
                             <div style="border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px;">
                                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                                     <strong style="font-size: 13px;">${escapeHtml(s.store_name)}</strong>
-                                    <button class="btn btn-sm btn-secondary" onclick="triggerCheck('${s.product_store_id}')">Check price</button>
-                                    <button class="btn btn-sm" onclick="unlinkStore('${p.id}', '${s.store_id}')" style="background: transparent; color: var(--text-muted); padding: 2px 4px; margin-left: 4px;" title="Remove store link">&times;</button>
+                                    <div style="display: flex; gap: 4px; align-items: center;">
+                                        <button class="btn btn-sm btn-secondary" onclick="triggerCheck('${s.product_store_id}')">Check price</button>
+                                        <button class="btn btn-sm" onclick="unlinkStore('${p.id}', '${s.store_id}')" style="background: transparent; color: var(--text-muted); padding: 2px 4px;" title="Remove store link">&times;</button>
+                                    </div>
                                 </div>
                                 <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">
                                     Last checked: ${relativeTime(s.last_checked_at)}
-                                    &middot; Every ${s.check_frequency_hours} hours
+                                    &middot; Checks ${formatFrequency(s.check_frequency_hours).toLowerCase()} (~${estimateMonthlyChecks(s.check_frequency_hours)}/month)
                                 </div>
                                 ${s.price_sek ? `
                                     <div style="font-size: 13px; margin-top: 4px;">
@@ -1654,7 +1918,9 @@ async def price_tracker_dashboard() -> str:
         async function loadWatches() {
             const list = document.getElementById('watchesList');
             try {
-                watches = await apiRequest('/watches');
+                // Add context_id parameter if available
+                const path = userContextId ? `/watches?context_id=${userContextId}` : '/watches';
+                watches = await apiRequest(path);
 
                 if (watches.length === 0) {
                     list.innerHTML = '<div class="empty-state">No active watches. Click "+ New Watch" to create one.</div>';
@@ -1767,10 +2033,23 @@ async def price_tracker_dashboard() -> str:
         function showPriceHistory(productId) {
             currentHistoryProductId = productId;
             showModal('priceHistory');
-            loadPriceHistory(30);
+            loadPriceHistory(productId, 30);
         }
 
-        async function loadPriceHistory(days) {
+        let priceHistoryChart = null;
+
+        const storeColors = {
+            'willys': '#10b981',
+            'ica': '#ef4444',
+            'apotea': '#3b82f6',
+            'med24': '#f59e0b'
+        };
+
+        function getStoreColor(storeSlug) {
+            return storeColors[storeSlug.toLowerCase()] || '#9ca3af';
+        }
+
+        async function loadPriceHistory(productId, days) {
             const content = document.getElementById('priceHistoryContent');
 
             // Update active button
@@ -1779,43 +2058,162 @@ async def price_tracker_dashboard() -> str:
 
             try {
                 content.innerHTML = '<div class="loading">Loading price history...</div>';
-                const history = await apiRequest(`/products/${currentHistoryProductId}/prices?days=${days}`);
+                const history = await apiRequest(`/products/${productId}/prices?days=${days}`);
 
                 if (history.length === 0) {
                     content.innerHTML = '<div class="empty-state">No price history available.</div>';
                     return;
                 }
 
+                // Group history by store_slug
+                const groupedByStore = {};
+                history.forEach(entry => {
+                    const storeSlug = entry.store_slug || entry.store_name.toLowerCase().replace(/\s+/g, '-');
+                    if (!groupedByStore[storeSlug]) {
+                        groupedByStore[storeSlug] = {
+                            store_name: entry.store_name,
+                            data: []
+                        };
+                    }
+                    groupedByStore[storeSlug].data.push(entry);
+                });
+
+                // Sort data by date for each store
+                Object.values(groupedByStore).forEach(store => {
+                    store.data.sort((a, b) => new Date(a.checked_at) - new Date(b.checked_at));
+                });
+
+                // Prepare Chart.js datasets
+                const datasets = Object.entries(groupedByStore).map(([storeSlug, storeData]) => {
+                    return {
+                        label: storeData.store_name,
+                        data: storeData.data.map(entry => ({
+                            x: new Date(entry.checked_at),
+                            y: entry.price_sek || entry.offer_price_sek
+                        })),
+                        borderColor: getStoreColor(storeSlug),
+                        backgroundColor: getStoreColor(storeSlug) + '10',
+                        borderWidth: 2,
+                        tension: 0.3,
+                        fill: false,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: getStoreColor(storeSlug),
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2
+                    };
+                });
+
+                // Build HTML with chart and collapsible table
                 content.innerHTML = `
-                    <table class="history-table">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Store</th>
-                                <th>Price</th>
-                                <th>Offer</th>
-                                <th>Unit price</th>
-                                <th>Stock</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${history.map(h => {
-                                const date = new Date(h.checked_at);
-                                const formattedDate = date.toLocaleDateString('sv-SE') + ' ' + date.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-                                return `
-                                    <tr>
-                                        <td>${formattedDate}</td>
-                                        <td>${escapeHtml(h.store_name)}</td>
-                                        <td>${h.price_sek ? h.price_sek.toFixed(2) + ' kr' : '-'}</td>
-                                        <td>${h.offer_price_sek ? h.offer_price_sek.toFixed(2) + ' kr' : '-'}</td>
-                                        <td>${h.unit_price_sek ? h.unit_price_sek.toFixed(2) + ' kr' : '-'}</td>
-                                        <td><span class="badge ${h.in_stock ? 'badge-ok' : 'badge-err'}">${h.in_stock ? 'Yes' : 'No'}</span></td>
-                                    </tr>
-                                `;
-                            }).join('')}
-                        </tbody>
-                    </table>
+                    <div class="chart-container">
+                        <canvas id="priceHistoryChart"></canvas>
+                    </div>
+                    <details class="chart-details">
+                        <summary>Show raw data</summary>
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Store</th>
+                                    <th>Price</th>
+                                    <th>Offer</th>
+                                    <th>Unit price</th>
+                                    <th>Stock</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${history.map(h => {
+                                    const date = new Date(h.checked_at);
+                                    const formattedDate = date.toLocaleDateString('sv-SE') + ' ' + date.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+                                    return `
+                                        <tr>
+                                            <td>${formattedDate}</td>
+                                            <td>${escapeHtml(h.store_name)}</td>
+                                            <td>${h.price_sek ? h.price_sek.toFixed(2) + ' kr' : '-'}</td>
+                                            <td>${h.offer_price_sek ? h.offer_price_sek.toFixed(2) + ' kr' : '-'}</td>
+                                            <td>${h.unit_price_sek ? h.unit_price_sek.toFixed(2) + ' kr' : '-'}</td>
+                                            <td><span class="badge ${h.in_stock ? 'badge-ok' : 'badge-err'}">${h.in_stock ? 'Yes' : 'No'}</span></td>
+                                        </tr>
+                                    `;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </details>
                 `;
+
+                // Create Chart.js instance
+                if (priceHistoryChart) {
+                    priceHistoryChart.destroy();
+                }
+
+                const ctx = document.getElementById('priceHistoryChart');
+                if (ctx) {
+                    priceHistoryChart = new Chart(ctx, {
+                        type: 'line',
+                        data: {
+                            datasets: datasets
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: {
+                                intersect: false,
+                                mode: 'index'
+                            },
+                            scales: {
+                                x: {
+                                    type: 'time',
+                                    time: {
+                                        unit: 'day',
+                                        displayFormats: {
+                                            day: 'MMM d'
+                                        }
+                                    },
+                                    title: {
+                                        display: true,
+                                        text: 'Date'
+                                    }
+                                },
+                                y: {
+                                    beginAtZero: false,
+                                    title: {
+                                        display: true,
+                                        text: 'Price (SEK)'
+                                    },
+                                    ticks: {
+                                        callback: function(value) {
+                                            return value.toFixed(2) + ' kr';
+                                        }
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    position: 'top',
+                                    labels: {
+                                        usePointStyle: true,
+                                        padding: 15
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            return context.dataset.label + ': ' + context.parsed.y.toFixed(2) + ' SEK';
+                                        },
+                                        title: function(context) {
+                                            if (context.length > 0) {
+                                                const date = new Date(context[0].label);
+                                                return date.toLocaleDateString('sv-SE');
+                                            }
+                                            return '';
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
             } catch (e) {
                 content.innerHTML = `<div class="error-msg">Failed to load price history: ${e.message}</div>`;
             }
@@ -1843,7 +2241,9 @@ async def price_tracker_dashboard() -> str:
             };
 
             try {
-                await apiRequest('/watches?context_id=00000000-0000-0000-0000-000000000000', {
+                // Use user's context_id
+                const contextParam = userContextId ? `?context_id=${userContextId}` : '?context_id=00000000-0000-0000-0000-000000000000';
+                await apiRequest(`/watches${contextParam}`, {
                     method: 'POST',
                     body: JSON.stringify(data)
                 });
@@ -1978,7 +2378,8 @@ async def price_tracker_dashboard() -> str:
 
                 try {
                     grid.innerHTML = '<div class="loading">Searching...</div>';
-                    products = await apiRequest(`/products?search=${encodeURIComponent(query)}`);
+                    const contextParam = userContextId ? `&context_id=${userContextId}` : '';
+                    products = await apiRequest(`/products?search=${encodeURIComponent(query)}${contextParam}`);
 
                     if (products.length === 0) {
                         grid.innerHTML = '<div class="empty-state">No products found.</div>';
@@ -2018,8 +2419,11 @@ async def price_tracker_dashboard() -> str:
         });
 
         // Load data on page load
-        loadStores();
-        loadProducts();
+        (async function() {
+            await loadUserContext();
+            loadStores();
+            loadProducts();
+        })();
 
         // Auto-refresh deals every minute
         setInterval(() => {
