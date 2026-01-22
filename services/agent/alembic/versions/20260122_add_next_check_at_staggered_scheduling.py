@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "20260122_staggered_scheduling"
-down_revision: str | Sequence[str] | None = "20260118_add_user_credentials"
+down_revision: str | Sequence[str] | None = "20260118_user_credentials"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

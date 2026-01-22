@@ -1,4 +1,18 @@
+from enum import Enum
 from typing import Any, Literal, TypedDict
+
+
+class VerbosityLevel(Enum):
+    """Output verbosity levels for streaming responses.
+
+    DEFAULT: Shows planning, skills, errors, supervisor replanning, final answer.
+    VERBOSE: Shows all chunks with formatted output (like old default behavior).
+    DEBUG: Shows raw JSON for all chunks, except final answer shows normally.
+    """
+
+    DEFAULT = "default"
+    VERBOSE = "verbose"
+    DEBUG = "debug"
 
 
 class AgentChunk(TypedDict):

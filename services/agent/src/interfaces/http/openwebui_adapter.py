@@ -10,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from shared.streaming import VerbosityLevel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -311,11 +312,15 @@ async def chat_completions(
     # The requirement says "Streaming-First", so we'll implement the streaming response.
     # OpenWebUI usually requests stream=True.
 
-    # Check for debug mode
-    debug_mode = "[DEBUG]" in user_message.upper()
-    if debug_mode:
-        # Strip [DEBUG] prefix from message
+    # Check for verbosity flags
+    verbosity = VerbosityLevel.DEFAULT
+    upper_message = user_message.upper()
+    if "[DEBUG]" in upper_message:
+        verbosity = VerbosityLevel.DEBUG
         user_message = user_message.replace("[DEBUG]", "").replace("[debug]", "").strip()
+    elif "[VERBOSE]" in upper_message:
+        verbosity = VerbosityLevel.VERBOSE
+        user_message = user_message.replace("[VERBOSE]", "").replace("[verbose]", "").strip()
 
     # Get trace ID for correlation
     from core.observability.tracing import current_trace_ids
@@ -331,13 +336,57 @@ async def chat_completions(
             dispatcher,
             session,
             agent_service,
-            debug_mode,
+            verbosity,
             history,
             user_email=user_email,
         ),
         media_type="text/event-stream",
         headers={"X-Trace-ID": trace_id} if trace_id else None,
     )
+
+
+def _should_show_chunk_default(
+    chunk_type: str,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    """Determine if a chunk should be shown in DEFAULT verbosity mode.
+
+    DEFAULT mode shows only user-relevant chunks: planning, skills, errors, final answer.
+
+    Args:
+        chunk_type: The type of the agent chunk.
+        metadata: Optional chunk metadata.
+
+    Returns:
+        True if the chunk should be shown, False otherwise.
+    """
+    # Always show: content, error, skill_activity
+    if chunk_type in ("content", "error", "skill_activity"):
+        return True
+
+    # Show thinking chunks (planning, replanning)
+    if chunk_type == "thinking":
+        return True
+
+    # Show step_start for completion and skills (supervisor replanning)
+    if chunk_type == "step_start":
+        action = (metadata or {}).get("action", "")
+        tool = (metadata or {}).get("tool", "")
+        # Show completion steps and skill invocations
+        if action == "completion" or tool == "consult_expert":
+            return True
+        return False
+
+    # Show tool_start/tool_output only for skills
+    if chunk_type in ("tool_start", "tool_output"):
+        tool_call = (metadata or {}).get("tool_call") or {}
+        tool_name = (metadata or {}).get("name") or tool_call.get("name", "")
+        if tool_name == "consult_expert":
+            return True
+        return False
+
+    # Hide everything else in DEFAULT mode
+    return False
 
 
 async def stream_response_generator(
@@ -347,7 +396,7 @@ async def stream_response_generator(
     dispatcher: Dispatcher,
     db_session: AsyncSession,
     agent_service: AgentService,
-    debug_mode: bool = False,
+    verbosity: VerbosityLevel = VerbosityLevel.DEFAULT,
     history: list | None = None,
     user_email: str | None = None,
 ) -> AsyncGenerator[str, None]:
@@ -356,6 +405,11 @@ async def stream_response_generator(
 
     Uses token batching to reduce the number of SSE events sent to the client.
     Content tokens are aggregated and flushed based on time interval or buffer size.
+
+    Verbosity levels:
+    - DEFAULT: Shows planning, skills, errors, supervisor replanning, final answer.
+    - VERBOSE: Shows all chunks with formatted output (like old default behavior).
+    - DEBUG: Shows raw JSON for all chunks, except final answer shows normally.
     """
     chunk_id = f"chatcmpl-{uuid.uuid4()}"
     created = int(time.time())
@@ -370,6 +424,9 @@ async def stream_response_generator(
     # Content buffer for batching
     content_buffer: list[str] = []
     last_flush_time = time.time()
+
+    # Track completion phase for DEBUG mode
+    in_completion_phase = False
 
     async def flush_content_buffer() -> AsyncGenerator[str, None]:
         """Flush accumulated content buffer if not empty."""
@@ -398,18 +455,32 @@ async def stream_response_generator(
         ):
             chunk_type = agent_chunk["type"]
             content = agent_chunk.get("content")
+            metadata = agent_chunk.get("metadata")
 
-            # Debug mode: Show all chunks with raw JSON
-            if debug_mode:
-                # Flush any pending content first
-                async for chunk in flush_content_buffer():
-                    yield chunk
-                debug_output = f"\n> 🐛 **[DEBUG]** Chunk Type: `{chunk_type}`\n"
-                debug_output += "> ```json\n"
-                debug_output += f"> {json.dumps(agent_chunk, indent=2)}\n"
-                debug_output += "> ```\n\n"
-                yield _format_chunk(chunk_id, created, model_name, debug_output)
+            # Track completion phase for DEBUG mode
+            if chunk_type == "step_start":
+                action = (metadata or {}).get("action", "")
+                in_completion_phase = action == "completion"
 
+            # Apply verbosity filter (DEFAULT mode only)
+            if verbosity == VerbosityLevel.DEFAULT:
+                if not _should_show_chunk_default(chunk_type, metadata):
+                    continue
+
+            # DEBUG mode: Show raw JSON for all chunks except completion content
+            if verbosity == VerbosityLevel.DEBUG:
+                # Skip JSON output for content during completion (let it render normally below)
+                if not (chunk_type == "content" and in_completion_phase):
+                    # Flush any pending content first
+                    async for chunk in flush_content_buffer():
+                        yield chunk
+                    debug_output = f"\n> **[DEBUG]** `{chunk_type}`\n"
+                    debug_output += "> ```json\n"
+                    debug_output += f"> {json.dumps(agent_chunk, indent=2)}\n"
+                    debug_output += "> ```\n\n"
+                    yield _format_chunk(chunk_id, created, model_name, debug_output)
+
+            # Process chunks normally (formatted output for DEFAULT/VERBOSE, or content for DEBUG)
             if chunk_type == "content" and content:
                 # Add to buffer instead of yielding immediately
                 content_buffer.append(content)
@@ -579,11 +650,10 @@ async def stream_response_generator(
                 formatted = f"\n❌ **Error:** {_clean_content(content)}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
-            # Explicitly ignore history_snapshot and other internal events (unless debug mode)
+            # Explicitly ignore history_snapshot and other internal events
+            # (in VERBOSE/DEBUG mode, these are already shown above via the raw JSON output)
             elif chunk_type in ["history_snapshot", "plan"]:
-                if not debug_mode:
-                    pass
-                # In debug mode, these are already shown above
+                pass
 
             elif chunk_type == "result":
                 # Skill/tool final output - display as regular content

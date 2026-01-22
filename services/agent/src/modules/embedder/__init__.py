@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class Embedder:
-    _instance = None
+    """Singleton embedder with lazy model loading for faster container startup."""
+
+    _instance: "Embedder | None" = None
     _model: Any = None
 
     def __new__(cls) -> "Embedder":
@@ -22,6 +24,12 @@ class Embedder:
         return cls._instance
 
     def __init__(self) -> None:
+        # Lazy loading: Do NOT load model in __init__
+        # Model is loaded on first use via _ensure_model_loaded()
+        pass
+
+    def _ensure_model_loaded(self) -> None:
+        """Load the model if not already loaded (lazy initialization)."""
         if self._model is None:
             self._load_model()
 
@@ -34,14 +42,19 @@ class Embedder:
             logger.error("sentence-transformers not installed.")
             raise RuntimeError("sentence-transformers not installed")
 
-        logger.info(f"Loading embedding model: {model_name}")
+        logger.info(f"Loading embedding model: {model_name} (lazy load triggered)")
         self._model = SentenceTransformer(
             model_name, device="cpu"
         )  # Force CPU for now as per plan context
 
+    @property
+    def is_loaded(self) -> bool:
+        """Check if the model is loaded without triggering lazy load."""
+        return self._model is not None
+
     def embed(self, texts: list[str], normalize: bool = True) -> list[list[float]]:
-        if not self._model:
-            self._load_model()
+        """Embed texts into vectors. Triggers lazy model load on first call."""
+        self._ensure_model_loaded()
 
         vectors = self._model.encode(texts, convert_to_numpy=True, normalize_embeddings=normalize)
         if isinstance(vectors, np.ndarray):
