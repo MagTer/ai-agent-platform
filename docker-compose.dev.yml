@@ -36,6 +36,7 @@ services:
       - "traefik.http.routers.agent-admin-dev.rule=Host(`${DOMAIN_DEV:-agent-dev.local}`) && PathPrefix(`/platformadmin`)"
       - "traefik.http.routers.agent-admin-dev.entrypoints=websecure"
       - "traefik.http.routers.agent-admin-dev.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.agent-admin-dev.service=agent-admin-dev"
       - "traefik.http.services.agent-admin-dev.loadbalancer.server.port=8000"
 
   # Open WebUI with dev port and optional Traefik routing
@@ -53,6 +54,7 @@ services:
       - "traefik.http.routers.openwebui-dev.rule=Host(`${DOMAIN_DEV:-agent-dev.local}`)"
       - "traefik.http.routers.openwebui-dev.entrypoints=websecure"
       - "traefik.http.routers.openwebui-dev.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.openwebui-dev.service=openwebui-dev"
       - "traefik.http.services.openwebui-dev.loadbalancer.server.port=8080"
       # Security: Strip untrusted headers from external requests
       - "traefik.http.middlewares.strip-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Email="
