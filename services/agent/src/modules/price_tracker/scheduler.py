@@ -2,10 +2,11 @@
 
 import asyncio
 import logging
+import random
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import joinedload
 
@@ -79,7 +80,7 @@ class PriceCheckScheduler:
 
             # Find product-stores where:
             # 1. is_active = True
-            # 2. last_checked_at is NULL OR last_checked_at + frequency < now
+            # 2. next_check_at <= now (or NULL for backwards compatibility)
             stmt = (
                 select(ProductStore)
                 .options(
@@ -88,15 +89,9 @@ class PriceCheckScheduler:
                 )
                 .where(
                     ProductStore.is_active.is_(True),
-                    (
-                        ProductStore.last_checked_at.is_(None)
-                        | (
-                            ProductStore.last_checked_at
-                            + func.make_interval(0, 0, 0, 0, ProductStore.check_frequency_hours)
-                            < now
-                        )
-                    ),
+                    (ProductStore.next_check_at.is_(None) | (ProductStore.next_check_at <= now)),
                 )
+                .order_by(ProductStore.next_check_at.asc())
                 .limit(self.BATCH_SIZE)
             )
 
@@ -118,8 +113,21 @@ class PriceCheckScheduler:
 
                     await self._check_single_product(product_store, session)
 
-                    # Update last_checked_at
-                    product_store.last_checked_at = datetime.now(UTC).replace(tzinfo=None)
+                    # Update timestamps with jittered next check time
+                    now_utc = datetime.now(UTC).replace(tzinfo=None)
+                    product_store.last_checked_at = now_utc
+
+                    # Calculate next check time with ±10% jitter
+                    jitter_percent = 0.1
+                    jitter_hours = (
+                        (random.random() * 2 - 1)  # noqa: S311
+                        * jitter_percent
+                        * product_store.check_frequency_hours
+                    )
+                    product_store.next_check_at = now_utc + timedelta(
+                        hours=product_store.check_frequency_hours + jitter_hours
+                    )
+
                     await session.commit()
 
                     last_store_id = product_store.store_id
