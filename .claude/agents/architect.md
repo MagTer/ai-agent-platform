@@ -136,6 +136,23 @@ When auditing code, verify:
 9. **Sensitive Data** - No secrets in logs, encrypted at rest
 10. **Error Handling** - Generic messages to users, detailed logs secure
 
+### Platform-Specific Security
+
+11. **Header Trust** - NEVER trust role/privilege claims from headers. Database role is authoritative.
+    - Headers can be spoofed if upstream proxy is bypassed
+    - Role changes must be done through admin portal only
+12. **Multi-Tenant Isolation** - Always provide context_id for user-facing operations
+    - MemoryStore, OAuth tokens, and tool permissions must be context-scoped
+    - Warn/log if context_id is None (indicates potential misconfiguration)
+13. **Path Traversal** - Validate file paths in config (pinned_files, workspace_rules)
+    - Use `Path.resolve()` and check against allowed base directories
+    - Never read files outside configured roots (e.g., `/etc/passwd`)
+14. **Connection Timeouts** - All external clients must have timeouts
+    - Qdrant, HTTP clients, MCP clients: 30s default
+    - Prevents DoS via resource exhaustion
+15. **Connection Pools** - Configure pool limits for database connections
+    - pool_size, max_overflow, pool_recycle, pool_pre_ping
+
 ---
 
 ## Planning Workflow
