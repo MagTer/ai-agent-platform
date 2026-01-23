@@ -145,22 +145,26 @@ async def get_admin_user(
             detail="User account is disabled.",
         )
 
-    # Check admin role (from header OR database)
-    # Trust header role if present, otherwise use DB role
-    effective_role = identity.role or db_user.role
-    if effective_role != "admin":
+    # SECURITY: Database role is the ONLY source of truth for admin authorization.
+    # Header/JWT role claims are NEVER trusted - they could be spoofed.
+    # We log the claimed role for forensics but use db_user.role for the check.
+    if db_user.role != "admin":
         log_security_event(
             event_type=AUTH_FAILURE,
             user_email=identity.email,
             user_id=str(db_user.id),
             ip_address=get_client_ip(request),
             endpoint=request.url.path,
-            details={"reason": f"Admin access required. User role: {effective_role}"},
+            details={
+                "reason": "Admin access required",
+                "db_role": db_user.role,
+                "claimed_role": identity.role,  # Log for forensics only
+            },
             severity="WARNING",
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required. Your role: " + effective_role,
+            detail=f"Admin access required. Your role: {db_user.role}",
         )
 
     # Log successful admin authentication
@@ -170,7 +174,7 @@ async def get_admin_user(
         user_id=str(db_user.id),
         ip_address=get_client_ip(request),
         endpoint=request.url.path,
-        details={"role": effective_role},
+        details={"role": db_user.role},
         severity="INFO",
     )
 
@@ -246,9 +250,8 @@ async def get_admin_user_or_redirect(
     if not db_user.is_active:
         raise AuthRedirectError()
 
-    # Check admin role
-    effective_role = identity.role or db_user.role
-    if effective_role != "admin":
+    # SECURITY: Database role is authoritative - never trust header/JWT claims
+    if db_user.role != "admin":
         raise AuthRedirectError()
 
     return AdminUser(identity=identity, db_user=db_user)
