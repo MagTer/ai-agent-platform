@@ -28,7 +28,8 @@ class ProductStoreLink(BaseModel):
 
     store_id: str
     store_url: str
-    check_frequency_hours: int = 24
+    check_frequency_hours: int = 72
+    check_weekday: int | None = None  # 0=Monday, 6=Sunday, None=use frequency
 
 
 class PriceWatchCreate(BaseModel):

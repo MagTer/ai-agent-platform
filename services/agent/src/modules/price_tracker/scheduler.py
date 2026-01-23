@@ -117,16 +117,32 @@ class PriceCheckScheduler:
                     now_utc = datetime.now(UTC).replace(tzinfo=None)
                     product_store.last_checked_at = now_utc
 
-                    # Calculate next check time with ±10% jitter
-                    jitter_percent = 0.1
-                    jitter_hours = (
-                        (random.random() * 2 - 1)  # noqa: S311
-                        * jitter_percent
-                        * product_store.check_frequency_hours
-                    )
-                    product_store.next_check_at = now_utc + timedelta(
-                        hours=product_store.check_frequency_hours + jitter_hours
-                    )
+                    # Calculate next check time based on weekday or frequency
+                    if product_store.check_weekday is not None:
+                        # Weekday-based: schedule for next occurrence of that weekday
+                        # Spread checks over morning hours (06:00 - 12:00)
+                        days_until = (product_store.check_weekday - now_utc.weekday()) % 7
+                        if days_until == 0:
+                            # Already checked today, schedule for next week
+                            days_until = 7
+                        # Random hour between 6 and 12
+                        check_hour = 6 + int(random.random() * 6)  # noqa: S311
+                        check_minute = int(random.random() * 60)  # noqa: S311
+                        next_check = now_utc.replace(
+                            hour=check_hour, minute=check_minute, second=0, microsecond=0
+                        )
+                        product_store.next_check_at = next_check + timedelta(days=days_until)
+                    else:
+                        # Frequency-based: use jitter as before
+                        jitter_percent = 0.1
+                        jitter_hours = (
+                            (random.random() * 2 - 1)  # noqa: S311
+                            * jitter_percent
+                            * product_store.check_frequency_hours
+                        )
+                        product_store.next_check_at = now_utc + timedelta(
+                            hours=product_store.check_frequency_hours + jitter_hours
+                        )
 
                     await session.commit()
 

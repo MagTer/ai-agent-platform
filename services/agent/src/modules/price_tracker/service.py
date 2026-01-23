@@ -325,7 +325,12 @@ class PriceTrackerService:
             return product
 
     async def link_product_store(
-        self, product_id: str, store_id: str, store_url: str, check_frequency_hours: int = 24
+        self,
+        product_id: str,
+        store_id: str,
+        store_url: str,
+        check_frequency_hours: int = 72,
+        check_weekday: int | None = None,
     ) -> ProductStore:
         """Link a product to a store.
 
@@ -333,7 +338,9 @@ class PriceTrackerService:
             product_id: UUID string of the product.
             store_id: UUID string of the store.
             store_url: URL to the product page on the store website.
-            check_frequency_hours: How often to check price (default 24 hours).
+            check_frequency_hours: How often to check price (default 72 hours / 3 days).
+            check_weekday: Day of week to check (0=Monday, 6=Sunday). If set,
+                           overrides frequency with weekly checks on that day.
 
         Returns:
             Created ProductStore instance.
@@ -347,6 +354,7 @@ class PriceTrackerService:
                 store_id=store_uuid,
                 store_url=store_url,
                 check_frequency_hours=check_frequency_hours,
+                check_weekday=check_weekday,
             )
 
             session.add(product_store)
