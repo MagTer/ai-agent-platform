@@ -223,6 +223,11 @@ class Settings(BaseModel):
                     'Generate one with: python -c "from cryptography.fernet import Fernet; '
                     'print(Fernet.generate_key().decode())"'
                 )
+            if not self.admin_jwt_secret:
+                raise ValueError(
+                    "AGENT_ADMIN_JWT_SECRET must be set in production for admin portal "
+                    "authentication. Generate one with: openssl rand -hex 32"
+                )
         return self
 
     @model_validator(mode="after")

@@ -81,6 +81,16 @@ services:
     restart: unless-stopped
     environment:
       AGENT_ENVIRONMENT: production
+    labels:
+      # Enable Traefik routing for admin portal
+      - "traefik.enable=true"
+      # Admin portal router with header stripping (SECURITY: prevents header spoofing)
+      - "traefik.http.routers.agent-admin.rule=Host(`${DOMAIN:-agent.falle.se}`) && PathPrefix(`/platformadmin`)"
+      - "traefik.http.routers.agent-admin.entrypoints=websecure"
+      - "traefik.http.routers.agent-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.agent-admin.middlewares=strip-headers,security"
+      - "traefik.http.routers.agent-admin.service=agent-admin"
+      - "traefik.http.services.agent-admin.loadbalancer.server.port=8000"
 
   postgres:
     restart: unless-stopped
