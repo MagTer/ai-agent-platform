@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import secrets
 from typing import Any
@@ -132,13 +133,16 @@ async def oauth_callback(
             details={"error": error, "description": error_description},
             severity="WARNING",
         )
+        # SECURITY: Escape error messages to prevent XSS attacks
+        safe_error = html.escape(error or "Unknown error")
+        safe_description = html.escape(error_description or "")
         return HTMLResponse(
             content=f"""
             <html>
                 <body style="font-family: sans-serif; text-align: center; padding: 50px;">
                     <h1>Authentication Failed</h1>
-                    <p>Error: {error}</p>
-                    <p>{error_description or ''}</p>
+                    <p>Error: {safe_error}</p>
+                    <p>{safe_description}</p>
                     <a href="/platformadmin/auth/login">Try Again</a>
                 </body>
             </html>

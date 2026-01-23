@@ -7,6 +7,7 @@ This module provides HTTP endpoints for OAuth 2.0 Authorization Code Grant:
 - /auth/oauth/status - Check OAuth token status
 """
 
+import html
 import logging
 from typing import Any
 from uuid import UUID
@@ -14,8 +15,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.models import AuthorizeRequest, AuthorizeResponse, OAuthError
+from core.db.engine import get_db
+from core.db.models import UserContext
 from core.observability.security_logger import (
     OAUTH_COMPLETED,
     OAUTH_FAILED,
@@ -27,6 +32,42 @@ from interfaces.http.admin_auth import AuthenticatedUser, verify_user
 
 LOGGER = logging.getLogger(__name__)
 
+
+async def verify_context_access(
+    context_id: UUID,
+    user_id: UUID,
+    session: AsyncSession,
+) -> None:
+    """Verify user has access to the specified context.
+
+    SECURITY: Prevents cross-tenant attacks where a user could manipulate
+    OAuth tokens in contexts they don't own.
+
+    Args:
+        context_id: Context UUID to check
+        user_id: User UUID to verify
+        session: Database session
+
+    Raises:
+        HTTPException: 403 if user does not have access to the context
+    """
+    stmt = select(UserContext).where(
+        UserContext.context_id == context_id,
+        UserContext.user_id == user_id,
+    )
+    result = await session.execute(stmt)
+    user_context = result.scalar_one_or_none()
+
+    if not user_context:
+        LOGGER.warning(
+            f"User {user_id} attempted to access context {context_id} without permission"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have access to this context",
+        )
+
+
 router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 
 
@@ -34,6 +75,7 @@ router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 async def start_authorization(
     request: AuthorizeRequest,
     user: AuthenticatedUser = Depends(verify_user),
+    session: AsyncSession = Depends(get_db),
 ) -> AuthorizeResponse:
     """Generate OAuth authorization URL for user to visit.
 
@@ -49,11 +91,16 @@ async def start_authorization(
     Raises:
         HTTPException: If provider not configured or authorization fails
     """
+    context_id = UUID(request.context_id)
+
+    # SECURITY: Verify user has access to this context before proceeding
+    await verify_context_access(context_id, user.user_id, session)
+
     try:
         token_manager = get_token_manager()
         authorization_url, state = await token_manager.get_authorization_url(
             provider=request.provider,
-            context_id=UUID(request.context_id),
+            context_id=context_id,
             user_id=user.user_id,
         )
         log_security_event(
@@ -179,29 +226,30 @@ async def oauth_callback(
             details={"error": e.error, "description": e.description},
             severity="ERROR",
         )
-        # ruff: noqa: E501
+        # SECURITY: Escape error messages to prevent XSS attacks
+        safe_error = html.escape(e.error or "Unknown error")
+        safe_description = html.escape(e.description or "")
         return HTMLResponse(
-            content=f"""
-            <!DOCTYPE html>
-            <html>
-                <head>
-                    <title>Authorization Failed</title>
-                    <style>
-                        body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
-                        h1 {{ color: #d32f2f; }}
-                        .error {{ background: #ffebee; padding: 20px; margin: 20px auto; max-width: 500px; border-radius: 5px; }}
-                    </style>
-                </head>
-                <body>
-                    <h1>Authorization Failed</h1>
-                    <div class="error">
-                        <p><strong>Error:</strong> {e.error}</p>
-                        <p>{e.description}</p>
-                    </div>
-                    <p>Please try again or contact support.</p>
-                </body>
-            </html>
-            """,
+            content=f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Authorization Failed</title>
+    <style>
+        body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+        h1 {{ color: #d32f2f; }}
+        .error {{ background: #ffebee; padding: 20px; margin: 20px auto; }}
+        .error {{ max-width: 500px; border-radius: 5px; }}
+    </style>
+</head>
+<body>
+    <h1>Authorization Failed</h1>
+    <div class="error">
+        <p><strong>Error:</strong> {safe_error}</p>
+        <p>{safe_description}</p>
+    </div>
+    <p>Please try again or contact support.</p>
+</body>
+</html>""",
             status_code=400,
         )
     except Exception as e:
@@ -234,8 +282,12 @@ class RevokeRequest(BaseModel):
     context_id: str
 
 
-@router.post("/revoke", dependencies=[Depends(verify_user)])
-async def revoke_token(request: RevokeRequest) -> dict[str, str]:
+@router.post("/revoke")
+async def revoke_token(
+    request: RevokeRequest,
+    user: AuthenticatedUser = Depends(verify_user),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
     """Revoke and delete OAuth token.
 
     Args:
@@ -245,13 +297,18 @@ async def revoke_token(request: RevokeRequest) -> dict[str, str]:
         Success message
 
     Raises:
-        HTTPException: If revocation fails
+        HTTPException: If revocation fails or user lacks context access
     """
+    context_id = UUID(request.context_id)
+
+    # SECURITY: Verify user has access to this context before revoking
+    await verify_context_access(context_id, user.user_id, session)
+
     try:
         token_manager = get_token_manager()
         await token_manager.revoke_token(
             provider=request.provider,
-            context_id=UUID(request.context_id),
+            context_id=context_id,
         )
         return {"status": "revoked", "provider": request.provider}
     except Exception as e:
@@ -266,8 +323,12 @@ class StatusRequest(BaseModel):
     context_id: str
 
 
-@router.post("/status", dependencies=[Depends(verify_user)])
-async def check_token_status(request: StatusRequest) -> dict[str, Any]:
+@router.post("/status")
+async def check_token_status(
+    request: StatusRequest,
+    user: AuthenticatedUser = Depends(verify_user),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
     """Check OAuth token status.
 
     Args:
@@ -277,13 +338,18 @@ async def check_token_status(request: StatusRequest) -> dict[str, Any]:
         Token status information
 
     Raises:
-        HTTPException: If status check fails
+        HTTPException: If status check fails or user lacks context access
     """
+    context_id = UUID(request.context_id)
+
+    # SECURITY: Verify user has access to this context before checking status
+    await verify_context_access(context_id, user.user_id, session)
+
     try:
         token_manager = get_token_manager()
         token = await token_manager.get_token(
             provider=request.provider,
-            context_id=UUID(request.context_id),
+            context_id=context_id,
         )
 
         return {
