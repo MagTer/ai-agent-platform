@@ -735,18 +735,19 @@
                 bar.className = `span-bar ${bg}`;
                 bar.style.left = `${left}%`;
                 bar.style.width = `${width}%`;
-                // Build tooltip with error info if present
-                let tooltip = `${span.name} (Status: ${span.status})`;
-                if (attrs['error.type']) {
-                    tooltip += `\\n\\nError: ${attrs['error.type']}`;
-                    if (attrs['error.message']) {
-                        tooltip += `\\n${attrs['error.message'].substring(0, 200)}`;
-                    }
-                }
-                bar.title = tooltip;
 
                 let label = span.name;
                 const attrs = span.attributes || {};
+
+                // Build tooltip with error info if present
+                let tooltip = `${span.name} (Status: ${span.status})`;
+                if (attrs['error.type']) {
+                    tooltip += `\n\nError: ${attrs['error.type']}`;
+                    if (attrs['error.message']) {
+                        tooltip += `\n${attrs['error.message'].substring(0, 200)}`;
+                    }
+                }
+                bar.title = tooltip;
 
                 if(label.startsWith('executor.step_run')) {
                     label = `Step ${attrs.step || '?'}`;
