@@ -268,6 +268,12 @@ Use `stack check --no-fix` for CI-style check-only mode.
 - ASCII-safe punctuation (no emojis or smart quotes)
 - Copy/pasteable examples
 
+**HTML Templates:**
+- Separate HTML from Python when file exceeds 500 lines of HTML OR 40KB total
+- Store templates in `interfaces/http/templates/*.html`
+- Load via `Path(__file__).parent / "templates" / "name.html"`
+- Keep API endpoints in `admin_*.py`, HTML/CSS/JS in templates
+
 ---
 
 ## Cost Optimization

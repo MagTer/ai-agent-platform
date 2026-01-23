@@ -76,7 +76,8 @@ class ProductStore(Base):
     store_product_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    check_frequency_hours: Mapped[int] = mapped_column(Integer, default=24)
+    check_frequency_hours: Mapped[int] = mapped_column(Integer, default=72)
+    check_weekday: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0=Mon, 6=Sun
     next_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
