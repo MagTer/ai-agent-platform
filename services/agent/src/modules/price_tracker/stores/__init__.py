@@ -14,7 +14,8 @@ def get_store_hints() -> dict[str, str]:
 ICA_HINTS = """
 ICA Handla uses these patterns:
 - Regular price shown as "X kr" or "X:-"
-- Comparison price (jmfpris) shown as "X kr/kg" or "X kr/l"
+- Comparison price (jmfpris) shown as "X kr/kg", "X kr/l", or "X kr/st" (per piece)
+- For multi-packs (toilet paper, diapers), unit price is "kr/st" (per roll/piece)
 - "Stammispris" for loyalty member prices (orange/yellow highlighting)
 - "Veckans erbjudande" for weekly deals
 - Out of stock shown as "Tillfalligt slut" or "Ej tillganglig"
@@ -24,7 +25,8 @@ ICA Handla uses these patterns:
 WILLYS_HINTS = """
 Willys uses these patterns:
 - Regular price as "X kr" or "X,XX"
-- "Jmfrpris" for comparison pricing
+- "Jmfrpris" for comparison pricing (kr/kg, kr/l, or kr/st for multi-packs)
+- For multi-pack products (toilet paper, etc.), unit price is shown as "kr/st" (per piece)
 - "Extrapris" for discounted items (red highlighting)
 - "Veckans klipp" for weekly specials
 - Stock status shown near add-to-cart button

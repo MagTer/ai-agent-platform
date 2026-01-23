@@ -25,6 +25,7 @@ class PriceExtractionResult:
     offer_details: str | None  # "Kop 2 betala for 1"
     in_stock: bool
     confidence: float
+    pack_size: int | None  # Number of items in pack (e.g., 16 for "16-p")
     raw_response: dict[str, str | float | bool | None]
 
 
@@ -146,7 +147,13 @@ Page content (truncated):
 
 Return a JSON object with exactly these fields:
 - "price": Regular price in SEK as a number (e.g., 29.90), null if not found
-- "unit_price": Price per kg/liter/piece if shown, null otherwise
+- "unit_price": Price per piece/item for multi-packs. For products like toilet paper,
+  diapers, etc. this should be price per roll/piece, NOT per kg. If the page shows
+  an irrelevant unit price (like kr/kg for toilet paper), calculate it yourself:
+  unit_price = price / pack_size. Null if not applicable.
+- "pack_size": Number of items in the pack, extracted from product title patterns like
+  "16-p", "24-p", "16 st", "24 st", "16-pack", "24-pack", "16 rullar". Null if not
+  a multi-pack product.
 - "offer_price": Discounted/campaign price if on sale, null if no discount
 - "offer_type": Type of offer ("stammispris", "extrapris", "kampanj", "medlemspris"),
   null if no offer
@@ -181,9 +188,18 @@ Only output the JSON object, no explanation or markdown."""
 
         data = json.loads(content)
 
+        # Extract values
+        price = Decimal(str(data["price"])) if data.get("price") else None
+        unit_price = Decimal(str(data["unit_price"])) if data.get("unit_price") else None
+        pack_size = int(data["pack_size"]) if data.get("pack_size") else None
+
+        # If we have price and pack_size but no unit_price, calculate it
+        if price and pack_size and not unit_price:
+            unit_price = price / pack_size
+
         return PriceExtractionResult(
-            price_sek=Decimal(str(data["price"])) if data.get("price") else None,
-            unit_price_sek=Decimal(str(data["unit_price"])) if data.get("unit_price") else None,
+            price_sek=price,
+            unit_price_sek=unit_price,
             offer_price_sek=(
                 Decimal(str(data["offer_price"])) if data.get("offer_price") else None
             ),
@@ -191,5 +207,6 @@ Only output the JSON object, no explanation or markdown."""
             offer_details=data.get("offer_details"),
             in_stock=data.get("in_stock", True),
             confidence=float(data.get("confidence", 0.5)),
+            pack_size=pack_size,
             raw_response=data,
         )

@@ -29,6 +29,7 @@ from .schemas.price_tracker import (
     ProductCreate,
     ProductResponse,
     ProductStoreLink,
+    ProductUpdate,
     StoreResponse,
 )
 
@@ -389,6 +390,57 @@ async def get_product(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to get product {product_id}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.put("/products/{product_id}", dependencies=[Depends(verify_admin_user)])
+async def update_product(
+    product_id: str,
+    data: ProductUpdate,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Update an existing product.
+
+    Args:
+        product_id: Product UUID.
+        data: Product update data (only provided fields are updated).
+        session: Database session.
+
+    Returns:
+        Success message.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    try:
+        product_uuid = uuid.UUID(product_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid product_id format") from e
+
+    try:
+        stmt = select(Product).where(Product.id == product_uuid)
+        result = await session.execute(stmt)
+        product = result.scalar_one_or_none()
+
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+
+        # Update only provided fields
+        if data.name is not None:
+            product.name = data.name
+        if data.brand is not None:
+            product.brand = data.brand if data.brand else None
+        if data.category is not None:
+            product.category = data.category if data.category else None
+        if data.unit is not None:
+            product.unit = data.unit if data.unit else None
+
+        await session.commit()
+        return {"message": "Product updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.exception(f"Failed to update product {product_id}")
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -1520,6 +1572,7 @@ async def price_tracker_dashboard() -> str:
         }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
 </head>
 <body>
     <!-- Toast Container -->
@@ -1604,6 +1657,18 @@ async def price_tracker_dashboard() -> str:
             <div class="form-group">
                 <label class="form-label">Product URL</label>
                 <input type="url" id="newProductUrl" class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Check Frequency</label>
+                <select id="newProductFrequency" class="form-select">
+                    <option value="24">Daily (24h)</option>
+                    <option value="48">Every 2 days (48h)</option>
+                    <option value="72">Every 3 days (72h)</option>
+                    <option value="168">Weekly (168h)</option>
+                </select>
+                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                    How often to check for price changes
+                </div>
             </div>
             <div class="btn-group">
                 <button class="btn btn-primary" onclick="createProduct()">Create</button>
@@ -1712,6 +1777,35 @@ async def price_tracker_dashboard() -> str:
                 <div id="priceHistoryContent">
                     <div class="loading">Loading price history...</div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Product Modal -->
+    <div class="modal" id="modal-editProduct">
+        <div class="modal-content">
+            <div class="modal-title">Edit Product</div>
+            <div id="editProductError"></div>
+            <input type="hidden" id="editProductId">
+            <div class="form-group">
+                <label class="form-label">Product Name *</label>
+                <input type="text" id="editProductName" class="form-input" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Brand</label>
+                <input type="text" id="editProductBrand" class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Category</label>
+                <input type="text" id="editProductCategory" class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Unit</label>
+                <input type="text" id="editProductUnit" class="form-input" placeholder="pcs, kg, l...">
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="saveProduct()">Save</button>
+                <button class="btn btn-secondary" onclick="hideModal('editProduct')">Cancel</button>
             </div>
         </div>
     </div>
@@ -1841,7 +1935,10 @@ async def price_tracker_dashboard() -> str:
                     <div class="card">
                         <div style="display: flex; justify-content: space-between; align-items: start;">
                             <div class="card-title">${escapeHtml(p.name)}</div>
-                            <button class="btn btn-sm" onclick="deleteProduct('${p.id}')" style="background: var(--error); color: white;" title="Delete product">Delete</button>
+                            <div style="display: flex; gap: 4px;">
+                                <button class="btn btn-sm btn-secondary" onclick="showEditProductModal('${p.id}')" title="Edit product">Edit</button>
+                                <button class="btn btn-sm" onclick="deleteProduct('${p.id}')" style="background: var(--error); color: white;" title="Delete product">Delete</button>
+                            </div>
                         </div>
                         <div class="card-meta">
                             ${p.brand ? escapeHtml(p.brand) : ''}
@@ -1979,11 +2076,16 @@ async def price_tracker_dashboard() -> str:
 
                 const storeId = document.getElementById('newProductStore').value;
                 const storeUrl = document.getElementById('newProductUrl').value.trim();
+                const frequency = parseInt(document.getElementById('newProductFrequency').value) || 24;
 
                 if (storeUrl && storeId) {
                     await apiRequest(`/products/${result.product_id}/stores`, {
                         method: 'POST',
-                        body: JSON.stringify({ store_id: storeId, store_url: storeUrl })
+                        body: JSON.stringify({
+                            store_id: storeId,
+                            store_url: storeUrl,
+                            check_frequency_hours: frequency
+                        })
                     });
                 }
 
@@ -2282,6 +2384,52 @@ async def price_tracker_dashboard() -> str:
             }
         }
 
+        function showEditProductModal(productId) {
+            const product = products.find(p => p.id === productId);
+            if (!product) {
+                showToast('Product not found', 'error');
+                return;
+            }
+
+            document.getElementById('editProductId').value = productId;
+            document.getElementById('editProductName').value = product.name || '';
+            document.getElementById('editProductBrand').value = product.brand || '';
+            document.getElementById('editProductCategory').value = product.category || '';
+            document.getElementById('editProductUnit').value = product.unit || '';
+            document.getElementById('editProductError').innerHTML = '';
+            showModal('editProduct');
+        }
+
+        async function saveProduct() {
+            const productId = document.getElementById('editProductId').value;
+            const name = document.getElementById('editProductName').value.trim();
+
+            if (!name) {
+                document.getElementById('editProductError').innerHTML = '<div class="error-msg">Product name is required</div>';
+                return;
+            }
+
+            const data = {
+                name,
+                brand: document.getElementById('editProductBrand').value.trim() || null,
+                category: document.getElementById('editProductCategory').value.trim() || null,
+                unit: document.getElementById('editProductUnit').value.trim() || null
+            };
+
+            try {
+                await apiRequest(`/products/${productId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(data)
+                });
+
+                hideModal('editProduct');
+                showToast('Product updated!', 'success');
+                await loadProducts();
+            } catch (e) {
+                document.getElementById('editProductError').innerHTML = `<div class="error-msg">${e.message}</div>`;
+            }
+        }
+
         async function unlinkStore(productId, storeId) {
             const confirmed = await confirmAction('Remove store link?');
             if (!confirmed) return;
@@ -2389,9 +2537,12 @@ async def price_tracker_dashboard() -> str:
                     grid.innerHTML = products.map(p => `
                         <div class="card">
                             <div style="display: flex; justify-content: space-between; align-items: start;">
-                            <div class="card-title">${escapeHtml(p.name)}</div>
-                            <button class="btn btn-sm" onclick="deleteProduct('${p.id}')" style="background: var(--error); color: white;" title="Delete product">Delete</button>
-                        </div>
+                                <div class="card-title">${escapeHtml(p.name)}</div>
+                                <div style="display: flex; gap: 4px;">
+                                    <button class="btn btn-sm btn-secondary" onclick="showEditProductModal('${p.id}')" title="Edit product">Edit</button>
+                                    <button class="btn btn-sm" onclick="deleteProduct('${p.id}')" style="background: var(--error); color: white;" title="Delete product">Delete</button>
+                                </div>
+                            </div>
                             <div class="card-meta">
                                 ${p.brand ? escapeHtml(p.brand) : ''}
                                 ${p.category ? '&middot; ' + escapeHtml(p.category) : ''}
