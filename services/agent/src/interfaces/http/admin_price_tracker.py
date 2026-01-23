@@ -26,6 +26,7 @@ from .schemas.price_tracker import (
     DealResponse,
     PricePointResponse,
     PriceWatchCreate,
+    PriceWatchUpdate,
     ProductCreate,
     ProductResponse,
     ProductStoreLink,
@@ -1004,6 +1005,61 @@ async def create_watch(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.put("/watches/{watch_id}", dependencies=[Depends(verify_admin_user)])
+async def update_watch(
+    watch_id: str,
+    data: PriceWatchUpdate,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    """Update a price watch.
+
+    Args:
+        watch_id: Watch UUID.
+        data: Watch update data (only provided fields are updated).
+        session: Database session.
+
+    Returns:
+        Success message.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    try:
+        watch_uuid = uuid.UUID(watch_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid watch_id format") from e
+
+    try:
+        stmt = select(PriceWatch).where(PriceWatch.id == watch_uuid)
+        result = await session.execute(stmt)
+        watch = result.scalar_one_or_none()
+
+        if not watch:
+            raise HTTPException(status_code=404, detail="Price watch not found")
+
+        # Update only provided fields
+        if data.target_price_sek is not None:
+            watch.target_price_sek = float(data.target_price_sek)
+        if data.alert_on_any_offer is not None:
+            watch.alert_on_any_offer = data.alert_on_any_offer
+        if data.price_drop_threshold_percent is not None:
+            watch.price_drop_threshold_percent = data.price_drop_threshold_percent
+        if data.unit_price_target_sek is not None:
+            watch.unit_price_target_sek = float(data.unit_price_target_sek)
+        if data.unit_price_drop_threshold_percent is not None:
+            watch.unit_price_drop_threshold_percent = data.unit_price_drop_threshold_percent
+        if data.email_address is not None:
+            watch.email_address = data.email_address
+
+        await session.commit()
+        return {"message": "Price watch updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.exception(f"Failed to update watch {watch_id}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.delete("/watches/{watch_id}", dependencies=[Depends(verify_admin_user)])
 async def delete_watch(
     watch_id: str,
@@ -1837,6 +1893,49 @@ async def price_tracker_dashboard() -> str:
         </div>
     </div>
 
+    <!-- Edit Watch Modal -->
+    <div class="modal" id="modal-editWatch">
+        <div class="modal-content">
+            <div class="modal-title">Edit Price Watch</div>
+            <div id="editWatchError"></div>
+            <input type="hidden" id="editWatchId">
+            <div class="form-group">
+                <label class="form-label">Product</label>
+                <div id="editWatchProductName" style="font-weight: 500; color: var(--text);"></div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email Address</label>
+                <input type="email" id="editWatchEmail" class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Target Price (SEK)</label>
+                <input type="number" step="0.01" id="editWatchTargetPrice" class="form-input" placeholder="Alert when price is at or below">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Price Drop Threshold (%)</label>
+                <input type="number" id="editWatchPriceDropPercent" class="form-input" placeholder="Alert when price drops by X%">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Unit Price Target (SEK)</label>
+                <input type="number" step="0.01" id="editWatchUnitPriceTarget" class="form-input" placeholder="Alert when unit price is at or below">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Unit Price Drop Threshold (%)</label>
+                <input type="number" id="editWatchUnitPriceDropPercent" class="form-input" placeholder="Alert when unit price drops by X%">
+            </div>
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="editWatchAlertOnAnyOffer">
+                    <span>Alert on any offer/deal</span>
+                </label>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="saveWatch()">Save</button>
+                <button class="btn btn-secondary" onclick="hideModal('editWatch')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const BASE_URL = '/platformadmin/price-tracker';
         let stores = [];
@@ -2076,7 +2175,10 @@ async def price_tracker_dashboard() -> str:
                                 &middot; <strong>Last notified:</strong> ${relativeTime(w.last_alerted_at)}
                             </div>
                         </div>
-                        <button class="btn btn-sm btn-secondary" onclick="deleteWatch('${w.watch_id}')">Delete</button>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-sm btn-secondary" onclick="showEditWatchModal('${w.watch_id}')">Edit</button>
+                            <button class="btn btn-sm" onclick="deleteWatch('${w.watch_id}')" style="background: var(--error); color: white;">Delete</button>
+                        </div>
                     </div>
                     `;
                 }).join('');
@@ -2117,8 +2219,26 @@ async def price_tracker_dashboard() -> str:
                     });
                 }
 
+                // Auto-create a watch for the new product
+                if (userContextId && userEmail) {
+                    try {
+                        await apiRequest(`/watches?context_id=${userContextId}`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                product_id: result.product_id,
+                                email_address: userEmail,
+                                alert_on_any_offer: true
+                            })
+                        });
+                    } catch (watchErr) {
+                        console.warn('Failed to auto-create watch:', watchErr);
+                        // Don't fail the whole operation if watch creation fails
+                    }
+                }
+
                 hideModal('addProduct');
                 await loadProducts();
+                showToast('Product created with price watch!', 'success');
             } catch (e) {
                 document.getElementById('addProductError').innerHTML = `<div class="error-msg">${e.message}</div>`;
             }
@@ -2496,6 +2616,66 @@ async def price_tracker_dashboard() -> str:
                 await loadProducts();
             } catch (e) {
                 document.getElementById('editFrequencyError').innerHTML = `<div class="error-msg">${e.message}</div>`;
+            }
+        }
+
+        function showEditWatchModal(watchId) {
+            const watch = watches.find(w => w.watch_id === watchId);
+            if (!watch) {
+                showToast('Watch not found', 'error');
+                return;
+            }
+
+            document.getElementById('editWatchId').value = watchId;
+            document.getElementById('editWatchProductName').textContent = watch.product_name;
+            document.getElementById('editWatchEmail').value = watch.email_address || '';
+            document.getElementById('editWatchTargetPrice').value = watch.target_price_sek || '';
+            document.getElementById('editWatchPriceDropPercent').value = watch.price_drop_threshold_percent || '';
+            document.getElementById('editWatchUnitPriceTarget').value = watch.unit_price_target_sek || '';
+            document.getElementById('editWatchUnitPriceDropPercent').value = watch.unit_price_drop_threshold_percent || '';
+            document.getElementById('editWatchAlertOnAnyOffer').checked = watch.alert_on_any_offer || false;
+            document.getElementById('editWatchError').innerHTML = '';
+            showModal('editWatch');
+        }
+
+        async function saveWatch() {
+            const watchId = document.getElementById('editWatchId').value;
+            const email = document.getElementById('editWatchEmail').value.trim();
+
+            if (!email) {
+                document.getElementById('editWatchError').innerHTML = '<div class="error-msg">Email is required</div>';
+                return;
+            }
+
+            const data = {
+                email_address: email,
+                alert_on_any_offer: document.getElementById('editWatchAlertOnAnyOffer').checked
+            };
+
+            // Only include numeric fields if they have values
+            const targetPrice = document.getElementById('editWatchTargetPrice').value;
+            if (targetPrice) data.target_price_sek = parseFloat(targetPrice);
+
+            const priceDropPercent = document.getElementById('editWatchPriceDropPercent').value;
+            if (priceDropPercent) data.price_drop_threshold_percent = parseInt(priceDropPercent);
+
+            const unitPriceTarget = document.getElementById('editWatchUnitPriceTarget').value;
+            if (unitPriceTarget) data.unit_price_target_sek = parseFloat(unitPriceTarget);
+
+            const unitPriceDropPercent = document.getElementById('editWatchUnitPriceDropPercent').value;
+            if (unitPriceDropPercent) data.unit_price_drop_threshold_percent = parseInt(unitPriceDropPercent);
+
+            try {
+                await apiRequest(`/watches/${watchId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify(data)
+                });
+
+                hideModal('editWatch');
+                showToast('Watch updated!', 'success');
+                await loadWatches();
+            } catch (e) {
+                document.getElementById('editWatchError').innerHTML = `<div class="error-msg">${e.message}</div>`;
             }
         }
 

@@ -43,6 +43,17 @@ class PriceWatchCreate(BaseModel):
     email_address: str
 
 
+class PriceWatchUpdate(BaseModel):
+    """Schema for updating a price watch."""
+
+    target_price_sek: Decimal | None = None
+    alert_on_any_offer: bool | None = None
+    price_drop_threshold_percent: int | None = None
+    unit_price_target_sek: Decimal | None = None
+    unit_price_drop_threshold_percent: int | None = None
+    email_address: str | None = None
+
+
 class StoreResponse(BaseModel):
     """Schema for store data response."""
 
@@ -100,6 +111,7 @@ __all__ = [
     "ProductUpdate",
     "ProductStoreLink",
     "PriceWatchCreate",
+    "PriceWatchUpdate",
     "StoreResponse",
     "ProductResponse",
     "PricePointResponse",
