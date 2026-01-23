@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal, TypedDict
@@ -340,6 +341,29 @@ def restart(
 # =============================================================================
 
 
+def _connect_traefik_to_dev_network() -> None:
+    """Connect Traefik to dev network for external routing.
+
+    This allows Traefik (running in prod stack) to route traffic to dev containers.
+    Silently ignored if Traefik is not running.
+    """
+    dev_network = "ai-agent-platform-dev_default"
+    docker_bin = shutil.which("docker")
+    if not docker_bin:
+        return
+
+    result = subprocess.run(  # noqa: S603, S607
+        [docker_bin, "network", "connect", dev_network, "traefik"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        console.print(f"[dim]Connected Traefik to {dev_network}[/dim]")
+    elif "already exists" in result.stderr.lower():
+        console.print(f"[dim]Traefik already connected to {dev_network}[/dim]")
+    # Silently ignore other errors (Traefik not running, etc.)
+
+
 @dev_app.command("up")
 def dev_up(
     build: bool = typer.Option(False, help="Build images before starting containers."),
@@ -366,6 +390,9 @@ def dev_up(
     console.print("[dim]Open WebUI: http://localhost:3001[/dim]")
     console.print("[dim]Agent API:  http://localhost:8001[/dim]")
     compose.compose_up(detach=True, build=build, dev=True)
+
+    # Connect Traefik to dev network for external routing (if Traefik is running)
+    _connect_traefik_to_dev_network()
 
     # Show status
     status = compose.run_compose(["ps"], dev=True)
@@ -442,6 +469,10 @@ def dev_restart(
     console.print("[bold yellow]Restarting DEVELOPMENT environment…[/bold yellow]")
     compose.compose_down(dev=True)
     compose.compose_up(detach=True, build=build, dev=True)
+
+    # Connect Traefik to dev network for external routing (if Traefik is running)
+    _connect_traefik_to_dev_network()
+
     console.print("[bold green]Development stack restarted.[/bold green]")
 
 
