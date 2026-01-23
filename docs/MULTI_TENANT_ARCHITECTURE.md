@@ -400,15 +400,23 @@ client_b = McpClient(
   - `X-OpenWebUI-User-Email`: User's email (normalized to lowercase)
   - `X-OpenWebUI-User-Name`: User's display name
   - `X-OpenWebUI-User-Id`: Open WebUI internal user ID
-  - `X-OpenWebUI-User-Role`: User's role ("user" or "admin")
+  - `X-OpenWebUI-User-Role`: User's role claim (informational only)
 - Auto-provisioning on first login
 - Maps user → conversation → context
 
+**SECURITY: Header Role Trust Policy:**
+- Header role (`X-OpenWebUI-User-Role`) is ONLY used for initial user creation
+- After first login, database role is authoritative - headers are IGNORED for role
+- This prevents privilege escalation via header spoofing if upstream proxy is bypassed
+- Role changes MUST be done through the admin portal
+- Admin endpoints (`/platformadmin/*`) use direct Entra ID OAuth, not header forwarding
+- Traefik strips untrusted headers on admin routes for defense-in-depth
+
 **Admin Layer:**
-- Entra ID authentication forwarded from Open WebUI
-- Requires `X-OpenWebUI-User-Role: admin` header
+- Direct Entra ID OAuth authentication (not header forwarding)
+- Database role must be "admin" (header claims ignored)
 - Access to all contexts and credentials (for management)
-- No separate API key needed
+- JWT session cookie after successful OAuth flow
 
 ### Authorization
 

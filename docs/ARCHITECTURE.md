@@ -115,24 +115,35 @@ class UserCredential(Base):
 Users are automatically created on first login when Open WebUI forwards authentication headers:
 
 ```python
-async def get_or_create_user(email: str, name: str, role: str, session: AsyncSession) -> User:
+async def get_or_create_user(identity: UserIdentity, session: AsyncSession) -> User:
     # Normalize email to lowercase
-    email = email.lower()
+    email = identity.email.lower().strip()
 
     # Check if user exists
     stmt = select(User).where(User.email == email)
     result = await session.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if not user:
-        # Create new user
-        user = User(email=email, name=name, role=role)
-        session.add(user)
-        await session.commit()
-        await session.refresh(user)
+    if user:
+        # Update last login and display name (NOT role - see security note)
+        user.last_login_at = datetime.now(UTC)
+        if identity.name and user.display_name != identity.name:
+            user.display_name = identity.name
+        # SECURITY: Do NOT sync role from headers - database role is authoritative.
+        # Header role claims could be spoofed. Role changes must be done by admins
+        # through the admin portal, not automatically from SSO headers.
+        await session.flush()
+        return user
 
+    # Create new user with role from headers (initial provisioning only)
+    user = User(email=email, display_name=identity.name, role=identity.role)
+    session.add(user)
+    await session.flush()
+    # ... create personal context and link ...
     return user
 ```
+
+**Security Note:** After initial user creation, role is NEVER updated from headers. The database role is authoritative. This prevents privilege escalation via header spoofing.
 
 ### Credential Encryption
 
