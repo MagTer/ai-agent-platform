@@ -1810,6 +1810,33 @@ async def price_tracker_dashboard() -> str:
         </div>
     </div>
 
+    <!-- Edit Frequency Modal -->
+    <div class="modal" id="modal-editFrequency">
+        <div class="modal-content">
+            <div class="modal-title">Edit Check Frequency</div>
+            <div id="editFrequencyError"></div>
+            <input type="hidden" id="editFrequencyProductId">
+            <input type="hidden" id="editFrequencyStoreId">
+            <div class="form-group">
+                <label class="form-label">Store</label>
+                <div id="editFrequencyStoreName" style="font-weight: 500; color: var(--text);"></div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Check Frequency</label>
+                <select id="editFrequencyValue" class="form-select">
+                    <option value="24">Daily (24h)</option>
+                    <option value="48">Every 2 days (48h)</option>
+                    <option value="72">Every 3 days (72h)</option>
+                    <option value="168">Weekly (168h)</option>
+                </select>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="saveFrequency()">Save</button>
+                <button class="btn btn-secondary" onclick="hideModal('editFrequency')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const BASE_URL = '/platformadmin/price-tracker';
         let stores = [];
@@ -1957,6 +1984,7 @@ async def price_tracker_dashboard() -> str:
                                 <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">
                                     Last checked: ${relativeTime(s.last_checked_at)}
                                     &middot; Checks ${formatFrequency(s.check_frequency_hours).toLowerCase()} (~${estimateMonthlyChecks(s.check_frequency_hours)}/month)
+                                    <button class="btn btn-sm" onclick="showEditFrequencyModal('${p.id}', '${s.store_id}', '${escapeHtml(s.store_name)}', ${s.check_frequency_hours})" style="background: transparent; color: var(--primary); padding: 0 4px; font-size: 11px; margin-left: 4px;" title="Edit frequency">Edit</button>
                                 </div>
                                 ${s.price_sek ? `
                                     <div style="font-size: 13px; margin-top: 4px;">
@@ -2440,6 +2468,34 @@ async def price_tracker_dashboard() -> str:
                 await loadProducts();
             } catch (e) {
                 showToast('Failed to remove store link: ' + e.message, 'error');
+            }
+        }
+
+        function showEditFrequencyModal(productId, storeId, storeName, currentFrequency) {
+            document.getElementById('editFrequencyProductId').value = productId;
+            document.getElementById('editFrequencyStoreId').value = storeId;
+            document.getElementById('editFrequencyStoreName').textContent = storeName;
+            document.getElementById('editFrequencyValue').value = currentFrequency;
+            document.getElementById('editFrequencyError').innerHTML = '';
+            showModal('editFrequency');
+        }
+
+        async function saveFrequency() {
+            const productId = document.getElementById('editFrequencyProductId').value;
+            const storeId = document.getElementById('editFrequencyStoreId').value;
+            const frequency = parseInt(document.getElementById('editFrequencyValue').value);
+
+            try {
+                await apiRequest(`/products/${productId}/stores/${storeId}/frequency`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ check_frequency_hours: frequency })
+                });
+
+                hideModal('editFrequency');
+                showToast('Frequency updated!', 'success');
+                await loadProducts();
+            } catch (e) {
+                document.getElementById('editFrequencyError').innerHTML = `<div class="error-msg">${e.message}</div>`;
             }
         }
 
