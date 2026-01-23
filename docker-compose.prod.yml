@@ -84,13 +84,25 @@ services:
     labels:
       # Enable Traefik routing for admin portal
       - "traefik.enable=true"
-      # Admin portal router with header stripping (SECURITY: prevents header spoofing)
+      # Admin portal router
       - "traefik.http.routers.agent-admin.rule=Host(`${DOMAIN:-agent.falle.se}`) && PathPrefix(`/platformadmin`)"
       - "traefik.http.routers.agent-admin.entrypoints=websecure"
       - "traefik.http.routers.agent-admin.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.agent-admin.middlewares=strip-headers,security"
       - "traefik.http.routers.agent-admin.service=agent-admin"
       - "traefik.http.services.agent-admin.loadbalancer.server.port=8000"
+      # Security: Strip X-OpenWebUI-* headers (prevents header spoofing)
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      # Security headers
+      - "traefik.http.middlewares.agent-security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.agent-security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.agent-security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.agent-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.agent-security.headers.browserXssFilter=true"
+      # Apply middlewares
+      - "traefik.http.routers.agent-admin.middlewares=strip-agent-headers,agent-security"
 
   postgres:
     restart: unless-stopped
