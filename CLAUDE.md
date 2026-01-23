@@ -2,7 +2,7 @@
 
 **Purpose:** Entry point for Claude Code sessions. Defines the tri-agent workflow.
 
-**Last Updated:** 2026-01-19
+**Last Updated:** 2026-01-23
 
 ---
 
@@ -365,6 +365,57 @@ Edit(...) Edit(...) Edit(...) Edit(...)  # Expensive!
 - **LLM:** LiteLLM
 - **Testing:** Pytest (async)
 - **Tools:** Mypy, Ruff, Black, Poetry
+
+---
+
+## Stack CLI
+
+The project uses a custom `stack` CLI for all operations. **Always run from project root with `./stack`**.
+
+### Common Commands
+
+```bash
+# Quality checks (MANDATORY before commits)
+./stack check              # Run ruff, black, mypy, pytest (auto-fix enabled)
+./stack check --no-fix     # CI mode (no auto-fix)
+
+# Development environment
+./stack dev up             # Start dev environment
+./stack dev down           # Stop dev environment
+./stack dev restart        # Restart dev environment
+./stack dev logs           # View dev logs
+./stack dev status         # Show dev container status
+
+# Production
+./stack deploy             # Deploy to production (runs checks first)
+./stack deploy --skip-checks  # Skip quality checks (use with caution)
+./stack up                 # Start production stack
+./stack down               # Stop production stack
+./stack restart            # Restart production stack
+./stack logs [service]     # Tail production logs
+./stack status             # Show production container status
+./stack health             # Check service health
+
+# Individual checks
+./stack lint               # Run ruff + black only
+./stack typecheck          # Run mypy only
+./stack test               # Run pytest only
+```
+
+### Deployment Workflow
+
+```bash
+# Dev deployment (restart with latest code)
+./stack dev restart
+
+# Production deployment (full workflow)
+./stack deploy
+# This automatically:
+# 1. Verifies you're on main branch
+# 2. Runs all quality checks
+# 3. Rebuilds the agent container
+# 4. Restarts production with zero downtime
+```
 
 ---
 
