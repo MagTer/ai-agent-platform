@@ -351,7 +351,8 @@ def _should_show_chunk_default(
 ) -> bool:
     """Determine if a chunk should be shown in DEFAULT verbosity mode.
 
-    DEFAULT mode shows only user-relevant chunks: planning, skills, errors, final answer.
+    DEFAULT mode shows minimal output: final answer, errors, brief skill status.
+    This is the clean, user-focused mode.
 
     Args:
         chunk_type: The type of the agent chunk.
@@ -360,32 +361,23 @@ def _should_show_chunk_default(
     Returns:
         True if the chunk should be shown, False otherwise.
     """
-    # Always show: content, error, skill_activity
-    if chunk_type in ("content", "error", "skill_activity"):
+    # Always show: content (final answer), error
+    if chunk_type in ("content", "error"):
         return True
 
-    # Show thinking chunks (planning, replanning)
-    if chunk_type == "thinking":
-        return True
-
-    # Show step_start for completion and skills (supervisor replanning)
-    if chunk_type == "step_start":
-        action = (metadata or {}).get("action", "")
-        tool = (metadata or {}).get("tool", "")
-        # Show completion steps and skill invocations
-        if action == "completion" or tool == "consult_expert":
-            return True
-        return False
-
-    # Show tool_start/tool_output only for skills
+    # Show tool_start/tool_output only for skills (brief start/completion status)
     if chunk_type in ("tool_start", "tool_output"):
+        # Check tool name from metadata or tool_call
         tool_call = (metadata or {}).get("tool_call") or {}
         tool_name = (metadata or {}).get("name") or tool_call.get("name", "")
         if tool_name == "consult_expert":
             return True
         return False
 
-    # Hide everything else in DEFAULT mode
+    # Hide everything else in DEFAULT mode:
+    # - thinking (verbose planning text)
+    # - step_start (internal progress)
+    # - skill_activity (search queries, URLs)
     return False
 
 
@@ -407,9 +399,9 @@ async def stream_response_generator(
     Content tokens are aggregated and flushed based on time interval or buffer size.
 
     Verbosity levels:
-    - DEFAULT: Shows planning, skills, errors, supervisor replanning, final answer.
-    - VERBOSE: Shows all chunks with formatted output (like old default behavior).
-    - DEBUG: Shows raw JSON for all chunks, except final answer shows normally.
+    - DEFAULT: Minimal output - final answer, errors, brief skill start/completion.
+    - VERBOSE: Detailed output - adds thinking, step progress, tool calls, skill activity.
+    - DEBUG: Technical output - raw JSON for all chunks, final answer renders normally.
     """
     chunk_id = f"chatcmpl-{uuid.uuid4()}"
     created = int(time.time())
