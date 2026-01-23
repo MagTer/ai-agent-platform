@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
 from core.db.models import User, UserContext
-from interfaces.http.admin_auth import verify_admin_api_key
+from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_api_key
+from interfaces.http.admin_shared import render_admin_page
 
 LOGGER = logging.getLogger(__name__)
 
@@ -48,70 +49,32 @@ class UserUpdateRequest(BaseModel):
 
 
 @router.get("/", response_class=HTMLResponse)
-async def users_dashboard() -> str:
+async def users_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """User management dashboard."""
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Users - Admin</title>
-    <style>
-        :root { --primary: #3b82f6; --bg: #f8fafc; --card: #fff; --border: #e2e8f0; --text: #1e293b; --muted: #64748b; --success: #10b981; --error: #ef4444; }
-        body { font-family: system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
-        .header { background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 24px; }
-        .header h1 { margin: 0 0 4px 0; font-size: 20px; }
-        .header p { margin: 0; opacity: 0.8; font-size: 13px; }
-        .nav { padding: 8px 24px; background: var(--card); border-bottom: 1px solid var(--border); }
-        .nav a { color: var(--primary); text-decoration: none; font-size: 13px; }
-        .container { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
-        .stats { display: flex; gap: 16px; margin-bottom: 24px; }
-        .stat-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; flex: 1; }
-        .stat-value { font-size: 28px; font-weight: 600; color: var(--primary); }
-        .stat-label { color: var(--muted); font-size: 13px; margin-top: 4px; }
-        .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-        .card h2 { margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
-        th { background: #f8f9fa; font-weight: 600; font-size: 13px; }
-        tr:hover { background: #f8f9fa; }
-        .badge { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 500; }
-        .badge-admin { background: #dbeafe; color: #1e40af; }
-        .badge-user { background: #e5e7eb; color: #374151; }
-        .status-active { color: var(--success); }
-        .status-inactive { color: var(--error); }
-        .loading { color: var(--muted); font-style: italic; padding: 20px; text-align: center; }
-        .btn { padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); background: var(--card); }
-        .btn:hover { background: var(--bg); }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>User Management</h1>
-        <p>Manage user accounts and permissions</p>
-    </div>
-    <div class="nav"><a href="/platformadmin/">&larr; Back to Admin Portal</a></div>
-    <div class="container">
-        <div class="stats">
+    content = """
+        <h1 class="page-title">User Management</h1>
+
+        <div class="stats-grid">
             <div class="stat-box">
-                <div class="stat-value" id="totalUsers">0</div>
+                <div class="stat-value" id="totalUsers">-</div>
                 <div class="stat-label">Total Users</div>
             </div>
             <div class="stat-box">
-                <div class="stat-value" id="adminUsers">0</div>
+                <div class="stat-value" id="adminUsers">-</div>
                 <div class="stat-label">Admins</div>
             </div>
             <div class="stat-box">
-                <div class="stat-value" id="activeUsers">0</div>
+                <div class="stat-value" id="activeUsers">-</div>
                 <div class="stat-label">Active Users</div>
             </div>
         </div>
+
         <div class="card">
-            <h2>
-                <span>All Users</span>
-                <button class="btn" onclick="loadUsers()">Refresh</button>
-            </h2>
-            <table id="usersTable">
+            <div class="card-header">
+                <span class="card-title">All Users</span>
+                <button class="btn btn-sm" onclick="loadUsers()">Refresh</button>
+            </div>
+            <table>
                 <thead>
                     <tr>
                         <th>Email</th>
@@ -128,8 +91,16 @@ async def users_dashboard() -> str:
                 </tbody>
             </table>
         </div>
-    </div>
-    <script>
+    """
+
+    extra_css = """
+        .badge-admin { background: #dbeafe; color: #1e40af; }
+        .badge-user { background: #e5e7eb; color: #374151; }
+        .status-active { color: var(--success); }
+        .status-inactive { color: var(--error); }
+    """
+
+    extra_js = """
         async function loadUsers() {
             try {
                 const res = await fetch('/platformadmin/users/list');
@@ -141,13 +112,9 @@ async def users_dashboard() -> str:
         }
 
         function renderUsers(users) {
-            const totalUsers = users.length;
-            const adminUsers = users.filter(u => u.role === 'admin').length;
-            const activeUsers = users.filter(u => u.is_active).length;
-
-            document.getElementById('totalUsers').textContent = totalUsers;
-            document.getElementById('adminUsers').textContent = adminUsers;
-            document.getElementById('activeUsers').textContent = activeUsers;
+            document.getElementById('totalUsers').textContent = users.length;
+            document.getElementById('adminUsers').textContent = users.filter(u => u.role === 'admin').length;
+            document.getElementById('activeUsers').textContent = users.filter(u => u.is_active).length;
 
             const tbody = document.getElementById('usersBody');
             if (users.length === 0) {
@@ -162,20 +129,15 @@ async def users_dashboard() -> str:
                 const status = u.is_active
                     ? '<span class="status-active">Active</span>'
                     : '<span class="status-inactive">Inactive</span>';
-                const lastLogin = new Date(u.last_login_at).toLocaleString();
-                const created = new Date(u.created_at).toLocaleDateString();
-
-                return `
-                    <tr>
-                        <td>${escapeHtml(u.email)}</td>
-                        <td>${escapeHtml(u.display_name) || '-'}</td>
-                        <td>${roleBadge}</td>
-                        <td>${status}</td>
-                        <td>${u.context_count}</td>
-                        <td>${lastLogin}</td>
-                        <td>${created}</td>
-                    </tr>
-                `;
+                return `<tr>
+                    <td>${escapeHtml(u.email)}</td>
+                    <td>${escapeHtml(u.display_name) || '-'}</td>
+                    <td>${roleBadge}</td>
+                    <td>${status}</td>
+                    <td>${u.context_count}</td>
+                    <td>${new Date(u.last_login_at).toLocaleString()}</td>
+                    <td>${new Date(u.created_at).toLocaleDateString()}</td>
+                </tr>`;
             }).join('');
         }
 
@@ -187,9 +149,18 @@ async def users_dashboard() -> str:
         }
 
         loadUsers();
-    </script>
-</body>
-</html>"""
+    """
+
+    return render_admin_page(
+        title="Users",
+        active_page="/platformadmin/users/",
+        content=content,
+        user_name=admin.display_name or admin.email.split("@")[0],
+        user_email=admin.email,
+        breadcrumbs=[("Users", "#")],
+        extra_css=extra_css,
+        extra_js=extra_js,
+    )
 
 
 # --- API Endpoints ---
