@@ -44,8 +44,9 @@ services:
     ports:
       - "3001:8080"
     environment:
-      # Use DOMAIN_DEV for URL if set, otherwise localhost
-      - WEBUI_URL=${DOMAIN_DEV:+https://${DOMAIN_DEV}}${DOMAIN_DEV:-http://localhost:3001}
+      # External URL for OAuth callbacks - defaults to localhost for local dev
+      # When DOMAIN_DEV is set, uses https://DOMAIN_DEV
+      - WEBUI_URL=http${DOMAIN_DEV:+s}://${DOMAIN_DEV:-localhost:3001}
       # Disable automatic signup - admin creates users manually
       - ENABLE_OAUTH_SIGNUP=false
     labels:
