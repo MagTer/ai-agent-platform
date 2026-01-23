@@ -4,6 +4,7 @@ import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.header_auth import UserIdentity
@@ -55,37 +56,58 @@ async def get_or_create_user(
         return user
 
     # Create new user with normalized email
-    user = User(
-        email=normalized_email,
-        display_name=identity.name,
-        openwebui_id=identity.openwebui_id,
-        role=identity.role,
-    )
-    session.add(user)
-    await session.flush()  # Get user.id
+    try:
+        user = User(
+            email=normalized_email,
+            display_name=identity.name,
+            openwebui_id=identity.openwebui_id,
+            role=identity.role,
+        )
+        session.add(user)
+        await session.flush()  # Get user.id
 
-    # Create personal context
-    context = Context(
-        name=f"personal_{user.id}",
-        type="personal",
-        config={"owner_email": identity.email},
-        default_cwd="/tmp",  # noqa: S108
-    )
-    session.add(context)
-    await session.flush()  # Get context.id
+        # Create personal context
+        context = Context(
+            name=f"personal_{user.id}",
+            type="personal",
+            config={"owner_email": identity.email},
+            default_cwd="/tmp",  # noqa: S108
+        )
+        session.add(context)
+        await session.flush()  # Get context.id
 
-    # Link user to context
-    user_context = UserContext(
-        user_id=user.id,
-        context_id=context.id,
-        role="owner",
-        is_default=True,
-    )
-    session.add(user_context)
-    await session.flush()
+        # Link user to context
+        user_context = UserContext(
+            user_id=user.id,
+            context_id=context.id,
+            role="owner",
+            is_default=True,
+        )
+        session.add(user_context)
+        await session.flush()
 
-    LOGGER.info(f"Auto-provisioned new user: {user.email} with context {context.id}")
-    return user
+        LOGGER.info(f"Auto-provisioned new user: {user.email} with context {context.id}")
+        return user
+
+    except IntegrityError:
+        # Race condition: another request created the user/context concurrently
+        # Rollback and retry lookup
+        await session.rollback()
+        LOGGER.warning(
+            f"Race condition during user creation for {normalized_email}, retrying lookup"
+        )
+
+        stmt = select(User).where(User.email == normalized_email)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if user:
+            user.last_login_at = _utc_now()
+            await session.flush()
+            return user
+
+        # Still not found - re-raise the error
+        raise
 
 
 async def get_user_default_context(

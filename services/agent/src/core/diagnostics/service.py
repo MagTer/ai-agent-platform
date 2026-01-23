@@ -1123,7 +1123,7 @@ class DiagnosticsService:
 
         # 3. Construct TraceGroups
         trace_groups: list[TraceGroup] = []
-        for trace_id, spans in groups.items():
+        for tid, spans in groups.items():
             # Sort chronologically
             spans.sort(key=lambda x: x.start_time or datetime.min)
 
@@ -1159,7 +1159,7 @@ class DiagnosticsService:
 
             trace_groups.append(
                 TraceGroup(
-                    trace_id=trace_id,
+                    trace_id=tid,
                     root=root,
                     spans=spans,
                     total_duration_ms=max(0.0, total_duration),
