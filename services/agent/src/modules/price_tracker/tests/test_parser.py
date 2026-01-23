@@ -22,6 +22,7 @@ class TestPriceExtractionResult:
             offer_details="Köp 2 betala för 1",
             in_stock=True,
             confidence=0.95,
+            pack_size=16,
             raw_response={"price": 29.90, "in_stock": True},
         )
 
@@ -32,6 +33,7 @@ class TestPriceExtractionResult:
         assert result.offer_details == "Köp 2 betala för 1"
         assert result.in_stock is True
         assert result.confidence == 0.95
+        assert result.pack_size == 16
         assert result.raw_response == {"price": 29.90, "in_stock": True}
 
     def test_create_with_none_values(self) -> None:
@@ -44,6 +46,7 @@ class TestPriceExtractionResult:
             offer_details=None,
             in_stock=False,
             confidence=0.3,
+            pack_size=None,
             raw_response={},
         )
 
@@ -54,6 +57,7 @@ class TestPriceExtractionResult:
         assert result.offer_details is None
         assert result.in_stock is False
         assert result.confidence == 0.3
+        assert result.pack_size is None
 
 
 class TestPriceParser:
@@ -190,6 +194,7 @@ class TestPriceParser:
             offer_details=None,
             in_stock=True,
             confidence=0.85,
+            pack_size=None,
             raw_response={},
         )
 
@@ -216,6 +221,7 @@ class TestPriceParser:
             offer_details=None,
             in_stock=True,
             confidence=0.5,  # Below threshold
+            pack_size=None,
             raw_response={},
         )
 
@@ -227,6 +233,7 @@ class TestPriceParser:
             offer_details=None,
             in_stock=True,
             confidence=0.95,  # High confidence
+            pack_size=None,
             raw_response={},
         )
 
@@ -252,6 +259,7 @@ class TestPriceParser:
             offer_details=None,
             in_stock=True,
             confidence=0.9,
+            pack_size=None,
             raw_response={},
         )
 
