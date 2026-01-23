@@ -207,6 +207,7 @@ class DiagnosticsService:
                     self._check_searxng_functional(client),
                     self._check_credential_encryption(),
                     self._check_price_tracker(),
+                    self._check_user_context_integrity(),
                     return_exceptions=True,
                 )
         except Exception as e:
@@ -1013,6 +1014,69 @@ class DiagnosticsService:
             latency = (time.perf_counter() - start) * 1000
             return TestResult(
                 component="Price Tracker",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    async def _check_user_context_integrity(self) -> TestResult:
+        """Check user-context data integrity.
+
+        Tests:
+        - All users have at least one linked context
+        - No orphaned personal contexts (contexts without user links)
+        """
+        start = time.perf_counter()
+        try:
+            async with engine.connect() as conn:
+                # Check for users without any context
+                users_without_context = await conn.execute(
+                    text(
+                        "SELECT u.id, u.email FROM users u "
+                        "LEFT JOIN user_contexts uc ON uc.user_id = u.id "
+                        "WHERE uc.id IS NULL"
+                    )
+                )
+                orphaned_users = users_without_context.fetchall()
+
+                # Check for personal contexts without user links
+                orphaned_contexts = await conn.execute(
+                    text(
+                        "SELECT c.id, c.name FROM contexts c "
+                        "LEFT JOIN user_contexts uc ON uc.context_id = c.id "
+                        "WHERE c.type = 'personal' AND uc.id IS NULL"
+                    )
+                )
+                orphaned_ctx = orphaned_contexts.fetchall()
+
+                latency = (time.perf_counter() - start) * 1000
+
+                issues = []
+                if orphaned_users:
+                    emails = [row[1] for row in orphaned_users]
+                    issues.append(f"{len(orphaned_users)} users without context: {emails[:3]}")
+                if orphaned_ctx:
+                    names = [row[1] for row in orphaned_ctx]
+                    issues.append(f"{len(orphaned_ctx)} orphaned contexts: {names[:3]}")
+
+                if issues:
+                    return TestResult(
+                        component="User-Context Integrity",
+                        status="fail",
+                        latency_ms=latency,
+                        message="; ".join(issues),
+                    )
+
+                return TestResult(
+                    component="User-Context Integrity",
+                    status="ok",
+                    latency_ms=latency,
+                    message="All users have linked contexts",
+                )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="User-Context Integrity",
                 status="fail",
                 latency_ms=latency,
                 message=str(e),
