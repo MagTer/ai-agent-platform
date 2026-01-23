@@ -28,14 +28,17 @@ COPY alembic ./alembic
 RUN poetry install --no-root --only main --no-cache
 
 COPY src ./src
+COPY entrypoint.sh ./entrypoint.sh
 
 # Create non-root user for security (container should not run as root)
 RUN groupadd --gid 1000 appgroup \
     && useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser \
-    && chown -R appuser:appgroup /app
+    && chown -R appuser:appgroup /app \
+    && chmod +x /app/entrypoint.sh
 
 USER appuser
 
 EXPOSE 8000
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "core.core.app:create_app", "--host", "0.0.0.0", "--port", "8000", "--factory", "--proxy-headers", "--forwarded-allow-ips", "*"]
