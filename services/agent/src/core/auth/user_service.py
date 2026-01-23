@@ -45,8 +45,11 @@ async def get_or_create_user(
             user.display_name = identity.name
         if identity.openwebui_id and user.openwebui_id != identity.openwebui_id:
             user.openwebui_id = identity.openwebui_id
-        if identity.role and user.role != identity.role:
-            user.role = identity.role
+        # SECURITY: Do NOT sync role from headers - database role is authoritative.
+        # Header role claims could be spoofed. Role changes must be done by admins
+        # through the admin portal, not automatically from SSO headers.
+        # if identity.role and user.role != identity.role:
+        #     user.role = identity.role
         await session.flush()
         LOGGER.info(f"User logged in: {user.email}")
         return user

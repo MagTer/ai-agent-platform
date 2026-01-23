@@ -1053,25 +1053,68 @@ class AgentService:
 
         return history
 
+    def _is_path_safe(self, file_path: str, allowed_bases: list[str]) -> bool:
+        """Check if a file path is safe to read (no path traversal).
+
+        SECURITY: Prevents reading sensitive files outside allowed directories.
+
+        Args:
+            file_path: The file path to validate
+            allowed_bases: List of allowed base directories
+
+        Returns:
+            True if path is within an allowed directory, False otherwise
+        """
+        from pathlib import Path
+
+        try:
+            resolved = Path(file_path).resolve()
+            for base in allowed_bases:
+                base_resolved = Path(base).resolve()
+                # Check if the resolved path starts with the allowed base
+                if str(resolved).startswith(str(base_resolved) + "/"):
+                    return True
+                if resolved == base_resolved:
+                    return True
+            return False
+        except Exception:
+            return False
+
     def _inject_pinned_files(
         self,
         history: list[AgentMessage],
         pinned_files: list[str] | None,
+        workspace_path: str | None = None,
     ) -> None:
         """Inject pinned file contents into the conversation history.
 
         Args:
             history: The conversation history to modify in-place
             pinned_files: List of file paths to inject
+            workspace_path: Optional workspace path for path validation
         """
         if not pinned_files:
             return
 
         from pathlib import Path
 
+        # SECURITY: Define allowed base directories for pinned files
+        allowed_bases: list[str] = []
+        if workspace_path:
+            allowed_bases.append(workspace_path)
+        # Also allow user's home directory as a reasonable default
+        home = Path.home()
+        if home.exists():
+            allowed_bases.append(str(home))
+
         pinned_content = []
         for pf in pinned_files:
             try:
+                # SECURITY: Validate path is within allowed directories
+                if allowed_bases and not self._is_path_safe(pf, allowed_bases):
+                    LOGGER.warning(f"Blocked pinned file outside allowed paths: {pf}")
+                    continue
+
                 p = Path(pf)
                 if p.exists() and p.is_file():
                     pinned_content.append(f"### FILE: {pf}\n{p.read_text(encoding='utf-8')}")
@@ -1103,7 +1146,24 @@ class AgentService:
         """
         from pathlib import Path
 
+        # SECURITY: Validate workspace_path and ensure rules file stays within it
+        try:
+            workspace_resolved = Path(workspace_path).resolve()
+        except Exception:
+            LOGGER.warning(f"Invalid workspace path: {workspace_path}")
+            return
+
         rules_path = Path(workspace_path) / ".agent" / "rules.md"
+
+        # SECURITY: Ensure resolved rules_path is within workspace
+        try:
+            rules_resolved = rules_path.resolve()
+            if not str(rules_resolved).startswith(str(workspace_resolved) + "/"):
+                LOGGER.warning(f"Blocked rules path traversal: {rules_path}")
+                return
+        except Exception:
+            return
+
         if not rules_path.exists() or not rules_path.is_file():
             return
 

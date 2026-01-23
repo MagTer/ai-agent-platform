@@ -108,15 +108,19 @@ class TestGetOrCreateUser:
         assert user.display_name == "New Display Name"
 
     @pytest.mark.asyncio
-    async def test_updates_role_on_login(
+    async def test_does_not_update_role_from_headers(
         self, mock_session: AsyncMock, existing_user: User
     ) -> None:
-        """Should update role if it changed."""
+        """Should NOT update role from headers - database role is authoritative.
+
+        SECURITY: Header role claims could be spoofed. Role changes must be done
+        by admins through the admin portal, not automatically from SSO headers.
+        """
         existing_user.role = "user"
         identity = UserIdentity(
             email=existing_user.email,
             name=existing_user.display_name,
-            role="admin",
+            role="admin",  # Header claims admin, but should be ignored
         )
 
         mock_result = MagicMock()
@@ -125,7 +129,8 @@ class TestGetOrCreateUser:
 
         user = await get_or_create_user(identity, mock_session)
 
-        assert user.role == "admin"
+        # Role should remain "user" - header claim is ignored for security
+        assert user.role == "user"
 
     @pytest.mark.asyncio
     async def test_updates_openwebui_id_on_login(

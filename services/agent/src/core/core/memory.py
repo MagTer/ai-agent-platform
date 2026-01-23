@@ -51,12 +51,23 @@ class MemoryStore:
             settings: Application settings
             context_id: Context UUID for multi-tenant isolation.
                        If None, context filtering is disabled (backward compatibility).
+
+        SECURITY NOTE: context_id should always be provided for user-facing operations
+        to ensure proper tenant isolation. The None case is only for backwards
+        compatibility and internal/admin operations.
         """
         self._settings = settings
         self._context_id = context_id
         self._vector_size = settings.qdrant_vector_size
         self._embedder = EmbedderClient(str(settings.embedder_url))
         self._client: AsyncQdrantClient | None = None
+
+        # SECURITY: Warn if context_id is None - this disables tenant isolation
+        if context_id is None:
+            LOGGER.warning(
+                "MemoryStore initialized without context_id - tenant isolation disabled. "
+                "This should only be used for admin/internal operations."
+            )
 
     async def ainit(self) -> None:  # Async initialization method
         await self._async_ensure_client()
@@ -66,6 +77,7 @@ class MemoryStore:
             self._client = AsyncQdrantClient(
                 url=str(self._settings.qdrant_url),
                 api_key=self._settings.qdrant_api_key,
+                timeout=30,  # SECURITY: Prevent hanging under load
             )
             try:
                 # Use await for async client methods
