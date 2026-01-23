@@ -38,6 +38,12 @@ services:
       - "traefik.http.routers.agent-admin-dev.tls.certresolver=letsencrypt"
       - "traefik.http.routers.agent-admin-dev.service=agent-admin-dev"
       - "traefik.http.services.agent-admin-dev.loadbalancer.server.port=8000"
+      # Security: Strip untrusted X-OpenWebUI-* headers
+      - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      - "traefik.http.routers.agent-admin-dev.middlewares=strip-agent-headers-dev"
 
   # Open WebUI with dev port and optional Traefik routing
   open-webui:
