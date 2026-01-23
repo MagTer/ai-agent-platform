@@ -14,6 +14,15 @@ class ProductCreate(BaseModel):
     unit: str | None = None
 
 
+class ProductUpdate(BaseModel):
+    """Schema for updating an existing product."""
+
+    name: str | None = None
+    brand: str | None = None
+    category: str | None = None
+    unit: str | None = None
+
+
 class ProductStoreLink(BaseModel):
     """Schema for linking a product to a store."""
 
@@ -88,6 +97,7 @@ class DealResponse(BaseModel):
 
 __all__ = [
     "ProductCreate",
+    "ProductUpdate",
     "ProductStoreLink",
     "PriceWatchCreate",
     "StoreResponse",
