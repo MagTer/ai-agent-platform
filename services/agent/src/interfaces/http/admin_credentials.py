@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 from uuid import UUID
@@ -261,8 +262,8 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
         .toast.error { background: var(--error); display: block; }
     """
 
-    # Build JavaScript with embedded CREDENTIAL_TYPES
-    cred_types_js = str(CREDENTIAL_TYPES).replace("'", '"')
+    # Build JavaScript with embedded CREDENTIAL_TYPES (proper JSON serialization)
+    cred_types_js = json.dumps(CREDENTIAL_TYPES)
     extra_js = f"""
         const CREDENTIAL_TYPES = {cred_types_js};
 
