@@ -110,12 +110,27 @@ class SkillDelegateTool(Tool):
         self,
         skill: str,
         goal: str,
+        user_id: Any | None = None,
+        session: Any | None = None,
         **kwargs: Any,  # Accept and ignore extra arguments from LLM
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute a sub-agent loop for the given skill and goal."""
-        # Log any unexpected extra args for debugging
-        if kwargs:
-            LOGGER.debug(f"Ignoring extra args passed to consult_expert: {list(kwargs.keys())}")
+        """Execute a sub-agent loop for the given skill and goal.
+
+        Args:
+            skill: Name of the skill/persona to delegate to
+            goal: The specific task or goal for the skill
+            user_id: User UUID for credential lookup (passed to tools that need it)
+            session: Database session for credential lookup (passed to tools that need it)
+            **kwargs: Extra arguments (logged and ignored)
+        """
+        # Store credential context for sub-tools
+        self._user_id = user_id
+        self._session = session
+
+        # Log any unexpected extra args for debugging (exclude our credential params)
+        extra_kwargs = {k: v for k, v in kwargs.items() if k not in ("user_id", "session")}
+        if extra_kwargs:
+            LOGGER.debug(f"Ignoring extra args in consult_expert: {list(extra_kwargs.keys())}")
 
         # 1. Load Skill
         try:
@@ -483,9 +498,14 @@ class SkillDelegateTool(Tool):
                                 if tool_obj:
                                     LOGGER.info(f"{logger_prefix} Executing {fname}")
                                     try:
-                                        # Check if tool is also streaming?
-                                        # For now, assume other tools are atomic.
-                                        output_str = str(await tool_obj.run(**fargs))
+                                        # Inject credential context for tools that need it
+                                        tool_args = fargs.copy()
+                                        if self._user_id is not None and self._session is not None:
+                                            # Tools that require user credential lookup
+                                            if fname == "azure_devops":
+                                                tool_args["user_id"] = self._user_id
+                                                tool_args["session"] = self._session
+                                        output_str = str(await tool_obj.run(**tool_args))
                                         # Capture output summary in span
                                         set_span_attributes(
                                             {

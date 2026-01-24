@@ -339,7 +339,9 @@ class StepExecutorAgent:
                         final_args["user_email"] = user_email
 
             # Inject user_id and session for tools that need credential lookup
-            if step.tool == "azure_devops":
+            # This includes direct tools (azure_devops) and orchestration tools (consult_expert)
+            # that forward credentials to sub-tools
+            if step.tool in ("azure_devops", "consult_expert"):
                 user_id_str = (request.metadata or {}).get("user_id")
                 db_session = (request.metadata or {}).get("_db_session")
                 if user_id_str and db_session:

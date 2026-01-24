@@ -117,8 +117,10 @@ class AgentService:
             # Fallback to loading from database
             history = await self._load_conversation_history(session, db_session)
 
-        # 6. Request Prep
-        request_metadata: dict[str, Any] = dict(request.metadata or {})
+        # 6. Request Prep - update request.metadata directly so executor can access it
+        if request.metadata is None:
+            request.metadata = {}
+        request_metadata = request.metadata
         if db_conversation.current_cwd:
             request_metadata["cwd"] = db_conversation.current_cwd
 
