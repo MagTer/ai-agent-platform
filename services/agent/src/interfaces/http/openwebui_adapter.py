@@ -361,8 +361,8 @@ def _should_show_chunk_default(
 ) -> bool:
     """Determine if a chunk should be shown in DEFAULT verbosity mode.
 
-    DEFAULT mode shows minimal output: final answer, errors, brief skill status.
-    This is the clean, user-focused mode.
+    DEFAULT mode shows minimal output: final answer, errors, brief skill status,
+    and initial planning feedback (so users know something is happening).
 
     Args:
         chunk_type: The type of the agent chunk.
@@ -375,6 +375,13 @@ def _should_show_chunk_default(
     if chunk_type in ("content", "error"):
         return True
 
+    # Show thinking chunks from Planner (gives initial feedback that work is starting)
+    if chunk_type == "thinking":
+        role = (metadata or {}).get("role", "")
+        if role == "Planner":
+            return True
+        return False
+
     # Show tool_start/tool_output only for skills (brief start/completion status)
     if chunk_type in ("tool_start", "tool_output"):
         # Check tool name from metadata or tool_call
@@ -385,7 +392,7 @@ def _should_show_chunk_default(
         return False
 
     # Hide everything else in DEFAULT mode:
-    # - thinking (verbose planning text)
+    # - thinking from other roles (verbose)
     # - step_start (internal progress)
     # - skill_activity (search queries, URLs)
     return False
