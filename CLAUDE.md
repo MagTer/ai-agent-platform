@@ -2,7 +2,7 @@
 
 **Purpose:** Entry point for Claude Code sessions. Defines the tri-agent workflow.
 
-**Last Updated:** 2026-01-23
+**Last Updated:** 2026-01-24
 
 ---
 
@@ -318,6 +318,131 @@ Use `stack check --no-fix` for CI-style check-only mode.
 - Store templates in `interfaces/http/templates/*.html`
 - Load via `Path(__file__).parent / "templates" / "name.html"`
 - Keep API endpoints in `admin_*.py`, HTML/CSS/JS in templates
+
+---
+
+## Skills & Tools Architecture
+
+The agent uses a **skill-based orchestration pattern**. Understanding this is critical when adding new integrations.
+
+### The Two Layers
+
+```
+User Request
+    ↓
+[Planner] → Only sees "consult_expert" tool
+    ↓
+[Skill] → Markdown file with instructions + allowed tools
+    ↓
+[Tool] → Python class that does the actual work
+```
+
+### Why Skills?
+
+The Planner (LLM) only sees **orchestration tools** like `consult_expert`. It delegates work to **skills**, which are specialized personas with access to specific tools. This provides:
+
+1. **Isolation** - Each skill has limited tool access
+2. **Clarity** - Clear instructions per domain
+3. **Security** - Tools aren't directly exposed to the LLM
+
+### Adding a New Integration
+
+**Step 1: Create the Tool** (`core/tools/`)
+
+```python
+# services/agent/src/core/tools/my_integration.py
+class MyIntegrationTool(Tool):
+    name = "my_integration"
+    description = "..."
+    category = "domain"  # NOT "orchestration"
+
+    async def run(self, action: str, context_id: UUID | None = None, **kwargs) -> str:
+        # Implementation
+```
+
+**Step 2: Register the Tool** (`config/tools.yaml`)
+
+```yaml
+- name: my_integration
+  type: core.tools.my_integration.MyIntegrationTool
+  enabled: true
+  description: "Short description"
+```
+
+**Step 3: Create the Skill** (`skills/general/` or `skills/work/`)
+
+```markdown
+---
+name: "my_skill"
+description: "User-facing description for the Planner"
+tools: ["my_integration"]
+model: agentchat
+max_turns: 5
+---
+
+# My Skill
+
+**User query:** $ARGUMENTS
+
+## Instructions for the skill...
+```
+
+**Step 4: Inject Context (if needed)**
+
+If the tool needs `context_id` for OAuth/credentials, update `executor.py`:
+
+```python
+# In _run_tool_gen(), add your tool to the injection block:
+if step.tool == "my_integration":
+    context_id_str = (request.metadata or {}).get("context_id")
+    if context_id_str:
+        final_args["context_id"] = UUID(context_id_str)
+```
+
+### Directory Structure
+
+```
+/skills/                    # Skill markdown files (mounted to /app/skills)
+├── general/               # General-purpose skills
+│   ├── researcher.md
+│   ├── price_tracker.md
+│   └── homey.md          # Smart home control
+├── work/                  # Work-related skills
+│   └── backlog_manager.md
+└── development/           # Development skills
+    └── software_engineer.md
+
+/services/agent/
+├── config/tools.yaml      # Tool registration
+└── src/core/tools/        # Tool implementations
+    ├── base.py
+    ├── homey.py
+    └── price_tracker.py
+```
+
+### Skill Frontmatter Reference
+
+```yaml
+---
+name: "skill_name"           # Used by consult_expert
+description: "..."           # Shown to Planner for routing
+tools: ["tool1", "tool2"]    # Tools this skill can use
+model: agentchat             # LLM model to use
+max_turns: 5                 # Max iterations
+---
+```
+
+### Common Patterns
+
+**OAuth-based integrations** (like Homey):
+1. Tool uses `get_token_manager_optional()` to get OAuth tokens
+2. Tokens are looked up by `context_id` (user's context)
+3. User authorizes via Admin Portal -> OAuth
+
+**Credential-based integrations** (like Azure DevOps):
+1. Tool uses `CredentialService` to get per-user credentials
+2. Credentials stored encrypted in database
+3. User enters credentials via Admin Portal -> Credentials
 
 ---
 
