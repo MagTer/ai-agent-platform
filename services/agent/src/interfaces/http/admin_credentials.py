@@ -7,7 +7,6 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +22,7 @@ from core.observability.security_logger import (
     log_security_event,
 )
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
-from interfaces.http.admin_shared import render_admin_page
+from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 
 LOGGER = logging.getLogger(__name__)
 
@@ -127,7 +126,7 @@ class CredentialDeleteResponse(BaseModel):
 # --- HTML Dashboard ---
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=UTF8HTMLResponse)
 async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """User credential management dashboard."""
     # Generate credential type options for the form

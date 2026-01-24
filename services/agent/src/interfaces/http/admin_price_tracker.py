@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +17,7 @@ from core.auth.user_service import get_user_default_context
 from core.db.engine import AsyncSessionLocal, get_db
 from core.providers import get_fetcher
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
-from interfaces.http.admin_shared import render_admin_page
+from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
 from modules.price_tracker.parser import PriceParser
 from modules.price_tracker.service import PriceTrackerService
@@ -1168,7 +1167,7 @@ async def delete_product(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=UTF8HTMLResponse)
 async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """Server-rendered admin dashboard for price tracking.
 
