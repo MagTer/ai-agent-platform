@@ -173,10 +173,10 @@ class StepExecutorAgent:
                         metadata, rendered_prompt = load_command(step.tool, step.args or {})
 
                         # --- DYNAMIC ROUTING ---
-                        # Use the model defined in skill, or default to 'skillsrunner-complex'
-                        target_model = metadata.get("model", "skillsrunner-complex")
+                        # Use the model defined in skill, or default to 'skillsrunner'
+                        target_model = metadata.get("model", "skillsrunner")
 
-                        if target_model != "skillsrunner-complex":
+                        if target_model != "skillsrunner":
                             LOGGER.info(
                                 f"Routing skill '{step.tool}' to specialized model: {target_model}"
                             )

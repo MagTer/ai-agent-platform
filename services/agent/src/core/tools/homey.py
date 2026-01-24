@@ -60,7 +60,14 @@ class HomeyTool(Tool):
             },
             "device_id": {
                 "type": "string",
-                "description": "Device ID (required for get_device, control_device)",
+                "description": "Device UUID (if known). If not provided, use device_name instead.",
+            },
+            "device_name": {
+                "type": "string",
+                "description": (
+                    "Device name to search for (e.g., 'Bakom Skärmen'). "
+                    "The tool will find the matching device."
+                ),
             },
             "capability": {
                 "type": "string",
@@ -248,6 +255,7 @@ class HomeyTool(Tool):
         action: str,
         homey_id: str | None = None,
         device_id: str | None = None,
+        device_name: str | None = None,
         capability: str | None = None,
         value: bool | float | str | None = None,
         flow_id: str | None = None,
@@ -260,7 +268,8 @@ class HomeyTool(Tool):
         Args:
             action: Action to perform.
             homey_id: Homey device ID.
-            device_id: Device ID for device actions.
+            device_id: Device UUID for device actions.
+            device_name: Device name to search for (alternative to device_id).
             capability: Capability name for control_device.
             value: Value to set for control_device.
             flow_id: Flow ID for trigger_flow.
@@ -301,12 +310,21 @@ class HomeyTool(Tool):
                     return "Error: device_id is required for get_device action."
                 return await self._action_get_device(homey_url, session_token, device_id)
             elif action == "control_device":
-                if not device_id or not capability:
-                    return "Error: device_id and capability are required for control_device."
+                # Resolve device_id from device_name if needed
+                resolved_device_id = device_id
+                if not resolved_device_id and device_name:
+                    resolved_device_id = await self._find_device_by_name(
+                        homey_url, session_token, device_name
+                    )
+                    if not resolved_device_id:
+                        return f"Error: No device found matching '{device_name}'."
+
+                if not resolved_device_id or not capability:
+                    return "Error: device_id (or device_name) and capability are required."
                 if value is None:
                     return "Error: value is required for control_device."
                 return await self._action_control_device(
-                    homey_url, session_token, device_id, capability, value
+                    homey_url, session_token, resolved_device_id, capability, value
                 )
             elif action == "list_flows":
                 return await self._action_list_flows(homey_url, session_token)
@@ -333,6 +351,51 @@ class HomeyTool(Tool):
         except Exception as e:
             LOGGER.exception("Homey tool error")
             return f"Error: {e}"
+
+    async def _find_device_by_name(
+        self,
+        homey_url: str,
+        session_token: str,
+        name_query: str,
+    ) -> str | None:
+        """Find a device by name (case-insensitive partial match).
+
+        Args:
+            homey_url: Homey base URL.
+            session_token: Homey session token.
+            name_query: Device name to search for.
+
+        Returns:
+            Device ID if found, None otherwise.
+        """
+        devices = await self._homey_request(
+            "GET",
+            homey_url,
+            "/api/manager/devices/device",
+            session_token,
+        )
+
+        if not devices:
+            return None
+
+        query_lower = name_query.lower()
+
+        # First try exact match
+        for device_id, device in devices.items():
+            device_name = device.get("name", "")
+            if device_name.lower() == query_lower:
+                LOGGER.info(f"Homey: Found exact match '{device_name}' -> {device_id}")
+                return device_id
+
+        # Then try partial match
+        for device_id, device in devices.items():
+            device_name = device.get("name", "")
+            if query_lower in device_name.lower():
+                LOGGER.info(f"Homey: Found partial match '{device_name}' -> {device_id}")
+                return device_id
+
+        LOGGER.warning(f"Homey: No device found matching '{name_query}'")
+        return None
 
     async def _action_list_homeys(self, oauth_token: str) -> str:
         """List all Homey devices for the user."""
@@ -436,15 +499,16 @@ class HomeyTool(Tool):
         value: bool | float | str,
     ) -> str:
         """Set a device capability value."""
-        await self._homey_request(
+        response = await self._homey_request(
             "PUT",
             homey_url,
-            f"/api/manager/devices/device/{device_id}/capability/{capability}",
+            f"/api/manager/devices/device/{device_id}/capability/{capability}/",
             session_token,
             json_body={"value": value},
         )
 
-        return f"Set `{capability}` to `{value}` on device `{device_id}`."
+        LOGGER.info(f"Homey control_device response: {response}")
+        return f"Set `{capability}` to `{value}` on device `{device_id}`. Response: {response}"
 
     async def _action_list_flows(
         self,
