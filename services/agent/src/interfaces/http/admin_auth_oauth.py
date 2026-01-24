@@ -6,7 +6,7 @@ import html
 import logging
 import secrets
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import unquote, urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -272,7 +272,9 @@ async def oauth_callback(
 
     # Extract user info from ID token
     email = id_claims.get("email") or id_claims.get("preferred_username")
-    name = id_claims.get("name") or email
+    # URL-decode name in case it comes encoded (e.g., %C3%B6 instead of ö)
+    raw_name = id_claims.get("name") or email
+    name = unquote(raw_name) if raw_name else email
     oid = id_claims.get("oid")  # Object ID (unique user identifier)
 
     if not email:

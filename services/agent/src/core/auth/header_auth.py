@@ -1,6 +1,7 @@
 """Trusted header authentication for Open WebUI integration."""
 
 from dataclasses import dataclass
+from urllib.parse import unquote
 
 from fastapi import Request
 
@@ -16,21 +17,25 @@ class UserIdentity:
 
 
 def _decode_header_value(value: str | None) -> str | None:
-    """Decode header value, handling UTF-8 encoded as Latin-1.
+    """Decode header value, handling URL encoding and UTF-8 as Latin-1.
 
-    HTTP headers are technically ASCII-only, but many systems send UTF-8 bytes
-    which get decoded as Latin-1 by Python's HTTP libraries. This function
-    detects and fixes that encoding issue.
+    Handles two common encoding issues:
+    1. URL encoding: %C3%B6 -> ö
+    2. UTF-8 as Latin-1: Ã¶ -> ö
     """
     if not value:
         return None
+
+    # First, try URL decoding (handles %C3%B6 -> ö)
+    decoded = unquote(value)
+
+    # Then, try fixing Latin-1/UTF-8 encoding
     try:
         # If the string contains Latin-1 artifacts of UTF-8, fix it
-        # Example: "Görönsson" (UTF-8 as Latin-1) -> "Görönsson"
-        return value.encode("latin-1").decode("utf-8")
+        return decoded.encode("latin-1").decode("utf-8")
     except (UnicodeDecodeError, UnicodeEncodeError):
-        # Already valid UTF-8 or other encoding, return as-is
-        return value
+        # Already valid UTF-8 or other encoding, return URL-decoded value
+        return decoded
 
 
 def extract_user_from_headers(request: Request) -> UserIdentity | None:
