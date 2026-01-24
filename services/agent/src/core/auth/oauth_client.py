@@ -309,12 +309,12 @@ class OAuthClient:
                 result = await session.execute(stmt)
                 token = result.scalar_one_or_none()
 
-            # Fall back to context-level token (user_id is NULL)
+            # Fall back to any token for this context/provider (regardless of user_id)
+            # This handles tokens created via admin OAuth initiation where user_id is set
             if not token:
                 stmt = select(OAuthToken).where(
                     OAuthToken.context_id == context_id,
                     OAuthToken.provider == provider,
-                    OAuthToken.user_id.is_(None),
                 )
                 result = await session.execute(stmt)
                 token = result.scalar_one_or_none()
