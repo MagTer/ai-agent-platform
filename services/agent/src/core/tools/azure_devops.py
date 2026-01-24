@@ -1,7 +1,8 @@
 import logging
-import os
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 from uuid import UUID
 
 import yaml
@@ -142,14 +143,12 @@ class AzureDevOpsTool(Tool):
         "required": ["action"],
     }
 
-    def __init__(self, org_url: str | None = None, pat: str | None = None) -> None:
-        self.org_url = org_url or os.environ.get("AZURE_DEVOPS_ORG_URL")
-        if not self.org_url:
-            org = os.environ.get("AZURE_DEVOPS_ORG")
-            if org:
-                self.org_url = f"https://dev.azure.com/{org}"
+    def __init__(self) -> None:
+        """Initialize Azure DevOps tool.
 
-        self.pat = pat or os.environ.get("AZURE_DEVOPS_PAT")
+        Configuration is loaded per-user from credentials in platformadmin.
+        No environment variable fallbacks - all config must be in credentials.
+        """
         self.mappings = self._load_mappings()
 
         # Validate and warn
@@ -254,38 +253,81 @@ class AzureDevOpsTool(Tool):
 
         return warnings
 
-    async def _get_pat_for_user(
+    @staticmethod
+    def _parse_org_url(url: str) -> tuple[str, str | None]:
+        """Parse Azure DevOps URL to extract org URL and project.
+
+        Handles URLs like:
+        - https://dev.azure.com/Coromant/Web%20Teams/
+        - https://dev.azure.com/MyOrg/MyProject
+        - https://dev.azure.com/MyOrg
+
+        Returns:
+            Tuple of (org_url, project) where project may be None
+        """
+        # URL-decode first (handles %20 etc.)
+        url = unquote(url.strip().rstrip("/"))
+
+        # Match Azure DevOps URL pattern
+        match = re.match(r"^(https://dev\.azure\.com/[^/]+)(?:/(.+))?$", url)
+        if match:
+            org_url = match.group(1)
+            project = match.group(2) if match.group(2) else None
+            return org_url, project
+
+        # If no match, assume it's already just the org URL
+        return url, None
+
+    async def _get_credentials_for_user(
         self,
         user_id: UUID | None,
         session: AsyncSession | None,
-    ) -> str:
-        """Get PAT for user, falling back to global PAT.
+    ) -> tuple[str, str, str | None] | None:
+        """Get Azure DevOps credentials for user from database.
 
         Args:
             user_id: User ID to get credential for.
             session: Database session for credential lookup.
 
         Returns:
-            User-specific PAT if found, otherwise global PAT from environment.
+            Tuple of (pat, org_url, project) if found, None otherwise.
+            No environment variable fallback - credentials must be configured
+            via platformadmin.
         """
-        if user_id and session:
-            settings = get_settings()
-            if settings.credential_encryption_key:
-                cred_service = CredentialService(settings.credential_encryption_key)
-                try:
-                    user_pat = await cred_service.get_credential(
-                        user_id=user_id,
-                        credential_type="azure_devops_pat",
-                        session=session,
-                    )
-                    if user_pat:
-                        LOGGER.debug(f"Using user-specific Azure DevOps PAT for user {user_id}")
-                        return user_pat
-                except Exception as e:
-                    LOGGER.warning(f"Failed to get user credential for {user_id}: {e}")
+        if not user_id or not session:
+            LOGGER.warning("Azure DevOps: No user_id or session provided")
+            return None
 
-        # Fall back to global PAT
-        return self.pat or os.environ.get("AZURE_DEVOPS_PAT", "")
+        settings = get_settings()
+        if not settings.credential_encryption_key:
+            LOGGER.error("Azure DevOps: Credential encryption key not configured")
+            return None
+
+        cred_service = CredentialService(settings.credential_encryption_key)
+        try:
+            result = await cred_service.get_credential_with_metadata(
+                user_id=user_id,
+                credential_type="azure_devops_pat",
+                session=session,
+            )
+            if not result:
+                LOGGER.debug(f"No Azure DevOps credentials found for user {user_id}")
+                return None
+
+            pat, metadata = result
+            org_url_raw = metadata.get("organization_url", "")
+
+            if not org_url_raw:
+                LOGGER.warning(f"Azure DevOps credential missing organization_url: {user_id}")
+                return None
+
+            org_url, project = self._parse_org_url(org_url_raw)
+            LOGGER.debug(f"Using Azure DevOps creds for {user_id}: {org_url}")
+            return pat, org_url, project
+
+        except Exception as e:
+            LOGGER.warning(f"Failed to get Azure DevOps credentials for {user_id}: {e}")
+            return None
 
     async def run(
         self,
@@ -332,22 +374,26 @@ class AzureDevOpsTool(Tool):
             user_id: Optional user ID for per-user PAT lookup.
             session: Optional database session for credential lookup.
         """
-        if not self.org_url:
-            return "❌ Error: Azure DevOps configuration (ORG_URL) is missing."
+        # Get credentials from user's stored credentials (no .env fallback)
+        creds = await self._get_credentials_for_user(user_id, session)
+        if not creds:
+            return (
+                "❌ Error: Azure DevOps credentials not configured.\n\n"
+                "Please configure your Azure DevOps credentials in the Admin Portal:\n"
+                "1. Go to Admin Portal → Credentials\n"
+                "2. Add 'Azure DevOps PAT' credential\n"
+                "3. Enter your PAT and DevOps URL (e.g., https://dev.azure.com/YourOrg/YourProject)"
+            )
 
-        # Get PAT for user (with fallback to global PAT)
-        pat = await self._get_pat_for_user(user_id, session)
-        if not pat:
-            return "❌ Error: Azure DevOps PAT not configured (no user PAT or global PAT found)."
+        pat, org_url, cred_project = creds
 
         try:
             credentials = BasicAuthentication("", pat)
-            connection = Connection(base_url=self.org_url, creds=credentials)
+            connection = Connection(base_url=org_url, creds=credentials)
             wit_client = connection.clients.get_work_item_tracking_client()
 
-            target_project = (
-                project or kwargs.get("project") or os.environ.get("AZURE_DEVOPS_PROJECT")
-            )
+            # Project priority: explicit param > credential metadata
+            target_project = project or kwargs.get("project") or cred_project
 
             if action == "create":
                 # Per-action confirmation: require explicit confirm_write=True (boolean)
@@ -516,7 +562,7 @@ class AzureDevOpsTool(Tool):
                     else:
                         raise create_err
 
-                web_url = f"{self.org_url}/{target_project}/_workitems/edit/{wi.id}"
+                web_url = f"{org_url}/{target_project}/_workitems/edit/{wi.id}"
                 return f"✅ Created {final_type} #{wi.id}: [{title}]({web_url})"
 
             elif action == "get":

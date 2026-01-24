@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -32,12 +33,24 @@ router = APIRouter(
 )
 
 # Supported credential types with display info
-CREDENTIAL_TYPES = {
+# metadata_fields can be either:
+# - A string (field name, auto-generates label from name)
+# - A dict with: name, label, placeholder, pattern (optional regex), required (bool)
+CREDENTIAL_TYPES: dict[str, dict[str, Any]] = {
     "azure_devops_pat": {
         "name": "Azure DevOps PAT",
         "description": "Personal Access Token for Azure DevOps",
         "placeholder": "Enter your Azure DevOps PAT",
-        "metadata_fields": ["organization_url"],
+        "metadata_fields": [
+            {
+                "name": "organization_url",
+                "label": "DevOps URL (including project)",
+                "placeholder": "https://dev.azure.com/YourOrg/YourProject",
+                "pattern": r"^https://dev\.azure\.com/[^/]+(/[^/]+)?/?$",
+                "pattern_error": "Must be a valid Azure DevOps URL (e.g., https://dev.azure.com/Org/Project)",
+                "required": True,
+            }
+        ],
     },
     "github_token": {
         "name": "GitHub Token",
@@ -49,13 +62,33 @@ CREDENTIAL_TYPES = {
         "name": "GitLab Token",
         "description": "Personal Access Token for GitLab",
         "placeholder": "glpat-xxxxxxxxxxxx",
-        "metadata_fields": ["gitlab_url"],
+        "metadata_fields": [
+            {
+                "name": "gitlab_url",
+                "label": "GitLab URL",
+                "placeholder": "https://gitlab.com",
+                "required": False,
+            }
+        ],
     },
     "jira_api_token": {
         "name": "Jira API Token",
         "description": "API Token for Jira/Atlassian",
         "placeholder": "Enter your Jira API token",
-        "metadata_fields": ["jira_url", "jira_email"],
+        "metadata_fields": [
+            {
+                "name": "jira_url",
+                "label": "Jira URL",
+                "placeholder": "https://yourcompany.atlassian.net",
+                "required": True,
+            },
+            {
+                "name": "jira_email",
+                "label": "Jira Email",
+                "placeholder": "your@email.com",
+                "required": True,
+            },
+        ],
     },
 }
 
@@ -307,11 +340,27 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
 
             if (type && CREDENTIAL_TYPES[type]) {{
                 const fields = CREDENTIAL_TYPES[type].metadata_fields || [];
-                fields.forEach(field => {{
+                fields.forEach(fieldDef => {{
+                    // Support both string (legacy) and object field definitions
+                    const name = typeof fieldDef === 'string' ? fieldDef : fieldDef.name;
+                    const label = typeof fieldDef === 'string'
+                        ? fieldDef.replace('_', ' ').replace(/\\b\\w/g, l => l.toUpperCase())
+                        : fieldDef.label;
+                    const placeholder = typeof fieldDef === 'string'
+                        ? `Enter ${{fieldDef}}`
+                        : (fieldDef.placeholder || '');
+                    const pattern = typeof fieldDef === 'object' && fieldDef.pattern ? fieldDef.pattern : '';
+                    const patternError = typeof fieldDef === 'object' && fieldDef.pattern_error ? fieldDef.pattern_error : 'Invalid format';
+                    const required = typeof fieldDef === 'object' && fieldDef.required;
+
                     container.innerHTML += `
                         <div class="form-group">
-                            <label for="meta_${{field}}">${{field.replace('_', ' ').replace(/\\b\\w/g, l => l.toUpperCase())}}</label>
-                            <input type="text" id="meta_${{field}}" name="meta_${{field}}" placeholder="Enter ${{field}}">
+                            <label for="meta_${{name}}">${{label}}${{required ? ' *' : ''}}</label>
+                            <input type="text" id="meta_${{name}}" name="meta_${{name}}"
+                                   placeholder="${{placeholder}}"
+                                   ${{pattern ? `data-pattern="${{pattern}}" data-pattern-error="${{patternError}}"` : ''}}
+                                   ${{required ? 'required' : ''}}>
+                            <div class="field-error" id="error_${{name}}" style="display:none; color: var(--error); font-size: 12px; margin-top: 4px;"></div>
                         </div>
                     `;
                 }});
@@ -324,15 +373,53 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             const credType = document.getElementById('credType').value;
             const credValue = document.getElementById('credValue').value;
 
-            // Collect metadata
+            // Collect and validate metadata
             const metadata = {{}};
+            let hasError = false;
+
             if (CREDENTIAL_TYPES[credType]) {{
-                CREDENTIAL_TYPES[credType].metadata_fields.forEach(field => {{
-                    const el = document.getElementById('meta_' + field);
-                    if (el && el.value) {{
-                        metadata[field] = el.value;
+                const fields = CREDENTIAL_TYPES[credType].metadata_fields || [];
+                for (const fieldDef of fields) {{
+                    const name = typeof fieldDef === 'string' ? fieldDef : fieldDef.name;
+                    const el = document.getElementById('meta_' + name);
+                    const errorEl = document.getElementById('error_' + name);
+
+                    if (el) {{
+                        const value = el.value.trim();
+
+                        // Check required
+                        if (typeof fieldDef === 'object' && fieldDef.required && !value) {{
+                            if (errorEl) {{
+                                errorEl.textContent = 'This field is required';
+                                errorEl.style.display = 'block';
+                            }}
+                            hasError = true;
+                            continue;
+                        }}
+
+                        // Check pattern
+                        if (value && typeof fieldDef === 'object' && fieldDef.pattern) {{
+                            const regex = new RegExp(fieldDef.pattern);
+                            if (!regex.test(value)) {{
+                                if (errorEl) {{
+                                    errorEl.textContent = fieldDef.pattern_error || 'Invalid format';
+                                    errorEl.style.display = 'block';
+                                }}
+                                hasError = true;
+                                continue;
+                            }}
+                        }}
+
+                        // Clear error and save value
+                        if (errorEl) errorEl.style.display = 'none';
+                        if (value) metadata[name] = value;
                     }}
-                }});
+                }}
+            }}
+
+            if (hasError) {{
+                showToast('Please fix validation errors', 'error');
+                return;
             }}
 
             try {{

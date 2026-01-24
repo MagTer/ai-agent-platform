@@ -99,6 +99,25 @@ class CredentialService:
         Returns:
             Decrypted credential value, or None if not found or decryption fails
         """
+        result = await self.get_credential_with_metadata(user_id, credential_type, session)
+        return result[0] if result else None
+
+    async def get_credential_with_metadata(
+        self,
+        user_id: UUID,
+        credential_type: str,
+        session: AsyncSession,
+    ) -> tuple[str, dict] | None:
+        """Retrieve and decrypt a credential with its metadata.
+
+        Args:
+            user_id: User's UUID
+            credential_type: Type of credential
+            session: Database session
+
+        Returns:
+            Tuple of (decrypted_value, metadata), or None if not found or decryption fails
+        """
         stmt = select(UserCredential).where(
             UserCredential.user_id == user_id,
             UserCredential.credential_type == credential_type,
@@ -110,7 +129,8 @@ class CredentialService:
             return None
 
         try:
-            return self._decrypt(credential.encrypted_value)
+            decrypted = self._decrypt(credential.encrypted_value)
+            return (decrypted, credential.credential_metadata or {})
         except InvalidToken:
             # Provide actionable error context
             created_at = credential.created_at.isoformat() if credential.created_at else "unknown"
