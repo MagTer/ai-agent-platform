@@ -35,6 +35,8 @@ ADMIN_NAV_ITEMS: list[NavItem] = [
     NavItem("MCP Servers", "/platformadmin/mcp/", "&#128268;", "features"),
     NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "features"),
     NavItem("OAuth Settings", "/platformadmin/oauth/", "&#128274;", "features"),
+    NavItem("Chat", "/", "&#128172;", "external"),
+    NavItem("Open WebUI Admin", "/admin/", "&#128279;", "external"),
 ]
 
 
@@ -432,6 +434,7 @@ def get_admin_sidebar_html(active_page: str) -> str:
         "monitoring": "Monitoring",
         "users": "User Management",
         "features": "Features",
+        "external": "Open WebUI",
     }
 
     current_section = None

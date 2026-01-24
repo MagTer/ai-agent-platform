@@ -1,6 +1,6 @@
 """Tests for Azure DevOps team resolution and validation functionality."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -73,7 +73,7 @@ class TestTeamResolution:
     def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
         """Create tool instance with mocked mappings."""
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
-            return AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            return AzureDevOpsTool()
 
     def test_get_available_teams(self, tool: AzureDevOpsTool) -> None:
         """Should return list of configured teams."""
@@ -134,7 +134,7 @@ class TestTeamValidation:
             }
         }
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
-            tool = AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 0
 
@@ -149,7 +149,7 @@ class TestTeamValidation:
             }
         }
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
-            tool = AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 1
             assert "Team 'platform' missing area_path" in warnings[0]
@@ -165,7 +165,7 @@ class TestTeamValidation:
             }
         }
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
-            tool = AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 1
             assert "Team 'platform' missing default_type" in warnings[0]
@@ -184,7 +184,7 @@ class TestTeamValidation:
             }
         }
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
-            tool = AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 3
 
@@ -192,7 +192,7 @@ class TestTeamValidation:
         """Empty teams dict should produce no warnings."""
         mappings: dict[str, dict[str, dict[str, str]]] = {"teams": {}}
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
-            tool = AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 0
 
@@ -218,11 +218,15 @@ class TestTeamAwareQuerying:
         }
 
     @pytest.fixture
-    def tool(self, mock_mappings: dict, monkeypatch: pytest.MonkeyPatch) -> AzureDevOpsTool:
-        """Create tool instance with mocked mappings and env vars."""
-        monkeypatch.setenv("AZURE_DEVOPS_PROJECT", "TestProject")
+    def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
+        """Create tool instance with mocked mappings."""
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
-            return AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            tool = AzureDevOpsTool()
+            # Mock credentials to return test values
+            tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
+                return_value=("fake_pat", "https://dev.azure.com/test", "TestProject")
+            )
+            return tool
 
     @pytest.mark.asyncio
     async def test_list_by_team_alias(self, tool: AzureDevOpsTool) -> None:
@@ -328,7 +332,12 @@ class TestGetTeamsAction:
     def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
         """Create tool instance with mocked mappings."""
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
-            return AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            tool = AzureDevOpsTool()
+            # Mock credentials to return test values
+            tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
+                return_value=("fake_pat", "https://dev.azure.com/test", "TestProject")
+            )
+            return tool
 
     @pytest.mark.asyncio
     async def test_get_teams_returns_formatted_list(self, tool: AzureDevOpsTool) -> None:
@@ -377,7 +386,11 @@ class TestGetTeamsAction:
         """Empty teams config should return helpful message."""
         empty_mappings: dict[str, dict[str, dict[str, str]]] = {"teams": {}}
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=empty_mappings):
-            tool = AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            tool = AzureDevOpsTool()
+            # Mock credentials to return test values
+            tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
+                return_value=("fake_pat", "https://dev.azure.com/test", "TestProject")
+            )
             # Mock Connection to prevent actual API calls
             with patch("core.tools.azure_devops.Connection"):
                 result = await tool.run(action="get_teams")
@@ -404,11 +417,15 @@ class TestBackwardsCompatibility:
         }
 
     @pytest.fixture
-    def tool(self, mock_mappings: dict, monkeypatch: pytest.MonkeyPatch) -> AzureDevOpsTool:
-        """Create tool instance with mocked mappings and env vars."""
-        monkeypatch.setenv("AZURE_DEVOPS_PROJECT", "TestProject")
+    def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
+        """Create tool instance with mocked mappings."""
         with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
-            return AzureDevOpsTool(org_url="https://dev.azure.com/test", pat="fake_pat")
+            tool = AzureDevOpsTool()
+            # Mock credentials to return test values
+            tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
+                return_value=("fake_pat", "https://dev.azure.com/test", "TestProject")
+            )
+            return tool
 
     @pytest.mark.asyncio
     async def test_list_with_area_path_still_works(self, tool: AzureDevOpsTool) -> None:
