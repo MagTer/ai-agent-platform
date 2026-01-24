@@ -191,7 +191,27 @@ Use `stack check --no-fix` for CI-style check-only mode.
 
 **IMPORTANT:** The `main` branch has branch protection enabled. Direct pushes are blocked.
 
+### Dev vs Production Deployment
+
+**Dev environment** - Fast iteration:
+- Deploy directly with `./stack dev restart` (no PR needed)
+- Always commit changes first to avoid losing work
+- Use for testing and rapid development
+
+**Production** - Requires PR:
+- Must go through main branch (PR + CI)
+- CI takes time, so batch production deploys
+- Deploy to prod periodically, not after every change
+
+**Recommended workflow:**
+1. Make changes and commit to a feature branch
+2. Deploy to dev: `./stack dev restart`
+3. Test in dev environment
+4. When ready for prod: create PR, wait for CI, merge, then `./stack deploy`
+
 ### Commit Process
+
+**CRITICAL: Always commit before deploying to dev.** This ensures work is never lost.
 
 1. **Run quality checks** (MANDATORY for code changes):
    ```bash
