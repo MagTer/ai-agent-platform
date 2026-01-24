@@ -259,6 +259,10 @@ async def list_products(
                     brand=product.brand,
                     category=product.category,
                     unit=product.unit,
+                    package_size=product.package_size,
+                    package_quantity=(
+                        float(product.package_quantity) if product.package_quantity else None
+                    ),
                     stores=stores_data,
                 )
             )
@@ -271,15 +275,22 @@ async def list_products(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/products", status_code=201, dependencies=[Depends(verify_admin_user)])
+@router.post("/products", status_code=201)
 async def create_product(
     data: ProductCreate,
+    admin: AdminUser = Depends(verify_admin_user),
+    session: AsyncSession = Depends(get_db),
     service: PriceTrackerService = Depends(get_price_tracker_service),
 ) -> dict[str, str]:
     """Create a new product to track.
 
+    Products are scoped to the authenticated user's context for multi-tenancy.
+    Different package sizes should be created as separate products.
+
     Args:
         data: Product creation data.
+        admin: Authenticated admin user.
+        session: Database session.
         service: Price tracker service.
 
     Returns:
@@ -289,13 +300,27 @@ async def create_product(
         Requires admin role via Entra ID authentication.
     """
     try:
+        # Get user's default context for multi-tenancy
+        user_context = await get_user_default_context(admin.db_user, session)
+        if not user_context:
+            raise HTTPException(status_code=400, detail="No default context found for user")
+
+        # Validate package_quantity if provided
+        if data.package_quantity is not None and data.package_quantity <= 0:
+            raise HTTPException(status_code=400, detail="package_quantity must be positive")
+
         product = await service.create_product(
+            context_id=str(user_context.id),
             name=data.name,
             brand=data.brand,
             category=data.category,
             unit=data.unit,
+            package_size=data.package_size,
+            package_quantity=data.package_quantity,
         )
         return {"product_id": str(product.id), "message": "Product created successfully"}
+    except HTTPException:
+        raise
     except Exception as e:
         LOGGER.exception("Failed to create product")
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -387,6 +412,10 @@ async def get_product(
             brand=product.brand,
             category=product.category,
             unit=product.unit,
+            package_size=product.package_size,
+            package_quantity=(
+                float(product.package_quantity) if product.package_quantity else None
+            ),
             stores=stores_data,
         )
     except HTTPException:
@@ -437,6 +466,12 @@ async def update_product(
             product.category = data.category if data.category else None
         if data.unit is not None:
             product.unit = data.unit if data.unit else None
+        if data.package_size is not None:
+            product.package_size = data.package_size if data.package_size else None
+        if data.package_quantity is not None:
+            if data.package_quantity <= 0:
+                raise HTTPException(status_code=400, detail="package_quantity must be positive")
+            product.package_quantity = data.package_quantity
 
         await session.commit()
         return {"message": "Product updated successfully"}

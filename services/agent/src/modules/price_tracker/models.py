@@ -37,16 +37,22 @@ class Store(Base):
 class Product(Base):
     """A product that can be tracked across multiple stores.
 
-    Represents a generic product (e.g., 'Alvedon 500mg' or 'Milk 1L').
+    Represents a specific SKU including package size (e.g., 'Toalettpapper 24-pack').
+    Different package sizes are separate products that can independently link to stores.
     """
 
     __tablename__ = "price_tracker_products"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
     name: Mapped[str] = mapped_column(String(255))
     brand: Mapped[str | None] = mapped_column(String(100), nullable=True)
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)  # kg, liter, st, etc.
+    package_size: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    package_quantity: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
