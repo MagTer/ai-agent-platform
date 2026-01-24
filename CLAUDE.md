@@ -206,29 +206,52 @@ Use `stack check --no-fix` for CI-style check-only mode.
    `stack check` auto-fixes import sorting and formatting. If files were modified,
    they must be included in your commit or CI will fail (CI runs with `--no-fix`).
 
-3. **Create a feature branch** from your changes:
+3. **Preserve unrelated work** (CRITICAL - prevents data loss):
+   ```bash
+   # If committing only SOME files, stash unrelated changes first:
+   git stash push -m "WIP: other work" -- path/to/unrelated/
+
+   # Or save everything to a WIP branch first:
+   git stash push -m "WIP: preserve all uncommitted work"
+   ```
+
+4. **Create a feature branch** from your changes:
    ```bash
    git checkout -b feat/description   # or fix/description
    ```
 
-4. **Commit ALL changes** (including auto-fixed files):
+5. **Commit ALL changes** (including auto-fixed files):
    ```bash
    git add -A && git commit -m "feat: Description"
    ```
 
-5. **Push the branch** to origin:
+6. **Push the branch** to origin:
    ```bash
    git push -u origin feat/description
    ```
 
-6. **Create a PR** using GitHub CLI:
+7. **Create a PR** using GitHub CLI:
    ```bash
    gh pr create --title "feat: Description" --body "..."
    ```
 
-7. **Reset main** to origin/main:
+8. **Return to main safely** (IMPORTANT - check for uncommitted work first):
+   ```bash
+   git status                    # Check for uncommitted changes
+   git stash list                # Check for stashed work
+   git checkout main             # Switch to main (will warn if uncommitted changes)
+   git pull origin main          # Get latest (safer than reset --hard)
+   ```
+
+   **Only use `git reset --hard` if you're certain no work will be lost:**
    ```bash
    git checkout main && git reset --hard origin/main
+   ```
+
+9. **Restore stashed work** (if you stashed in step 3):
+   ```bash
+   git stash pop                 # Restore and remove from stash
+   # Or: git stash apply         # Restore but keep in stash
    ```
 
 ### Branch Naming
@@ -246,6 +269,8 @@ Use `stack check --no-fix` for CI-style check-only mode.
 - `git push origin main` - Will be rejected by branch protection
 - `git push --force` on shared branches - Destructive
 - Skip PR review for non-trivial changes
+- **`git reset --hard` without checking `git status` first** - Destroys uncommitted work
+- Commit only some files without stashing unrelated changes first - Risk of losing work on reset
 
 ---
 
