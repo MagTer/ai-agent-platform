@@ -17,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.engine import get_db
 from core.db.oauth_models import OAuthToken
 from core.tools.mcp_loader import get_mcp_client_pool
-from interfaces.http.admin_auth import require_admin_or_redirect, verify_admin_user
+from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
+from interfaces.http.admin_shared import render_admin_page
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,65 +28,39 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(require_admin_or_redirect)])
-async def oauth_dashboard() -> str:
+@router.get("/", response_class=HTMLResponse)
+async def oauth_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """OAuth token management dashboard.
 
     Security:
         Requires admin role via Entra ID authentication.
     """
-    return """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OAuth Tokens - Admin</title>
-    <style>
-        :root { --primary: #ec4899; --bg: #f8fafc; --card: #fff; --border: #e2e8f0; --text: #1e293b; --muted: #64748b; --success: #10b981; --error: #ef4444; --warning: #f59e0b; }
-        body { font-family: system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
-        .header { background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 24px; }
-        .header h1 { margin: 0 0 4px 0; font-size: 20px; }
-        .header p { margin: 0; opacity: 0.8; font-size: 13px; }
-        .nav { padding: 8px 24px; background: var(--card); border-bottom: 1px solid var(--border); }
-        .nav a { color: var(--primary); text-decoration: none; font-size: 13px; }
-        .container { max-width: 900px; margin: 24px auto; padding: 0 24px; }
-        .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-        .card h2 { margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
-        .token-list { margin-top: 16px; }
-        .token { padding: 16px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .token-info { flex: 1; }
-        .token-provider { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
-        .token-meta { font-size: 12px; color: var(--muted); }
-        .token-context { font-family: monospace; font-size: 11px; color: var(--muted); }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
-        .badge-ok { background: #d1fae5; color: #065f46; }
-        .badge-warn { background: #fef3c7; color: #92400e; }
-        .badge-err { background: #fee2e2; color: #991b1b; }
-        .loading { color: var(--muted); font-style: italic; }
-        .btn { padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); background: var(--card); }
-        .btn:hover { background: var(--bg); }
-        .btn-danger { color: var(--error); border-color: var(--error); }
-        .btn-danger:hover { background: #fee2e2; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>OAuth Tokens</h1>
-        <p>Manage OAuth authentication tokens</p>
-    </div>
-    <div class="nav"><a href="/platformadmin/">&larr; Back to Admin Portal</a></div>
-    <div class="container">
+    content = """
+        <h1 class="page-title">OAuth Tokens</h1>
+
         <div class="card">
-            <h2>
-                <span>Active Tokens <span id="count" class="badge badge-ok">0</span></span>
+            <div class="card-header">
+                <span>Active Tokens <span id="count" class="badge badge-success">0</span></span>
                 <button class="btn" onclick="loadTokens()">Refresh</button>
-            </h2>
+            </div>
             <div class="token-list" id="tokens">
                 <div class="loading">Loading...</div>
             </div>
         </div>
-    </div>
-    <script>
+    """
+
+    extra_css = """
+        .token { padding: 16px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .token-info { flex: 1; }
+        .token-provider { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+        .token-meta { font-size: 12px; color: var(--text-muted); }
+        .token-context { font-family: monospace; font-size: 11px; color: var(--text-muted); }
+        .badge-ok { background: #d1fae5; color: #065f46; }
+        .badge-warn { background: #fef3c7; color: #92400e; }
+        .badge-err { background: #fee2e2; color: #991b1b; }
+    """
+
+    extra_js = """
         async function loadTokens() {
             try {
                 const res = await fetch('/platformadmin/oauth/tokens');
@@ -136,9 +111,18 @@ async def oauth_dashboard() -> str:
             return div.innerHTML;
         }
         loadTokens();
-    </script>
-</body>
-</html>"""
+    """
+
+    return render_admin_page(
+        title="OAuth Tokens",
+        active_page="/platformadmin/oauth/",
+        content=content,
+        user_name=admin.display_name or admin.email.split("@")[0],
+        user_email=admin.email,
+        breadcrumbs=[("OAuth Settings", "#")],
+        extra_css=extra_css,
+        extra_js=extra_js,
+    )
 
 
 class OAuthTokenInfo(BaseModel):

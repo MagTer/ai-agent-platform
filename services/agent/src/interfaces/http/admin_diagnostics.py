@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 """Admin diagnostics endpoints (secured version of diagnostics router)."""
 
 from __future__ import annotations
@@ -12,10 +13,10 @@ from fastapi.responses import HTMLResponse
 
 from core.core.config import Settings, get_settings
 from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
-from interfaces.http.admin_auth import require_admin_or_redirect, verify_admin_user
+from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
+from interfaces.http.admin_shared import render_admin_page
 
 LOGGER = logging.getLogger(__name__)
-TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 router = APIRouter(
     prefix="/platformadmin/diagnostics",
@@ -378,9 +379,9 @@ async def get_application_logs(
         }
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(require_admin_or_redirect)])
+@router.get("/", response_class=HTMLResponse)
 async def diagnostics_dashboard(
-    service: DiagnosticsService = Depends(get_diagnostics_service),
+    admin: AdminUser = Depends(require_admin_or_redirect),
 ) -> str:
     """Interactive diagnostics dashboard (HTML).
 
@@ -394,8 +395,186 @@ async def diagnostics_dashboard(
         The dashboard makes AJAX calls to other admin endpoints,
         so authentication must be provided via Entra ID headers.
     """
-    template_path = TEMPLATE_DIR / "diagnostics_dashboard.html"
-    return template_path.read_text(encoding="utf-8")
+    content = """
+        <h1 class="page-title">Diagnostics Dashboard</h1>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">
+            System health monitoring, trace analysis, and component diagnostics
+        </p>
+
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Quick Actions</span>
+            </div>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <button class="btn btn-primary" onclick="runDiagnostics()">Run Diagnostics</button>
+                <button class="btn" onclick="loadTraces()">View Traces</button>
+                <button class="btn" onclick="loadMetrics()">System Metrics</button>
+                <button class="btn" onclick="loadEvents()">System Events</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Status</span>
+            </div>
+            <div id="status-content">
+                <div class="loading">Loading diagnostics data...</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Details</span>
+            </div>
+            <div id="details-content">
+                <div style="color: var(--text-muted); padding: 20px; text-align: center;">
+                    Select a quick action above to view details
+                </div>
+            </div>
+        </div>
+    """
+
+    extra_css = """
+        .trace-item { padding: 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; }
+        .trace-id { font-family: monospace; font-size: 11px; color: var(--text-muted); }
+        .metric-box { padding: 16px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; }
+    """
+
+    extra_js = """
+        async function runDiagnostics() {
+            const statusEl = document.getElementById('status-content');
+            const detailsEl = document.getElementById('details-content');
+            statusEl.innerHTML = '<div class="loading">Running diagnostics tests...</div>';
+            detailsEl.innerHTML = '';
+
+            try {
+                const res = await fetch('/platformadmin/diagnostics/run', { method: 'POST' });
+                const tests = await res.json();
+
+                statusEl.innerHTML = tests.map(t => `
+                    <div class="metric-box">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <strong>${escapeHtml(t.component)}</strong>
+                            <span class="badge ${t.status === 'ok' ? 'badge-success' : 'badge-error'}">
+                                ${t.status.toUpperCase()}
+                            </span>
+                        </div>
+                        ${t.error ? `<div style="color: var(--error); margin-top: 8px; font-size: 12px;">${escapeHtml(t.error)}</div>` : ''}
+                        ${t.latency_ms ? `<div style="color: var(--text-muted); margin-top: 4px; font-size: 12px;">Latency: ${t.latency_ms}ms</div>` : ''}
+                    </div>
+                `).join('');
+            } catch (e) {
+                statusEl.innerHTML = '<div style="color: var(--error);">Failed to run diagnostics</div>';
+            }
+        }
+
+        async function loadTraces() {
+            const detailsEl = document.getElementById('details-content');
+            detailsEl.innerHTML = '<div class="loading">Loading traces...</div>';
+
+            try {
+                const res = await fetch('/platformadmin/diagnostics/traces?limit=50');
+                const traces = await res.json();
+
+                if (traces.length === 0) {
+                    detailsEl.innerHTML = '<div class="loading">No traces found</div>';
+                    return;
+                }
+
+                detailsEl.innerHTML = traces.map(t => `
+                    <div class="trace-item">
+                        <div class="trace-id">${t.trace_id}</div>
+                        <div style="margin-top: 4px; font-size: 13px;">${escapeHtml(t.name || 'Unknown')}</div>
+                        <div style="margin-top: 4px; font-size: 12px; color: var(--text-muted);">
+                            Status: ${t.status} | Duration: ${t.duration_ms}ms | Spans: ${t.span_count}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                detailsEl.innerHTML = '<div style="color: var(--error);">Failed to load traces</div>';
+            }
+        }
+
+        async function loadMetrics() {
+            const detailsEl = document.getElementById('details-content');
+            detailsEl.innerHTML = '<div class="loading">Loading metrics...</div>';
+
+            try {
+                const res = await fetch('/platformadmin/diagnostics/metrics');
+                const data = await res.json();
+
+                detailsEl.innerHTML = `
+                    <div class="metric-box">
+                        <strong>Error Rate</strong>
+                        <div style="font-size: 24px; color: var(--primary); margin-top: 8px;">
+                            ${(data.error_rate * 100).toFixed(1)}%
+                        </div>
+                    </div>
+                    <div class="metric-box">
+                        <strong>Average Latency</strong>
+                        <div style="font-size: 24px; color: var(--primary); margin-top: 8px;">
+                            ${data.avg_latency_ms?.toFixed(0) || 0}ms
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                detailsEl.innerHTML = '<div style="color: var(--error);">Failed to load metrics</div>';
+            }
+        }
+
+        async function loadEvents() {
+            const detailsEl = document.getElementById('details-content');
+            detailsEl.innerHTML = '<div class="loading">Loading events...</div>';
+
+            try {
+                const res = await fetch('/platformadmin/diagnostics/events?limit=50');
+                const data = await res.json();
+
+                if (!data.events || data.events.length === 0) {
+                    detailsEl.innerHTML = '<div class="loading">No system events found</div>';
+                    return;
+                }
+
+                detailsEl.innerHTML = data.events.map(e => `
+                    <div class="trace-item">
+                        <div style="display: flex; justify-content: space-between;">
+                            <strong>${escapeHtml(e.event_type || 'Unknown')}</strong>
+                            <span class="badge ${e.severity === 'ERROR' ? 'badge-error' : e.severity === 'WARNING' ? 'badge-warning' : 'badge-info'}">
+                                ${e.severity}
+                            </span>
+                        </div>
+                        <div style="margin-top: 8px; font-size: 13px;">${escapeHtml(e.message || '')}</div>
+                        <div style="margin-top: 4px; font-size: 12px; color: var(--text-muted);">
+                            ${new Date(e.timestamp).toLocaleString()}
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                detailsEl.innerHTML = '<div style="color: var(--error);">Failed to load events</div>';
+            }
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Auto-load status on page load
+        runDiagnostics();
+    """
+
+    return render_admin_page(
+        title="Diagnostics",
+        active_page="/platformadmin/diagnostics/",
+        content=content,
+        user_name=admin.display_name or admin.email.split("@")[0],
+        user_email=admin.email,
+        breadcrumbs=[("Diagnostics", "#")],
+        extra_css=extra_css,
+        extra_js=extra_js,
+    )
 
 
 __all__ = ["router"]
