@@ -228,15 +228,44 @@ class TestPriceTrackerService:
         mock_session = AsyncMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
+        context_id = str(uuid.uuid4())
         service = PriceTrackerService(mock_session_factory)
         product = await service.create_product(
-            name="Smör Bregott", brand="Arla", category="Mejeri", unit="kg"
+            context_id=context_id,
+            name="Smör Bregott",
+            brand="Arla",
+            category="Mejeri",
+            unit="kg",
         )
 
         assert product.name == "Smör Bregott"
         assert product.brand == "Arla"
         assert product.category == "Mejeri"
         assert product.unit == "kg"
+        assert mock_session.add.called
+        assert mock_session.commit.called
+
+    @pytest.mark.asyncio
+    async def test_create_product_with_package_size(self, mock_session_factory: Mock) -> None:
+        """Test create_product with package size metadata."""
+        mock_session = AsyncMock()
+        mock_session_factory.return_value.__aenter__.return_value = mock_session
+
+        context_id = str(uuid.uuid4())
+        service = PriceTrackerService(mock_session_factory)
+        product = await service.create_product(
+            context_id=context_id,
+            name="Toalettpapper 24-pack",
+            brand="Lambi",
+            category="Hygiene",
+            unit="st",
+            package_size="24-pack",
+            package_quantity=24.0,
+        )
+
+        assert product.name == "Toalettpapper 24-pack"
+        assert product.package_size == "24-pack"
+        assert product.package_quantity == 24.0
         assert mock_session.add.called
         assert mock_session.commit.called
 

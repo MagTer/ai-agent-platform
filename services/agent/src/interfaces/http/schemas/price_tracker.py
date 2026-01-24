@@ -6,12 +6,22 @@ from pydantic import BaseModel
 
 
 class ProductCreate(BaseModel):
-    """Schema for creating a new product."""
+    """Schema for creating a new product.
+
+    For products with package sizes (e.g., toilet paper, beverages),
+    create separate products for each size variant:
+    - "Toalettpapper 24-pack" (package_size="24-pack", package_quantity=24)
+    - "Toalettpapper 16-pack" (package_size="16-pack", package_quantity=16)
+
+    This enables unit price comparison across package sizes.
+    """
 
     name: str
     brand: str | None = None
     category: str | None = None
     unit: str | None = None
+    package_size: str | None = None  # Human-readable: "24-pack", "500ml", "1kg"
+    package_quantity: float | None = None  # Numeric value for calculations: 24, 0.5, 1.0
 
 
 class ProductUpdate(BaseModel):
@@ -21,6 +31,8 @@ class ProductUpdate(BaseModel):
     brand: str | None = None
     category: str | None = None
     unit: str | None = None
+    package_size: str | None = None
+    package_quantity: float | None = None
 
 
 class ProductStoreLink(BaseModel):
@@ -74,6 +86,8 @@ class ProductResponse(BaseModel):
     brand: str | None
     category: str | None
     unit: str | None
+    package_size: str | None
+    package_quantity: float | None
     stores: list[dict[str, str | int | float | None]]
 
 
