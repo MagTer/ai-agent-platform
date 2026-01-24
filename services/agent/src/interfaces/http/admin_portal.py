@@ -4,10 +4,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import HTMLResponse
 
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect
-from interfaces.http.admin_shared import render_admin_page
+from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 
 router = APIRouter(
     prefix="/platformadmin",
@@ -15,7 +14,7 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=UTF8HTMLResponse)
 async def admin_portal(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """Unified admin portal landing page.
 

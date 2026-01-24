@@ -15,6 +15,24 @@ class UserIdentity:
     role: str = "user"
 
 
+def _decode_header_value(value: str | None) -> str | None:
+    """Decode header value, handling UTF-8 encoded as Latin-1.
+
+    HTTP headers are technically ASCII-only, but many systems send UTF-8 bytes
+    which get decoded as Latin-1 by Python's HTTP libraries. This function
+    detects and fixes that encoding issue.
+    """
+    if not value:
+        return None
+    try:
+        # If the string contains Latin-1 artifacts of UTF-8, fix it
+        # Example: "Görönsson" (UTF-8 as Latin-1) -> "Görönsson"
+        return value.encode("latin-1").decode("utf-8")
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        # Already valid UTF-8 or other encoding, return as-is
+        return value
+
+
 def extract_user_from_headers(request: Request) -> UserIdentity | None:
     """Extract user identity from X-OpenWebUI-* headers.
 
@@ -32,7 +50,7 @@ def extract_user_from_headers(request: Request) -> UserIdentity | None:
 
     return UserIdentity(
         email=email.lower().strip(),  # Normalize email
-        name=request.headers.get("x-openwebui-user-name"),
+        name=_decode_header_value(request.headers.get("x-openwebui-user-name")),
         openwebui_id=request.headers.get("x-openwebui-user-id"),
         role=request.headers.get("x-openwebui-user-role", "user"),
     )

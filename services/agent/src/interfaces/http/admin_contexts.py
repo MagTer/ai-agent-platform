@@ -9,7 +9,6 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +17,7 @@ from core.db.engine import get_db
 from core.db.models import Context, Conversation, ToolPermission
 from core.db.oauth_models import OAuthToken
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
-from interfaces.http.admin_shared import render_admin_page
+from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 
 LOGGER = logging.getLogger(__name__)
 
@@ -28,7 +27,7 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=UTF8HTMLResponse)
 async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """Context management dashboard.
 

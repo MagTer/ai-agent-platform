@@ -6,6 +6,14 @@ from __future__ import annotations
 import html
 from dataclasses import dataclass
 
+from fastapi.responses import HTMLResponse
+
+
+class UTF8HTMLResponse(HTMLResponse):
+    """HTMLResponse with explicit UTF-8 charset for proper Unicode support."""
+
+    media_type = "text/html; charset=utf-8"
+
 
 @dataclass
 class NavItem:
@@ -575,6 +583,7 @@ def render_admin_page(
 __all__ = [
     "ADMIN_NAV_ITEMS",
     "NavItem",
+    "UTF8HTMLResponse",
     "get_admin_header_html",
     "get_admin_nav_css",
     "get_admin_sidebar_html",

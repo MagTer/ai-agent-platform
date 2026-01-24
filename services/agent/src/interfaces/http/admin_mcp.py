@@ -8,12 +8,11 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from core.tools.mcp_loader import get_mcp_client_pool, get_mcp_health, get_mcp_stats
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
-from interfaces.http.admin_shared import render_admin_page
+from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ router = APIRouter(
 )
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=UTF8HTMLResponse)
 async def mcp_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """MCP client management dashboard.
 

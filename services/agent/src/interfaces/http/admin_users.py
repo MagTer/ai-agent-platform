@@ -7,7 +7,6 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.engine import get_db
 from core.db.models import User, UserContext
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_api_key
-from interfaces.http.admin_shared import render_admin_page
+from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 
 LOGGER = logging.getLogger(__name__)
 
@@ -48,7 +47,7 @@ class UserUpdateRequest(BaseModel):
 # --- HTML Dashboard ---
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=UTF8HTMLResponse)
 async def users_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """User management dashboard."""
     content = """

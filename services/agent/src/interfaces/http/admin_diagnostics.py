@@ -9,12 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import HTMLResponse
 
 from core.core.config import Settings, get_settings
 from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
-from interfaces.http.admin_shared import render_admin_page
+from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 
 LOGGER = logging.getLogger(__name__)
 
@@ -1473,7 +1472,7 @@ def _get_diagnostics_js() -> str:
     """
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get("/", response_class=UTF8HTMLResponse)
 async def diagnostics_dashboard(
     admin: AdminUser = Depends(require_admin_or_redirect),
 ) -> str:
