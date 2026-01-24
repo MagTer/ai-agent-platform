@@ -9,12 +9,15 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth.user_service import get_or_create_user, get_user_default_context
 from core.db.engine import get_db
 from core.db.oauth_models import OAuthToken
+from core.providers import get_token_manager
 from core.tools.mcp_loader import get_mcp_client_pool
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
@@ -36,6 +39,23 @@ async def oauth_dashboard(admin: AdminUser = Depends(require_admin_or_redirect))
     """
     content = """
         <h1 class="page-title">OAuth Tokens</h1>
+
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Connect Provider</span>
+            </div>
+            <div style="padding: 16px;">
+                <p style="margin-bottom: 12px; color: var(--text-muted);">
+                    Connect an OAuth provider to enable MCP tools for your context.
+                </p>
+                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <a href="/platformadmin/oauth/initiate/homey" class="btn btn-primary">
+                        Connect Homey
+                    </a>
+                </div>
+                <div id="oauth-status" style="margin-top: 12px;"></div>
+            </div>
+        </div>
 
         <div class="card">
             <div class="card-header">
@@ -310,6 +330,79 @@ async def get_oauth_status(
         "providers": provider_status,
         "total_providers": len(provider_status),
     }
+
+
+@router.get("/initiate/{provider}")
+async def initiate_oauth(
+    provider: str,
+    admin: AdminUser = Depends(require_admin_or_redirect),
+    session: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Initiate OAuth flow for the admin user's personal context.
+
+    This endpoint:
+    1. Gets or creates the admin user in the database
+    2. Gets the user's personal context
+    3. Generates an OAuth authorization URL
+    4. Redirects the user to the provider's authorization page
+
+    Args:
+        provider: OAuth provider name (e.g., "homey")
+        admin: Authenticated admin user
+        session: Database session
+
+    Returns:
+        Redirect to OAuth provider's authorization page
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    from core.auth.header_auth import UserIdentity
+
+    # Create UserIdentity from admin info
+    identity = UserIdentity(
+        email=admin.email,
+        name=admin.display_name or admin.email.split("@")[0],
+        openwebui_id=str(admin.user_id),
+    )
+
+    # Get or create user and their personal context
+    try:
+        user = await get_or_create_user(identity, session)
+        context = await get_user_default_context(user, session)
+
+        if not context:
+            LOGGER.error(f"No default context found for user {user.email}")
+            raise HTTPException(
+                status_code=500,
+                detail="Could not find user context. Please contact support.",
+            )
+
+        # Generate authorization URL
+        token_manager = get_token_manager()
+        authorization_url, state = await token_manager.get_authorization_url(
+            provider=provider.lower(),
+            context_id=context.id,
+            user_id=user.id,
+        )
+
+        LOGGER.info(f"Initiating OAuth for {provider} (user: {user.email}, context: {context.id})")
+
+        # Redirect to provider's authorization page
+        return RedirectResponse(url=authorization_url, status_code=302)
+
+    except ValueError as e:
+        LOGGER.error(f"OAuth initiation failed: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider '{provider}' is not configured: {e}",
+        ) from e
+    except Exception as e:
+        LOGGER.error(f"Unexpected error during OAuth initiation: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initiate OAuth: {e}",
+        ) from e
 
 
 __all__ = ["router"]
