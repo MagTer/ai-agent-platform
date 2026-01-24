@@ -116,6 +116,14 @@ def get_token_manager() -> TokenManager:
     return _token_manager
 
 
+def get_token_manager_optional() -> TokenManager | None:
+    """Get the token manager if configured, or None.
+
+    Use this when OAuth is optional (e.g., tools that can work without auth).
+    """
+    return _token_manager
+
+
 # --- Price Tracker ---
 def set_price_tracker(tracker: IPriceTracker) -> None:
     """Register the price tracker implementation."""
@@ -166,6 +174,7 @@ __all__ = [
     "get_code_indexer_factory",
     "set_token_manager",
     "get_token_manager",
+    "get_token_manager_optional",
     "set_price_tracker",
     "get_price_tracker",
     "set_email_service",

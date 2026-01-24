@@ -46,3 +46,8 @@
   type: core.tools.send_email.SendEmailTool
   enabled: true
   description: "Send email to yourself with reports, summaries, or reminders"
+
+- name: homey
+  type: core.tools.homey.HomeyTool
+  enabled: true
+  description: "Control Homey smart home devices (lights, sensors, flows)"

@@ -123,29 +123,8 @@ class McpClientPool:
             for token in tokens:
                 provider = token.provider.lower()
 
-                # Homey MCP
-                if provider == "homey" and self._settings.homey_mcp_url:
-                    try:
-                        client = McpClient(
-                            url=str(self._settings.homey_mcp_url),
-                            context_id=context_id,
-                            oauth_provider="homey",
-                            name="Homey",
-                            auto_reconnect=True,
-                            max_retries=3,
-                            cache_ttl_seconds=300,  # 5 minute cache
-                        )
-                        await client.connect()
-                        clients.append(client)
-                        LOGGER.info(
-                            f"Connected Homey MCP for context {context_id} "
-                            f"(discovered {len(client.tools)} tools)"
-                        )
-                    except Exception as e:
-                        LOGGER.error(f"Failed to connect Homey MCP for context {context_id}: {e}")
-
                 # Context7 MCP (future provider)
-                elif provider == "context7" and self._settings.context7_mcp_url:
+                if provider == "context7" and self._settings.context7_mcp_url:
                     try:
                         client = McpClient(
                             url=str(self._settings.context7_mcp_url),

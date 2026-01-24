@@ -197,7 +197,11 @@ class McpClient:
 
             if auth_token:
                 headers["Authorization"] = f"Bearer {auth_token}"
-                LOGGER.debug("Using Bearer token for MCP authentication")
+                LOGGER.info(
+                    "MCP %s: Using Bearer token (first 20 chars): %s...",
+                    self._name,
+                    auth_token[:20] if len(auth_token) > 20 else auth_token,
+                )
             else:
                 LOGGER.warning("No authentication token available for MCP %s", self._name)
 
@@ -215,7 +219,7 @@ class McpClient:
             await self.refresh_cache()
 
         except Exception as e:
-            LOGGER.error("Failed to connect to MCP %s: %s", self._name, e)
+            LOGGER.error("Failed to connect to MCP %s: %s", self._name, e, exc_info=True)
             await self._cleanup_connection()
             raise
 
