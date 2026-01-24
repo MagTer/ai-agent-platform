@@ -338,6 +338,22 @@ class StepExecutorAgent:
                     if has_user_email or has_kwargs:
                         final_args["user_email"] = user_email
 
+            # Inject user_id and session for tools that need credential lookup
+            if step.tool == "azure_devops":
+                user_id_str = (request.metadata or {}).get("user_id")
+                db_session = (request.metadata or {}).get("_db_session")
+                if user_id_str and db_session:
+                    from uuid import UUID
+
+                    sig = inspect.signature(tool.run)
+                    has_user_id = "user_id" in sig.parameters
+                    has_session = "session" in sig.parameters
+                    has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                    if has_user_id or has_kwargs:
+                        final_args["user_id"] = UUID(user_id_str)
+                    if has_session or has_kwargs:
+                        final_args["session"] = db_session
+
             with start_span(f"tool.call.{step.tool}"):
                 try:
                     run_args = (final_args or {}).copy()

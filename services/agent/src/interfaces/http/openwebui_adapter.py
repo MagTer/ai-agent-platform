@@ -272,6 +272,15 @@ async def chat_completions(
     # Extract user identity for tool context
     identity = extract_user_from_headers(http_request)
     user_email = identity.email if identity else None
+    user_id: UUID | None = None
+
+    # Look up user_id for credential access
+    if identity:
+        try:
+            db_user = await get_or_create_user(identity, session)
+            user_id = db_user.id
+        except Exception as e:
+            LOGGER.warning(f"Failed to get user for credential lookup: {e}")
 
     # 1. Extract latest user message
     user_message = ""
@@ -339,6 +348,7 @@ async def chat_completions(
             verbosity,
             history,
             user_email=user_email,
+            user_id=user_id,
         ),
         media_type="text/event-stream",
         headers={"X-Trace-ID": trace_id} if trace_id else None,
@@ -391,6 +401,7 @@ async def stream_response_generator(
     verbosity: VerbosityLevel = VerbosityLevel.DEFAULT,
     history: list | None = None,
     user_email: str | None = None,
+    user_id: UUID | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Generates SSE events compatible with OpenAI API from AgentChunks.
@@ -433,6 +444,8 @@ async def stream_response_generator(
     tool_metadata: dict[str, Any] = {}
     if user_email:
         tool_metadata["user_email"] = user_email
+    if user_id:
+        tool_metadata["user_id"] = str(user_id)
 
     try:
         async for agent_chunk in dispatcher.stream_message(

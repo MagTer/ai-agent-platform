@@ -122,6 +122,9 @@ class AgentService:
         if db_conversation.current_cwd:
             request_metadata["cwd"] = db_conversation.current_cwd
 
+        # Add session reference for tools that need database access (e.g., credential lookup)
+        request_metadata["_db_session"] = session
+
         # 6.1. Inject Pinned Files
         self._inject_pinned_files(history, db_context.pinned_files)
 
