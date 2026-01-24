@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -330,6 +330,116 @@ async def get_oauth_status(
         "providers": provider_status,
         "total_providers": len(provider_status),
     }
+
+
+@router.get("/callback")
+async def oauth_callback(
+    code: str = Query(..., description="Authorization code from provider"),
+    state: str = Query(..., description="State parameter for CSRF protection"),
+    error: str | None = Query(None, description="Error if user denied"),
+) -> HTMLResponse:
+    """Handle OAuth provider callback (e.g., Homey).
+
+    This endpoint receives the redirect from external OAuth providers after
+    user authorization. It exchanges the code for tokens and stores them.
+
+    Path: /platformadmin/oauth/callback
+
+    Note: This is separate from Entra ID auth which uses /platformadmin/auth/callback
+
+    Args:
+        code: Authorization code from provider
+        state: State parameter for CSRF validation
+        error: Error code if user denied authorization
+
+    Returns:
+        HTML page showing success or error
+    """
+    from core.auth.models import OAuthError
+    from core.observability.security_logger import (
+        OAUTH_COMPLETED,
+        OAUTH_FAILED,
+        log_security_event,
+    )
+
+    # Handle user denial
+    if error:
+        log_security_event(
+            event_type=OAUTH_FAILED,
+            endpoint="/platformadmin/oauth/callback",
+            details={"error": error, "reason": "user_denied"},
+            severity="WARNING",
+        )
+        return HTMLResponse(
+            content="""<!DOCTYPE html>
+<html>
+<head><title>Authorization Cancelled</title>
+<style>body{font-family:system-ui,sans-serif;text-align:center;padding:50px}h1{color:#d32f2f}</style>
+</head>
+<body><h1>Authorization Cancelled</h1><p>You can close this window.</p></body>
+</html>""",
+            status_code=400,
+        )
+
+    try:
+        token_manager = get_token_manager()
+        await token_manager.exchange_code_for_token(
+            authorization_code=code,
+            state=state,
+        )
+
+        log_security_event(
+            event_type=OAUTH_COMPLETED,
+            endpoint="/platformadmin/oauth/callback",
+            details={"state": state[:8] + "..."},
+        )
+        return HTMLResponse(
+            content="""<!DOCTYPE html>
+<html>
+<head><title>Authorization Successful</title>
+<style>body{font-family:system-ui,sans-serif;text-align:center;padding:50px}h1{color:#2e7d32}</style>
+</head>
+<body>
+<h1>Authorization Successful!</h1>
+<p>You can close this window and return to the admin portal.</p>
+<script>setTimeout(()=>window.close(),3000)</script>
+</body>
+</html>"""
+        )
+
+    except OAuthError as e:
+        log_security_event(
+            event_type=OAUTH_FAILED,
+            endpoint="/platformadmin/oauth/callback",
+            details={"error": e.error, "description": e.description},
+            severity="ERROR",
+        )
+        import html
+
+        safe_error = html.escape(e.error or "Unknown error")
+        safe_desc = html.escape(e.description or "")
+        return HTMLResponse(
+            content=f"""<!DOCTYPE html>
+<html>
+<head><title>Authorization Failed</title>
+<style>body{{font-family:system-ui,sans-serif;text-align:center;padding:50px}}h1{{color:#d32f2f}}.err{{background:#ffebee;padding:20px;margin:20px auto;max-width:500px;border-radius:5px}}</style>
+</head>
+<body><h1>Authorization Failed</h1><div class="err"><p><b>Error:</b> {safe_error}</p><p>{safe_desc}</p></div></body>
+</html>""",
+            status_code=400,
+        )
+    except Exception as e:
+        LOGGER.error(f"OAuth callback error: {e}", exc_info=True)
+        return HTMLResponse(
+            content="""<!DOCTYPE html>
+<html>
+<head><title>Error</title>
+<style>body{font-family:system-ui,sans-serif;text-align:center;padding:50px}h1{color:#d32f2f}</style>
+</head>
+<body><h1>Internal Server Error</h1><p>Please try again later.</p></body>
+</html>""",
+            status_code=500,
+        )
 
 
 @router.get("/initiate/{provider}")
