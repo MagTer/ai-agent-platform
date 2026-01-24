@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Any
 
 from pydantic import ValidationError
-from shared.models import AgentMessage, AgentRequest, Plan
+from shared.models import AgentMessage, AgentRequest, Plan, PlanStep
 
 from core.core.litellm_client import LiteLLMClient
 from core.models.pydantic_schemas import PlanEvent, TraceContext
@@ -308,17 +308,80 @@ class PlannerAgent:
                             ]
                         )
                 else:
-                    # Final fallback
-                    final_plan = Plan(
-                        steps=[],
-                        description=(
-                            f"Planner failed after {attempts} attempts. Last error: {exc_msg}"
-                        ),
-                    )
+                    # Final fallback - check if this looks conversational
+                    if self._is_conversational_message(plan_text, request.prompt):
+                        # Conversational message - just do a completion
+                        final_plan = Plan(
+                            steps=[
+                                PlanStep(
+                                    id="conv-1",
+                                    label="Direct response",
+                                    executor="litellm",
+                                    action="completion",
+                                    description="Conversational response (no plan needed)",
+                                ),
+                            ],
+                            description="Conversational message - direct response",
+                        )
+                        LOGGER.info(
+                            "Detected conversational message, using direct completion fallback"
+                        )
+                    else:
+                        # Genuine planning failure
+                        final_plan = Plan(
+                            steps=[],
+                            description=(
+                                f"Planner failed after {attempts} attempts. Last error: {exc_msg}"
+                            ),
+                        )
                     yield {"type": "plan", "plan": final_plan}
                     return
 
             raise RuntimeError("Unreachable: Planner loop exited without return")
+
+    @staticmethod
+    def _is_conversational_message(raw_output: str, user_prompt: str) -> bool:
+        """Detect if the LLM output suggests this was a conversational message.
+
+        When the planner echoes back part of the system prompt or user message
+        instead of generating JSON, it often means the input was conversational
+        and doesn't need a plan.
+        """
+        if not raw_output:
+            return False
+
+        # Patterns indicating planner confusion (echoing prompts/instructions)
+        confusion_patterns = [
+            "### AVAILABLE TOOLS",
+            "### USER REQUEST",
+            "I'll help you",
+            "I'm here to assist",
+            "Hello! How can I",
+        ]
+
+        for pattern in confusion_patterns:
+            if pattern in raw_output:
+                return True
+
+        # Short user messages are likely conversational
+        if len(user_prompt.strip()) < 20:
+            words = user_prompt.strip().lower().split()
+            greetings = {
+                "hello",
+                "hi",
+                "hey",
+                "hej",
+                "tjena",
+                "hejsan",
+                "thanks",
+                "thank",
+                "ok",
+                "okay",
+            }
+            if any(word in greetings for word in words):
+                return True
+
+        return False
 
     @staticmethod
     def _extract_json_fragment(raw: str) -> dict[str, Any] | None:

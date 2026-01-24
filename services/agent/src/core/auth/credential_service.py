@@ -97,7 +97,7 @@ class CredentialService:
             session: Database session
 
         Returns:
-            Decrypted credential value, or None if not found
+            Decrypted credential value, or None if not found or decryption fails
         """
         stmt = select(UserCredential).where(
             UserCredential.user_id == user_id,
@@ -112,7 +112,18 @@ class CredentialService:
         try:
             return self._decrypt(credential.encrypted_value)
         except InvalidToken:
-            LOGGER.error(f"Failed to decrypt credential {credential_type} for user {user_id}")
+            # Provide actionable error context
+            created_at = credential.created_at.isoformat() if credential.created_at else "unknown"
+            LOGGER.error(
+                "Failed to decrypt credential '%s' for user %s. "
+                "Credential was stored at %s. "
+                "This typically means the encryption key was rotated since "
+                "the credential was stored. "
+                "The user should re-enter their credential through the admin portal.",
+                credential_type,
+                user_id,
+                created_at,
+            )
             return None
 
     async def delete_credential(

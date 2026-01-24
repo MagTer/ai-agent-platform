@@ -272,14 +272,21 @@ def current_trace_ids() -> dict[str, str]:
 
 
 def set_span_attributes(attributes: dict[str, Any]) -> None:
-    """Set attributes on the current active span."""
+    """Set attributes on the current active span.
+
+    Filters out None values to prevent OTel warnings.
+    """
     trace_api = _otel_trace if _OTEL_AVAILABLE else _NoOpTraceAPI()
     span = trace_api.get_current_span()
+
+    # Filter out None values - OTel only accepts bool, str, bytes, int, float
+    filtered_attrs = {k: v for k, v in attributes.items() if v is not None}
+
     if span and hasattr(span, "set_attributes"):
-        span.set_attributes(attributes)
+        span.set_attributes(filtered_attrs)
     elif span and hasattr(span, "set_attribute"):
         # Fallback for spans that only support single attribute setting
-        for key, value in attributes.items():
+        for key, value in filtered_attrs.items():
             span.set_attribute(key, value)
 
 

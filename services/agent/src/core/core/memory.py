@@ -64,9 +64,15 @@ class MemoryStore:
 
         # SECURITY: Warn if context_id is None - this disables tenant isolation
         if context_id is None:
+            import inspect
+
+            frame = inspect.currentframe()
+            caller = inspect.getouterframes(frame)[1] if frame else None
+            caller_loc = f"{caller.filename}:{caller.lineno}" if caller else "unknown"
             LOGGER.warning(
                 "MemoryStore initialized without context_id - tenant isolation disabled. "
-                "This should only be used for admin/internal operations."
+                "This is expected for admin/test operations. Caller: %s",
+                caller_loc,
             )
 
     async def ainit(self) -> None:  # Async initialization method
