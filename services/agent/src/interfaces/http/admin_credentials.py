@@ -22,7 +22,8 @@ from core.observability.security_logger import (
     get_client_ip,
     log_security_event,
 )
-from interfaces.http.admin_auth import AdminUser, verify_admin_user
+from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
+from interfaces.http.admin_shared import render_admin_page
 
 LOGGER = logging.getLogger(__name__)
 
@@ -127,74 +128,18 @@ class CredentialDeleteResponse(BaseModel):
 
 
 @router.get("/", response_class=HTMLResponse)
-async def credentials_dashboard() -> str:
+async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """User credential management dashboard."""
     # Generate credential type options for the form
     type_options = "".join(
         f'<option value="{key}">{info["name"]}</option>' for key, info in CREDENTIAL_TYPES.items()
     )
 
-    return (
-        """<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Credentials - Admin</title>
-    <style>
-        :root { --primary: #8b5cf6; --bg: #f8fafc; --card: #fff; --border: #e2e8f0; --text: #1e293b; --muted: #64748b; --success: #10b981; --error: #ef4444; --warning: #f59e0b; }
-        body { font-family: system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--text); }
-        .header { background: linear-gradient(135deg, #1e293b, #334155); color: white; padding: 24px; }
-        .header h1 { margin: 0 0 4px 0; font-size: 20px; }
-        .header p { margin: 0; opacity: 0.8; font-size: 13px; }
-        .nav { padding: 8px 24px; background: var(--card); border-bottom: 1px solid var(--border); }
-        .nav a { color: var(--primary); text-decoration: none; font-size: 13px; }
-        .container { max-width: 1200px; margin: 24px auto; padding: 0 24px; }
-        .stats { display: flex; gap: 16px; margin-bottom: 24px; }
-        .stat-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; flex: 1; }
-        .stat-value { font-size: 28px; font-weight: 600; color: var(--primary); }
-        .stat-label { color: var(--muted); font-size: 13px; margin-top: 4px; }
-        .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 16px; }
-        .card h2 { margin: 0 0 16px 0; font-size: 16px; display: flex; justify-content: space-between; align-items: center; }
-        table { width: 100%; border-collapse: collapse; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border); }
-        th { background: #f8f9fa; font-weight: 600; font-size: 13px; }
-        tr:hover { background: #f8f9fa; }
-        .badge { display: inline-block; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-weight: 500; }
-        .badge-type { background: #ede9fe; color: #6d28d9; }
-        .badge-count { background: #dbeafe; color: #1e40af; }
-        .loading { color: var(--muted); font-style: italic; padding: 20px; text-align: center; }
-        .btn { padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); background: var(--card); }
-        .btn:hover { background: var(--bg); }
-        .btn-primary { background: var(--primary); color: white; border-color: var(--primary); }
-        .btn-primary:hover { opacity: 0.9; }
-        .btn-danger { color: var(--error); border-color: var(--error); }
-        .btn-danger:hover { background: #fee2e2; }
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; }
-        .modal.active { display: flex; align-items: center; justify-content: center; }
-        .modal-content { background: white; border-radius: 8px; padding: 24px; width: 90%; max-width: 500px; }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .modal-header h3 { margin: 0; }
-        .form-group { margin-bottom: 16px; }
-        .form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
-        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; box-sizing: border-box; }
-        .form-group textarea { min-height: 80px; font-family: monospace; }
-        .form-group small { color: var(--muted); font-size: 12px; display: block; margin-top: 4px; }
-        .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; color: white; font-size: 14px; z-index: 200; display: none; }
-        .toast.success { background: var(--success); display: block; }
-        .toast.error { background: var(--error); display: block; }
-        .masked { font-family: monospace; color: var(--muted); }
-        .meta-tag { display: inline-block; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-right: 4px; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>User Credentials</h1>
-        <p>Manage encrypted credentials for users</p>
-    </div>
-    <div class="nav"><a href="/platformadmin/">&larr; Back to Admin Portal</a></div>
-    <div class="container">
-        <div class="stats">
+    # Build content with embedded type_options
+    content = f"""
+        <h1 class="page-title">User Credentials</h1>
+
+        <div class="stats-grid" style="margin-bottom: 24px;">
             <div class="stat-box">
                 <div class="stat-value" id="totalUsers">0</div>
                 <div class="stat-label">Users with Credentials</div>
@@ -206,13 +151,13 @@ async def credentials_dashboard() -> str:
         </div>
 
         <div class="card">
-            <h2>
-                <span>All Credentials</span>
+            <div class="card-header">
+                <span class="card-title">All Credentials</span>
                 <div>
                     <button class="btn btn-primary" onclick="openAddModal()">+ Add Credential</button>
                     <button class="btn" onclick="loadCredentials()">Refresh</button>
                 </div>
-            </h2>
+            </div>
             <table id="credentialsTable">
                 <thead>
                     <tr>
@@ -228,215 +173,243 @@ async def credentials_dashboard() -> str:
                 </tbody>
             </table>
         </div>
-    </div>
 
-    <!-- Add Credential Modal -->
-    <div class="modal" id="addModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Add Credential</h3>
-                <button class="btn" onclick="closeAddModal()">&times;</button>
+        <!-- Add Credential Modal -->
+        <div class="modal" id="addModal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Add Credential</h3>
+                    <button class="btn" onclick="closeAddModal()">&times;</button>
+                </div>
+                <form id="addForm" onsubmit="submitCredential(event)">
+                    <div class="form-group">
+                        <label for="userId">User</label>
+                        <select id="userId" required>
+                            <option value="">Select user...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="credType">Credential Type</label>
+                        <select id="credType" required onchange="updateMetadataFields()">
+                            <option value="">Select type...</option>
+                            {type_options}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="credValue">Credential Value</label>
+                        <textarea id="credValue" required placeholder="Enter the credential value (will be encrypted)"></textarea>
+                        <small>This value will be encrypted at rest using Fernet encryption.</small>
+                    </div>
+                    <div id="metadataFields"></div>
+                    <button type="submit" class="btn btn-primary" style="width: 100%">Save Credential</button>
+                </form>
             </div>
-            <form id="addForm" onsubmit="submitCredential(event)">
-                <div class="form-group">
-                    <label for="userId">User</label>
-                    <select id="userId" required>
-                        <option value="">Select user...</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="credType">Credential Type</label>
-                    <select id="credType" required onchange="updateMetadataFields()">
-                        <option value="">Select type...</option>
-                        """
-        + type_options
-        + """
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="credValue">Credential Value</label>
-                    <textarea id="credValue" required placeholder="Enter the credential value (will be encrypted)"></textarea>
-                    <small>This value will be encrypted at rest using Fernet encryption.</small>
-                </div>
-                <div id="metadataFields"></div>
-                <button type="submit" class="btn btn-primary" style="width: 100%">Save Credential</button>
-            </form>
         </div>
-    </div>
 
-    <!-- Toast notification -->
-    <div class="toast" id="toast"></div>
+        <!-- Toast notification -->
+        <div class="toast" id="toast"></div>
+    """
 
-    <script>
-        const CREDENTIAL_TYPES = """
-        + str(CREDENTIAL_TYPES).replace("'", '"')
-        + """;
+    extra_css = """
+        .badge-type { background: #ede9fe; color: #6d28d9; }
+        .masked { font-family: monospace; color: var(--text-muted); }
+        .meta-tag { display: inline-block; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-right: 4px; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; }
+        .modal.active { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; border-radius: 8px; padding: 24px; width: 90%; max-width: 500px; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .modal-header h3 { margin: 0; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+        .form-group textarea { min-height: 80px; font-family: monospace; }
+        .form-group small { color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px; }
+        .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; color: white; font-size: 14px; z-index: 200; display: none; }
+        .toast.success { background: var(--success); display: block; }
+        .toast.error { background: var(--error); display: block; }
+    """
 
-        async function loadCredentials() {
-            try {
+    # Build JavaScript with embedded CREDENTIAL_TYPES
+    cred_types_js = str(CREDENTIAL_TYPES).replace("'", '"')
+    extra_js = f"""
+        const CREDENTIAL_TYPES = {cred_types_js};
+
+        async function loadCredentials() {{
+            try {{
                 const res = await fetch('/platformadmin/credentials/list');
                 const data = await res.json();
                 renderCredentials(data);
-            } catch (e) {
+            }} catch (e) {{
                 document.getElementById('credentialsBody').innerHTML = '<tr><td colspan="5" style="color: var(--error); text-align: center;">Failed to load credentials</td></tr>';
-            }
-        }
+            }}
+        }}
 
-        async function loadUsers() {
-            try {
+        async function loadUsers() {{
+            try {{
                 const res = await fetch('/platformadmin/users/list');
                 const users = await res.json();
                 const select = document.getElementById('userId');
                 select.innerHTML = '<option value="">Select user...</option>' +
-                    users.map(u => `<option value="${u.id}">${escapeHtml(u.email)} (${escapeHtml(u.display_name || 'No name')})</option>`).join('');
-            } catch (e) {
+                    users.map(u => `<option value="${{u.id}}">${{escapeHtml(u.email)}} (${{escapeHtml(u.display_name || 'No name')}})</option>`).join('');
+            }} catch (e) {{
                 console.error('Failed to load users:', e);
-            }
-        }
+            }}
+        }}
 
-        function renderCredentials(data) {
+        function renderCredentials(data) {{
             document.getElementById('totalUsers').textContent = data.users_with_credentials || 0;
             document.getElementById('totalCredentials').textContent = data.total_credentials || 0;
 
             const tbody = document.getElementById('credentialsBody');
             const creds = data.credentials || [];
 
-            if (creds.length === 0) {
+            if (creds.length === 0) {{
                 tbody.innerHTML = '<tr><td colspan="5" class="loading">No credentials found</td></tr>';
                 return;
-            }
+            }}
 
-            tbody.innerHTML = creds.map(c => {
-                const meta = Object.entries(c.metadata || {})
-                    .map(([k, v]) => `<span class="meta-tag">${escapeHtml(k)}: ${escapeHtml(v)}</span>`)
+            tbody.innerHTML = creds.map(c => {{
+                const meta = Object.entries(c.metadata || {{}})
+                    .map(([k, v]) => `<span class="meta-tag">${{escapeHtml(k)}}: ${{escapeHtml(v)}}</span>`)
                     .join('') || '<span class="masked">-</span>';
                 const created = new Date(c.created_at).toLocaleDateString();
 
                 return `
                     <tr>
                         <td>
-                            <div>${escapeHtml(c.user_email)}</div>
+                            <div>${{escapeHtml(c.user_email)}}</div>
                         </td>
-                        <td><span class="badge badge-type">${escapeHtml(c.credential_type_name)}</span></td>
-                        <td>${meta}</td>
-                        <td>${created}</td>
+                        <td><span class="badge badge-type">${{escapeHtml(c.credential_type_name)}}</span></td>
+                        <td>${{meta}}</td>
+                        <td>${{created}}</td>
                         <td>
-                            <button class="btn btn-danger" onclick="deleteCredential('${c.id}', '${escapeHtml(c.credential_type)}')">Delete</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteCredential('${{c.id}}', '${{escapeHtml(c.credential_type)}}')">Delete</button>
                         </td>
                     </tr>
                 `;
-            }).join('');
-        }
+            }}).join('');
+        }}
 
-        function openAddModal() {
+        function openAddModal() {{
             loadUsers();
             document.getElementById('addModal').classList.add('active');
-        }
+        }}
 
-        function closeAddModal() {
+        function closeAddModal() {{
             document.getElementById('addModal').classList.remove('active');
             document.getElementById('addForm').reset();
             document.getElementById('metadataFields').innerHTML = '';
-        }
+        }}
 
-        function updateMetadataFields() {
+        function updateMetadataFields() {{
             const type = document.getElementById('credType').value;
             const container = document.getElementById('metadataFields');
             container.innerHTML = '';
 
-            if (type && CREDENTIAL_TYPES[type]) {
+            if (type && CREDENTIAL_TYPES[type]) {{
                 const fields = CREDENTIAL_TYPES[type].metadata_fields || [];
-                fields.forEach(field => {
+                fields.forEach(field => {{
                     container.innerHTML += `
                         <div class="form-group">
-                            <label for="meta_${field}">${field.replace('_', ' ').replace(/\\b\\w/g, l => l.toUpperCase())}</label>
-                            <input type="text" id="meta_${field}" name="meta_${field}" placeholder="Enter ${field}">
+                            <label for="meta_${{field}}">${{field.replace('_', ' ').replace(/\\b\\w/g, l => l.toUpperCase())}}</label>
+                            <input type="text" id="meta_${{field}}" name="meta_${{field}}" placeholder="Enter ${{field}}">
                         </div>
                     `;
-                });
-            }
-        }
+                }});
+            }}
+        }}
 
-        async function submitCredential(e) {
+        async function submitCredential(e) {{
             e.preventDefault();
             const userId = document.getElementById('userId').value;
             const credType = document.getElementById('credType').value;
             const credValue = document.getElementById('credValue').value;
 
             // Collect metadata
-            const metadata = {};
-            if (CREDENTIAL_TYPES[credType]) {
-                CREDENTIAL_TYPES[credType].metadata_fields.forEach(field => {
+            const metadata = {{}};
+            if (CREDENTIAL_TYPES[credType]) {{
+                CREDENTIAL_TYPES[credType].metadata_fields.forEach(field => {{
                     const el = document.getElementById('meta_' + field);
-                    if (el && el.value) {
+                    if (el && el.value) {{
                         metadata[field] = el.value;
-                    }
-                });
-            }
+                    }}
+                }});
+            }}
 
-            try {
-                const res = await fetch('/platformadmin/credentials/create', {
+            try {{
+                const res = await fetch('/platformadmin/credentials/create', {{
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{
                         user_id: userId,
                         credential_type: credType,
                         value: credValue,
                         metadata: Object.keys(metadata).length > 0 ? metadata : null
-                    })
-                });
+                    }})
+                }});
 
                 const data = await res.json();
-                if (res.ok) {
+                if (res.ok) {{
                     showToast('Credential saved successfully', 'success');
                     closeAddModal();
                     loadCredentials();
-                } else {
+                }} else {{
                     showToast(data.detail || 'Failed to save credential', 'error');
-                }
-            } catch (e) {
+                }}
+            }} catch (e) {{
                 showToast('Network error', 'error');
-            }
-        }
+            }}
+        }}
 
-        async function deleteCredential(credId, credType) {
-            if (!confirm(`Delete this ${credType} credential? This cannot be undone.`)) return;
+        async function deleteCredential(credId, credType) {{
+            if (!confirm(`Delete this ${{credType}} credential? This cannot be undone.`)) return;
 
-            try {
-                const res = await fetch(`/platformadmin/credentials/${credId}`, { method: 'DELETE' });
+            try {{
+                const res = await fetch(`/platformadmin/credentials/${{credId}}`, {{ method: 'DELETE' }});
                 const data = await res.json();
 
-                if (res.ok) {
+                if (res.ok) {{
                     showToast('Credential deleted', 'success');
                     loadCredentials();
-                } else {
+                }} else {{
                     showToast(data.detail || 'Failed to delete', 'error');
-                }
-            } catch (e) {
+                }}
+            }} catch (e) {{
                 showToast('Network error', 'error');
-            }
-        }
+            }}
+        }}
 
-        function showToast(message, type) {
+        function showToast(message, type) {{
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.className = 'toast ' + type;
-            setTimeout(() => { toast.className = 'toast'; }, 3000);
-        }
+            setTimeout(() => {{ toast.className = 'toast'; }}, 3000);
+        }}
 
-        function escapeHtml(str) {
+        function escapeHtml(str) {{
             if (!str) return '';
             const div = document.createElement('div');
             div.textContent = str;
             return div.innerHTML;
-        }
+        }}
 
         // Initial load
         loadCredentials();
-    </script>
-</body>
-</html>"""
+    """
+
+    return render_admin_page(
+        title="Credentials",
+        active_page="/platformadmin/credentials/",
+        content=content,
+        user_name=admin.display_name or admin.email.split("@")[0],
+        user_email=admin.email,
+        breadcrumbs=[("Credentials", "#")],
+        extra_css=extra_css,
+        extra_js=extra_js,
     )
+
+
+# Old template code removed (deprecated)
 
 
 # --- API Endpoints ---

@@ -1,4 +1,4 @@
-# ruff: noqa: E501
+# ruff: noqa: E501, RUF005
 """Admin API endpoints for price tracker module."""
 
 from __future__ import annotations
@@ -7,7 +7,6 @@ import logging
 import random
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,6 +18,7 @@ from core.auth.user_service import get_user_default_context
 from core.db.engine import AsyncSessionLocal, get_db
 from core.providers import get_fetcher
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
+from interfaces.http.admin_shared import render_admin_page
 from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
 from modules.price_tracker.parser import PriceParser
 from modules.price_tracker.service import PriceTrackerService
@@ -36,7 +36,6 @@ from .schemas.price_tracker import (
 )
 
 LOGGER = logging.getLogger(__name__)
-TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 router = APIRouter(
     prefix="/platformadmin/price-tracker",
@@ -1169,8 +1168,8 @@ async def delete_product(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/", response_class=HTMLResponse, dependencies=[Depends(require_admin_or_redirect)])
-async def price_tracker_dashboard() -> str:
+@router.get("/", response_class=HTMLResponse)
+async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """Server-rendered admin dashboard for price tracking.
 
     Returns:
@@ -1179,5 +1178,217 @@ async def price_tracker_dashboard() -> str:
     Security:
         Requires admin role via Entra ID authentication.
     """
-    template_path = TEMPLATE_DIR / "price_tracker_dashboard.html"
-    return template_path.read_text(encoding="utf-8")
+    content = """
+        <h1 class="page-title">Price Tracker</h1>
+        <p style="color: var(--text-muted); margin-bottom: 24px;">
+            Manage product price tracking, store links, and price alerts
+        </p>
+
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Quick Actions</span>
+            </div>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <button class="btn btn-primary" onclick="showProductsView()">View Products</button>
+                <button class="btn" onclick="showDealsView()">Current Deals</button>
+                <button class="btn" onclick="showWatchesView()">My Watches</button>
+                <button class="btn" onclick="showStoresView()">Stores</button>
+            </div>
+        </div>
+
+        <div id="main-content">
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-title">Welcome</span>
+                </div>
+                <p style="color: var(--text-muted);">
+                    Select a quick action above to manage products, view deals, or configure price watches.
+                </p>
+            </div>
+        </div>
+    """
+
+    extra_css = """
+        .product-item { padding: 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; }
+        .product-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+        .product-meta { font-size: 12px; color: var(--text-muted); }
+        .price { font-weight: 600; color: var(--success); }
+        .deal-badge { background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+    """
+
+    extra_js = """
+        let userContextId = null;
+
+        async function getUserContext() {
+            if (userContextId) return userContextId;
+            try {
+                const res = await fetch('/platformadmin/price-tracker/me/context');
+                const data = await res.json();
+                userContextId = data.context_id;
+                return userContextId;
+            } catch (e) {
+                console.error('Failed to get user context:', e);
+                return null;
+            }
+        }
+
+        async function showProductsView() {
+            const contentEl = document.getElementById('main-content');
+            contentEl.innerHTML = '<div class="loading">Loading products...</div>';
+
+            const contextId = await getUserContext();
+            if (!contextId) {
+                contentEl.innerHTML = '<div style="color: var(--error);">No context found for user</div>';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/platformadmin/price-tracker/products?context_id=${contextId}`);
+                const products = await res.json();
+
+                if (products.length === 0) {
+                    contentEl.innerHTML = '<div class="card"><p style="color: var(--text-muted);">No products tracked yet</p></div>';
+                    return;
+                }
+
+                contentEl.innerHTML = '<div class="card"><div class="card-header"><span class="card-title">Tracked Products</span></div>' +
+                    products.map(p => `
+                        <div class="product-item">
+                            <div class="product-name">${escapeHtml(p.name)}</div>
+                            <div class="product-meta">
+                                Brand: ${escapeHtml(p.brand || 'N/A')} | Category: ${escapeHtml(p.category || 'N/A')}
+                            </div>
+                            ${p.stores.map(s => `
+                                <div style="margin-top: 8px; font-size: 12px;">
+                                    ${escapeHtml(s.store_name)}:
+                                    ${s.price_sek ? `<span class="price">${s.price_sek} SEK</span>` : 'No price'}
+                                    ${s.in_stock === false ? '<span style="color: var(--error); margin-left: 8px;">Out of stock</span>' : ''}
+                                </div>
+                            `).join('')}
+                        </div>
+                    `).join('') + '</div>';
+            } catch (e) {
+                contentEl.innerHTML = '<div style="color: var(--error);">Failed to load products</div>';
+            }
+        }
+
+        async function showDealsView() {
+            const contentEl = document.getElementById('main-content');
+            contentEl.innerHTML = '<div class="loading">Loading current deals...</div>';
+
+            try {
+                const res = await fetch('/platformadmin/price-tracker/deals');
+                const deals = await res.json();
+
+                if (deals.length === 0) {
+                    contentEl.innerHTML = '<div class="card"><p style="color: var(--text-muted);">No current deals available</p></div>';
+                    return;
+                }
+
+                contentEl.innerHTML = '<div class="card"><div class="card-header"><span class="card-title">Current Deals</span></div>' +
+                    deals.map(d => `
+                        <div class="product-item">
+                            <div class="product-name">${escapeHtml(d.product_name)}</div>
+                            <div class="product-meta">
+                                ${escapeHtml(d.store_name)} | ${d.offer_type}
+                            </div>
+                            <div style="margin-top: 8px;">
+                                ${d.price_sek ? `<span style="text-decoration: line-through; color: var(--text-muted);">${d.price_sek} SEK</span>` : ''}
+                                <span class="price" style="margin-left: 8px;">${d.offer_price_sek} SEK</span>
+                                ${d.discount_percent > 0 ? `<span class="deal-badge" style="margin-left: 8px;">-${d.discount_percent.toFixed(0)}%</span>` : ''}
+                            </div>
+                        </div>
+                    `).join('') + '</div>';
+            } catch (e) {
+                contentEl.innerHTML = '<div style="color: var(--error);">Failed to load deals</div>';
+            }
+        }
+
+        async function showWatchesView() {
+            const contentEl = document.getElementById('main-content');
+            contentEl.innerHTML = '<div class="loading">Loading price watches...</div>';
+
+            const contextId = await getUserContext();
+            if (!contextId) {
+                contentEl.innerHTML = '<div style="color: var(--error);">No context found for user</div>';
+                return;
+            }
+
+            try {
+                const res = await fetch(`/platformadmin/price-tracker/watches?context_id=${contextId}`);
+                const watches = await res.json();
+
+                if (watches.length === 0) {
+                    contentEl.innerHTML = '<div class="card"><p style="color: var(--text-muted);">No price watches configured</p></div>';
+                    return;
+                }
+
+                contentEl.innerHTML = '<div class="card"><div class="card-header"><span class="card-title">My Price Watches</span></div>' +
+                    watches.map(w => `
+                        <div class="product-item">
+                            <div class="product-name">${escapeHtml(w.product_name)}</div>
+                            <div class="product-meta">
+                                Target: ${w.target_price_sek ? `${w.target_price_sek} SEK` : 'Any offer'}
+                                ${w.alert_on_any_offer ? ' | Alert on any offer' : ''}
+                            </div>
+                            <div style="margin-top: 4px; font-size: 12px; color: var(--text-muted);">
+                                Email: ${escapeHtml(w.email_address)}
+                            </div>
+                        </div>
+                    `).join('') + '</div>';
+            } catch (e) {
+                contentEl.innerHTML = '<div style="color: var(--error);">Failed to load watches</div>';
+            }
+        }
+
+        async function showStoresView() {
+            const contentEl = document.getElementById('main-content');
+            contentEl.innerHTML = '<div class="loading">Loading stores...</div>';
+
+            try {
+                const res = await fetch('/platformadmin/price-tracker/stores');
+                const stores = await res.json();
+
+                if (stores.length === 0) {
+                    contentEl.innerHTML = '<div class="card"><p style="color: var(--text-muted);">No stores configured</p></div>';
+                    return;
+                }
+
+                contentEl.innerHTML = '<div class="card"><div class="card-header"><span class="card-title">Configured Stores</span></div>' +
+                    stores.map(s => `
+                        <div class="product-item">
+                            <div class="product-name">${escapeHtml(s.name)}</div>
+                            <div class="product-meta">
+                                Type: ${escapeHtml(s.store_type)} | Slug: ${escapeHtml(s.slug)}
+                            </div>
+                            <div style="margin-top: 4px; font-size: 12px; color: var(--text-muted);">
+                                ${escapeHtml(s.base_url)}
+                            </div>
+                        </div>
+                    `).join('') + '</div>';
+            } catch (e) {
+                contentEl.innerHTML = '<div style="color: var(--error);">Failed to load stores</div>';
+            }
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        // Auto-load products on page load
+        showProductsView();
+    """
+
+    return render_admin_page(
+        title="Price Tracker",
+        active_page="/platformadmin/price-tracker/",
+        content=content,
+        user_name=admin.display_name or admin.email.split("@")[0],
+        user_email=admin.email,
+        breadcrumbs=[("Price Tracker", "#")],
+        extra_css=extra_css,
+        extra_js=extra_js,
+    )
