@@ -35,14 +35,12 @@ class PriceParser:
     # Cascading model strategy (cheapest to most expensive)
     MODEL_CASCADE = os.getenv(
         "PRICE_PARSER_MODEL_CASCADE",
-        "price-parser-cheap,price-parser-mid,price-parser-reliable,haiku,sonnet",
+        "parser,haiku,sonnet",
     ).split(",")
 
     # Model-specific confidence thresholds
     CONFIDENCE_THRESHOLDS = {
-        "price-parser-cheap": 0.75,
-        "price-parser-mid": 0.70,
-        "price-parser-reliable": 0.65,
+        "parser": 0.70,
         "haiku": 0.60,
         "sonnet": 0.0,  # Accept any confidence (last resort)
     }

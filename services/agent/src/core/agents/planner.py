@@ -163,7 +163,9 @@ class PlannerAgent:
                 "- Azure DevOps WRITE (execute creation): `requirements_writer`\n"
                 "- Web research with page reading: `researcher`\n"
                 "- Quick web search (snippets only): `search`\n"
-                "- Deep multi-source research: `deep_researcher`\n\n"
+                "- Deep multi-source research: `deep_researcher`\n"
+                "- Smart home control (lights, devices, flows): `general/homey`\n"
+                "- Price tracking and deals: `general/priser`\n\n"
                 "## JSON FORMAT (output ONLY valid JSON)\n"
                 "{\n"
                 '  "description": "Brief plan summary",\n'
