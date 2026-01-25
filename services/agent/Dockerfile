@@ -41,4 +41,4 @@ USER appuser
 EXPOSE 8000
 
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["uvicorn", "core.core.app:create_app", "--host", "0.0.0.0", "--port", "8000", "--factory", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uvicorn", "interfaces.http.app:create_app", "--host", "0.0.0.0", "--port", "8000", "--factory", "--proxy-headers", "--forwarded-allow-ips", "*"]
