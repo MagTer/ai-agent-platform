@@ -356,10 +356,9 @@ class StepExecutorAgent:
                     if has_session or has_kwargs:
                         final_args["session"] = db_session
 
-            # Inject context_id for tools that need OAuth token lookup
-            # This includes direct tools (homey) and orchestration tools (consult_expert)
-            # that forward context_id to sub-tools
-            if step.tool in ("homey", "consult_expert"):
+            # Inject context_id for tools that need OAuth token lookup or context isolation
+            # This includes direct tools (homey, git_clone) and orchestration tools
+            if step.tool in ("homey", "consult_expert", "git_clone"):
                 context_id_str = (request.metadata or {}).get("context_id")
                 if context_id_str:
                     from uuid import UUID
@@ -369,6 +368,16 @@ class StepExecutorAgent:
                     has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
                     if has_context_id or has_kwargs:
                         final_args["context_id"] = UUID(context_id_str)
+
+            # Inject session for tools that need database access for context-specific data
+            if step.tool in ("git_clone",):
+                db_session = (request.metadata or {}).get("_db_session")
+                if db_session:
+                    sig = inspect.signature(tool.run)
+                    has_session = "session" in sig.parameters
+                    has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                    if has_session or has_kwargs:
+                        final_args["session"] = db_session
 
             with start_span(f"tool.call.{step.tool}"):
                 try:

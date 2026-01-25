@@ -78,17 +78,26 @@ def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, 
 
 
 class SkillDelegateTool(Tool):
-    """Orchestration tool to delegate a task to a skilled worker."""
+    """Orchestration tool to delegate a task to a skilled worker.
+
+    DEPRECATED: This tool is maintained for backward compatibility.
+    New plans should use executor="skill", action="skill" directly.
+
+    The skills-native execution architecture routes skill steps directly
+    to SkillExecutor, bypassing this tool. This tool will be removed
+    in a future release.
+    """
 
     name = "consult_expert"
     description = (
-        "Delegates a task to a specialized worker persona. "
+        "[DEPRECATED] Delegates a task to a specialized worker persona. "
+        "New plans should use executor='skill' and action='skill' directly. "
         "`skill` MUST be an existing markdown filename (e.g., 'researcher', "
-        "'requirements_drafter') available in the system. "
-        "Do not pass atomic tool names here."
+        "'requirements_drafter') available in the system."
     )
     category = "orchestration"
     activity_hint = {"skill": "Consulting: {skill}"}
+    deprecated = True  # Flag for deprecation
     parameters = {
         "type": "object",
         "properties": {
@@ -119,6 +128,8 @@ class SkillDelegateTool(Tool):
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a sub-agent loop for the given skill and goal.
 
+        DEPRECATED: Use SkillExecutor with executor="skill" steps instead.
+
         Args:
             skill: Name of the skill/persona to delegate to
             goal: The specific task or goal for the skill
@@ -127,6 +138,14 @@ class SkillDelegateTool(Tool):
             context_id: Context UUID for OAuth token lookup (passed to tools that need it)
             **kwargs: Extra arguments (logged and ignored)
         """
+        # Deprecation warning
+        LOGGER.warning(
+            "DEPRECATED: consult_expert tool is deprecated. "
+            "Use executor='skill', action='skill' in plan steps instead. "
+            "Skill: %s",
+            skill,
+        )
+
         # Store credential context for sub-tools
         self._user_id = user_id
         self._session = session
@@ -237,6 +256,11 @@ class SkillDelegateTool(Tool):
 
         LOGGER.info(f"{logger_prefix} Max turns allowed: {max_turns}")
 
+        # Use model from skill metadata if specified
+        skill_model = metadata.get("model")
+        if skill_model:
+            LOGGER.info(f"{logger_prefix} Using model from skill metadata: {skill_model}")
+
         with start_span(f"skill.execution.{skill}", attributes={"goal": goal}):
             for i in range(max_turns):
                 LOGGER.debug(f"{logger_prefix} Turn {i+1}")
@@ -265,9 +289,10 @@ class SkillDelegateTool(Tool):
                     tool_calls_buffer = {}  # index -> call
 
                     try:
-                        # Use default model with tool schemas
+                        # Use skill's preferred model, or default if not specified
+                        tools_arg = tool_schemas if tool_schemas else None
                         async for chunk in self._litellm.stream_chat(
-                            messages, model=None, tools=tool_schemas if tool_schemas else None
+                            messages, model=skill_model, tools=tools_arg
                         ):
                             # 1. Yield Thinking Tokens
                             if chunk["type"] == "content" and chunk["content"]:

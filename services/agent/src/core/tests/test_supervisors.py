@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from shared.models import Plan, PlanStep, StepResult
+from shared.models import Plan, PlanStep, StepOutcome, StepResult
 
 from core.agents.supervisor_plan import PlanSupervisorAgent
 from core.agents.supervisor_step import StepSupervisorAgent
@@ -40,16 +40,17 @@ class TestPlanSupervisorAgent:
         """Test that a valid plan passes validation."""
         supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
+        # Use new skills-native format
         plan = Plan(
             description="Valid plan",
             steps=[
                 PlanStep(
                     id="1",
                     label="Research",
-                    executor="agent",
-                    action="tool",
-                    tool="consult_expert",
-                    args={"skill": "researcher", "goal": "Find info"},
+                    executor="skill",
+                    action="skill",
+                    tool="researcher",
+                    args={"goal": "Find info"},
                 ),
                 PlanStep(
                     id="2",
@@ -62,7 +63,9 @@ class TestPlanSupervisorAgent:
         )
 
         result = await supervisor.review(plan)
-        assert result == plan  # Plan should be returned unchanged
+        # Plan should be returned unchanged (no migration needed)
+        assert result.steps[0].executor == "skill"
+        assert result.steps[0].tool == "researcher"
 
     @pytest.mark.asyncio
     async def test_empty_plan_logs_error(
@@ -90,26 +93,28 @@ class TestPlanSupervisorAgent:
                 PlanStep(
                     id="1",
                     label="Research",
-                    executor="agent",
-                    action="tool",
-                    tool="consult_expert",
-                    args={"skill": "researcher", "goal": "Find info"},
+                    executor="skill",
+                    action="skill",
+                    tool="researcher",
+                    args={"goal": "Find info"},
                 ),
             ],
         )
 
         result = await supervisor.review(plan)
-        assert result == plan  # Still returns plan with warning
+        # Still returns plan with warning (no migration needed)
+        assert result.steps[0].tool == "researcher"
 
     @pytest.mark.asyncio
-    async def test_unknown_skill_warns(
+    async def test_consult_expert_migration(
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
-        """Test that unknown skill references generate warning."""
+        """Test that consult_expert steps are migrated to skills-native format."""
         supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
+        # Old format with consult_expert
         plan = Plan(
-            description="Unknown skill",
+            description="Old format plan",
             steps=[
                 PlanStep(
                     id="1",
@@ -117,7 +122,7 @@ class TestPlanSupervisorAgent:
                     executor="agent",
                     action="tool",
                     tool="consult_expert",
-                    args={"skill": "nonexistent_skill", "goal": "Find info"},
+                    args={"skill": "researcher", "goal": "Find info"},
                 ),
                 PlanStep(
                     id="2",
@@ -130,13 +135,18 @@ class TestPlanSupervisorAgent:
         )
 
         result = await supervisor.review(plan)
-        assert result == plan  # Returns plan with warning
+        # Should be migrated to skills-native format
+        assert result.steps[0].executor == "skill"
+        assert result.steps[0].action == "skill"
+        assert result.steps[0].tool == "researcher"
+        assert result.steps[0].args.get("goal") == "Find info"
+        assert "skill" not in result.steps[0].args
 
     @pytest.mark.asyncio
-    async def test_missing_skill_arg_errors(
+    async def test_missing_skill_arg_no_migration(
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
-        """Test that missing skill argument generates error."""
+        """Test that consult_expert without skill arg is not migrated."""
         supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
         plan = Plan(
@@ -161,7 +171,8 @@ class TestPlanSupervisorAgent:
         )
 
         result = await supervisor.review(plan)
-        assert result == plan  # Returns plan with error logged
+        # Without skill arg, consult_expert is not migrated
+        assert result.steps[0].tool == "consult_expert"
 
     @pytest.mark.asyncio
     async def test_wrong_executor_for_tool_warns(
@@ -178,8 +189,8 @@ class TestPlanSupervisorAgent:
                     label="Research",
                     executor="litellm",  # Should be 'agent' for tool actions
                     action="tool",
-                    tool="consult_expert",
-                    args={"skill": "researcher", "goal": "Find info"},
+                    tool="some_tool",  # Non-consult_expert tool
+                    args={"query": "test"},
                 ),
                 PlanStep(
                     id="2",
@@ -192,15 +203,16 @@ class TestPlanSupervisorAgent:
         )
 
         result = await supervisor.review(plan)
-        assert result == plan  # Returns plan with warning
+        # Returns plan with warning (no migration for non-consult_expert tools)
+        assert result.steps[0].executor == "litellm"
 
 
 class TestStepSupervisorAgent:
-    """Tests for StepSupervisorAgent error handling."""
+    """Tests for StepSupervisorAgent with StepOutcome returns."""
 
     @pytest.mark.asyncio
-    async def test_returns_adjust_on_llm_error(self) -> None:
-        """Test that supervisor returns 'adjust' when LLM call fails."""
+    async def test_returns_retry_on_llm_error(self) -> None:
+        """Test that supervisor returns RETRY when LLM call fails (first attempt)."""
         # Create mock LLM that raises an exception
         mock_llm = MagicMock()
         mock_llm.generate = AsyncMock(side_effect=Exception("Network timeout"))
@@ -219,17 +231,16 @@ class TestStepSupervisorAgent:
             step=step, status="ok", result={"output": "some data"}, messages=[]
         )
 
-        decision, reason, suggested_fix = await supervisor.review(step, step_result)
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
 
-        # Should return 'adjust' on error, NOT 'ok'
-        assert decision == "adjust"
-        assert "unavailable" in reason.lower() or "timeout" in reason.lower()
+        # First failure should return RETRY
+        assert outcome == StepOutcome.RETRY
+        assert "unavailable" in reason.lower() or "retry" in reason.lower()
         assert suggested_fix is not None
 
     @pytest.mark.asyncio
-    async def test_returns_adjust_on_timeout(self) -> None:
-        """Test that supervisor returns 'adjust' on timeout."""
-
+    async def test_returns_replan_after_retry(self) -> None:
+        """Test that supervisor returns REPLAN when LLM fails after retry."""
         # Create mock LLM that times out
         mock_llm = MagicMock()
         mock_llm.generate = AsyncMock(side_effect=TimeoutError())
@@ -248,13 +259,14 @@ class TestStepSupervisorAgent:
             step=step, status="ok", result={"output": "some data"}, messages=[]
         )
 
-        decision, reason, suggested_fix = await supervisor.review(step, step_result)
+        # With retry_count=1, should escalate to REPLAN
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result, retry_count=1)
 
-        assert decision == "adjust"
+        assert outcome == StepOutcome.REPLAN
 
     @pytest.mark.asyncio
-    async def test_parses_ok_response(self) -> None:
-        """Test that supervisor correctly parses 'ok' response."""
+    async def test_parses_success_response(self) -> None:
+        """Test that supervisor correctly parses 'ok' response as SUCCESS."""
         mock_llm = MagicMock()
         mock_llm.generate = AsyncMock(
             return_value='{"decision": "ok", "reason": "Step completed successfully"}'
@@ -274,18 +286,18 @@ class TestStepSupervisorAgent:
             step=step, status="ok", result={"output": "good data"}, messages=[]
         )
 
-        decision, reason, suggested_fix = await supervisor.review(step, step_result)
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
 
-        assert decision == "ok"
+        assert outcome == StepOutcome.SUCCESS
         assert "success" in reason.lower()
 
     @pytest.mark.asyncio
-    async def test_parses_adjust_response_with_fix(self) -> None:
-        """Test that supervisor correctly parses 'adjust' response with suggested fix."""
+    async def test_parses_replan_response_with_fix(self) -> None:
+        """Test that supervisor correctly parses 'replan' response with suggested fix."""
         mock_llm = MagicMock()
         mock_llm.generate = AsyncMock(
             return_value=(
-                '{"decision": "adjust", "reason": "Output incomplete", '
+                '{"outcome": "replan", "reason": "Output incomplete", '
                 '"suggested_fix": "Try a different query"}'
             )
         )
@@ -304,9 +316,9 @@ class TestStepSupervisorAgent:
             step=step, status="ok", result={"output": "partial data"}, messages=[]
         )
 
-        decision, reason, suggested_fix = await supervisor.review(step, step_result)
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
 
-        assert decision == "adjust"
+        assert outcome == StepOutcome.REPLAN
         assert "incomplete" in reason.lower()
         assert suggested_fix is not None
         assert "query" in suggested_fix.lower()

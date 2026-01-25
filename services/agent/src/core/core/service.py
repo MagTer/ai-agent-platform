@@ -15,6 +15,7 @@ from shared.models import (
     Plan,
     PlanStep,
     RoutingDecision,
+    StepOutcome,
     StepResult,
 )
 from sqlalchemy import select
@@ -40,6 +41,7 @@ from core.observability.tracing import (
     set_span_status,
     start_span,
 )
+from core.skills import SkillExecutor, SkillRegistry
 from core.system_commands import handle_system_command
 from core.tools import SkillDelegateTool, ToolRegistry
 from core.tools.base import ToolConfirmationError
@@ -54,6 +56,7 @@ class AgentService:
     _litellm: LiteLLMClient
     _memory: MemoryStore
     _tool_registry: ToolRegistry
+    _skill_registry: SkillRegistry | None
     context_manager: ContextManager
 
     def __init__(
@@ -62,13 +65,16 @@ class AgentService:
         litellm: LiteLLMClient,
         memory: MemoryStore,
         tool_registry: ToolRegistry | None = None,
+        skill_registry: SkillRegistry | None = None,
     ):
         self._settings = settings
         self._litellm = litellm
         self._memory = memory
         self._tool_registry = tool_registry or ToolRegistry([])
+        self._skill_registry = skill_registry
 
-        # Instantiate and register SkillDelegateTool (requires dependency injection)
+        # Register SkillDelegateTool for backward compatibility (deprecated)
+        # New plans should use executor="skill" directly
         skill_delegate = SkillDelegateTool(self._litellm, self._tool_registry)
         self._tool_registry.register(skill_delegate)
 
@@ -133,14 +139,30 @@ class AgentService:
             self._inject_workspace_rules(history, db_conversation.current_cwd)
 
         planner = PlannerAgent(self._litellm, model_name=self._settings.model_planner)
+
+        # Use skill_registry for skill names if available, otherwise fall back to command_loader
+        skill_names = (
+            self._skill_registry.get_skill_names()
+            if self._skill_registry
+            else get_available_skill_names()
+        )
         plan_supervisor = PlanSupervisorAgent(
             tool_registry=self._tool_registry,
-            skill_names=get_available_skill_names(),
+            skill_names=skill_names,
         )
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
         step_supervisor = StepSupervisorAgent(
             self._litellm, model_name=self._settings.model_supervisor
         )
+
+        # Create SkillExecutor for skills-native execution (if registry available)
+        skill_executor: SkillExecutor | None = None
+        if self._skill_registry:
+            skill_executor = SkillExecutor(
+                skill_registry=self._skill_registry,
+                tool_registry=self._tool_registry,
+                litellm=self._litellm,
+            )
 
         # Adaptive execution settings
         max_replans = 3
@@ -333,118 +355,207 @@ class AgentService:
                     }
 
                     # ─────────────────────────────────────────────────────────────
-                    # EXECUTION PHASE
+                    # EXECUTION PHASE (with self-correction via retry)
                     # ─────────────────────────────────────────────────────────────
                     needs_replan = False
+                    abort_execution = False
 
                     for plan_step in plan.steps:
-                        yield {
-                            "type": "step_start",
-                            "content": plan_step.label,
-                            "metadata": {
-                                "role": "Executor",
-                                "id": plan_step.id,
-                                "action": plan_step.action,
-                                "tool": plan_step.tool,
-                                "executor": plan_step.executor,
-                                "args": plan_step.args,
-                            },
-                        }
-
-                        if plan_step.action == "tool":
+                        # Per-step retry tracking for self-correction
+                        retry_count = 0
+                        retry_feedback: str | None = None
+                        # Self-correction loop: retry once before replan
+                        while True:
                             yield {
-                                "type": "tool_start",
-                                "content": None,
-                                "tool_call": {
-                                    "name": plan_step.tool,
-                                    "arguments": plan_step.args,
+                                "type": "step_start",
+                                "content": plan_step.label,
+                                "metadata": {
+                                    "role": "Executor",
+                                    "id": plan_step.id,
+                                    "action": plan_step.action,
+                                    "tool": plan_step.tool,
+                                    "executor": plan_step.executor,
+                                    "args": plan_step.args,
+                                    "retry_count": retry_count,
                                 },
-                                "metadata": {"role": "Executor", "id": plan_step.id},
                             }
 
-                        step_execution_result: StepResult | None = None
-                        try:
-                            # Stream execution
-                            async for event in executor.run_stream(
-                                plan_step,
-                                request=request,
-                                conversation_id=conversation_id,
-                                prompt_history=prompt_history,
-                            ):
-                                if event["type"] == "content":
-                                    yield {"type": "content", "content": event["content"]}
-                                elif event["type"] == "thinking":
-                                    meta = (event.get("metadata") or {}).copy()
-                                    meta["id"] = plan_step.id
-                                    yield {
-                                        "type": "thinking",
-                                        "content": event["content"],
-                                        "metadata": meta,
-                                    }
-                                elif event["type"] == "result":
-                                    step_execution_result = event["result"]
-
-                                await asyncio.sleep(0)  # Force flush loop
-
-                            if not step_execution_result:
-                                LOGGER.error(
-                                    "Executor failed to yield result (Stream ended prematurely)"
-                                )
+                            if plan_step.action == "tool" or plan_step.action == "skill":
                                 yield {
-                                    "type": "error",
-                                    "content": "Step execution ended without result.",
+                                    "type": "tool_start",
+                                    "content": None,
+                                    "tool_call": {
+                                        "name": plan_step.tool,
+                                        "arguments": plan_step.args,
+                                    },
+                                    "metadata": {"role": "Executor", "id": plan_step.id},
+                                }
+
+                            step_execution_result: StepResult | None = None
+                            try:
+                                # Determine if this is a skill step
+                                is_skill_step = (
+                                    plan_step.executor == "skill" or plan_step.action == "skill"
+                                )
+
+                                if is_skill_step and skill_executor:
+                                    # Use SkillExecutor for skills-native execution
+                                    async for event in skill_executor.execute_stream(
+                                        plan_step,
+                                        request=request,
+                                        retry_feedback=retry_feedback,
+                                    ):
+                                        if event["type"] == "content":
+                                            yield {"type": "content", "content": event["content"]}
+                                        elif event["type"] == "thinking":
+                                            meta = (event.get("metadata") or {}).copy()
+                                            meta["id"] = plan_step.id
+                                            yield {
+                                                "type": "thinking",
+                                                "content": event["content"],
+                                                "metadata": meta,
+                                            }
+                                        elif event["type"] == "skill_activity":
+                                            yield event
+                                        elif event["type"] == "result":
+                                            step_execution_result = event["result"]
+
+                                        await asyncio.sleep(0)  # Force flush loop
+                                else:
+                                    # Use legacy StepExecutorAgent
+                                    async for event in executor.run_stream(
+                                        plan_step,
+                                        request=request,
+                                        conversation_id=conversation_id,
+                                        prompt_history=prompt_history,
+                                    ):
+                                        if event["type"] == "content":
+                                            yield {"type": "content", "content": event["content"]}
+                                        elif event["type"] == "thinking":
+                                            meta = (event.get("metadata") or {}).copy()
+                                            meta["id"] = plan_step.id
+                                            yield {
+                                                "type": "thinking",
+                                                "content": event["content"],
+                                                "metadata": meta,
+                                            }
+                                        elif event["type"] == "result":
+                                            step_execution_result = event["result"]
+
+                                        await asyncio.sleep(0)  # Force flush loop
+
+                                if not step_execution_result:
+                                    LOGGER.error(
+                                        "Executor failed to yield result (Stream ended prematurely)"
+                                    )
+                                    yield {
+                                        "type": "error",
+                                        "content": "Step execution ended without result.",
+                                    }
+                                    return
+
+                            except ToolConfirmationError as exc:
+                                LOGGER.info(f"Step {plan_step.id} paused for confirmation")
+                                msg_content = (
+                                    f"Action paused. Tool '{exc.tool_name}' needs confirmation.\n"
+                                    f"Arguments: {exc.tool_args}\nReply 'CONFIRM' to proceed."
+                                )
+                                session.add(
+                                    Message(
+                                        session_id=db_session.id,
+                                        role="system",
+                                        content=msg_content,
+                                        trace_id=current_trace_ids().get("trace_id"),
+                                    )
+                                )
+                                await session.commit()
+                                yield {
+                                    "type": "content",
+                                    "content": msg_content,
+                                    "metadata": {"status": "confirmation_required"},
                                 }
                                 return
 
-                        except ToolConfirmationError as exc:
-                            LOGGER.info(f"Step {plan_step.id} paused for confirmation")
-                            msg_content = (
-                                f"Action paused. Tool '{exc.tool_name}' requires confirmation.\n"
-                                f"Arguments: {exc.tool_args}\nReply 'CONFIRM' to proceed."
-                            )
-                            session.add(
-                                Message(
-                                    session_id=db_session.id,
-                                    role="system",
-                                    content=msg_content,
-                                    trace_id=current_trace_ids().get("trace_id"),
+                            # ─────────────────────────────────────────────────────────
+                            # SUPERVISOR REVIEW (4-level StepOutcome)
+                            # Skip review for completion steps - they're the final answer
+                            # ─────────────────────────────────────────────────────────
+                            if plan_step.action == "completion":
+                                # Completion steps bypass supervision
+                                outcome = StepOutcome.SUCCESS
+                                reason = "Completion step (skipped review)"
+                                suggested_fix = None
+                            else:
+                                outcome, reason, suggested_fix = await step_supervisor.review(
+                                    plan_step, step_execution_result, retry_count=retry_count
                                 )
-                            )
-                            await session.commit()
-                            yield {
-                                "type": "content",
-                                "content": msg_content,
-                                "metadata": {"status": "confirmation_required"},
-                            }
-                            return
 
-                        # ─────────────────────────────────────────────────────────
-                        # SUPERVISOR REVIEW (Adaptive Execution)
-                        # Skip review for completion steps - they're the final answer
-                        # ─────────────────────────────────────────────────────────
-                        if plan_step.action == "completion":
-                            # Completion steps bypass supervision
-                            decision, reason, suggested_fix = (
-                                "ok",
-                                "Completion step (skipped review)",
-                                None,
-                            )
-                        else:
-                            decision, reason, suggested_fix = await step_supervisor.review(
-                                plan_step, step_execution_result
-                            )
+                            # Handle StepOutcome
+                            if outcome == StepOutcome.SUCCESS:
+                                break  # Exit retry loop, proceed to next step
 
-                        if plan_step.action == "tool":
+                            elif outcome == StepOutcome.RETRY and retry_count < 1:
+                                # Self-correction: retry with feedback
+                                retry_count += 1
+                                retry_feedback = (
+                                    f"Previous attempt failed: {reason}. "
+                                    f"{suggested_fix or 'Please try again.'}"
+                                )
+                                yield {
+                                    "type": "thinking",
+                                    "content": f"Retrying step: {reason}",
+                                    "metadata": {
+                                        "role": "Supervisor",
+                                        "outcome": "retry",
+                                        "retry_count": retry_count,
+                                    },
+                                }
+                                LOGGER.info(
+                                    "Step '%s' retry %d: %s",
+                                    plan_step.label,
+                                    retry_count,
+                                    reason,
+                                )
+                                continue  # Retry the step
+
+                            elif outcome == StepOutcome.ABORT:
+                                # Critical failure - stop execution
+                                LOGGER.error(
+                                    "Step '%s' ABORTED: %s",
+                                    plan_step.label,
+                                    reason,
+                                )
+                                yield {
+                                    "type": "error",
+                                    "content": f"Execution aborted: {reason}",
+                                    "metadata": {"outcome": "abort"},
+                                }
+                                abort_execution = True
+                                break  # Exit retry loop
+
+                            else:
+                                # RETRY (max reached) or REPLAN - trigger replanning
+                                break  # Exit retry loop, will be handled below
+
+                        # Handle abort_execution from ABORT outcome
+                        if abort_execution:
+                            break  # Exit step loop
+
+                        if plan_step.action == "tool" or plan_step.action == "skill":
                             chunk_type = "tool_output"
                             tool_call = {"name": plan_step.tool}
                         else:
                             chunk_type = "thinking"
                             tool_call = None
 
+                        # Map StepOutcome to legacy decision for compatibility
+                        legacy_decision = "ok" if outcome == StepOutcome.SUCCESS else "adjust"
+
                         # Enriched metadata for legacy compatibility
                         meta = {
                             "status": step_execution_result.status,
-                            "decision": decision,
+                            "decision": legacy_decision,
+                            "outcome": outcome.value,
                             "supervisor_reason": reason,
                             "id": plan_step.id,
                             "action": plan_step.action,
@@ -455,8 +566,10 @@ class AgentService:
                             "source_count": step_execution_result.result.get("source_count", 0),
                         }
 
-                        # Add skill name for consult_expert tool
-                        if plan_step.tool == "consult_expert" and plan_step.args:
+                        # Add skill name for skill steps and consult_expert
+                        if plan_step.executor == "skill" or plan_step.action == "skill":
+                            meta["skill"] = plan_step.tool
+                        elif plan_step.tool == "consult_expert" and plan_step.args:
                             meta["skill"] = plan_step.args.get("skill", "Research")
 
                         content_str = str(
@@ -481,7 +594,7 @@ class AgentService:
                             }
 
                         prompt_history.extend(step_execution_result.messages)
-                        if plan_step.action == "tool":
+                        if plan_step.action in ("tool", "skill"):
                             session.add(
                                 Message(
                                     session_id=db_session.id,
@@ -492,11 +605,14 @@ class AgentService:
                             )
 
                         # ─────────────────────────────────────────────────────────
-                        # HANDLE ADJUST DECISION (Trigger Re-plan)
+                        # HANDLE REPLAN OUTCOME (Trigger Re-plan)
                         # ─────────────────────────────────────────────────────────
-                        if decision == "adjust":
+                        if outcome in (StepOutcome.REPLAN, StepOutcome.RETRY):
+                            # RETRY that exceeded max retries becomes REPLAN
                             LOGGER.warning(
-                                "Supervisor rejected step '%s': %s", plan_step.label, reason
+                                "Supervisor requested replan for step '%s': %s",
+                                plan_step.label,
+                                reason,
                             )
 
                             if replans_remaining > 0:
@@ -516,10 +632,10 @@ class AgentService:
 
                                 yield {
                                     "type": "thinking",
-                                    "content": f"⚠️ Step rejected: {reason}. Re-planning...",
+                                    "content": f"Step needs replan: {reason}",
                                     "metadata": {
                                         "role": "Supervisor",
-                                        "supervisor_decision": "adjust",
+                                        "outcome": outcome.value,
                                         "reason": reason,
                                         "suggested_fix": suggested_fix,
                                         "replans_remaining": replans_remaining - 1,
@@ -532,13 +648,13 @@ class AgentService:
                             else:
                                 # Max replans reached, continue with warning
                                 LOGGER.error(
-                                    "Max replans (%d) reached. Continuing despite rejection.",
+                                    "Max replans (%d) reached. Continuing despite failure.",
                                     max_replans,
                                 )
                                 yield {
                                     "type": "thinking",
                                     "content": (
-                                        f"⚠️ Step issue: {reason}. "
+                                        f"Step issue: {reason}. "
                                         f"Max re-plans ({max_replans}) reached. Continuing..."
                                     ),
                                     "metadata": {"role": "Supervisor", "max_replans_reached": True},
@@ -558,8 +674,12 @@ class AgentService:
                             break
 
                     # If no replan needed and loop completed normally
-                    if not needs_replan:
+                    if not needs_replan and not abort_execution:
                         execution_complete = True
+
+                    # If abort was triggered, stop the entire adaptive loop
+                    if abort_execution:
+                        break
 
                 # ═══════════════════════════════════════════════════════════════════
                 # END ADAPTIVE EXECUTION LOOP
@@ -1210,3 +1330,56 @@ class AgentService:
             for key, value in raw_args.items()
             if key not in {"tool_args", "allowed_tools"}
         }
+
+    def _group_steps_for_parallel_execution(
+        self,
+        steps: list[PlanStep],
+    ) -> list[list[PlanStep]]:
+        """Group plan steps into batches for parallel execution.
+
+        Steps with no dependencies or satisfied dependencies are grouped together.
+        Each batch can be executed in parallel, batches are executed sequentially.
+
+        Args:
+            steps: List of plan steps with optional depends_on fields.
+
+        Returns:
+            List of step batches. Each batch contains steps that can run in parallel.
+        """
+        if not steps:
+            return []
+
+        batches: list[list[PlanStep]] = []
+        completed_ids: set[str] = set()
+        remaining = list(steps)
+
+        while remaining:
+            # Find all steps whose dependencies are satisfied
+            ready: list[PlanStep] = []
+            still_pending: list[PlanStep] = []
+
+            for step in remaining:
+                deps = step.depends_on or []
+                if all(dep in completed_ids for dep in deps):
+                    ready.append(step)
+                else:
+                    still_pending.append(step)
+
+            if not ready:
+                # No steps ready but we have remaining steps - this means
+                # circular dependency or missing step IDs. Fall back to sequential.
+                LOGGER.warning(
+                    "Dependency cycle detected or missing step IDs. "
+                    "Falling back to sequential execution for remaining %d steps.",
+                    len(still_pending),
+                )
+                # Add all remaining as individual batches
+                for step in still_pending:
+                    batches.append([step])
+                break
+
+            batches.append(ready)
+            completed_ids.update(s.id for s in ready)
+            remaining = still_pending
+
+        return batches

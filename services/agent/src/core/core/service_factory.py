@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import select
@@ -14,6 +15,9 @@ from core.core.memory import MemoryStore
 from core.core.service import AgentService
 from core.db.models import ToolPermission
 from core.tools.loader import load_tool_registry
+
+if TYPE_CHECKING:
+    from core.skills import SkillRegistry
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,15 +39,18 @@ class ServiceFactory:
         self,
         settings: Settings,
         litellm_client: LiteLLMClient,
+        skill_registry: SkillRegistry | None = None,
     ):
         """Initialize the service factory.
 
         Args:
             settings: Application settings
             litellm_client: Shared LiteLLM client (stateless, safe to share)
+            skill_registry: Optional shared skill registry for skills-native execution
         """
         self._settings = settings
         self._litellm = litellm_client
+        self._skill_registry = skill_registry
 
         # Cache base tool registry (native tools only, no MCP tools yet)
         # This is safe to share as a template - we'll clone it per-context
@@ -128,6 +135,7 @@ class ServiceFactory:
             litellm=self._litellm,
             memory=memory_store,
             tool_registry=tool_registry,
+            skill_registry=self._skill_registry,
         )
 
         LOGGER.info(

@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Literal
 
-from shared.models import AgentMessage, PlanStep, StepResult
+from shared.models import AgentMessage, PlanStep, StepOutcome, StepResult
 
 from core.core.litellm_client import LiteLLMClient
 from core.models.pydantic_schemas import SupervisorDecision, TraceContext
@@ -44,16 +44,24 @@ class StepSupervisorAgent:
         self,
         step: PlanStep,
         step_result: StepResult,
-    ) -> tuple[Literal["ok", "adjust"], str, str | None]:
+        retry_count: int = 0,
+    ) -> tuple[StepOutcome, str, str | None]:
         """Evaluate whether a step execution satisfies its intended goal.
+
+        Returns a 4-level StepOutcome to drive the self-correction loop:
+        - SUCCESS: Step completed, proceed to next
+        - RETRY: Transient error, retry with feedback (only if retry_count < 1)
+        - REPLAN: Step failed, generate new plan
+        - ABORT: Critical failure, stop execution
 
         Args:
             step: The plan step that was executed.
             step_result: The result from executing the step.
+            retry_count: Number of times this step has been retried.
 
         Returns:
-            A tuple of (decision, reason, suggested_fix) where:
-            - decision is "ok" or "adjust"
+            A tuple of (outcome, reason, suggested_fix) where:
+            - outcome is a StepOutcome enum value
             - reason explains the decision
             - suggested_fix is an optional actionable suggestion for how to fix the issue
         """
@@ -70,30 +78,35 @@ class StepSupervisorAgent:
             role="system",
             content=(
                 "You are a Step Supervisor Agent. Your job is to evaluate whether "
-                "a TOOL step execution encountered a REAL failure that requires re-planning.\n\n"
-                "## WHAT TO REJECT (decision: adjust)\n"
-                "ONLY reject if there is a CLEAR technical failure:\n"
-                "- Error messages (API errors, rate limits, authentication failures)\n"
-                "- Tool crashes or exceptions\n"
-                "- Permission denied / access restricted\n"
-                "- Connection timeouts\n\n"
-                "## WHAT TO ACCEPT (decision: ok)\n"
-                "Accept these as valid outcomes - they are NOT failures:\n"
-                "- 'No results found' - this is valid information, not a failure\n"
-                "- Empty search results - the tool worked, just found nothing\n"
-                "- Partial information - some data is better than none\n"
-                "- The tool executed and returned a response (even if brief)\n\n"
+                "a TOOL step execution succeeded or encountered issues.\n\n"
+                "## OUTCOME LEVELS\n"
+                "You must choose ONE of these outcomes:\n"
+                "- **success**: Step completed successfully. Use for:\n"
+                "  - Tool executed and returned useful data\n"
+                "  - 'No results found' (this IS valid information)\n"
+                "  - Partial information (some data is better than none)\n\n"
+                "- **retry**: Transient error that might succeed on retry. Use for:\n"
+                "  - Timeout errors\n"
+                "  - Rate limits (429 errors)\n"
+                "  - Temporary network issues\n"
+                "  Note: Only suggest retry if the error seems transient.\n\n"
+                "- **replan**: Step failed in a way that needs a different approach. Use for:\n"
+                "  - Authentication/permission errors (need different credentials)\n"
+                "  - Resource not found (need to search differently)\n"
+                "  - Invalid arguments (need different parameters)\n\n"
+                "- **abort**: Critical failure, should stop execution. Use for:\n"
+                "  - Security violations\n"
+                "  - Data corruption risks\n"
+                "  - Unrecoverable system errors\n\n"
                 "## RESPONSE FORMAT (Strict JSON Only)\n"
-                '{"decision": "ok" | "adjust", "reason": "Brief explanation", '
+                '{"outcome": "success" | "retry" | "replan" | "abort", '
+                '"reason": "Brief explanation", '
                 '"suggested_fix": "Optional: specific action to fix the issue"}\n\n'
                 "## IMPORTANT\n"
-                "Be LENIENT. Only reject for TECHNICAL failures. "
-                "'No results' is a valid answer, not a failure. "
-                "When in doubt, choose 'ok'.\n\n"
-                "If you choose 'adjust', provide a specific suggested_fix that tells "
-                "the planner exactly what to try differently "
-                "(e.g., 'Use a different API endpoint', "
-                "'Check authentication token', 'Retry with smaller batch size')."
+                "Be LENIENT. Default to 'success' unless there's a clear failure. "
+                "'No results' is valid information, not a failure. "
+                "When in doubt, choose 'success'.\n\n"
+                "If you choose 'retry' or 'replan', provide a specific suggested_fix."
             ),
         )
 
@@ -128,20 +141,23 @@ class StepSupervisorAgent:
                 )
 
                 # Parse JSON response
-                decision, reason, suggested_fix = self._parse_response(response)
+                outcome, reason, suggested_fix = self._parse_response(response, retry_count)
 
-                # Add decision to span
-                span.set_attribute("decision", decision)
+                # Add outcome to span
+                span.set_attribute("outcome", outcome.value)
                 if suggested_fix:
                     span.set_attribute("suggested_fix", suggested_fix)
                 span.set_attribute("reason", reason)
 
-                # Log the decision
+                # Log the decision (map outcome to legacy decision format for logging)
+                legacy_decision: Literal["ok", "adjust"] = (
+                    "ok" if outcome == StepOutcome.SUCCESS else "adjust"
+                )
                 log_event(
                     SupervisorDecision(
                         item_id=step.id,
-                        decision=decision,
-                        comments=reason,
+                        decision=legacy_decision,
+                        comments=f"[{outcome.value}] {reason}",
                         trace=TraceContext(**current_trace_ids()),
                     )
                 )
@@ -149,34 +165,41 @@ class StepSupervisorAgent:
                 LOGGER.info(
                     "Supervisor reviewed step '%s': %s - %s%s",
                     step_label,
-                    decision,
+                    outcome.value,
                     reason,
                     f" (fix: {suggested_fix})" if suggested_fix else "",
                 )
 
-                return decision, reason, suggested_fix
+                return outcome, reason, suggested_fix
 
             except Exception as exc:
                 LOGGER.exception("Supervisor review failed for step '%s'", step_label)
                 span.set_attribute("error", str(exc))
-                # On failure, be conservative - flag for potential re-planning
-                # rather than silently approving potentially broken steps.
-                # This ensures failures are surfaced and can trigger re-planning
-                # if the issue is transient (e.g., network timeout).
+                # On failure, be conservative - suggest retry first, then replan
+                # This ensures failures are surfaced but gives transient errors a chance.
+                if retry_count < 1:
+                    return (
+                        StepOutcome.RETRY,
+                        f"Supervisor unavailable - retry recommended: {exc}",
+                        "Verify the step output is correct or retry the operation",
+                    )
                 return (
-                    "adjust",
-                    f"Supervisor unavailable - review manually: {exc}",
-                    "Verify the step output is correct or retry the operation",
+                    StepOutcome.REPLAN,
+                    f"Supervisor unavailable after retry - replan needed: {exc}",
+                    "Generate a new plan with a different approach",
                 )
 
-    def _parse_response(self, response: str) -> tuple[Literal["ok", "adjust"], str, str | None]:
-        """Parse the LLM response into decision, reason, and suggested_fix.
+    def _parse_response(
+        self, response: str, retry_count: int = 0
+    ) -> tuple[StepOutcome, str, str | None]:
+        """Parse the LLM response into outcome, reason, and suggested_fix.
 
         Args:
             response: Raw LLM response text.
+            retry_count: Current retry count (affects whether RETRY is allowed).
 
         Returns:
-            Tuple of (decision, reason, suggested_fix).
+            Tuple of (outcome, reason, suggested_fix).
         """
         try:
             # Try direct JSON parse
@@ -190,21 +213,34 @@ class StepSupervisorAgent:
                     data = json.loads(response[start : end + 1])
                 except json.JSONDecodeError:
                     LOGGER.warning("Failed to parse supervisor response: %s", response)
-                    return "ok", "Could not parse supervisor response", None
+                    return StepOutcome.SUCCESS, "Could not parse supervisor response", None
             else:
                 LOGGER.warning("No JSON found in supervisor response: %s", response)
-                return "ok", "No JSON in supervisor response", None
+                return StepOutcome.SUCCESS, "No JSON in supervisor response", None
 
-        decision = data.get("decision", "ok")
+        # Support both new 'outcome' and legacy 'decision' fields
+        raw_outcome = data.get("outcome") or data.get("decision", "success")
         reason = data.get("reason", "No reason provided")
         suggested_fix = data.get("suggested_fix")  # Optional field
 
-        # Validate decision value
-        if decision not in ("ok", "adjust"):
-            LOGGER.warning("Invalid decision '%s', defaulting to 'ok'", decision)
-            decision = "ok"
+        # Map raw outcome to StepOutcome enum
+        outcome_map = {
+            "success": StepOutcome.SUCCESS,
+            "ok": StepOutcome.SUCCESS,  # Legacy compatibility
+            "retry": StepOutcome.RETRY,
+            "replan": StepOutcome.REPLAN,
+            "adjust": StepOutcome.REPLAN,  # Legacy compatibility
+            "abort": StepOutcome.ABORT,
+        }
 
-        return decision, reason, suggested_fix
+        outcome = outcome_map.get(raw_outcome.lower(), StepOutcome.SUCCESS)
+
+        # If RETRY but we've already retried, escalate to REPLAN
+        if outcome == StepOutcome.RETRY and retry_count >= 1:
+            LOGGER.info("RETRY requested but retry_count=%d, escalating to REPLAN", retry_count)
+            outcome = StepOutcome.REPLAN
+
+        return outcome, reason, suggested_fix
 
 
 __all__ = ["StepSupervisorAgent"]

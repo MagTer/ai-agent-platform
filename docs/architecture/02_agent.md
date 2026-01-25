@@ -32,18 +32,20 @@ The embedder endpoint (`AGENT_EMBEDDER_URL`) is used whenever the memory store i
 2. **AgentService** initializes the request context.
 3. **Planner Agent (Orchestrator)**: The `PlannerAgent` analyzes the user input and generates a JSON execution plan.
     - It does **not** execute tasks directly.
-    - It delegates domain-specific work using the `consult_expert` tool.
-4. **Adaptive Execution Loop** (with re-planning):
-    - The `AgentService` iterates through the plan steps within an outer re-plan loop.
-    - **Step Execution**: Each step is executed by `StepExecutorAgent`.
+    - It uses **skills-native format**: `executor="skill", action="skill", tool=<skill_name>`.
+4. **Adaptive Execution Loop** (with self-correction):
+    - The `AgentService` iterates through the plan steps with retry and re-plan capability.
+    - **Step Execution**: Each step is executed by `SkillExecutor` (for skills) or `StepExecutorAgent` (for tools).
     - **Step Supervision**: After each step, `StepSupervisorAgent` uses an LLM to evaluate if the output satisfies the step's intent.
         - Detects: empty results, hidden errors, intent mismatches, hallucinations.
-        - Returns `decision` ("ok" or "adjust") with `reason`.
-    - **Re-planning**: If `decision == "adjust"`:
-        - Feedback is injected into the conversation history.
-        - Execution halts and the Planner generates a new plan.
+        - Returns `StepOutcome` (SUCCESS, RETRY, REPLAN, ABORT) with `reason` and optional `suggested_fix`.
+    - **Self-Correction Loop**:
+        - `SUCCESS`: Proceed to next step.
+        - `RETRY`: Re-execute with feedback (max 1 retry per step).
+        - `REPLAN`: Generate a new plan with the Planner.
+        - `ABORT`: Stop execution on critical errors.
         - Safety limit: max 3 re-plans to prevent infinite loops.
-    - **Skill Delegation**: If a step calls `consult_expert`, the `SkillDelegateTool` is invoked.
+    - **Skill Execution**: Skills run via `SkillExecutor` with scoped tool access (only tools defined in the skill's frontmatter).
 5. **Completion**:
    - The final step of the plan is typically a `completion` action, where the LLM synthesizes the results into a natural language response.
 6. The `AgentResponse` is returned to the caller, including the full `steps` trace for UI visualization.

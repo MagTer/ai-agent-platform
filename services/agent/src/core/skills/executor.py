@@ -1,0 +1,561 @@
+"""Skill executor with scoped tool access.
+
+This module provides the SkillExecutor class that runs skills with strict
+tool scoping - skills can ONLY access tools explicitly listed in their
+frontmatter. This provides security isolation and clear capability boundaries.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from collections.abc import AsyncGenerator
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
+from uuid import UUID
+
+from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
+
+from core.observability.tracing import set_span_attributes, start_span
+from core.skills.registry import SkillRegistry
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from core.core.litellm_client import LiteLLMClient
+    from core.tools import ToolRegistry
+    from core.tools.base import Tool
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, Any]) -> str:
+    """Build an informative activity message from tool hints or arguments."""
+    # Try tool's activity_hint first
+    if tool_obj and hasattr(tool_obj, "activity_hint") and tool_obj.activity_hint:
+        for arg_name, pattern in tool_obj.activity_hint.items():
+            if arg_name in fargs:
+                value = fargs[arg_name]
+                domain = value
+
+                # Handle special {domain} placeholder
+                if "{domain}" in pattern and isinstance(value, str):
+                    try:
+                        domain = urlparse(value).netloc or value
+                    except Exception:
+                        domain = value
+
+                # Truncate long values
+                if isinstance(value, str) and len(value) > 50:
+                    value = value[:47] + "..."
+                if isinstance(domain, str) and len(domain) > 50:
+                    domain = domain[:47] + "..."
+
+                try:
+                    return pattern.format(**{arg_name: value, "domain": domain})
+                except (KeyError, ValueError):
+                    pass
+
+    # Fallback patterns
+    if "query" in fargs:
+        q = fargs["query"]
+        q = q if len(q) <= 50 else q[:47] + "..."
+        return f'Searching: "{q}"'
+    elif "url" in fargs:
+        try:
+            domain = urlparse(fargs["url"]).netloc
+            return f"Fetching: {domain}"
+        except Exception:
+            return "Fetching URL"
+    elif "path" in fargs or "file_path" in fargs:
+        path = fargs.get("path") or fargs.get("file_path")
+        return f"Reading: {path}"
+
+    return f"Using {fname}"
+
+
+class SkillExecutor:
+    """Execute skills with scoped tool access.
+
+    This executor runs skills as the primary execution unit, enforcing
+    that skills can ONLY access tools explicitly defined in their frontmatter.
+
+    Features:
+    - Strict tool scoping (security isolation)
+    - Streaming output support
+    - Rate limiting and deduplication
+    - Retry feedback support for self-correction
+    """
+
+    def __init__(
+        self,
+        skill_registry: SkillRegistry,
+        tool_registry: ToolRegistry,
+        litellm: LiteLLMClient,
+    ) -> None:
+        """Initialize the skill executor.
+
+        Args:
+            skill_registry: Registry of validated skills.
+            tool_registry: Registry of available tools.
+            litellm: LiteLLM client for LLM calls.
+        """
+        self._skill_registry = skill_registry
+        self._tool_registry = tool_registry
+        self._litellm = litellm
+
+    async def execute_stream(
+        self,
+        step: PlanStep,
+        request: AgentRequest,
+        *,
+        retry_feedback: str | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute a skill step and yield streaming events.
+
+        Args:
+            step: The plan step to execute (must have executor="skill").
+            request: The original agent request (for context injection).
+            retry_feedback: Optional feedback from previous failed attempt.
+
+        Yields:
+            Streaming events: thinking, content, skill_activity, result
+        """
+        skill_name = step.tool
+        if not skill_name:
+            yield {
+                "type": "result",
+                "result": StepResult(
+                    step=step,
+                    status="error",
+                    result={"error": "No skill specified in step"},
+                    messages=[],
+                ),
+            }
+            return
+
+        # Look up skill
+        skill = self._skill_registry.get(skill_name)
+        if not skill:
+            yield {
+                "type": "result",
+                "result": StepResult(
+                    step=step,
+                    status="error",
+                    result={"error": f"Skill '{skill_name}' not found"},
+                    messages=[],
+                ),
+            }
+            return
+
+        # Build scoped tool set - ONLY tools defined in skill.tools
+        scoped_tools: list[Tool] = []
+        tool_schemas: list[dict[str, Any]] = []
+        tool_lookup: dict[str, Tool] = {}
+
+        for tool_name in skill.tools:
+            tool = self._tool_registry.get(tool_name)
+            if tool:
+                scoped_tools.append(tool)
+                tool_lookup[tool_name] = tool
+
+                # Build LiteLLM tool schema
+                schema: dict[str, Any] = {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                    },
+                }
+                if hasattr(tool, "parameters"):
+                    schema["function"]["parameters"] = tool.parameters
+                tool_schemas.append(schema)
+            else:
+                LOGGER.warning(
+                    "Skill '%s' references missing tool '%s'",
+                    skill_name,
+                    tool_name,
+                )
+
+        # Extract goal from step args
+        goal = (step.args or {}).get("goal", "")
+        if not goal:
+            # Fallback to step description
+            goal = step.description or step.label
+
+        # Build system context
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
+        today = datetime.now().strftime("%Y-%m-%d")
+        year = datetime.now().year
+        max_turns = skill.max_turns
+
+        system_context = (
+            "SYSTEM CONTEXT:\n"
+            f"- Current Date & Time: {now}\n"
+            f"- Your knowledge cutoff is static, but YOU ARE LIVE in {year}.\n"
+            f"- Treat all retrieved documents dated up to {today} as HISTORICAL FACTS.\n"
+            "\n"
+            "## EXECUTION PROTOCOL\n"
+            "RULE 1 - PROGRESSIVE RESEARCH: You may call tools multiple times.\n"
+            "RULE 2 - AVOID EXACT DUPLICATES: Don't repeat identical tool calls.\n"
+            "RULE 3 - STOP WHEN SUFFICIENT: After gathering enough data, provide your answer.\n"
+            "\n"
+            f"BUDGET: Maximum turns: {max_turns}, Maximum calls per tool: 3\n"
+        )
+
+        # Render skill prompt
+        try:
+            skill_prompt = skill.render(step.args)
+        except ValueError as e:
+            yield {
+                "type": "result",
+                "result": StepResult(
+                    step=step,
+                    status="error",
+                    result={"error": str(e)},
+                    messages=[],
+                ),
+            }
+            return
+
+        # Build initial messages
+        messages: list[AgentMessage] = [
+            AgentMessage(
+                role="system",
+                content=f"{system_context}\n{skill_prompt}",
+            ),
+            AgentMessage(role="user", content=goal),
+        ]
+
+        # Add retry feedback if provided
+        if retry_feedback:
+            messages.append(
+                AgentMessage(
+                    role="system",
+                    content=f"RETRY FEEDBACK: Previous attempt failed. {retry_feedback}",
+                )
+            )
+
+        logger_prefix = f"[SkillExecutor:{skill_name}]"
+        LOGGER.info("%s Starting goal: %s", logger_prefix, goal[:100])
+
+        source_count = 0
+        seen_calls: set[tuple[str, str]] = set()
+        tool_call_counts: dict[str, int] = {}
+        max_calls_per_tool = 3
+
+        # Extract context for tool injection
+        context_id: UUID | None = None
+        user_id: UUID | None = None
+        session: AsyncSession | None = None
+
+        if request.metadata:
+            if cid := request.metadata.get("context_id"):
+                context_id = UUID(cid) if isinstance(cid, str) else cid
+            if uid := request.metadata.get("user_id"):
+                user_id = UUID(uid) if isinstance(uid, str) else uid
+            session = request.metadata.get("_db_session")
+
+        with start_span(f"skill.execution.{skill_name}", attributes={"goal": goal[:200]}):
+            yield {"type": "thinking", "content": f"Goal: {goal[:80]}..."}
+            await asyncio.sleep(0)
+
+            for turn in range(max_turns):
+                LOGGER.debug("%s Turn %d", logger_prefix, turn + 1)
+                blocked_this_turn = False
+
+                with start_span(f"skill.turn.{turn + 1}"):
+                    set_span_attributes({"skill.turn": turn + 1, "skill.name": skill_name})
+
+                    # Stream LLM response
+                    full_content: list[str] = []
+                    tool_calls_buffer: dict[int, Any] = {}
+
+                    try:
+                        async for chunk in self._litellm.stream_chat(
+                            messages,
+                            model=skill.model,
+                            tools=tool_schemas if tool_schemas else None,
+                        ):
+                            if chunk["type"] == "content" and chunk["content"]:
+                                content = chunk["content"]
+                                full_content.append(content)
+                                yield {"type": "content", "content": content}
+
+                            elif chunk["type"] == "tool_start":
+                                tc = chunk.get("tool_call")
+                                if tc:
+                                    idx = tc.get("index", 0)
+                                    if idx not in tool_calls_buffer:
+                                        tool_calls_buffer[idx] = tc
+                                    else:
+                                        self._merge_tool_calls(tool_calls_buffer, dict(chunk))
+
+                            elif chunk["type"] == "error":
+                                yield {
+                                    "type": "result",
+                                    "result": StepResult(
+                                        step=step,
+                                        status="error",
+                                        result={"error": f"LLM error: {chunk['content']}"},
+                                        messages=[],
+                                    ),
+                                }
+                                return
+
+                    except Exception as e:
+                        LOGGER.error("%s Stream error: %s", logger_prefix, e, exc_info=True)
+                        yield {
+                            "type": "result",
+                            "result": StepResult(
+                                step=step,
+                                status="error",
+                                result={"error": f"Stream error: {e}"},
+                                messages=[],
+                            ),
+                        }
+                        return
+
+                    content = "".join(full_content)
+                    tool_calls = list(tool_calls_buffer.values())
+
+                    # Add assistant message to history
+                    assistant_msg = AgentMessage(
+                        role="assistant",
+                        content=content,
+                        tool_calls=tool_calls,
+                    )
+                    messages.append(assistant_msg)
+
+                    # No tool calls - return final content
+                    if not tool_calls:
+                        if content:
+                            LOGGER.info(
+                                "%s Final result with source_count=%d",
+                                logger_prefix,
+                                source_count,
+                            )
+                            yield {
+                                "type": "result",
+                                "result": StepResult(
+                                    step=step,
+                                    status="ok",
+                                    result={
+                                        "output": content,
+                                        "source_count": source_count,
+                                    },
+                                    messages=[
+                                        AgentMessage(
+                                            role="system",
+                                            content=f"Skill {skill_name} output:\n{content}",
+                                        )
+                                    ],
+                                ),
+                            }
+                            return
+
+                        yield {
+                            "type": "result",
+                            "result": StepResult(
+                                step=step,
+                                status="ok",
+                                result={
+                                    "output": "Skill produced empty response.",
+                                    "source_count": source_count,
+                                },
+                                messages=[],
+                            ),
+                        }
+                        return
+
+                    # Process tool calls
+                    source_count += len(tool_calls)
+                    LOGGER.info(
+                        "%s Turn %d: %d tool calls (total: %d)",
+                        logger_prefix,
+                        turn + 1,
+                        len(tool_calls),
+                        source_count,
+                    )
+
+                    for tc in tool_calls:
+                        func = tc.get("function", {})
+                        fname = func.get("name", "")
+                        call_id = tc.get("id", "")
+
+                        try:
+                            fargs = json.loads(func.get("arguments", "{}"))
+                        except json.JSONDecodeError:
+                            fargs = {}
+
+                        # Build activity message
+                        tool_obj = tool_lookup.get(fname)
+                        activity_msg = _build_activity_message(tool_obj, fname, fargs)
+
+                        # Check for duplicates
+                        call_key = (fname, json.dumps(fargs, sort_keys=True))
+                        current_count = tool_call_counts.get(fname, 0)
+
+                        output_str = ""
+                        if call_key in seen_calls:
+                            LOGGER.warning("%s Blocking duplicate call to %s", logger_prefix, fname)
+                            output_str = (
+                                f"BLOCKED: Duplicate call to '{fname}'. "
+                                "Use the data from your previous call."
+                            )
+                            yield {"type": "thinking", "content": f"Skipping duplicate {fname}"}
+                            blocked_this_turn = True
+
+                        elif current_count >= max_calls_per_tool:
+                            LOGGER.warning(
+                                "%s Rate limiting %s (called %d times)",
+                                logger_prefix,
+                                fname,
+                                current_count,
+                            )
+                            output_str = (
+                                f"BLOCKED: Max calls ({max_calls_per_tool}) to '{fname}' reached."
+                            )
+                            blocked_this_turn = True
+
+                        elif fname not in tool_lookup:
+                            # Tool not in scoped set - SECURITY: reject
+                            LOGGER.warning(
+                                "%s Rejecting out-of-scope tool '%s'",
+                                logger_prefix,
+                                fname,
+                            )
+                            output_str = f"ERROR: Tool '{fname}' is not available to this skill."
+
+                        else:
+                            # Execute tool (tool_obj is guaranteed to exist here)
+                            assert tool_obj is not None
+                            seen_calls.add(call_key)
+                            tool_call_counts[fname] = current_count + 1
+
+                            yield {"type": "thinking", "content": activity_msg}
+                            yield {
+                                "type": "skill_activity",
+                                "content": activity_msg,
+                                "metadata": {
+                                    "tool": fname,
+                                    "skill": skill_name,
+                                    "search_query": fargs.get("query"),
+                                    "fetch_url": fargs.get("url"),
+                                },
+                            }
+                            await asyncio.sleep(0)
+
+                            # Inject context into tool args
+                            tool_args = fargs.copy()
+                            if context_id and fname in ("homey",):
+                                tool_args["context_id"] = context_id
+                            if user_id and session and fname in ("azure_devops",):
+                                tool_args["user_id"] = user_id
+                                tool_args["session"] = session
+
+                            try:
+                                with start_span(f"skill.tool.{fname}"):
+                                    output_str = str(await tool_obj.run(**tool_args))
+                                    set_span_attributes(
+                                        {
+                                            "tool.output_preview": output_str[:500],
+                                            "tool.status": "success",
+                                        }
+                                    )
+                            except Exception as e:
+                                output_str = f"Error: {e}"
+                                LOGGER.error(
+                                    "%s Tool %s failed: %s",
+                                    logger_prefix,
+                                    fname,
+                                    e,
+                                )
+
+                        # Add tool result to messages
+                        messages.append(
+                            AgentMessage(
+                                role="tool",
+                                tool_call_id=call_id,
+                                name=fname,
+                                content=output_str,
+                            )
+                        )
+
+                    if blocked_this_turn:
+                        LOGGER.info("%s Blocked calls, terminating", logger_prefix)
+                        break
+
+            # Reached max turns
+            LOGGER.warning(
+                "%s Reached max_turns (%d) with source_count=%d",
+                logger_prefix,
+                max_turns,
+                source_count,
+            )
+
+            # Extract tool outputs for summary
+            tool_outputs: list[str] = []
+            for msg in messages:
+                if msg.role == "tool" and msg.content:
+                    if (
+                        not msg.content.startswith("Error:")
+                        and not msg.content.startswith("BLOCKED:")
+                        and len(msg.content) > 50
+                    ):
+                        tool_outputs.append(msg.content)
+
+            if tool_outputs:
+                combined = "\n\n---\n\n".join(tool_outputs[-3:])
+                output_msg = (
+                    f"Skill '{skill_name}' reached max turns ({max_turns}). "
+                    f"Collected data from {source_count} sources:\n\n{combined}"
+                )
+            else:
+                output_msg = (
+                    f"Skill '{skill_name}' reached max turns ({max_turns}). "
+                    f"Used {source_count} sources but no substantial results."
+                )
+
+            yield {
+                "type": "result",
+                "result": StepResult(
+                    step=step,
+                    status="ok",
+                    result={"output": output_msg, "source_count": source_count},
+                    messages=[
+                        AgentMessage(
+                            role="system",
+                            content=f"Skill {skill_name} output:\n{output_msg}",
+                        )
+                    ],
+                ),
+            }
+
+    def _merge_tool_calls(
+        self,
+        buffer: dict[int, Any],
+        chunk: dict[str, Any],
+    ) -> None:
+        """Merge streaming tool call deltas into the buffer."""
+        tc = chunk.get("tool_call", {})
+        idx = tc.get("index", 0)
+
+        if idx not in buffer:
+            return
+
+        prev = buffer[idx]
+        func = tc.get("function", {})
+
+        if "name" in func and func["name"]:
+            prev_func = prev.setdefault("function", {})
+            prev_func["name"] = (prev_func.get("name") or "") + func["name"]
+
+        if "arguments" in func and func["arguments"]:
+            prev_func = prev.setdefault("function", {})
+            prev_func["arguments"] = (prev_func.get("arguments") or "") + func["arguments"]
+
+
+__all__ = ["SkillExecutor"]

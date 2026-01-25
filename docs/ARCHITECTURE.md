@@ -292,23 +292,32 @@ async def lifespan(app: FastAPI):
 
 ## Adaptive Execution
 
-The agent uses an **Adaptive Execution** pattern where step outputs are semantically evaluated and the system can self-correct by re-planning.
+The agent uses an **Adaptive Execution** pattern where step outputs are semantically evaluated and the system can self-correct via retry and re-planning.
 
-### Step Supervisor (`core/agents/supervisor_step.py`)
+### StepOutcome (4-Level Decision System)
 
-After each step execution, `StepSupervisorAgent` uses an LLM to evaluate:
-- **Empty Results**: Did the step return nothing useful?
-- **Hidden Errors**: Are there error messages in the output text?
-- **Intent Mismatch**: Does the output address the step's goal?
+After each step execution, `StepSupervisorAgent` evaluates the result and returns a `StepOutcome`:
 
-Returns: `{"decision": "ok" | "adjust", "reason": "..."}`
+| Outcome | Meaning | Action |
+|---------|---------|--------|
+| `SUCCESS` | Step completed | Proceed to next step |
+| `RETRY` | Transient error | Retry same step with feedback (max 1 retry) |
+| `REPLAN` | Step failed | Generate new plan |
+| `ABORT` | Critical failure | Stop execution entirely |
 
-### Re-planning Loop
+### Self-Correction Loop
 
-If `decision == "adjust"`:
-1. Feedback is injected into conversation history
-2. Execution halts and Planner generates a new plan
-3. Safety limit: max 3 re-plans to prevent infinite loops
+1. **Step Executes** via SkillExecutor or StepExecutorAgent
+2. **Supervisor Reviews** the output
+3. **Based on Outcome**:
+   - `SUCCESS`: Move to next step
+   - `RETRY` (first attempt): Retry with feedback injected
+   - `RETRY` (max reached) or `REPLAN`: Generate new plan
+   - `ABORT`: Stop with error
+
+Safety limits:
+- Max 1 retry per step (self-correction)
+- Max 3 re-plans total (prevent infinite loops)
 
 ---
 
@@ -337,13 +346,74 @@ Returns AI-optimized health report with:
 
 ---
 
-## Skill System
+## Skills-Native Execution
 
-Skills are defined as **Markdown files** with YAML Frontmatter, located in the `skills/` directory.
+Skills are the **primary execution unit** in the agent architecture. They are defined as Markdown files with YAML frontmatter in the `skills/` directory.
 
-*   **Definition**: A skill wraps a prompt template, execution parameters, and **allowed tools**.
-*   **Discovery**: The `SkillLoader` scans `skills/` at startup.
-*   **Execution**: The `Planner Agent` delegates tasks to skills via the `consult_expert` tool. Each skill runs as an isolated Worker Agent loop.
+### Architecture Components
+
+| Component | Purpose |
+|-----------|---------|
+| `SkillRegistry` | Validates all skills at startup, checks tool references |
+| `SkillExecutor` | Runs skills with scoped tool access |
+| `Skill` | Dataclass representing a loaded skill |
+
+### Skill Definition
+
+```yaml
+---
+name: researcher
+description: Web research skill
+tools:
+  - web_search
+  - fetch_url
+model: agentchat
+max_turns: 5
+---
+You are a research assistant. Find information about: $ARGUMENTS
+```
+
+### Execution Flow
+
+```
+Plan Step (executor="skill", action="skill", tool="researcher")
+    ↓
+SkillRegistry.get("researcher")
+    ↓
+SkillExecutor.execute_stream()
+    ↓
+Build scoped tool set (ONLY tools in skill.tools)
+    ↓
+Run LLM tool-calling loop with skill.model
+    ↓
+Yield streaming events (thinking, content, result)
+```
+
+### Security: Scoped Tool Access
+
+Skills can **ONLY** access tools explicitly listed in their frontmatter. This provides:
+
+- **Isolation**: Each skill has limited capabilities
+- **Security**: Tools aren't directly exposed to the LLM
+- **Clarity**: Clear capability boundaries per skill
+
+### Migration from consult_expert
+
+The `consult_expert` tool is **deprecated**. New plans use skills directly:
+
+**Old format (deprecated):**
+```json
+{"executor": "agent", "action": "tool", "tool": "consult_expert",
+ "args": {"skill": "researcher", "goal": "..."}}
+```
+
+**New format:**
+```json
+{"executor": "skill", "action": "skill", "tool": "researcher",
+ "args": {"goal": "..."}}
+```
+
+The `PlanSupervisorAgent` automatically migrates old plans to the new format.
 
 For detailed skill format, see [SKILLS_FORMAT.md](SKILLS_FORMAT.md).
 

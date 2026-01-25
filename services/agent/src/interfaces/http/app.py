@@ -48,6 +48,7 @@ from interfaces.http.admin_oauth import router as admin_oauth_router
 from interfaces.http.admin_portal import router as admin_portal_router
 from interfaces.http.admin_price_tracker import router as admin_price_tracker_router
 from interfaces.http.admin_users import router as admin_users_router
+from interfaces.http.admin_workspaces import router as admin_workspaces_router
 from interfaces.http.diagnostics import router as diagnostics_router
 from interfaces.http.oauth import router as oauth_router
 from interfaces.http.oauth_webui import router as oauth_webui_router
@@ -273,16 +274,29 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         set_mcp_client_pool(mcp_pool)
         LOGGER.info("MCP client pool initialized")
 
+        # Initialize SkillRegistry for skills-native execution
+        from core.skills import SkillRegistry
+        from core.tools.loader import load_tool_registry
+
+        # Load base tool registry for skill tool validation
+        base_tool_registry = load_tool_registry(settings.tools_config_path)
+        skill_registry = SkillRegistry(tool_registry=base_tool_registry)
+        LOGGER.info(
+            "SkillRegistry initialized with %d skills",
+            len(skill_registry.available()),
+        )
+
         # Create ServiceFactory for context-aware service creation
         from core.core.service_factory import ServiceFactory
 
         service_factory = ServiceFactory(
             settings=settings,
             litellm_client=litellm_client,
+            skill_registry=skill_registry,
         )
         app.state.service_factory = service_factory
 
-        LOGGER.info("ServiceFactory initialized")
+        LOGGER.info("ServiceFactory initialized with SkillRegistry")
 
         # Warm-up LiteLLM connection in background
         async def warm_up_litellm() -> None:
@@ -567,6 +581,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     app.include_router(admin_auth_oauth_router)  # OAuth endpoints first
     app.include_router(admin_portal_router)
     app.include_router(admin_contexts_router)
+    app.include_router(admin_workspaces_router)
     app.include_router(admin_credentials_router)
     app.include_router(admin_oauth_router)
     app.include_router(admin_mcp_router)
