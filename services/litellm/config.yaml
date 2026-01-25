@@ -11,14 +11,15 @@ logging:
 model_list:
   # ============================================
   # AGENT ORCHESTRATION MODELS
-  # Priority: Cerebras (fastest) > Groq > SambaNova
+  # Using Llama 4 models (gpt-oss-120b has reasoning mode bug)
+  # Priority: Groq (fastest) > SambaNova
   # ============================================
 
   # Planner: Generates execution plans (JSON output)
   # Needs: Strong reasoning, structured output
   - model_name: planner
     litellm_params:
-      model: openrouter/openai/gpt-oss-120b
+      model: openrouter/meta-llama/llama-4-maverick
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
       max_tokens: 8192
@@ -26,13 +27,13 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Cerebras", "Groq", "SambaNova"]
+          order: ["Groq", "SambaNova"]
 
   # Supervisor: Reviews step results, decides next action
   # Needs: Good judgment, fast decisions
   - model_name: supervisor
     litellm_params:
-      model: openrouter/openai/gpt-oss-120b
+      model: openrouter/meta-llama/llama-4-maverick
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
       max_tokens: 16384
@@ -40,13 +41,13 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Cerebras", "Groq", "SambaNova"]
+          order: ["Groq", "SambaNova"]
 
   # Composer: Writes final answers to user
   # Needs: Good writing, Swedish support
   - model_name: composer
     litellm_params:
-      model: openrouter/openai/gpt-oss-120b
+      model: openrouter/meta-llama/llama-4-maverick
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.3
       max_tokens: 4096
@@ -54,7 +55,7 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Cerebras", "Groq", "SambaNova"]
+          order: ["Groq", "SambaNova"]
 
   # ============================================
   # SKILL EXECUTION MODELS
@@ -62,7 +63,6 @@ model_list:
 
   # Skillsrunner: For skills that need tool calling
   # Needs: Reliable tool calling, fast
-  # Note: llama-4-scout is optimized for tool use
   - model_name: skillsrunner
     litellm_params:
       model: openrouter/meta-llama/llama-4-scout
@@ -79,7 +79,7 @@ model_list:
   # Needs: Strong coding ability, precise output
   - model_name: software_engineer
     litellm_params:
-      model: openrouter/openai/gpt-oss-120b
+      model: openrouter/meta-llama/llama-4-maverick
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.0
       max_tokens: 8192
@@ -87,7 +87,7 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Cerebras", "Groq", "SambaNova"]
+          order: ["Groq", "SambaNova"]
 
   # ============================================
   # SPECIALIZED MODELS
