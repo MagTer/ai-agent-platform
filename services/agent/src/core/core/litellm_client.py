@@ -128,6 +128,17 @@ class LiteLLMClient:
                             choice = data["choices"][0]
                             delta = choice.get("delta", {})
 
+                            # Handle reasoning content (gpt-oss, Qwen3, etc.)
+                            # Stream as "thinking" type for UI display
+                            reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                            if reasoning:
+                                yield {
+                                    "type": "thinking",
+                                    "content": reasoning,
+                                    "tool_call": None,
+                                    "metadata": {"source": "reasoning_model"},
+                                }
+
                             if "content" in delta and delta["content"] is not None:
                                 if not first_token_received:
                                     ttft_ms = (time.perf_counter() - start_time) * 1000
@@ -170,13 +181,24 @@ class LiteLLMClient:
         """Call the LiteLLM chat completions endpoint and return the full assistant message.
 
         Refactored to consume the stream for backward compatibility.
+        Handles reasoning models by collecting thinking content as fallback.
         """
-        full_content = []
+        full_content: list[str] = []
+        full_thinking: list[str] = []
+
         async for chunk in self.stream_chat(messages, model=model):
             if chunk["type"] == "content" and chunk["content"]:
                 full_content.append(chunk["content"])
+            elif chunk["type"] == "thinking" and chunk["content"]:
+                full_thinking.append(chunk["content"])
             elif chunk["type"] == "error":
                 raise LiteLLMError(chunk["content"])
+
+        # If no content but we have thinking, use thinking as content
+        # This handles reasoning models that only output to reasoning_content
+        if not full_content and full_thinking:
+            LOGGER.debug("Using reasoning_content as fallback (no content received)")
+            return "".join(full_thinking)
 
         return "".join(full_content)
 
@@ -191,7 +213,10 @@ class LiteLLMClient:
         *,
         model: str | None = None,
     ) -> dict[str, Any]:
-        """Run completion with tool definitions and return full response object."""
+        """Run completion with tool definitions and return full response object.
+
+        Handles reasoning models by falling back to reasoning_content if content is empty.
+        """
         payload: dict[str, Any] = {
             "model": model or self._settings.model_agentchat,
             "messages": [message.model_dump() for message in messages],
@@ -207,7 +232,14 @@ class LiteLLMClient:
             )
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]
+            message = data["choices"][0]["message"]
+
+            # Handle reasoning models: if content is empty, use reasoning_content
+            if not message.get("content") and message.get("reasoning_content"):
+                LOGGER.debug("Using reasoning_content as content fallback")
+                message["content"] = message["reasoning_content"]
+
+            return message
         except httpx.HTTPError as exc:
             raise LiteLLMError(f"Tool completion failed: {exc}") from exc
 
