@@ -2,7 +2,7 @@
 name: "search"
 description: "Quick web search for simple factual questions. Returns search snippets only (no page reading). Use for quick lookups."
 tools: ["web_search"]
-model: agentchat
+model: skillsrunner
 max_turns: 2
 ---
 

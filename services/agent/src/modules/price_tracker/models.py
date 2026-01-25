@@ -38,8 +38,9 @@ class Store(Base):
 class Product(Base):
     """A product that can be tracked across multiple stores.
 
-    Represents a generic product (e.g., 'Alvedon 500mg' or 'Milk 1L').
-    Multi-tenant: scoped to context_id.
+    Represents a specific SKU including package size (e.g., 'Toalettpapper 24-pack').
+        Different package sizes are separate products that can independently link to stores.
+        Multi-tenant: scoped to context_id.
     """
 
     __tablename__ = "price_tracker_products"

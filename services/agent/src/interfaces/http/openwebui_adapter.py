@@ -262,6 +262,7 @@ async def chat_completions(
     request: ChatCompletionRequest,
     http_request: Request,
     dispatcher: Dispatcher = Depends(get_dispatcher),
+    context_id: UUID = Depends(get_or_create_context_id),
     agent_service: AgentService = Depends(get_agent_service),
     session: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -349,6 +350,7 @@ async def chat_completions(
             history,
             user_email=user_email,
             user_id=user_id,
+            context_id=context_id,
         ),
         media_type="text/event-stream",
         headers={"X-Trace-ID": trace_id} if trace_id else None,
@@ -409,6 +411,7 @@ async def stream_response_generator(
     history: list | None = None,
     user_email: str | None = None,
     user_id: UUID | None = None,
+    context_id: UUID | None = None,
 ) -> AsyncGenerator[str, None]:
     """
     Generates SSE events compatible with OpenAI API from AgentChunks.
@@ -453,6 +456,8 @@ async def stream_response_generator(
         tool_metadata["user_email"] = user_email
     if user_id:
         tool_metadata["user_id"] = str(user_id)
+    if context_id:
+        tool_metadata["context_id"] = str(context_id)
 
     try:
         async for agent_chunk in dispatcher.stream_message(

@@ -173,10 +173,10 @@ class StepExecutorAgent:
                         metadata, rendered_prompt = load_command(step.tool, step.args or {})
 
                         # --- DYNAMIC ROUTING ---
-                        # Use the model defined in skill, or default to 'skillsrunner-complex'
-                        target_model = metadata.get("model", "skillsrunner-complex")
+                        # Use the model defined in skill, or default to 'skillsrunner'
+                        target_model = metadata.get("model", "skillsrunner")
 
-                        if target_model != "skillsrunner-complex":
+                        if target_model != "skillsrunner":
                             LOGGER.info(
                                 f"Routing skill '{step.tool}' to specialized model: {target_model}"
                             )
@@ -355,6 +355,20 @@ class StepExecutorAgent:
                         final_args["user_id"] = UUID(user_id_str)
                     if has_session or has_kwargs:
                         final_args["session"] = db_session
+
+            # Inject context_id for tools that need OAuth token lookup
+            # This includes direct tools (homey) and orchestration tools (consult_expert)
+            # that forward context_id to sub-tools
+            if step.tool in ("homey", "consult_expert"):
+                context_id_str = (request.metadata or {}).get("context_id")
+                if context_id_str:
+                    from uuid import UUID
+
+                    sig = inspect.signature(tool.run)
+                    has_context_id = "context_id" in sig.parameters
+                    has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
+                    if has_context_id or has_kwargs:
+                        final_args["context_id"] = UUID(context_id_str)
 
             with start_span(f"tool.call.{step.tool}"):
                 try:

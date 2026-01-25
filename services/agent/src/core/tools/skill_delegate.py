@@ -114,6 +114,7 @@ class SkillDelegateTool(Tool):
         goal: str,
         user_id: UUID | None = None,
         session: AsyncSession | None = None,
+        context_id: UUID | None = None,
         **kwargs: Any,  # Accept and ignore extra arguments from LLM
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a sub-agent loop for the given skill and goal.
@@ -123,14 +124,17 @@ class SkillDelegateTool(Tool):
             goal: The specific task or goal for the skill
             user_id: User UUID for credential lookup (passed to tools that need it)
             session: Database session for credential lookup (passed to tools that need it)
+            context_id: Context UUID for OAuth token lookup (passed to tools that need it)
             **kwargs: Extra arguments (logged and ignored)
         """
         # Store credential context for sub-tools
         self._user_id = user_id
         self._session = session
+        self._context_id = context_id
 
         # Log any unexpected extra args for debugging (exclude our credential params)
-        extra_kwargs = {k: v for k, v in kwargs.items() if k not in ("user_id", "session")}
+        credential_params = ("user_id", "session", "context_id")
+        extra_kwargs = {k: v for k, v in kwargs.items() if k not in credential_params}
         if extra_kwargs:
             LOGGER.debug(f"Ignoring extra args in consult_expert: {list(extra_kwargs.keys())}")
 
@@ -507,6 +511,10 @@ class SkillDelegateTool(Tool):
                                             if fname == "azure_devops":
                                                 tool_args["user_id"] = self._user_id
                                                 tool_args["session"] = self._session
+                                        # Inject context_id for tools that need OAuth token lookup
+                                        if self._context_id is not None:
+                                            if fname == "homey":
+                                                tool_args["context_id"] = self._context_id
                                         output_str = str(await tool_obj.run(**tool_args))
                                         # Capture output summary in span
                                         set_span_attributes(

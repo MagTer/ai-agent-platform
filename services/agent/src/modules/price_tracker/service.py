@@ -310,17 +310,24 @@ class PriceTrackerService:
     ) -> Product:
         """Create a new product.
 
-        Args:
-            context_id: Context UUID for multi-tenancy.
-            name: Product name.
-            brand: Product brand. Optional.
-            category: Product category. Optional.
-            unit: Unit of measurement. Optional.
-            package_size: Package size descriptor. Optional.
-            package_quantity: Numeric package quantity. Optional.
+                For products with package sizes (e.g., toilet paper, beverages),
+                create separate products for each size variant:
+                - "Toalettpapper 24-pack" (package_size="24-pack", package_quantity=24)
+                - "Toalettpapper 16-pack" (package_size="16-pack", package_quantity=16)
 
-        Returns:
-            Created Product instance.
+                This enables unit price comparison across package sizes.
+
+                Args:
+                    context_id: Context UUID for multi-tenancy.
+                    name: Product name.
+                    brand: Product brand. Optional.
+                    category: Product category. Optional.
+                    unit: Unit of measurement. Optional.
+        package_size: Human-readable package size (e.g., "24-pack", "500ml").
+                    package_quantity: Numeric quantity for calculations (e.g., 24, 0.5).
+
+                Returns:
+                    Created Product instance.
         """
         async with self.session_factory() as session:
             product = Product(

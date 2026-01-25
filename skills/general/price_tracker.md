@@ -2,7 +2,7 @@
 name: "priser"
 description: "Check prices, find deals, and get shopping recommendations. Ask about discounts, compare prices, or what to buy this week."
 tools: ["price_tracker"]
-model: agentchat
+model: skillsrunner
 max_turns: 3
 ---
 

@@ -9,12 +9,14 @@ logging:
   level: INFO
 
 model_list:
-  # ZDR-COMPATIBLE FAST SETUP
-  # Based on OpenRouter /api/v1/endpoints/zdr
-  
+  # ============================================
+  # AGENT ORCHESTRATION MODELS
+  # ============================================
+
+  # Planner: Generates execution plans (JSON output)
+  # Needs: Fast, structured output, cheap
   - model_name: planner
     litellm_params:
-      # Qwen3 32B via Groq - extremely fast, ZDR supported
       model: openrouter/qwen/qwen3-32b
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
@@ -24,9 +26,10 @@ model_list:
         provider:
           zdr: true
 
+  # Supervisor: Reviews step results, decides next action
+  # Needs: Good reasoning, reliable judgment
   - model_name: supervisor
     litellm_params:
-      # DeepSeek v3.2 - best reasoning for critical reviews
       model: openrouter/deepseek/deepseek-v3.2
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
@@ -36,6 +39,42 @@ model_list:
         provider:
           zdr: true
 
+  # Composer: Writes final answers to user
+  # Needs: Good writing, fast
+  - model_name: composer
+    litellm_params:
+      model: openrouter/qwen/qwen3-32b
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.3
+      max_tokens: 4096
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+
+  # ============================================
+  # SKILL EXECUTION MODELS
+  # ============================================
+
+  # Skillsrunner: For skills that need tool calling
+  # Needs: Reliable tool calling, good instruction following
+  # Used by: homey, price_tracker, web_searcher, researcher, etc.
+  # Note: Cerebras claims tool support but fails - exclude it
+  - model_name: skillsrunner
+    litellm_params:
+      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.2
+      max_tokens: 8192
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+          ignore: ["Cerebras"]
+          allow_fallbacks: true
+
+  # Software Engineer: Code generation and debugging
+  # Needs: Strong coding ability, precise output
   - model_name: software_engineer
     litellm_params:
       model: openrouter/deepseek/deepseek-v3.2
@@ -47,44 +86,25 @@ model_list:
         provider:
           zdr: true
 
-  - model_name: composer
+  # ============================================
+  # SPECIALIZED MODELS
+  # ============================================
+
+  # Parser: For structured data extraction (prices, etc.)
+  # Needs: Fast, cheap, deterministic
+  - model_name: parser
     litellm_params:
-      # Qwen3 32B via Nebius - cheaper, fast, ZDR
       model: openrouter/qwen/qwen3-32b
       api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0.3
-      max_tokens: 4096
+      temperature: 0
+      max_tokens: 2048
       rpm: 60
       extra_body:
         provider:
           zdr: true
 
-  - model_name: skillsrunner-complex
-    litellm_params:
-      # Llama 3.3 70B - stable for skill execution
-      model: openrouter/meta-llama/llama-3.3-70b-instruct
-      api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0.2
-      max_tokens: 8192
-      rpm: 60
-      extra_body:
-        provider:
-          zdr: true
-        repetition_penalty: 1.05
-
-  - model_name: skillsrunner
-    litellm_params:
-      model: openrouter/meta-llama/llama-3.3-70b-instruct
-      api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0.2
-      max_tokens: 4096
-      rpm: 60
-      extra_body:
-        provider:
-          zdr: true
-        repetition_penalty: 1.05
-
-  # Price tracker models (Haiku-first with Sonnet fallback)
+  # Haiku: Anthropic's fast/cheap model
+  # Needs: When Anthropic quality is needed but cost matters
   - model_name: haiku
     litellm_params:
       model: openrouter/anthropic/claude-3-5-haiku
@@ -96,6 +116,8 @@ model_list:
         provider:
           zdr: true
 
+  # Sonnet: Anthropic's balanced model
+  # Needs: When Anthropic quality is critical
   - model_name: sonnet
     litellm_params:
       model: openrouter/anthropic/claude-sonnet-4
@@ -103,40 +125,6 @@ model_list:
       temperature: 0
       max_tokens: 4096
       rpm: 30
-      extra_body:
-        provider:
-          zdr: true
-
-  # Cost-optimized price parser models (all with ZDR)
-  - model_name: price-parser-cheap
-    litellm_params:
-      model: openrouter/qwen/qwen3-32b
-      api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0
-      max_tokens: 2048
-      rpm: 60
-      extra_body:
-        provider:
-          zdr: true
-
-  - model_name: price-parser-mid
-    litellm_params:
-      model: openrouter/deepseek/deepseek-v3.2
-      api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0
-      max_tokens: 2048
-      rpm: 60
-      extra_body:
-        provider:
-          zdr: true
-
-  - model_name: price-parser-reliable
-    litellm_params:
-      model: openrouter/meta-llama/llama-3.3-70b-instruct
-      api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0
-      max_tokens: 2048
-      rpm: 60
       extra_body:
         provider:
           zdr: true
