@@ -10,9 +10,9 @@ from datetime import datetime, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from core.core.app import create_app
 from core.db.models import Context, Conversation
 from core.db.oauth_models import OAuthToken
+from interfaces.http.app import create_app
 
 
 @pytest.fixture

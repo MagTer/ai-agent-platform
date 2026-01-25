@@ -225,14 +225,22 @@ class TestPriceTrackerService:
     @pytest.mark.asyncio
     async def test_create_product(self, mock_session_factory: Mock) -> None:
         """Test create_product creates new product."""
+        import uuid
+
         mock_session = AsyncMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
+        context_id = uuid.uuid4()
         service = PriceTrackerService(mock_session_factory)
         product = await service.create_product(
-            name="Smör Bregott", brand="Arla", category="Mejeri", unit="kg"
+            context_id=context_id,
+            name="Smör Bregott",
+            brand="Arla",
+            category="Mejeri",
+            unit="kg",
         )
 
+        assert product.context_id == context_id
         assert product.name == "Smör Bregott"
         assert product.brand == "Arla"
         assert product.category == "Mejeri"

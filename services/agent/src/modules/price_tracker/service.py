@@ -11,7 +11,9 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from core.providers import get_fetcher
 from modules.price_tracker.models import PricePoint, PriceWatch, Product, ProductStore, Store
+from modules.price_tracker.parser import PriceParser
 
 logger = logging.getLogger(__name__)
 
@@ -296,25 +298,38 @@ class PriceTrackerService:
                 return []
 
     async def create_product(
-        self, name: str, brand: str | None, category: str | None, unit: str | None
+        self,
+        context_id: uuid.UUID,
+        name: str,
+        brand: str | None,
+        category: str | None,
+        unit: str | None,
+        package_size: str | None = None,
+        package_quantity: Decimal | None = None,
     ) -> Product:
         """Create a new product.
 
         Args:
+            context_id: Context UUID for multi-tenancy.
             name: Product name.
             brand: Product brand. Optional.
             category: Product category. Optional.
             unit: Unit of measurement. Optional.
+            package_size: Package size descriptor. Optional.
+            package_quantity: Numeric package quantity. Optional.
 
         Returns:
             Created Product instance.
         """
         async with self.session_factory() as session:
             product = Product(
+                context_id=context_id,
                 name=name,
                 brand=brand,
                 category=category,
                 unit=unit,
+                package_size=package_size,
+                package_quantity=package_quantity,
             )
 
             session.add(product)
@@ -414,6 +429,120 @@ class PriceTrackerService:
 
             logger.info(f"Created price watch for product {product_id} (Watch ID: {watch.id})")
             return watch
+
+    async def check_price(self, product_store_id: str) -> dict[str, Any]:
+        """Fetch and store current price for a product-store combination.
+
+        Implements the IPriceTracker protocol. This method:
+        1. Fetches the product page using WebFetcher
+        2. Extracts price using PriceParser
+        3. Records price in the database
+
+        Args:
+            product_store_id: UUID string of the ProductStore to check.
+
+        Returns:
+            Dictionary containing:
+                - product_store_id: UUID string
+                - price_sek: Current price
+                - offer_price_sek: Offer price if applicable
+                - in_stock: Stock status
+                - checked_at: Timestamp of check
+                - error: Error message if failed (optional)
+        """
+        async with self.session_factory() as session:
+            try:
+                ps_uuid = uuid.UUID(product_store_id)
+
+                # Get ProductStore with joined Store and Product
+                stmt = (
+                    select(ProductStore, Store, Product)
+                    .join(Store, ProductStore.store_id == Store.id)
+                    .join(Product, ProductStore.product_id == Product.id)
+                    .where(ProductStore.id == ps_uuid)
+                )
+                result = await session.execute(stmt)
+                row = result.one_or_none()
+
+                if not row:
+                    return {
+                        "product_store_id": product_store_id,
+                        "error": "Product-store link not found",
+                    }
+
+                product_store, store, product = row
+
+                # Fetch page content
+                fetcher = get_fetcher()
+                fetch_result = await fetcher.fetch(product_store.store_url)
+
+                if not fetch_result.get("ok") or not fetch_result.get("text"):
+                    error_msg = fetch_result.get("error", "Unknown fetch error")
+                    return {
+                        "product_store_id": product_store_id,
+                        "error": f"Failed to fetch page: {error_msg}",
+                    }
+
+                # Parse price data
+                parser = PriceParser()
+                extraction_result = await parser.extract_price(
+                    text_content=fetch_result["text"],
+                    store_slug=store.slug,
+                    product_name=product.name,
+                )
+
+                if not extraction_result.price_sek:
+                    return {
+                        "product_store_id": product_store_id,
+                        "error": "Price extraction failed - no price found",
+                        "confidence": extraction_result.confidence,
+                        "price_sek": None,
+                        "offer_price_sek": None,
+                    }
+
+                # Record price
+                price_data: dict[str, Any] = {
+                    "price_sek": float(extraction_result.price_sek),
+                    "unit_price_sek": (
+                        float(extraction_result.unit_price_sek)
+                        if extraction_result.unit_price_sek
+                        else None
+                    ),
+                    "offer_price_sek": (
+                        float(extraction_result.offer_price_sek)
+                        if extraction_result.offer_price_sek
+                        else None
+                    ),
+                    "offer_type": extraction_result.offer_type,
+                    "offer_details": extraction_result.offer_details,
+                    "in_stock": extraction_result.in_stock,
+                    "raw_data": extraction_result.raw_response,
+                }
+
+                price_point = await self.record_price(product_store_id, price_data, session)
+
+                if not price_point:
+                    return {
+                        "product_store_id": product_store_id,
+                        "error": "Failed to record price",
+                    }
+
+                return {
+                    "product_store_id": product_store_id,
+                    "price_sek": float(price_point.price_sek),
+                    "offer_price_sek": (
+                        float(price_point.offer_price_sek) if price_point.offer_price_sek else None
+                    ),
+                    "in_stock": price_point.in_stock,
+                    "checked_at": price_point.checked_at,
+                }
+
+            except Exception:
+                logger.exception(f"Failed to check price for ProductStore {product_store_id}")
+                return {
+                    "product_store_id": product_store_id,
+                    "error": "Internal error during price check",
+                }
 
     async def delete_product(self, product_id: str) -> None:
         """Delete a product and all associated data.

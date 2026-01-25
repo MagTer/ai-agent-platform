@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from core.db.engine import AsyncSessionLocal
 from core.tools.base import Tool
 
 logger = logging.getLogger(__name__)
@@ -63,10 +62,9 @@ Anvand for fragor som:
         **kwargs: Any,
     ) -> str:
         """Execute the price tracker action."""
-        # Import here to avoid circular dependencies
-        from modules.price_tracker.service import PriceTrackerService
+        from core.providers import get_price_tracker
 
-        service = PriceTrackerService(AsyncSessionLocal)
+        service = get_price_tracker()
 
         try:
             if action == "check_price":

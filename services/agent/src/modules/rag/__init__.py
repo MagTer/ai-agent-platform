@@ -6,15 +6,15 @@ import numpy as np
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
 
-from modules.embedder import Embedder, get_embedder
+from core.protocols import IEmbedder
 
 logger = logging.getLogger(__name__)
 
 
 class RAGManager:
-    """RAG Manager with lazy loading for faster container startup."""
+    """RAG Manager with dependency injection for embedder."""
 
-    def __init__(self) -> None:
+    def __init__(self, embedder: IEmbedder) -> None:
         # Configuration (loaded immediately - lightweight)
         self.qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
         self.top_k = int(os.getenv("QDRANT_TOP_K", "5"))
@@ -23,9 +23,11 @@ class RAGManager:
             "QDRANT_COLLECTION", "agent-memories"
         )  # Default from fetcher
 
+        # Injected dependencies
+        self.embedder = embedder
+
         # Lazy-loaded resources (NOT initialized here for faster startup)
         self._client: AsyncQdrantClient | None = None
-        self._embedder: Embedder | None = None
 
     @property
     def client(self) -> AsyncQdrantClient:
@@ -34,14 +36,6 @@ class RAGManager:
             logger.info(f"Connecting to Qdrant at {self.qdrant_url} (lazy load)")
             self._client = AsyncQdrantClient(url=self.qdrant_url)
         return self._client
-
-    @property
-    def embedder(self) -> Embedder:
-        """Lazy-load embedder on first access."""
-        if self._embedder is None:
-            logger.info("Initializing embedder (lazy load)")
-            self._embedder = get_embedder()
-        return self._embedder
 
     def _cosine(self, a: np.ndarray, b: np.ndarray) -> float:
         da = np.linalg.norm(a) + 1e-9

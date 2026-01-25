@@ -20,9 +20,24 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.core.config import Settings, get_settings
+from core.core.litellm_client import LiteLLMClient, LiteLLMError
+from core.core.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    ChatCompletionChoice,
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    HealthStatus,
+)
+from core.core.service import AgentService
+from core.core.service_factory import ServiceFactory
 from core.db.engine import get_db
 from core.db.models import Context, Conversation
+from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
 from core.observability.tracing import configure_tracing
+from core.tools.mcp_loader import set_mcp_client_pool, shutdown_all_mcp_clients
 from interfaces.http.admin_auth import AuthRedirectError
 from interfaces.http.admin_auth_oauth import router as admin_auth_oauth_router
 from interfaces.http.admin_contexts import router as admin_contexts_router
@@ -37,22 +52,6 @@ from interfaces.http.diagnostics import router as diagnostics_router
 from interfaces.http.oauth import router as oauth_router
 from interfaces.http.oauth_webui import router as oauth_webui_router
 from interfaces.http.openwebui_adapter import router as openwebui_router
-
-from ..middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
-from ..tools.mcp_loader import set_mcp_client_pool, shutdown_all_mcp_clients
-from .config import Settings, get_settings
-from .litellm_client import LiteLLMClient, LiteLLMError
-from .models import (
-    AgentMessage,
-    AgentRequest,
-    AgentResponse,
-    ChatCompletionChoice,
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    HealthStatus,
-)
-from .service import AgentService
-from .service_factory import ServiceFactory
 
 LOGGER = logging.getLogger(__name__)
 
@@ -238,14 +237,24 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             set_token_manager,
         )
         from modules.embedder import get_embedder as get_module_embedder
-        from modules.fetcher import get_fetcher as get_module_fetcher
+        from modules.fetcher import WebFetcher
         from modules.indexer import CodeIndexer
         from modules.rag import RAGManager
 
-        # Register providers
-        set_embedder(get_module_embedder())
-        set_fetcher(get_module_fetcher())
-        set_rag_manager(RAGManager())
+        # Register providers (dependency injection order matters)
+        # 1. Create embedder (base dependency)
+        embedder = get_module_embedder()
+        set_embedder(embedder)
+
+        # 2. Create RAG manager with embedder
+        rag_manager = RAGManager(embedder=embedder)
+        set_rag_manager(rag_manager)
+
+        # 3. Create fetcher with RAG manager
+        fetcher = WebFetcher(rag_manager=rag_manager)
+        set_fetcher(fetcher)
+
+        # 4. Register indexer factory (receives embedder on instantiation)
         set_code_indexer_factory(CodeIndexer)
 
         # Register OAuth TokenManager
@@ -565,7 +574,7 @@ def run() -> None:  # pragma: no cover - used by Poetry script
     import uvicorn
 
     uvicorn.run(
-        "core.core.app:create_app",
+        "interfaces.http.app:create_app",
         host=settings.host,
         port=settings.port,
         factory=True,

@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from core.core.app import create_app
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.core.service import AgentService
 from core.db.engine import get_db
 from core.db.models import Context, Conversation
+from interfaces.http.app import create_app
 
 
 class MockLiteLLMClient:

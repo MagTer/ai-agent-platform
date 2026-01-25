@@ -162,7 +162,6 @@ async def list_products(
 
         # Build query with proper join handling
         stmt = select(Product)
-        already_joined_product_store = False
 
         # Apply context filter: show only products that have watches in this context
         if context_id:
@@ -190,9 +189,7 @@ async def list_products(
         if store_id:
             try:
                 store_uuid = uuid.UUID(store_id)
-                if not already_joined_product_store:
-                    stmt = stmt.join(ProductStore, Product.id == ProductStore.product_id)
-                    already_joined_product_store = True
+                stmt = stmt.join(ProductStore, Product.id == ProductStore.product_id)
                 stmt = stmt.where(ProductStore.store_id == store_uuid).distinct()
             except ValueError as e:
                 raise HTTPException(status_code=400, detail="Invalid store_id format") from e
@@ -289,11 +286,19 @@ async def create_product(
         Requires admin role via Entra ID authentication.
     """
     try:
+        from decimal import Decimal
+
+        context_uuid = uuid.UUID(data.context_id)
+        package_qty = Decimal(str(data.package_quantity)) if data.package_quantity else None
+
         product = await service.create_product(
+            context_id=context_uuid,
             name=data.name,
             brand=data.brand,
             category=data.category,
             unit=data.unit,
+            package_size=data.package_size,
+            package_quantity=package_qty,
         )
         return {"product_id": str(product.id), "message": "Product created successfully"}
     except Exception as e:

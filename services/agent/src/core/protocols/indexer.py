@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from core.protocols.embedder import IEmbedder
 
 
 @runtime_checkable
@@ -14,11 +17,12 @@ class ICodeIndexer(Protocol):
     into a vector database for semantic code search.
     """
 
-    def __init__(self, root_path: Path) -> None:
-        """Initialize the indexer with a root path.
+    def __init__(self, root_path: Path, embedder: IEmbedder) -> None:
+        """Initialize the indexer with a root path and embedder.
 
         Args:
             root_path: Root directory to index.
+            embedder: Embedder instance for generating embeddings.
         """
         ...
 

@@ -7,7 +7,7 @@ import re
 
 from core.protocols.email import EmailMessage
 from core.providers import get_email_service_optional
-from modules.email.templates import wrap_html_email
+from core.utils.email import wrap_html_email
 
 from .base import Tool
 

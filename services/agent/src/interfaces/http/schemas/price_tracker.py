@@ -8,10 +8,13 @@ from pydantic import BaseModel
 class ProductCreate(BaseModel):
     """Schema for creating a new product."""
 
+    context_id: str
     name: str
     brand: str | None = None
     category: str | None = None
     unit: str | None = None
+    package_size: str | None = None
+    package_quantity: float | None = None
 
 
 class ProductUpdate(BaseModel):
