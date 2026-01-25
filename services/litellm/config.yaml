@@ -11,13 +11,17 @@ logging:
 model_list:
   # ============================================
   # AGENT ORCHESTRATION MODELS
+  # gpt-oss-120b for planning (reasoning model support added)
+  # Llama 4 for other orchestration (stable output)
+  # Priority: Cerebras (fastest ~2500 t/s) > Groq > SambaNova
   # ============================================
 
   # Planner: Generates execution plans (JSON output)
-  # Needs: Fast, structured output, cheap
+  # Needs: Strong reasoning, structured output
+  # Using gpt-oss-120b: 90% MMLU-Pro, better coding than GPT-4.1
   - model_name: planner
     litellm_params:
-      model: openrouter/qwen/qwen3-32b
+      model: openrouter/openai/gpt-oss-120b
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
       max_tokens: 8192
@@ -25,25 +29,27 @@ model_list:
       extra_body:
         provider:
           zdr: true
+          order: ["Cerebras", "Groq", "SambaNova"]
 
   # Supervisor: Reviews step results, decides next action
-  # Needs: Good reasoning, reliable judgment
+  # Needs: Good judgment, fast decisions
   - model_name: supervisor
     litellm_params:
-      model: openrouter/deepseek/deepseek-v3.2
+      model: openrouter/meta-llama/llama-4-maverick
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
       max_tokens: 16384
-      rpm: 20
+      rpm: 60
       extra_body:
         provider:
           zdr: true
+          order: ["Groq", "SambaNova"]
 
   # Composer: Writes final answers to user
-  # Needs: Good writing, fast
+  # Needs: Good writing, Swedish support
   - model_name: composer
     litellm_params:
-      model: openrouter/qwen/qwen3-32b
+      model: openrouter/meta-llama/llama-4-maverick
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.3
       max_tokens: 4096
@@ -51,18 +57,17 @@ model_list:
       extra_body:
         provider:
           zdr: true
+          order: ["Groq", "SambaNova"]
 
   # ============================================
   # SKILL EXECUTION MODELS
   # ============================================
 
   # Skillsrunner: For skills that need tool calling
-  # Needs: Reliable tool calling, good instruction following
-  # Used by: homey, price_tracker, web_searcher, researcher, etc.
-  # Note: Cerebras claims tool support but fails - exclude it
+  # Needs: Reliable tool calling, fast
   - model_name: skillsrunner
     litellm_params:
-      model: openrouter/meta-llama/llama-3.3-70b-instruct
+      model: openrouter/meta-llama/llama-4-scout
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.2
       max_tokens: 8192
@@ -70,31 +75,31 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          ignore: ["Cerebras"]
-          allow_fallbacks: true
+          order: ["Groq", "SambaNova"]
 
   # Software Engineer: Code generation and debugging
   # Needs: Strong coding ability, precise output
   - model_name: software_engineer
     litellm_params:
-      model: openrouter/deepseek/deepseek-v3.2
+      model: openrouter/meta-llama/llama-4-maverick
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.0
       max_tokens: 8192
-      rpm: 100
+      rpm: 60
       extra_body:
         provider:
           zdr: true
+          order: ["Groq", "SambaNova"]
 
   # ============================================
   # SPECIALIZED MODELS
   # ============================================
 
-  # Parser: For structured data extraction (prices, etc.)
-  # Needs: Fast, cheap, deterministic
-  - model_name: parser
+  # Price Tracker: For price extraction from product pages
+  # Needs: Fast, structured JSON output
+  - model_name: price_tracker
     litellm_params:
-      model: openrouter/qwen/qwen3-32b
+      model: openrouter/meta-llama/llama-4-scout
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0
       max_tokens: 2048
@@ -102,29 +107,17 @@ model_list:
       extra_body:
         provider:
           zdr: true
+          order: ["Groq", "SambaNova"]
 
-  # Haiku: Anthropic's fast/cheap model
-  # Needs: When Anthropic quality is needed but cost matters
-  - model_name: haiku
+  # Price Tracker Fallback: When primary extraction has low confidence
+  # Needs: Higher quality, accepts any confidence
+  - model_name: price_tracker_fallback
     litellm_params:
-      model: openrouter/anthropic/claude-3-5-haiku
+      model: openrouter/anthropic/claude-haiku-4.5
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0
       max_tokens: 2048
       rpm: 60
-      extra_body:
-        provider:
-          zdr: true
-
-  # Sonnet: Anthropic's balanced model
-  # Needs: When Anthropic quality is critical
-  - model_name: sonnet
-    litellm_params:
-      model: openrouter/anthropic/claude-sonnet-4
-      api_key: os.environ/OPENROUTER_API_KEY
-      temperature: 0
-      max_tokens: 4096
-      rpm: 30
       extra_body:
         provider:
           zdr: true

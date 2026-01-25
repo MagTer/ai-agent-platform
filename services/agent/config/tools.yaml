@@ -51,3 +51,18 @@
   type: core.tools.homey.HomeyTool
   enabled: true
   description: "Control Homey smart home devices (lights, sensors, flows)"
+
+- name: git_clone
+  type: core.tools.git_clone.GitCloneTool
+  enabled: true
+  description: "Clone git repositories to workspace for investigation"
+
+- name: claude_code
+  type: core.tools.claude_code.ClaudeCodeTool
+  enabled: true
+  description: "Delegate code investigation/fixes to Claude Code agent"
+
+- name: github_pr
+  type: core.tools.github_pr.GitHubPRTool
+  enabled: true
+  description: "Create pull requests on GitHub"

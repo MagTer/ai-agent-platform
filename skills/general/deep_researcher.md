@@ -1,7 +1,7 @@
 ---
 name: "deep_research"
 description: "Comprehensive deep research with multiple search angles, extensive page reading, and cross-source analysis. Use for complex topics requiring thorough investigation."
-tools: ["web_search", "web_fetch", "write_to_file"]
+tools: ["web_search", "web_fetch"]
 model: skillsrunner
 max_turns: 10
 ---

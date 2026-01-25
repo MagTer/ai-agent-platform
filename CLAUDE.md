@@ -2,7 +2,7 @@
 
 **Purpose:** Entry point for Claude Code sessions. Defines the tri-agent workflow.
 
-**Last Updated:** 2026-01-24
+**Last Updated:** 2026-01-25
 
 ---
 
@@ -325,25 +325,61 @@ Use `stack check --no-fix` for CI-style check-only mode.
 
 The agent uses a **skill-based orchestration pattern**. Understanding this is critical when adding new integrations.
 
-### The Two Layers
+### Skills-Native Execution Architecture
 
 ```
 User Request
     ↓
-[Planner] → Only sees "consult_expert" tool
+[Planner] → Generates plan with skill steps
     ↓
-[Skill] → Markdown file with instructions + allowed tools
+[SkillExecutor] → Runs skill with scoped tools
     ↓
 [Tool] → Python class that does the actual work
 ```
 
+### Key Components
+
+| Component | Purpose |
+|-----------|---------|
+| `SkillRegistry` | Validates all skills at startup, checks tool references |
+| `SkillExecutor` | Runs skills with scoped tool access (ONLY tools in skill.tools) |
+| `StepOutcome` | 4-level result: SUCCESS, RETRY, REPLAN, ABORT |
+| `StepSupervisorAgent` | Evaluates step output, returns StepOutcome with feedback |
+
+### Self-Correction Flow
+
+```
+Execute Step
+    ↓
+StepSupervisor evaluates
+    ↓
+┌─────────────────────────────────────────────────┐
+│ SUCCESS → Next step                              │
+│ RETRY   → Re-execute with feedback (max 1)       │
+│ REPLAN  → Generate new plan (max 3 replans)      │
+│ ABORT   → Stop execution, return error           │
+└─────────────────────────────────────────────────┘
+```
+
+**StepOutcome Decision Matrix:**
+
+| Condition | Outcome | Action |
+|-----------|---------|--------|
+| Step completed successfully | SUCCESS | Proceed to next step |
+| Transient error (timeout, rate limit) | RETRY | Re-execute with feedback |
+| Output doesn't match intent | REPLAN | Generate new plan |
+| Critical error (auth failure, invalid input) | ABORT | Stop and report |
+
 ### Why Skills?
 
-The Planner (LLM) only sees **orchestration tools** like `consult_expert`. It delegates work to **skills**, which are specialized personas with access to specific tools. This provides:
+Skills are the **primary execution unit**. The Planner generates plans with `executor="skill"` steps:
 
-1. **Isolation** - Each skill has limited tool access
+1. **Isolation** - Each skill has scoped tool access (only tools in frontmatter)
 2. **Clarity** - Clear instructions per domain
 3. **Security** - Tools aren't directly exposed to the LLM
+4. **Self-Correction** - Steps can retry with feedback before replanning
+
+**Note:** `consult_expert` is deprecated. New plans use skills directly with `executor="skill"`.
 
 ### Adding a New Integration
 
@@ -404,33 +440,71 @@ if step.tool == "my_integration":
 ```
 /skills/                    # Skill markdown files (mounted to /app/skills)
 ├── general/               # General-purpose skills
-│   ├── researcher.md
-│   ├── price_tracker.md
+│   ├── researcher.md      # Web research with search/fetch
+│   ├── deep_researcher.md # Comprehensive multi-source research
+│   ├── price_tracker.md   # Price tracking (Prisjakt)
 │   └── homey.md          # Smart home control
 ├── work/                  # Work-related skills
-│   └── backlog_manager.md
+│   └── backlog_manager.md # Azure DevOps backlog management
 └── development/           # Development skills
-    └── software_engineer.md
+    └── software_engineer.md  # Code investigation/fixes via Claude Code
 
 /services/agent/
 ├── config/tools.yaml      # Tool registration
-└── src/core/tools/        # Tool implementations
-    ├── base.py
-    ├── homey.py
-    └── price_tracker.py
+└── src/
+    ├── core/
+    │   ├── tools/         # Tool implementations
+    │   │   ├── base.py
+    │   │   ├── homey.py
+    │   │   ├── git_clone.py      # Clone repos to workspace
+    │   │   ├── claude_code.py    # Claude Code subprocess wrapper
+    │   │   └── github_pr.py      # Create GitHub PRs
+    │   ├── skills/        # Skill infrastructure
+    │   │   ├── registry.py       # SkillRegistry (startup validation)
+    │   │   └── executor.py       # SkillExecutor (scoped execution)
+    │   └── db/
+    │       └── models.py  # Database models (Context, Workspace, etc.)
+    └── interfaces/
+        └── http/
+            └── admin_*.py # Admin portal modules
 ```
+
+### Context-Isolated Workspaces
+
+Each user context has isolated storage for cloned repositories:
+
+```
+/tmp/agent-workspaces/
+└── {context_id}/          # UUID-based isolation
+    ├── repo-name-1/       # Cloned repository
+    └── repo-name-2/       # Another repository
+```
+
+**Workspace Tracking:** Workspaces are tracked in the `workspaces` database table:
+
+| Field | Purpose |
+|-------|---------|
+| `context_id` | Links to user's context (multi-tenant) |
+| `repo_url` | Git repository URL |
+| `local_path` | Path on disk |
+| `status` | pending, cloned, syncing, error |
+| `last_synced_at` | Last successful sync |
+
+**Admin Portal:** Users manage workspaces via `/platformadmin/workspaces/`
 
 ### Skill Frontmatter Reference
 
 ```yaml
 ---
-name: "skill_name"           # Used by consult_expert
-description: "..."           # Shown to Planner for routing
-tools: ["tool1", "tool2"]    # Tools this skill can use
-model: agentchat             # LLM model to use
-max_turns: 5                 # Max iterations
+name: "skill_name"           # Unique identifier for the skill
+description: "..."           # Shown to Planner for routing decisions
+tools: ["tool1", "tool2"]    # ONLY these tools are available (scoped access)
+model: agentchat             # LLM model to use (agentchat, skillsrunner)
+max_turns: 5                 # Max tool-calling iterations
 ---
 ```
+
+**Validation:** SkillRegistry validates all skills at startup. Invalid tool references will log warnings.
 
 ### Common Patterns
 
@@ -443,6 +517,29 @@ max_turns: 5                 # Max iterations
 1. Tool uses `CredentialService` to get per-user credentials
 2. Credentials stored encrypted in database
 3. User enters credentials via Admin Portal -> Credentials
+
+**Development workflow tools** (git_clone, claude_code, github_pr):
+1. `git_clone` clones repo to context-isolated workspace
+2. `claude_code` runs Claude Code CLI in "investigate" or "fix" mode
+3. `github_pr` creates PRs via `gh` CLI
+4. Workflow: Clone -> Investigate -> Fix -> PR
+
+**Tools requiring context injection:**
+
+Some tools need `context_id` or `session` injected at runtime. This is done in `executor.py`:
+
+```python
+# In _run_tool_gen():
+if step.tool in ("homey", "git_clone"):
+    context_id_str = (request.metadata or {}).get("context_id")
+    if context_id_str:
+        final_args["context_id"] = UUID(context_id_str)
+
+if step.tool in ("git_clone",):
+    db_session = (request.metadata or {}).get("_db_session")
+    if db_session:
+        final_args["session"] = db_session
+```
 
 ---
 
@@ -597,11 +694,198 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 
 ## Important Files
 
+**Project Configuration:**
 - `.clinerules` - Project-wide standards (auto-loaded)
 - `.claude/agents/*.md` - Agent configurations with embedded instructions
 - `.claude/plans/*.md` - Implementation plans created by Architect
+- `CLAUDE.md` - This file (entry point for Claude Code sessions)
+
+**Documentation:**
 - `docs/ARCHITECTURE.md` - Full architecture documentation
+- `docs/architecture/02_agent.md` - Agent service architecture details
 - `docs/STYLE.md` - Documentation style guide
+
+**Core Architecture:**
+- `services/agent/config/tools.yaml` - Tool registration
+- `services/agent/src/core/db/models.py` - Database models
+- `services/agent/src/core/skills/registry.py` - Skill validation
+- `services/agent/src/core/skills/executor.py` - Skill execution
+- `services/agent/src/shared/models.py` - Shared Pydantic models (StepOutcome, etc.)
+
+**Admin Portal:**
+- `services/agent/src/interfaces/http/admin_shared.py` - Navigation, shared components
+- `services/agent/src/interfaces/http/admin_*.py` - Individual admin modules
+
+---
+
+## Admin Portal
+
+The Admin Portal (`/platformadmin/`) provides management interfaces for the platform.
+
+### Architecture
+
+```
+interfaces/http/
+├── app.py                    # FastAPI app, router registration
+├── admin_shared.py           # Navigation, shared components
+├── admin_dashboard.py        # Main dashboard
+├── admin_oauth.py            # OAuth provider management
+├── admin_credentials.py      # User credential management
+├── admin_contexts.py         # Context (workspace) management
+├── admin_workspaces.py       # Git repository workspaces
+└── templates/                # Large HTML templates (40KB+)
+```
+
+### Navigation System
+
+Navigation is defined in `admin_shared.py`:
+
+```python
+NAV_ITEMS = [
+    NavItem("Dashboard", "/platformadmin/", "&#127968;", "main"),
+    NavItem("Contexts", "/platformadmin/contexts/", "&#128194;", "features"),
+    NavItem("Workspaces", "/platformadmin/workspaces/", "&#128193;", "features"),
+    NavItem("OAuth", "/platformadmin/oauth/", "&#128274;", "features"),
+    NavItem("Credentials", "/platformadmin/credentials/", "&#128273;", "features"),
+]
+```
+
+### Adding a New Admin Module
+
+1. **Create the router file** (`interfaces/http/admin_mymodule.py`):
+
+```python
+from fastapi import APIRouter, Depends
+from interfaces.http.admin_shared import admin_page_layout, NAV_ITEMS
+
+router = APIRouter(prefix="/platformadmin/mymodule", tags=["admin-mymodule"])
+
+@router.get("/")
+async def mymodule_dashboard():
+    content = "<h2>My Module</h2>..."
+    return HTMLResponse(admin_page_layout("My Module", content, NAV_ITEMS))
+```
+
+2. **Register the router** in `app.py`:
+
+```python
+from interfaces.http.admin_mymodule import router as admin_mymodule_router
+app.include_router(admin_mymodule_router)
+```
+
+3. **Add navigation item** in `admin_shared.py`:
+
+```python
+NavItem("My Module", "/platformadmin/mymodule/", "&#128736;", "features"),
+```
+
+### Portal Patterns
+
+- **Dashboard pattern**: Main page with cards/stats, modal forms for CRUD
+- **List pattern**: Table with actions (edit, delete, sync)
+- **Async operations**: Use background tasks with polling for long operations
+- **Error handling**: HTTPException with user-friendly messages
+
+---
+
+## Testing Guidelines
+
+### Test Structure
+
+```
+services/agent/
+├── src/
+│   └── core/
+│       └── tests/            # Unit tests near source code
+│           ├── test_service.py
+│           ├── test_supervisors.py
+│           └── test_skill_registry.py
+└── tests/                    # Integration tests
+    └── test_integration.py
+```
+
+### Running Tests
+
+```bash
+# All tests (via stack CLI)
+./stack test
+
+# Specific test file
+pytest services/agent/src/core/tests/test_service.py -v
+
+# Single test
+pytest services/agent/src/core/tests/test_service.py::test_function_name -v
+
+# With coverage
+pytest --cov=services/agent/src --cov-report=html
+```
+
+### Test Patterns
+
+**Async Tests** (required for all async code):
+
+```python
+import pytest
+from unittest.mock import AsyncMock, MagicMock
+
+@pytest.mark.asyncio
+async def test_async_function():
+    mock_client = AsyncMock()
+    mock_client.call.return_value = "result"
+
+    result = await my_async_function(mock_client)
+
+    assert result == "expected"
+    mock_client.call.assert_called_once_with("arg")
+```
+
+**Fixtures for Database**:
+
+```python
+@pytest.fixture
+async def db_session():
+    async with AsyncSession(engine) as session:
+        yield session
+        await session.rollback()
+```
+
+**Mocking LLM Responses**:
+
+```python
+@pytest.fixture
+def mock_llm():
+    llm = MagicMock()
+    llm.generate = AsyncMock(return_value='{"outcome": "success"}')
+    return llm
+```
+
+### TDD Workflow
+
+1. **Write failing test first** - Define expected behavior
+2. **Implement minimum code** - Make test pass
+3. **Refactor** - Clean up while tests stay green
+4. **Run `stack check`** - Ensure all quality gates pass
+
+### What to Test
+
+| Component | What to Test |
+|-----------|--------------|
+| Tools | Input validation, error handling, API responses |
+| Skills | Tool scoping, execution flow |
+| Agents | Plan generation, outcome handling |
+| Services | Integration of components |
+| API endpoints | Request/response contracts |
+
+### Test Naming
+
+```python
+# Pattern: test_<action>_<scenario>_<expected_result>
+def test_parse_response_with_missing_field_raises_error():
+    ...
+
+def test_execute_step_returns_retry_on_timeout():
+    ...
+```
 
 ---
 

@@ -164,3 +164,109 @@ class UserCredential(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "credential_type", name="uq_user_credential_type"),
     )
+
+
+class HomeyDeviceCache(Base):
+    """Cached Homey device metadata for fast lookups.
+
+    Caches device names and capabilities to avoid API calls.
+    TTL: 36 hours, refreshed nightly at 03:00 UTC.
+    """
+
+    __tablename__ = "homey_device_cache"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    homey_id: Mapped[str] = mapped_column(String, index=True)
+    device_id: Mapped[str] = mapped_column(String, index=True)
+    name: Mapped[str] = mapped_column(String)
+    device_class: Mapped[str] = mapped_column(String)
+    capabilities: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    zone: Mapped[str | None] = mapped_column(String, nullable=True)
+    cached_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("context_id", "homey_id", "device_id", name="uq_homey_device_cache"),
+    )
+
+
+class Workspace(Base):
+    """Git repository workspace per context.
+
+    Tracks cloned repositories for code investigation and automated fixes.
+    Each context can have multiple workspaces (repos).
+
+    Attributes:
+        id: Primary key
+        context_id: Foreign key to Context (multi-tenant isolation)
+        name: Human-friendly workspace name (e.g., "backend-api")
+        repo_url: Git repository URL (HTTPS)
+        branch: Current branch name
+        local_path: Absolute path to cloned repo on disk
+        status: Current status (cloned, syncing, error, deleted)
+        last_synced_at: Last successful git pull/clone timestamp
+        sync_error: Last sync error message (if any)
+        workspace_metadata: Additional data (commit SHA, remote info, etc.)
+        created_at: Workspace creation timestamp
+        updated_at: Last update timestamp
+    """
+
+    __tablename__ = "workspaces"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String, index=True)
+    repo_url: Mapped[str] = mapped_column(String)
+    branch: Mapped[str] = mapped_column(String, default="main")
+    local_path: Mapped[str] = mapped_column(String)
+    # Status: pending, cloned, syncing, error
+    status: Mapped[str] = mapped_column(String, default="pending")
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    sync_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    workspace_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    # Relationships
+    context = relationship("Context")
+
+    __table_args__ = (
+        UniqueConstraint("context_id", "name", name="uq_context_workspace_name"),
+        UniqueConstraint("context_id", "repo_url", name="uq_context_workspace_repo"),
+    )
+
+
+class SystemConfig(Base):
+    """Global system configuration stored in database.
+
+    Key-value store for system-wide settings like debug mode.
+    Settings are cached in memory with TTL for performance.
+    """
+
+    __tablename__ = "system_config"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[dict[str, Any]] = mapped_column(JSONB, default={})
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+
+class DebugLog(Base):
+    """Debug log entries for request tracing.
+
+    Stores detailed logs when debug mode is enabled.
+    Auto-cleaned after retention period (default 24h).
+    """
+
+    __tablename__ = "debug_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    trace_id: Mapped[str] = mapped_column(String, index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
+    event_type: Mapped[str] = mapped_column(String, index=True)
+    event_data: Mapped[dict[str, Any]] = mapped_column(JSONB, default={})
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)

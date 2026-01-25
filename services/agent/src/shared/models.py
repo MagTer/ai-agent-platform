@@ -15,6 +15,22 @@ class RoutingDecision(str, Enum):
     AGENTIC = "AGENTIC"
 
 
+class StepOutcome(str, Enum):
+    """Four-level outcome system for step execution.
+
+    Used by StepSupervisor to indicate what should happen after a step completes:
+    - SUCCESS: Step completed successfully, proceed to next step
+    - RETRY: Transient error, retry same step with feedback (max 1 retry)
+    - REPLAN: Step failed in a way that requires generating a new plan
+    - ABORT: Critical error, stop execution entirely
+    """
+
+    SUCCESS = "success"
+    RETRY = "retry"
+    REPLAN = "replan"
+    ABORT = "abort"
+
+
 class AgentMessage(BaseModel):
     """Representation of a chat message exchanged with the agent."""
 
@@ -56,13 +72,13 @@ class PlanStep(BaseModel):
 
     id: str = Field(description="Unique identifier for the plan step.")
     label: str = Field(description="Human-readable label describing the step.")
-    executor: Literal["agent", "litellm", "remote"] = Field(
+    executor: Literal["agent", "litellm", "remote", "skill"] = Field(
         description="Indicates which execution context runs the step."
     )
-    action: Literal["memory", "tool", "completion"] = Field(
+    action: Literal["memory", "tool", "completion", "skill"] = Field(
         description="Semantic action performed by the step."
     )
-    tool: str | None = Field(default=None, description="Tool referenced by this step (if any).")
+    tool: str | None = Field(default=None, description="Tool or skill referenced by this step.")
     args: dict[str, Any] = Field(
         default_factory=dict, description="Optional arguments consumed by the step."
     )
@@ -72,6 +88,10 @@ class PlanStep(BaseModel):
     provider: str | None = Field(
         default=None,
         description="Override provider identifier when the step reaches a remote LLM.",
+    )
+    depends_on: list[str] = Field(
+        default_factory=list,
+        description="List of step IDs that must complete before this step can run.",
     )
 
 
@@ -132,4 +152,5 @@ __all__ = [
     "HealthStatus",
     "StepResult",
     "RoutingDecision",
+    "StepOutcome",
 ]

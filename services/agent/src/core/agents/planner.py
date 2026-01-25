@@ -149,13 +149,14 @@ class PlannerAgent:
         )
 
         # Optimized prompt for Llama 3.3 70B - concise, structured, clear rules
+        # Uses skills-native format: executor="skill", action="skill"
         system_message = AgentMessage(
             role="system",
             content=(
                 f"{system_context}\n"
                 "# PLANNER AGENT\n\n"
                 "You generate JSON execution plans. You are an ORCHESTRATOR - "
-                "delegate ALL work to skills via `consult_expert`.\n\n"
+                "delegate ALL work to skills.\n\n"
                 f"## AVAILABLE SKILLS\n{available_skills_text}\n\n"
                 "## SKILL ROUTING (use exactly ONE skill per task)\n"
                 "- Azure DevOps READ (list/get/search items): `backlog_manager`\n"
@@ -170,25 +171,32 @@ class PlannerAgent:
                 "{\n"
                 '  "description": "Brief plan summary",\n'
                 '  "steps": [\n'
-                '    {"id": "1", "label": "...", "executor": "agent|litellm", '
-                '"action": "tool|completion|memory", "tool": "...", "args": {}}\n'
+                '    {"id": "1", "label": "...", "executor": "skill|litellm", '
+                '"action": "skill|completion", "tool": "...", "args": {...}}\n'
                 "  ]\n"
                 "}\n\n"
                 "## RULES\n"
-                "1. DELEGATE via consult_expert - never guess answers needing current data\n"
+                "1. DELEGATE to skills - never guess answers needing current data\n"
                 "2. FINAL STEP must be action=completion, executor=litellm\n"
-                "3. consult_expert args: skill (from list above), goal (what to find)\n"
+                "3. Skill step format: executor=skill, action=skill, tool=skill_name\n"
                 "4. Simple questions (translations, math, syntax) = single completion step\n"
-                "5. If action=tool, executor MUST be agent\n\n"
+                "5. SMART HOME commands (lights, devices, flows, tänd, släck, dimma) "
+                "ALWAYS require skill call - you cannot control physical devices\n\n"
                 "## EXAMPLES\n"
                 '"What is hello in French?" → direct answer (you know this):\n'
                 '{"description":"Translation","steps":[{"id":"1","label":"Answer",'
                 '"executor":"litellm","action":"completion","args":{}}]}\n\n'
                 '"Research Python 3.12" → delegate then answer:\n'
                 '{"description":"Research","steps":[{"id":"1","label":"Research",'
-                '"executor":"agent","action":"tool","tool":"consult_expert",'
-                '"args":{"skill":"researcher","goal":"Python 3.12 features"}},'
+                '"executor":"skill","action":"skill","tool":"researcher",'
+                '"args":{"goal":"Python 3.12 features"}},'
                 '{"id":"2","label":"Answer","executor":"litellm",'
+                '"action":"completion","args":{}}]}\n\n'
+                '"Släck lampan i köket" / "Turn off lights" → MUST delegate to homey:\n'
+                '{"description":"Smart home","steps":[{"id":"1","label":"Control",'
+                '"executor":"skill","action":"skill","tool":"general/homey",'
+                '"args":{"goal":"Turn off the kitchen lamp"}},'
+                '{"id":"2","label":"Confirm","executor":"litellm",'
                 '"action":"completion","args":{}}]}\n'
             ),
         )
@@ -247,12 +255,18 @@ class PlannerAgent:
                 exc_msg = None
 
                 if candidate:
-                    # Guardrail: Force executor='agent' for tool actions to prevent hallucinations
+                    # Guardrails: Force correct executor for each action type
                     steps = candidate.get("steps")
                     if isinstance(steps, list):
                         for step in steps:
-                            if isinstance(step, dict) and step.get("action") == "tool":
-                                step["executor"] = "agent"
+                            if isinstance(step, dict):
+                                action = step.get("action")
+                                if action == "tool":
+                                    step["executor"] = "agent"
+                                elif action == "skill":
+                                    step["executor"] = "skill"
+                                elif action == "completion":
+                                    step["executor"] = step.get("executor") or "litellm"
 
                     try:
                         plan = Plan(**candidate)

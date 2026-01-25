@@ -44,12 +44,17 @@ class PlanSupervisorAgent:
     async def review(self, plan: Plan) -> Plan:
         """Validate plan structure and tool/skill references.
 
+        Also migrates deprecated consult_expert steps to skills-native format.
+
         Args:
             plan: The plan to validate.
 
         Returns:
-            The validated plan (potentially with warnings logged).
+            The validated (and potentially migrated) plan.
         """
+        # Migrate deprecated consult_expert steps to skills-native format
+        plan = self._migrate_consult_expert_steps(plan)
+
         with start_span(
             "supervisor.plan_review",
             attributes={"plan.steps": len(plan.steps) if plan.steps else 0},
@@ -144,6 +149,74 @@ class PlanSupervisorAgent:
             # For now, return the plan even with warnings
             # Critical issues (like no steps) would have been caught earlier by the planner
             return plan
+
+    def _migrate_consult_expert_steps(self, plan: Plan) -> Plan:
+        """Migrate deprecated consult_expert steps to skills-native format.
+
+        Converts steps like:
+            {"executor": "agent", "action": "tool", "tool": "consult_expert",
+             "args": {"skill": "researcher", "goal": "..."}}
+
+        To:
+            {"executor": "skill", "action": "skill", "tool": "researcher",
+             "args": {"goal": "..."}}
+
+        Args:
+            plan: The plan to migrate.
+
+        Returns:
+            Plan with migrated steps.
+        """
+        if not plan.steps:
+            return plan
+
+        migrated_steps = []
+        migration_count = 0
+
+        for step in plan.steps:
+            if step.tool == "consult_expert" and step.args:
+                # Extract skill name
+                skill_name = step.args.get("skill")
+
+                if skill_name:
+                    # Create new args without 'skill' (skill is now in 'tool')
+                    new_args = {k: v for k, v in step.args.items() if k != "skill"}
+
+                    # Create migrated step
+                    from shared.models import PlanStep
+
+                    migrated_step = PlanStep(
+                        id=step.id,
+                        label=step.label,
+                        executor="skill",
+                        action="skill",
+                        tool=skill_name,
+                        args=new_args,
+                        description=step.description,
+                        provider=step.provider,
+                        depends_on=step.depends_on,
+                    )
+                    migrated_steps.append(migrated_step)
+                    migration_count += 1
+
+                    LOGGER.warning(
+                        "Migrated deprecated consult_expert step '%s' to skill '%s'",
+                        step.label,
+                        skill_name,
+                    )
+                else:
+                    # No skill specified, keep original
+                    migrated_steps.append(step)
+            else:
+                migrated_steps.append(step)
+
+        if migration_count > 0:
+            LOGGER.info(
+                "Migrated %d deprecated consult_expert steps to skills-native format",
+                migration_count,
+            )
+
+        return Plan(steps=migrated_steps, description=plan.description)
 
 
 __all__ = ["PlanSupervisorAgent"]

@@ -52,6 +52,10 @@ class Settings(BaseModel):
         default="skillsrunner",
         description="Model for skill execution (tool calling).",
     )
+    model_composer: str = Field(
+        default="composer",
+        description="Model for generating final answers to users.",
+    )
     litellm_timeout: float = Field(
         default=180.0,
         description="Timeout in seconds when calling LiteLLM's `/v1/chat/completions` endpoint.",

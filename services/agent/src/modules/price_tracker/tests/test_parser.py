@@ -127,63 +127,68 @@ class TestPriceParser:
         """Test _extract_with_model with successful extraction."""
         parser = PriceParser()
 
-        mock_response = MagicMock()
-        mock_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content=json.dumps(
-                        {
-                            "price": 29.90,
-                            "unit_price": 149.50,
-                            "offer_price": None,
-                            "offer_type": None,
-                            "offer_details": None,
-                            "in_stock": True,
-                            "confidence": 0.95,
-                        }
-                    )
-                )
-            )
-        ]
+        mock_response_data = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps(
+                            {
+                                "price": 29.90,
+                                "unit_price": 149.50,
+                                "offer_price": None,
+                                "offer_type": None,
+                                "offer_details": None,
+                                "in_stock": True,
+                                "confidence": 0.95,
+                            }
+                        )
+                    }
+                }
+            ]
+        }
 
-        with patch("modules.price_tracker.parser.acompletion", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = mock_response
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.json.return_value = mock_response_data
+            mock_response.raise_for_status = MagicMock()
+            mock_client.post.return_value = mock_response
 
-            result = await parser._extract_with_model("test prompt", "haiku")
+            result = await parser._extract_with_model("test prompt", "price_tracker")
 
             assert result.price_sek == Decimal("29.90")
             assert result.unit_price_sek == Decimal("149.50")
             assert result.offer_price_sek is None
             assert result.in_stock is True
             assert result.confidence == 0.95
-            mock_llm.assert_called_once()
+            mock_client.post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_extract_with_model_strips_markdown_code_blocks(self) -> None:
         """Test _extract_with_model handles markdown code blocks."""
         parser = PriceParser()
 
-        mock_response = MagicMock()
-        mock_response.choices = [
-            MagicMock(
-                message=MagicMock(
-                    content='```json\n{"price": 15.50, "in_stock": true, "confidence": 0.8}\n```'
-                )
-            )
-        ]
+        json_content = '```json\n{"price": 15.50, "in_stock": true, "confidence": 0.8}\n```'
+        mock_response_data = {"choices": [{"message": {"content": json_content}}]}
 
-        with patch("modules.price_tracker.parser.acompletion", new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = mock_response
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.json.return_value = mock_response_data
+            mock_response.raise_for_status = MagicMock()
+            mock_client.post.return_value = mock_response
 
-            result = await parser._extract_with_model("test prompt", "sonnet")
+            result = await parser._extract_with_model("test prompt", "price_tracker_fallback")
 
             assert result.price_sek == Decimal("15.50")
             assert result.in_stock is True
             assert result.confidence == 0.8
 
     @pytest.mark.asyncio
-    async def test_extract_price_uses_haiku_first(self) -> None:
-        """Test that extract_price tries Haiku model first."""
+    async def test_extract_price_uses_primary_model_first(self) -> None:
+        """Test that extract_price tries price_tracker model first."""
         parser = PriceParser()
 
         mock_result = PriceExtractionResult(
@@ -203,17 +208,17 @@ class TestPriceParser:
 
             result = await parser.extract_price("page content", "ica-maxi", "Mjölk")
 
-            # Should call with Haiku model first
+            # Should call with price_tracker model first
             mock_extract.assert_called_once()
-            assert "haiku" in str(mock_extract.call_args)
+            assert "price_tracker" in str(mock_extract.call_args)
             assert result == mock_result
 
     @pytest.mark.asyncio
-    async def test_extract_price_retries_with_sonnet_on_low_confidence(self) -> None:
-        """Test that extract_price retries with Sonnet if Haiku confidence is low."""
+    async def test_extract_price_retries_with_fallback_on_low_confidence(self) -> None:
+        """Test that extract_price retries with fallback if primary confidence is low."""
         parser = PriceParser()
 
-        haiku_result = PriceExtractionResult(
+        primary_result = PriceExtractionResult(
             price_sek=Decimal("29.90"),
             unit_price_sek=None,
             offer_price_sek=None,
@@ -225,7 +230,7 @@ class TestPriceParser:
             raw_response={},
         )
 
-        sonnet_result = PriceExtractionResult(
+        fallback_result = PriceExtractionResult(
             price_sek=Decimal("29.90"),
             unit_price_sek=None,
             offer_price_sek=None,
@@ -238,20 +243,20 @@ class TestPriceParser:
         )
 
         with patch.object(parser, "_extract_with_model", new_callable=AsyncMock) as mock_extract:
-            mock_extract.side_effect = [haiku_result, sonnet_result]
+            mock_extract.side_effect = [primary_result, fallback_result]
 
             result = await parser.extract_price("page content", "willys")
 
-            # Should call twice: Haiku first, then Sonnet
+            # Should call twice: price_tracker first, then price_tracker_fallback
             assert mock_extract.call_count == 2
-            assert result == sonnet_result
+            assert result == fallback_result
 
     @pytest.mark.asyncio
-    async def test_extract_price_falls_back_to_sonnet_on_error(self) -> None:
-        """Test that extract_price falls back to Sonnet if Haiku fails."""
+    async def test_extract_price_falls_back_on_error(self) -> None:
+        """Test that extract_price falls back if primary model fails."""
         parser = PriceParser()
 
-        sonnet_result = PriceExtractionResult(
+        fallback_result = PriceExtractionResult(
             price_sek=Decimal("29.90"),
             unit_price_sek=None,
             offer_price_sek=None,
@@ -264,10 +269,10 @@ class TestPriceParser:
         )
 
         with patch.object(parser, "_extract_with_model", new_callable=AsyncMock) as mock_extract:
-            # Haiku raises exception, Sonnet succeeds
-            mock_extract.side_effect = [Exception("Haiku error"), sonnet_result]
+            # Primary raises exception, fallback succeeds
+            mock_extract.side_effect = [Exception("price_tracker error"), fallback_result]
 
             result = await parser.extract_price("page content", "coop")
 
             assert mock_extract.call_count == 2
-            assert result == sonnet_result
+            assert result == fallback_result

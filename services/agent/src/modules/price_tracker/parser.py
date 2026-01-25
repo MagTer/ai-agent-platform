@@ -32,22 +32,18 @@ class PriceExtractionResult:
 class PriceParser:
     """LLM-based price extractor with cascading model strategy."""
 
-    # Cascading model strategy (cheapest to most expensive)
+    # Cascading model strategy (fast first, then quality fallback)
     MODEL_CASCADE = os.getenv(
         "PRICE_PARSER_MODEL_CASCADE",
-        "parser,haiku,sonnet",
+        "price_tracker,price_tracker_fallback",
     ).split(",")
 
     # Model-specific confidence thresholds
     CONFIDENCE_THRESHOLDS = {
-        "parser": 0.70,
-        "haiku": 0.60,
-        "sonnet": 0.0,  # Accept any confidence (last resort)
+        "price_tracker": 0.70,
+        "price_tracker_fallback": 0.0,  # Accept any confidence (last resort)
     }
 
-    # Legacy constants for backward compatibility
-    HAIKU_MODEL = "haiku"
-    SONNET_MODEL = "sonnet"
     CONFIDENCE_THRESHOLD = 0.7
 
     def __init__(self) -> None:
