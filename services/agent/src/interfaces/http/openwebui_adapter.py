@@ -386,10 +386,12 @@ def _should_show_chunk_default(
         return True
 
     # Show thinking chunks from Planner (gives initial feedback that work is starting)
-    # Never show reasoning model internal chain-of-thought (clutters UI)
+    # Never show internal thinking that clutters UI:
+    # - reasoning_model: LLM chain-of-thought (gpt-oss-120b, Qwen3)
+    # - skill_internal: Skill executor progress (Goal:, Searching:)
     if chunk_type == "thinking":
         source = (metadata or {}).get("source", "")
-        if source == "reasoning_model":
+        if source in ("reasoning_model", "skill_internal"):
             return False
         role = (metadata or {}).get("role", "")
         if role == "Planner":
@@ -526,10 +528,13 @@ async def stream_response_generator(
                     await asyncio.sleep(0)  # Allow event loop to process
 
             elif chunk_type == "thinking" and content:
-                # Skip reasoning model internal chain-of-thought (clutters UI)
-                # DEBUG mode shows it via raw JSON output above
+                # Skip internal thinking that clutters the UI
+                # - reasoning_model: LLM chain-of-thought (gpt-oss-120b, Qwen3)
+                # - skill_internal: Skill executor progress (Goal:, Searching:)
+                # DEBUG mode shows these via raw JSON output above
                 source = (agent_chunk.get("metadata") or {}).get("source", "")
-                if source == "reasoning_model" and verbosity != VerbosityLevel.DEBUG:
+                skip_sources = ("reasoning_model", "skill_internal")
+                if source in skip_sources and verbosity != VerbosityLevel.DEBUG:
                     continue
 
                 # Flush any pending content before thinking output

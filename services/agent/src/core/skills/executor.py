@@ -259,7 +259,11 @@ class SkillExecutor:
             session = request.metadata.get("_db_session")
 
         with start_span(f"skill.execution.{skill_name}", attributes={"goal": goal[:200]}):
-            yield {"type": "thinking", "content": f"Goal: {goal[:80]}..."}
+            yield {
+                "type": "thinking",
+                "content": f"Goal: {goal[:80]}...",
+                "metadata": {"source": "skill_internal"},
+            }
             await asyncio.sleep(0)
 
             for turn in range(max_turns):
@@ -405,7 +409,11 @@ class SkillExecutor:
                                 f"BLOCKED: Duplicate call to '{fname}'. "
                                 "Use the data from your previous call."
                             )
-                            yield {"type": "thinking", "content": f"Skipping duplicate {fname}"}
+                            yield {
+                                "type": "thinking",
+                                "content": f"Skipping duplicate {fname}",
+                                "metadata": {"source": "skill_internal"},
+                            }
                             blocked_this_turn = True
 
                         elif current_count >= max_calls_per_tool:
@@ -435,7 +443,11 @@ class SkillExecutor:
                             seen_calls.add(call_key)
                             tool_call_counts[fname] = current_count + 1
 
-                            yield {"type": "thinking", "content": activity_msg}
+                            yield {
+                                "type": "thinking",
+                                "content": activity_msg,
+                                "metadata": {"source": "skill_internal"},
+                            }
                             yield {
                                 "type": "skill_activity",
                                 "content": activity_msg,
