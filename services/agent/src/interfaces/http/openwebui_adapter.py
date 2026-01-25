@@ -228,7 +228,15 @@ def get_service_factory() -> ServiceFactory:
     LOGGER.warning("Could not access service_factory from app state, creating temporary instance")
     settings = get_settings()
     litellm = LiteLLMClient(settings)
-    return ServiceFactory(settings, litellm)
+
+    # Create skill registry for fallback path
+    from core.skills import SkillRegistry
+    from core.tools.loader import load_tool_registry
+
+    base_tool_registry = load_tool_registry(settings.tools_config_path)
+    skill_registry = SkillRegistry(tool_registry=base_tool_registry)
+
+    return ServiceFactory(settings, litellm, skill_registry=skill_registry)
 
 
 async def get_agent_service(
