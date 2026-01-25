@@ -442,7 +442,12 @@ class HomeyTool(Tool):
                 if value is None:
                     return "Error: value is required for control_device."
                 return await self._action_control_device(
-                    homey_url, session_token, resolved_device_id, capability, value
+                    homey_url,
+                    session_token,
+                    resolved_device_id,
+                    capability,
+                    value,
+                    device_name=device_name,
                 )
             elif action == "list_flows":
                 return await self._action_list_flows(homey_url, session_token)
@@ -652,6 +657,7 @@ class HomeyTool(Tool):
         device_id: str,
         capability: str,
         value: bool | float | str,
+        device_name: str | None = None,
     ) -> str:
         """Set a device capability value."""
         response = await self._homey_request(
@@ -663,7 +669,19 @@ class HomeyTool(Tool):
         )
 
         LOGGER.info(f"Homey control_device response: {response}")
-        return f"Set `{capability}` to `{value}` on device `{device_id}`. Response: {response}"
+
+        # Format response - be VERY explicit that the command was sent and executed
+        device_display = device_name or device_id
+        if capability == "onoff":
+            if value:
+                return f"Command sent successfully. I turned on {device_display}."
+            else:
+                return f"Command sent successfully. I turned off {device_display}."
+        elif capability == "dim":
+            pct = int(float(value) * 100) if isinstance(value, (int, float)) else value
+            return f"Command sent successfully. I dimmed {device_display} to {pct}%."
+        else:
+            return f"Command sent successfully. I set {capability}={value} on {device_display}."
 
     async def _action_list_flows(
         self,

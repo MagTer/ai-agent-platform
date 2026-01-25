@@ -33,6 +33,7 @@ from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryRecord, MemoryStore
 from core.db import Context, Conversation, Message, Session
+from core.debug import DebugLogger
 from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import (
@@ -113,13 +114,38 @@ class AgentService:
 
         # 5. Load History
         # OpenWebUI sends full history in request.messages - prefer that over DB
+        debug_logger = DebugLogger(session)
+        trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+
         if request.messages:
             # Use the history provided by the client (OpenWebUI sends full history)
             history = list(request.messages)
-            LOGGER.info(f"Using {len(history)} messages from request.messages (OpenWebUI history)")
+            history_source = "request"
+            LOGGER.info(
+                "Using %d messages from request.messages: %s",
+                len(history),
+                [(m.role, (m.content or "")[:50]) for m in history],
+            )
         else:
             # Fallback to loading from database
             history = await self._load_conversation_history(session, db_session)
+            history_source = "database"
+            LOGGER.info("Loaded %d messages from database", len(history))
+
+        # Debug: Log request and history
+        await debug_logger.log_request(
+            trace_id=trace_id,
+            prompt=request.prompt,
+            messages=request.messages,
+            metadata=request.metadata,
+            conversation_id=conversation_id,
+        )
+        await debug_logger.log_history(
+            trace_id=trace_id,
+            source=history_source,
+            messages=history,
+            conversation_id=conversation_id,
+        )
 
         # 6. Request Prep - update request.metadata directly so executor can access it
         if request.metadata is None:
@@ -250,7 +276,7 @@ class AgentService:
                 prompt_history = list(history_with_tools)
                 completion_text = ""
                 completion_provider = "litellm"
-                completion_model = self._settings.model_agentchat
+                completion_model = self._settings.model_composer
                 execution_complete = False
 
                 # ═══════════════════════════════════════════════════════════════════
@@ -323,6 +349,13 @@ class AgentService:
                                 "plan.description": plan.description,
                                 "plan.steps_count": len(plan.steps) if plan.steps else 0,
                             }
+                        )
+
+                        # Debug: Log the generated plan
+                        await debug_logger.log_plan(
+                            trace_id=trace_id,
+                            plan=plan,
+                            conversation_id=conversation_id,
                         )
 
                         # Bridge gap between plan and execution
@@ -454,6 +487,16 @@ class AgentService:
                                     }
                                     return
 
+                                # Debug: Log tool call result
+                                if plan_step.action in ("tool", "skill"):
+                                    await debug_logger.log_tool_call(
+                                        trace_id=trace_id,
+                                        tool_name=plan_step.tool or "unknown",
+                                        args=plan_step.args or {},
+                                        result=step_execution_result.result,
+                                        conversation_id=conversation_id,
+                                    )
+
                             except ToolConfirmationError as exc:
                                 LOGGER.info(f"Step {plan_step.id} paused for confirmation")
                                 msg_content = (
@@ -489,6 +532,15 @@ class AgentService:
                                 outcome, reason, suggested_fix = await step_supervisor.review(
                                     plan_step, step_execution_result, retry_count=retry_count
                                 )
+
+                            # Debug: Log supervisor decision
+                            await debug_logger.log_supervisor(
+                                trace_id=trace_id,
+                                step_label=plan_step.label,
+                                outcome=outcome.value,
+                                reason=reason,
+                                conversation_id=conversation_id,
+                            )
 
                             # Handle StepOutcome
                             if outcome == StepOutcome.SUCCESS:
@@ -721,7 +773,39 @@ class AgentService:
                         "content": "Generating final answer...",
                         "metadata": {"role": "Executor"},
                     }
-                    completion_text = await self._litellm.generate(prompt_history)
+
+                    # Add completion instruction to guide the LLM
+                    prompt_history.append(
+                        AgentMessage(
+                            role="system",
+                            content=(
+                                "Based on the tool outputs above, provide a brief, helpful "
+                                "response to the user. Report what actions were taken and "
+                                "their results. Be concise and direct."
+                            ),
+                        )
+                    )
+
+                    # Debug: Log the full prompt being sent to completion LLM
+                    await debug_logger.log_completion_prompt(
+                        trace_id=trace_id,
+                        prompt_history=prompt_history,
+                        conversation_id=conversation_id,
+                    )
+
+                    # Use composer model for generating final answers
+                    completion_text = await self._litellm.generate(
+                        prompt_history, model=self._settings.model_composer
+                    )
+
+                    # Debug: Log the completion response
+                    await debug_logger.log_completion_response(
+                        trace_id=trace_id,
+                        response=completion_text,
+                        model=completion_model,
+                        conversation_id=conversation_id,
+                    )
+
                     # Only yield content if we just generated it here
                     yield {
                         "type": "content",
