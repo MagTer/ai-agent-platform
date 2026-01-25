@@ -380,7 +380,7 @@ class McpClient:
             # list_tools is a lightweight call to verify connection
             await asyncio.wait_for(self._mcp_session.list_tools(), timeout=5.0)
             return True
-        except Exception:
+        except (TimeoutError, ConnectionError, OSError):
             self._state = McpConnectionState.DISCONNECTED
             return False
 

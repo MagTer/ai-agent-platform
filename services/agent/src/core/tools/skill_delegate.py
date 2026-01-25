@@ -44,7 +44,7 @@ def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, 
                 if "{domain}" in pattern and isinstance(value, str):
                     try:
                         domain = urlparse(value).netloc or value
-                    except Exception:
+                    except Exception:  # Intentional: fallback if URL parsing fails
                         domain = value
 
                 # Truncate long values
@@ -67,7 +67,7 @@ def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, 
         try:
             domain = urlparse(fargs["url"]).netloc
             return f"Fetching: {domain}"
-        except Exception:
+        except Exception:  # Intentional: fallback to generic message if parsing fails
             return "Fetching URL"
     elif "path" in fargs or "file_path" in fargs:
         path = fargs.get("path") or fargs.get("file_path")
@@ -355,7 +355,7 @@ class SkillDelegateTool(Tool):
                             try:
                                 domain = urlparse(fargs["url"]).netloc
                                 turn_activities.append(domain or "URL")
-                            except Exception:
+                            except Exception:  # Intentional: fallback if URL parsing fails
                                 turn_activities.append("URL")
 
                     # Count searches vs fetches for summary

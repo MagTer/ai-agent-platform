@@ -79,7 +79,7 @@ class WebFetcher:
         if p.exists() and (time.time() - p.stat().st_mtime) < self.cache_ttl:
             try:
                 return json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, json.JSONDecodeError):
                 return None
         return None
 

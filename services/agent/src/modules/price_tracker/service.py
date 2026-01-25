@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from core.providers import get_fetcher
@@ -106,7 +107,7 @@ class PriceTrackerService:
             )
             return price_point
 
-        except Exception:
+        except SQLAlchemyError:
             await session.rollback()
             logger.exception(f"Failed to record price for ProductStore {product_store_id}")
             return None
@@ -154,7 +155,7 @@ class PriceTrackerService:
                     for price_point, store in rows
                 ]
 
-            except Exception:
+            except (SQLAlchemyError, ValueError):
                 logger.exception(f"Failed to get price history for product {product_id}")
                 return []
 
@@ -213,7 +214,7 @@ class PriceTrackerService:
 
                 return deals
 
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception("Failed to get current deals")
                 return []
 
@@ -266,7 +267,7 @@ class PriceTrackerService:
                     for product in products
                 ]
 
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception("Failed to get products")
                 return []
 
@@ -293,7 +294,7 @@ class PriceTrackerService:
                     for store in stores
                 ]
 
-            except Exception:
+            except SQLAlchemyError:
                 logger.exception("Failed to get stores")
                 return []
 
@@ -537,7 +538,7 @@ class PriceTrackerService:
                     "checked_at": price_point.checked_at,
                 }
 
-            except Exception:
+            except Exception:  # Intentional: catches fetcher, parser, and DB errors
                 logger.exception(f"Failed to check price for ProductStore {product_store_id}")
                 return {
                     "product_store_id": product_store_id,

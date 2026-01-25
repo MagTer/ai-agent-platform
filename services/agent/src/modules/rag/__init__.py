@@ -218,7 +218,7 @@ class RAGManager:
             logger.info(f"Ingested {len(points)} chunks for doc {metadata.get('uri', 'unknown')}")
             return len(points)
 
-        except Exception:
+        except Exception:  # Intentional: catches embedder, chunker, and Qdrant errors
             logger.exception("Failed to ingest document")
             return 0
 
