@@ -11,15 +11,14 @@ logging:
 model_list:
   # ============================================
   # AGENT ORCHESTRATION MODELS
-  # All on Groq for maximum speed
+  # Priority: Cerebras (fastest) > Groq > SambaNova
   # ============================================
 
   # Planner: Generates execution plans (JSON output)
-  # Needs: Fast, structured output, reliable
-  # Note: Switched from qwen3-32b (returns empty content due to thinking mode)
+  # Needs: Strong reasoning, structured output
   - model_name: planner
     litellm_params:
-      model: openrouter/meta-llama/llama-4-scout
+      model: openrouter/openai/gpt-oss-120b
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
       max_tokens: 8192
@@ -27,14 +26,13 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Groq", "SambaNova"]
+          order: ["Cerebras", "Groq", "SambaNova"]
 
   # Supervisor: Reviews step results, decides next action
-  # Needs: Good reasoning, reliable judgment, FAST
-  # Note: Replaced DeepSeek (slow providers only) with Llama 4 Maverick
+  # Needs: Good judgment, fast decisions
   - model_name: supervisor
     litellm_params:
-      model: openrouter/meta-llama/llama-4-maverick
+      model: openrouter/openai/gpt-oss-120b
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.1
       max_tokens: 16384
@@ -42,14 +40,13 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Groq", "SambaNova"]
+          order: ["Cerebras", "Groq", "SambaNova"]
 
   # Composer: Writes final answers to user
-  # Needs: Good writing, Swedish support, fast
-  # Note: Switched from qwen3-32b (returns empty content due to thinking mode)
+  # Needs: Good writing, Swedish support
   - model_name: composer
     litellm_params:
-      model: openrouter/meta-llama/llama-4-maverick
+      model: openrouter/openai/gpt-oss-120b
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.3
       max_tokens: 4096
@@ -57,15 +54,15 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Groq", "SambaNova"]
+          order: ["Cerebras", "Groq", "SambaNova"]
 
   # ============================================
   # SKILL EXECUTION MODELS
   # ============================================
 
   # Skillsrunner: For skills that need tool calling
-  # Needs: Reliable tool calling, good instruction following, FAST
-  # Used by: homey, price_tracker, web_searcher, researcher, etc.
+  # Needs: Reliable tool calling, fast
+  # Note: llama-4-scout is optimized for tool use
   - model_name: skillsrunner
     litellm_params:
       model: openrouter/meta-llama/llama-4-scout
@@ -79,8 +76,7 @@ model_list:
           order: ["Groq", "SambaNova"]
 
   # Software Engineer: Code generation and debugging
-  # Needs: Strong coding ability, precise output, FAST
-  # Note: Replaced DeepSeek with GPT-OSS-120B on Groq
+  # Needs: Strong coding ability, precise output
   - model_name: software_engineer
     litellm_params:
       model: openrouter/openai/gpt-oss-120b
@@ -91,15 +87,14 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Groq", "Cerebras"]
+          order: ["Cerebras", "Groq", "SambaNova"]
 
   # ============================================
   # SPECIALIZED MODELS
   # ============================================
 
   # Price Tracker: For price extraction from product pages
-  # Needs: Fast, cheap, deterministic, structured output
-  # Note: Switched from qwen3-32b (returns empty content due to thinking mode)
+  # Needs: Fast, structured JSON output
   - model_name: price_tracker
     litellm_params:
       model: openrouter/meta-llama/llama-4-scout
