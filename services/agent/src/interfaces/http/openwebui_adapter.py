@@ -386,7 +386,11 @@ def _should_show_chunk_default(
         return True
 
     # Show thinking chunks from Planner (gives initial feedback that work is starting)
+    # Never show reasoning model internal chain-of-thought (clutters UI)
     if chunk_type == "thinking":
+        source = (metadata or {}).get("source", "")
+        if source == "reasoning_model":
+            return False
         role = (metadata or {}).get("role", "")
         if role == "Planner":
             return True
@@ -522,6 +526,12 @@ async def stream_response_generator(
                     await asyncio.sleep(0)  # Allow event loop to process
 
             elif chunk_type == "thinking" and content:
+                # Skip reasoning model internal chain-of-thought (clutters UI)
+                # DEBUG mode shows it via raw JSON output above
+                source = (agent_chunk.get("metadata") or {}).get("source", "")
+                if source == "reasoning_model" and verbosity != VerbosityLevel.DEBUG:
+                    continue
+
                 # Flush any pending content before thinking output
                 async for chunk in flush_content_buffer():
                     yield chunk
