@@ -301,10 +301,17 @@ class HomeyTool(Tool):
                 LOGGER.info(f"Cache hit (exact): '{device.name}' -> {device.device_id}")
                 return device.device_id
 
-        # Try partial match
+        # Try partial match (query in device name)
         for device in cached_devices:
             if query_lower in device.name.lower():
-                LOGGER.info(f"Cache hit (partial): '{device.name}' -> {device.device_id}")
+                LOGGER.info(f"Cache hit (query in name): '{device.name}' -> {device.device_id}")
+                return device.device_id
+
+        # Also try reverse partial match (device name in query)
+        # Handles cases like query="lampan bakom skärmen" matching device="Bakom Skärmen"
+        for device in cached_devices:
+            if device.name.lower() in query_lower:
+                LOGGER.info(f"Cache hit (name in query): '{device.name}' -> {device.device_id}")
                 return device.device_id
 
         LOGGER.debug(f"Cache miss for device '{device_name}'")
@@ -527,11 +534,19 @@ class HomeyTool(Tool):
                 LOGGER.info(f"API match (exact): '{device_name}' -> {device_id}")
                 return device_id
 
-        # Then try partial match
+        # Then try partial match (query in device name)
         for device_id, device in devices.items():
             device_name = device.get("name", "")
             if query_lower in device_name.lower():
-                LOGGER.info(f"API match (partial): '{device_name}' -> {device_id}")
+                LOGGER.info(f"API match (query in name): '{device_name}' -> {device_id}")
+                return device_id
+
+        # Also try reverse partial match (device name in query)
+        # Handles cases like query="lampan bakom skärmen" matching device="Bakom Skärmen"
+        for device_id, device in devices.items():
+            device_name = device.get("name", "")
+            if device_name.lower() in query_lower:
+                LOGGER.info(f"API match (name in query): '{device_name}' -> {device_id}")
                 return device_id
 
         LOGGER.warning(f"No device found matching '{name_query}'")
