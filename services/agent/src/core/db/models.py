@@ -164,3 +164,29 @@ class UserCredential(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "credential_type", name="uq_user_credential_type"),
     )
+
+
+class HomeyDeviceCache(Base):
+    """Cached Homey device metadata for fast lookups.
+
+    Caches device names and capabilities to avoid API calls.
+    TTL: 36 hours, refreshed nightly at 03:00 UTC.
+    """
+
+    __tablename__ = "homey_device_cache"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    homey_id: Mapped[str] = mapped_column(String, index=True)
+    device_id: Mapped[str] = mapped_column(String, index=True)
+    name: Mapped[str] = mapped_column(String)
+    device_class: Mapped[str] = mapped_column(String)
+    capabilities: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    zone: Mapped[str | None] = mapped_column(String, nullable=True)
+    cached_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+
+    __table_args__ = (
+        UniqueConstraint("context_id", "homey_id", "device_id", name="uq_homey_device_cache"),
+    )

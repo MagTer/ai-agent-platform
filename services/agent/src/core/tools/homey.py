@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 import httpx
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.providers import get_token_manager_optional
@@ -16,6 +18,9 @@ LOGGER = logging.getLogger(__name__)
 
 # API URLs
 ATHOM_API_BASE = "https://api.athom.com"
+
+# Cache configuration
+DEVICE_CACHE_TTL_HOURS = 36
 
 
 class HomeyTool(Tool):
@@ -51,6 +56,7 @@ class HomeyTool(Tool):
                     "control_device",
                     "list_flows",
                     "trigger_flow",
+                    "sync_devices",
                 ],
                 "description": "Action to perform",
             },
@@ -80,6 +86,10 @@ class HomeyTool(Tool):
             "flow_id": {
                 "type": "string",
                 "description": "Flow ID (required for trigger_flow)",
+            },
+            "flow_name": {
+                "type": "string",
+                "description": "Flow name to search for (alternative to flow_id)",
             },
         },
         "required": ["action"],
@@ -250,6 +260,100 @@ class HomeyTool(Tool):
             response.raise_for_status()
             return response.json()
 
+    async def _get_cached_device(
+        self,
+        context_id: UUID,
+        homey_id: str,
+        device_name: str,
+        db_session: AsyncSession,
+    ) -> str | None:
+        """Look up device ID from cache by name.
+
+        Args:
+            context_id: Context UUID for multi-tenant isolation.
+            homey_id: Homey device ID.
+            device_name: Device name to search for.
+            db_session: Database session.
+
+        Returns:
+            Device ID if found in valid cache, None otherwise.
+        """
+        from core.db.models import HomeyDeviceCache
+
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=DEVICE_CACHE_TTL_HOURS)
+        query_lower = device_name.lower()
+
+        # Query cache for matching devices
+        stmt = select(HomeyDeviceCache).where(
+            HomeyDeviceCache.context_id == context_id,
+            HomeyDeviceCache.homey_id == homey_id,
+            HomeyDeviceCache.cached_at >= cutoff,
+        )
+        result = await db_session.execute(stmt)
+        cached_devices = result.scalars().all()
+
+        if not cached_devices:
+            return None
+
+        # Try exact match first
+        for device in cached_devices:
+            if device.name.lower() == query_lower:
+                LOGGER.info(f"Cache hit (exact): '{device.name}' -> {device.device_id}")
+                return device.device_id
+
+        # Try partial match
+        for device in cached_devices:
+            if query_lower in device.name.lower():
+                LOGGER.info(f"Cache hit (partial): '{device.name}' -> {device.device_id}")
+                return device.device_id
+
+        LOGGER.debug(f"Cache miss for device '{device_name}'")
+        return None
+
+    async def _populate_cache(
+        self,
+        context_id: UUID,
+        homey_id: str,
+        devices: dict[str, dict[str, Any]],
+        db_session: AsyncSession,
+    ) -> None:
+        """Populate device cache from API response.
+
+        Args:
+            context_id: Context UUID.
+            homey_id: Homey device ID.
+            devices: Device dict from Homey API.
+            db_session: Database session.
+        """
+        from core.db.models import HomeyDeviceCache
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+
+        # Delete existing cache for this homey
+        await db_session.execute(
+            delete(HomeyDeviceCache).where(
+                HomeyDeviceCache.context_id == context_id,
+                HomeyDeviceCache.homey_id == homey_id,
+            )
+        )
+
+        # Insert new cache entries
+        for device_id, device in devices.items():
+            cache_entry = HomeyDeviceCache(
+                context_id=context_id,
+                homey_id=homey_id,
+                device_id=device_id,
+                name=device.get("name", "Unknown"),
+                device_class=device.get("class", "other"),
+                capabilities=device.get("capabilities", []),
+                zone=device.get("zoneName"),
+                cached_at=now,
+            )
+            db_session.add(cache_entry)
+
+        await db_session.flush()
+        LOGGER.info(f"Cached {len(devices)} devices for Homey {homey_id}")
+
     async def run(
         self,
         action: str,
@@ -259,6 +363,7 @@ class HomeyTool(Tool):
         capability: str | None = None,
         value: bool | float | str | None = None,
         flow_id: str | None = None,
+        flow_name: str | None = None,
         context_id: UUID | None = None,
         session: AsyncSession | None = None,
         **kwargs: Any,
@@ -273,6 +378,7 @@ class HomeyTool(Tool):
             capability: Capability name for control_device.
             value: Value to set for control_device.
             flow_id: Flow ID for trigger_flow.
+            flow_name: Flow name to search for (alternative to flow_id).
             context_id: Context UUID (injected by agent).
             session: Database session (injected by agent).
             **kwargs: Additional arguments (ignored).
@@ -314,7 +420,12 @@ class HomeyTool(Tool):
                 resolved_device_id = device_id
                 if not resolved_device_id and device_name:
                     resolved_device_id = await self._find_device_by_name(
-                        homey_url, session_token, device_name
+                        homey_url,
+                        session_token,
+                        device_name,
+                        context_id=context_id,
+                        homey_id=homey_id,
+                        db_session=session,
                     )
                     if not resolved_device_id:
                         return f"Error: No device found matching '{device_name}'."
@@ -329,9 +440,21 @@ class HomeyTool(Tool):
             elif action == "list_flows":
                 return await self._action_list_flows(homey_url, session_token)
             elif action == "trigger_flow":
-                if not flow_id:
-                    return "Error: flow_id is required for trigger_flow action."
-                return await self._action_trigger_flow(homey_url, session_token, flow_id)
+                resolved_flow_id = flow_id
+                if not resolved_flow_id and flow_name:
+                    resolved_flow_id = await self._find_flow_by_name(
+                        homey_url, session_token, flow_name
+                    )
+                    if not resolved_flow_id:
+                        return f"Error: No flow found matching '{flow_name}'."
+
+                if not resolved_flow_id:
+                    return "Error: flow_id or flow_name is required for trigger_flow action."
+                return await self._action_trigger_flow(homey_url, session_token, resolved_flow_id)
+            elif action == "sync_devices":
+                return await self._action_sync_devices(
+                    homey_url, session_token, homey_id, context_id, session
+                )
             else:
                 return f"Unknown action: {action}"
 
@@ -357,17 +480,30 @@ class HomeyTool(Tool):
         homey_url: str,
         session_token: str,
         name_query: str,
+        context_id: UUID | None = None,
+        homey_id: str | None = None,
+        db_session: AsyncSession | None = None,
     ) -> str | None:
-        """Find a device by name (case-insensitive partial match).
+        """Find a device by name, checking cache first.
 
         Args:
             homey_url: Homey base URL.
             session_token: Homey session token.
             name_query: Device name to search for.
+            context_id: Context UUID for cache lookup.
+            homey_id: Homey ID for cache lookup.
+            db_session: Database session for cache operations.
 
         Returns:
             Device ID if found, None otherwise.
         """
+        # Try cache first if we have context info
+        if context_id and homey_id and db_session:
+            cached_id = await self._get_cached_device(context_id, homey_id, name_query, db_session)
+            if cached_id:
+                return cached_id
+
+        # Cache miss - fetch from API
         devices = await self._homey_request(
             "GET",
             homey_url,
@@ -378,23 +514,27 @@ class HomeyTool(Tool):
         if not devices:
             return None
 
+        # Populate cache if we have context info
+        if context_id and homey_id and db_session:
+            await self._populate_cache(context_id, homey_id, devices, db_session)
+
         query_lower = name_query.lower()
 
         # First try exact match
         for device_id, device in devices.items():
             device_name = device.get("name", "")
             if device_name.lower() == query_lower:
-                LOGGER.info(f"Homey: Found exact match '{device_name}' -> {device_id}")
+                LOGGER.info(f"API match (exact): '{device_name}' -> {device_id}")
                 return device_id
 
         # Then try partial match
         for device_id, device in devices.items():
             device_name = device.get("name", "")
             if query_lower in device_name.lower():
-                LOGGER.info(f"Homey: Found partial match '{device_name}' -> {device_id}")
+                LOGGER.info(f"API match (partial): '{device_name}' -> {device_id}")
                 return device_id
 
-        LOGGER.warning(f"Homey: No device found matching '{name_query}'")
+        LOGGER.warning(f"No device found matching '{name_query}'")
         return None
 
     async def _action_list_homeys(self, oauth_token: str) -> str:
@@ -562,6 +702,89 @@ class HomeyTool(Tool):
         )
 
         return f"Flow `{flow_id}` triggered successfully."
+
+    async def _find_flow_by_name(
+        self,
+        homey_url: str,
+        session_token: str,
+        name_query: str,
+    ) -> str | None:
+        """Find a flow by name (case-insensitive partial match).
+
+        Args:
+            homey_url: Homey base URL.
+            session_token: Homey session token.
+            name_query: Flow name to search for.
+
+        Returns:
+            Flow ID if found, None otherwise.
+        """
+        flows = await self._homey_request(
+            "GET",
+            homey_url,
+            "/api/manager/flow/flow",
+            session_token,
+        )
+
+        if not flows:
+            return None
+
+        query_lower = name_query.lower()
+
+        # Exact match first
+        for flow_id, flow in flows.items():
+            flow_name = flow.get("name", "")
+            if flow_name.lower() == query_lower:
+                LOGGER.info(f"Flow match (exact): '{flow_name}' -> {flow_id}")
+                return flow_id
+
+        # Partial match
+        for flow_id, flow in flows.items():
+            flow_name = flow.get("name", "")
+            if query_lower in flow_name.lower():
+                LOGGER.info(f"Flow match (partial): '{flow_name}' -> {flow_id}")
+                return flow_id
+
+        LOGGER.warning(f"No flow found matching '{name_query}'")
+        return None
+
+    async def _action_sync_devices(
+        self,
+        homey_url: str,
+        session_token: str,
+        homey_id: str | None,
+        context_id: UUID | None,
+        db_session: AsyncSession | None,
+    ) -> str:
+        """Manually sync device cache from Homey API.
+
+        Args:
+            homey_url: Homey base URL.
+            session_token: Homey session token.
+            homey_id: Homey device ID.
+            context_id: Context UUID.
+            db_session: Database session.
+
+        Returns:
+            Sync result message.
+        """
+        if not context_id or not db_session or not homey_id:
+            return "Error: Cannot sync devices without context."
+
+        devices = await self._homey_request(
+            "GET",
+            homey_url,
+            "/api/manager/devices/device",
+            session_token,
+        )
+
+        if not devices:
+            return "No devices found on this Homey."
+
+        await self._populate_cache(context_id, homey_id, devices, db_session)
+        await db_session.commit()
+
+        return f"Synced {len(devices)} devices to cache."
 
 
 __all__ = ["HomeyTool"]

@@ -342,9 +342,19 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         await scheduler.start()
         LOGGER.info("Price check scheduler started")
 
+        # Homey Device Sync Scheduler - nightly cache refresh
+        from modules.homey.scheduler import HomeyDeviceSyncScheduler
+
+        homey_scheduler = HomeyDeviceSyncScheduler(
+            session_factory=AsyncSessionLocal,
+        )
+        await homey_scheduler.start()
+        LOGGER.info("Homey device sync scheduler started")
+
         yield  # Application runs here
 
         # --- SHUTDOWN ---
+        await homey_scheduler.stop()
         await scheduler.stop()
         # Clean up email service
         if email_service is not None:
