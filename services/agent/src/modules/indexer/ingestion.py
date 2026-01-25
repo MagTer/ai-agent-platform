@@ -3,25 +3,23 @@ import logging
 import os
 from pathlib import Path
 
-# from pathspec import PathSpec
-# from pathspec.patterns import GitWildMatchPattern
 import pathspec
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.http import models
 
-from modules.embedder import get_embedder
+from core.protocols import IEmbedder
 from modules.indexer.code_splitter import CodeSplitter
 
 logger = logging.getLogger(__name__)
 
 
 class CodeIndexer:
-    def __init__(self, root_path: Path):
+    def __init__(self, root_path: Path, embedder: IEmbedder):
         self.root_path = root_path
         self.qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
         self.client = AsyncQdrantClient(url=self.qdrant_url)
         self.collection_name = os.getenv("QDRANT_COLLECTION", "agent-memories")
-        self.embedder = get_embedder()
+        self.embedder = embedder
         self.splitter = CodeSplitter()
 
     def _get_gitignore_spec(self) -> pathspec.PathSpec | None:

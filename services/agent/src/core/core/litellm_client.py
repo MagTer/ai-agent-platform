@@ -12,10 +12,9 @@ from typing import Any
 import httpx
 from shared.streaming import AgentChunk
 
+from core.core.config import Settings
+from core.core.models import AgentMessage
 from core.observability.tracing import add_span_event, set_span_attributes
-
-from .config import Settings
-from .models import AgentMessage
 
 LOGGER = logging.getLogger(__name__)
 
@@ -212,7 +211,7 @@ class LiteLLMClient:
         except httpx.HTTPError as exc:
             raise LiteLLMError(f"Tool completion failed: {exc}") from exc
 
-    async def list_models(self) -> Any:
+    async def list_models(self) -> dict[str, Any]:
         """Return the raw body from LiteLLM's `/v1/models` endpoint."""
 
         try:

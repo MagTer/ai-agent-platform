@@ -13,10 +13,10 @@ from utils.template import substitute_variables
 
 from core.core.litellm_client import LiteLLMClient
 from core.core.routing import registry
+from core.core.service import AgentService
 from core.db.models import Context, Conversation, Message, Session
 from core.routing import IntentClassifier
-
-from .skill_loader import SkillLoader
+from orchestrator.skill_loader import SkillLoader
 
 LOGGER = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class Dispatcher:
         platform: str = "web",
         platform_id: str | None = None,
         db_session: AsyncSession | None = None,
-        agent_service: Any = None,
+        agent_service: AgentService | None = None,
         history: list | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> AsyncGenerator[AgentChunk, None]:
@@ -328,7 +328,7 @@ class Dispatcher:
         prompt: str,
         conversation_id: str,
         db_session: AsyncSession | None,
-        agent_service: Any,
+        agent_service: AgentService | None,
         metadata: dict[str, Any],
         history: list | None = None,
     ) -> AsyncGenerator[AgentChunk, None]:

@@ -15,9 +15,8 @@ from mcp.client.sse import sse_client
 from mcp.shared.exceptions import McpError
 from pydantic import AnyUrl
 
+from core.models.mcp import McpPrompt, McpResource, McpTool
 from core.observability.tracing import start_span
-
-from ..models.mcp import McpPrompt, McpResource, McpTool
 
 LOGGER = logging.getLogger(__name__)
 
@@ -296,7 +295,7 @@ class McpClient:
         await self.refresh_cache()
         return self._tools_cache
 
-    async def call_tool(self, tool_name: str, args: dict[str, Any]) -> Any:
+    async def call_tool(self, tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         """Execute a remote tool on the MCP server.
 
         Auto-reconnects if disconnected and auto_reconnect is enabled.
@@ -317,7 +316,8 @@ class McpClient:
             try:
                 result = await self._mcp_session.call_tool(tool_name, arguments=args)
                 LOGGER.info("Successfully executed MCP tool '%s' on %s.", tool_name, self._name)
-                return result
+                # MCP protocol returns a CallToolResult object, convert to dict
+                return result.model_dump() if hasattr(result, "model_dump") else dict(result)
             except McpError as e:
                 LOGGER.error(
                     "MCP error calling '%s' on %s: %s",
@@ -339,7 +339,7 @@ class McpClient:
                     self._state = McpConnectionState.DISCONNECTED
                 raise
 
-    async def read_resource(self, uri: str) -> Any:
+    async def read_resource(self, uri: str) -> list[dict[str, Any]]:
         """Read a resource from the MCP server."""
         if not self._mcp_session:
             raise RuntimeError(f"MCP client {self._name} not connected.")
@@ -349,9 +349,14 @@ class McpClient:
             attributes={"mcp.server": self._name, "mcp.resource_uri": uri},
         ):
             result = await self._mcp_session.read_resource(AnyUrl(uri))
-            return result.contents
+            # MCP protocol returns ReadResourceResult with .contents list
+            # Contents are TextResourceContents or BlobResourceContents (Pydantic models)
+            # Always convert to dicts for consistent return type
+            return [c.model_dump() for c in result.contents]
 
-    async def get_prompt(self, name: str, arguments: dict[str, str] | None = None) -> Any:
+    async def get_prompt(
+        self, name: str, arguments: dict[str, str] | None = None
+    ) -> dict[str, Any]:
         """Get a prompt from the MCP server."""
         if not self._mcp_session:
             raise RuntimeError(f"MCP client {self._name} not connected.")
@@ -361,7 +366,8 @@ class McpClient:
             attributes={"mcp.server": self._name, "mcp.prompt": name},
         ):
             result = await self._mcp_session.get_prompt(name, arguments or {})
-            return result
+            # MCP protocol returns GetPromptResult, convert to dict
+            return result.model_dump() if hasattr(result, "model_dump") else dict(result)
 
     async def ping(self) -> bool:
         """Check if the connection is healthy.
@@ -374,7 +380,7 @@ class McpClient:
             # list_tools is a lightweight call to verify connection
             await asyncio.wait_for(self._mcp_session.list_tools(), timeout=5.0)
             return True
-        except Exception:
+        except (TimeoutError, ConnectionError, OSError):
             self._state = McpConnectionState.DISCONNECTED
             return False
 

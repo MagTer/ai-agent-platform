@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from .base import Tool
+from core.tools.base import Tool
 
 
 class TestRunnerTool(Tool):

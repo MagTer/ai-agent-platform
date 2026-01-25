@@ -1,7 +1,7 @@
 import re
 from typing import Any
 
-from .skill_loader import Skill
+from orchestrator.skill_loader import Skill
 
 
 def render_skill_prompt(skill: Skill, params: dict[str, Any]) -> str:

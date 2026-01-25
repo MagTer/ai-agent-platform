@@ -9,11 +9,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.core.config import Settings
-
-from ..mcp.client import McpClient
-from ..models.mcp import McpTool
-from .base import Tool
-from .registry import ToolRegistry
+from core.mcp.client import McpClient
+from core.models.mcp import McpTool
+from core.tools.base import Tool
+from core.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
     from core.mcp.client_pool import McpClientPool

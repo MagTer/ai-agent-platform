@@ -9,8 +9,10 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, cast
 from urllib.parse import urlparse
+from uuid import UUID
 
 from shared.models import AgentMessage
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.command_loader import load_command
 from core.core.litellm_client import LiteLLMClient
@@ -42,7 +44,7 @@ def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, 
                 if "{domain}" in pattern and isinstance(value, str):
                     try:
                         domain = urlparse(value).netloc or value
-                    except Exception:
+                    except Exception:  # Intentional: fallback if URL parsing fails
                         domain = value
 
                 # Truncate long values
@@ -65,7 +67,7 @@ def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, 
         try:
             domain = urlparse(fargs["url"]).netloc
             return f"Fetching: {domain}"
-        except Exception:
+        except Exception:  # Intentional: fallback to generic message if parsing fails
             return "Fetching URL"
     elif "path" in fargs or "file_path" in fargs:
         path = fargs.get("path") or fargs.get("file_path")
@@ -110,9 +112,9 @@ class SkillDelegateTool(Tool):
         self,
         skill: str,
         goal: str,
-        user_id: Any | None = None,
-        session: Any | None = None,
-        context_id: Any | None = None,
+        user_id: UUID | None = None,
+        session: AsyncSession | None = None,
+        context_id: UUID | None = None,
         **kwargs: Any,  # Accept and ignore extra arguments from LLM
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a sub-agent loop for the given skill and goal.
@@ -357,7 +359,7 @@ class SkillDelegateTool(Tool):
                             try:
                                 domain = urlparse(fargs["url"]).netloc
                                 turn_activities.append(domain or "URL")
-                            except Exception:
+                            except Exception:  # Intentional: fallback if URL parsing fails
                                 turn_activities.append("URL")
 
                     # Count searches vs fetches for summary

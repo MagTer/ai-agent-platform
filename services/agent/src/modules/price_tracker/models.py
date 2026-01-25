@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
@@ -38,7 +39,8 @@ class Product(Base):
     """A product that can be tracked across multiple stores.
 
     Represents a specific SKU including package size (e.g., 'Toalettpapper 24-pack').
-    Different package sizes are separate products that can independently link to stores.
+        Different package sizes are separate products that can independently link to stores.
+        Multi-tenant: scoped to context_id.
     """
 
     __tablename__ = "price_tracker_products"
@@ -52,7 +54,7 @@ class Product(Base):
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     unit: Mapped[str | None] = mapped_column(String(50), nullable=True)  # kg, liter, st, etc.
     package_size: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    package_quantity: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    package_quantity: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 

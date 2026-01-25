@@ -8,8 +8,8 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
-from ..models.mcp import McpPrompt, McpResource, McpTool
-from .client import McpClient, McpConnectionState
+from core.mcp.client import McpClient, McpConnectionState
+from core.models.mcp import McpPrompt, McpResource, McpTool
 
 LOGGER = logging.getLogger(__name__)
 

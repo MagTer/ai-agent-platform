@@ -69,7 +69,7 @@ aiosqlite = "^0.22.1"
 
 [tool.poetry.scripts]
 stack = "stack.cli:app"
-agent-app = "core.core.app:run"
+agent-app = "interfaces.http.app:run"
 
 [tool.ruff]
 line-length = 100

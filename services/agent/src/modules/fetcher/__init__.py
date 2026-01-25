@@ -13,7 +13,7 @@ import httpx
 import trafilatura
 from litellm import acompletion
 
-from modules.rag import RAGManager
+from core.protocols import IRAGManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ class _PlainTextExtractor(HTMLParser):
 
 
 class WebFetcher:
-    def __init__(self) -> None:
+    def __init__(self, rag_manager: IRAGManager | None = None) -> None:
         self.searxng_url = os.getenv("SEARXNG_URL", "http://searxng:8080")
         self.request_timeout = int(os.getenv("FETCHER_REQUEST_TIMEOUT", "15"))
         self.max_chars = int(os.getenv("FETCHER_MAX_CHARS", "12000"))
@@ -47,7 +47,7 @@ class WebFetcher:
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.http_client = httpx.AsyncClient(follow_redirects=True)
-        self.rag_manager: RAGManager | None = None
+        self.rag_manager = rag_manager
 
         # Simple Rate Limiting
         self._hits: deque[float] = deque()
@@ -79,7 +79,7 @@ class WebFetcher:
         if p.exists() and (time.time() - p.stat().st_mtime) < self.cache_ttl:
             try:
                 return json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
+            except (OSError, json.JSONDecodeError):
                 return None
         return None
 
@@ -176,7 +176,7 @@ class WebFetcher:
         self, query: str, k: int = 5, model: str = "gpt-3.5-turbo"
     ) -> dict[str, Any]:
         if not self.rag_manager:
-            self.rag_manager = RAGManager()
+            raise RuntimeError("RAGManager not configured for research operation")
 
         # 1. Parallel: Search Web + Search Memory
         search_task = asyncio.create_task(self.search(query, k=k))
@@ -236,10 +236,15 @@ class WebFetcher:
 
 
 # Global instance
-_fetcher = None
+_fetcher: WebFetcher | None = None
 
 
 def get_fetcher() -> WebFetcher:
+    """Get global WebFetcher instance.
+
+    Note: RAGManager must be injected later via set_rag_manager() or
+    by directly setting fetcher.rag_manager if research() is needed.
+    """
     global _fetcher
     if _fetcher is None:
         _fetcher = WebFetcher()

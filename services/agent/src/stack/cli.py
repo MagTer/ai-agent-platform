@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import auth, checks, compose, health, qdrant, tooling, utils
+from stack import auth, checks, compose, health, qdrant, tooling, utils
 
 console = Console()
 app = typer.Typer(help="Manage the local AI agent platform stack.")

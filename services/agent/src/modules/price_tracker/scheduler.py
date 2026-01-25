@@ -11,10 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import joinedload
 
 from core.protocols import IEmailService, IFetcher
-
-from .models import PricePoint, PriceWatch, ProductStore
-from .notifier import PriceNotifier
-from .parser import PriceExtractionResult, PriceParser
+from modules.price_tracker.models import PricePoint, PriceWatch, ProductStore
+from modules.price_tracker.notifier import PriceNotifier
+from modules.price_tracker.parser import PriceExtractionResult, PriceParser
 
 logger = logging.getLogger(__name__)
 

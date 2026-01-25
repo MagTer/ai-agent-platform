@@ -30,7 +30,7 @@ from core.command_loader import get_available_skill_names, get_registry_index
 from core.context_manager import ContextManager
 from core.core.config import Settings
 from core.core.litellm_client import LiteLLMClient
-from core.core.memory import MemoryStore
+from core.core.memory import MemoryRecord, MemoryStore
 from core.db import Context, Conversation, Message, Session
 from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
@@ -43,8 +43,6 @@ from core.observability.tracing import (
 from core.system_commands import handle_system_command
 from core.tools import SkillDelegateTool, ToolRegistry
 from core.tools.base import ToolConfirmationError
-
-from .memory import MemoryRecord
 
 LOGGER = logging.getLogger(__name__)
 
@@ -752,7 +750,7 @@ class AgentService:
             messages=messages,
         )
 
-    async def list_models(self) -> Any:
+    async def list_models(self) -> dict[str, Any]:
         """Proxy LiteLLM's `/v1/models` response."""
 
         return {

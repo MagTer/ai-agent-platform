@@ -18,11 +18,7 @@ from core.db.engine import AsyncSessionLocal, get_db
 from core.providers import get_fetcher
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
-from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
-from modules.price_tracker.parser import PriceParser
-from modules.price_tracker.service import PriceTrackerService
-
-from .schemas.price_tracker import (
+from interfaces.http.schemas.price_tracker import (
     DealResponse,
     PricePointResponse,
     PriceWatchCreate,
@@ -33,6 +29,9 @@ from .schemas.price_tracker import (
     ProductUpdate,
     StoreResponse,
 )
+from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
+from modules.price_tracker.parser import PriceParser
+from modules.price_tracker.service import PriceTrackerService
 
 LOGGER = logging.getLogger(__name__)
 
@@ -162,7 +161,6 @@ async def list_products(
 
         # Build query with proper join handling
         stmt = select(Product)
-        already_joined_product_store = False
 
         # Apply context filter: show only products that have watches in this context
         if context_id:
@@ -190,9 +188,7 @@ async def list_products(
         if store_id:
             try:
                 store_uuid = uuid.UUID(store_id)
-                if not already_joined_product_store:
-                    stmt = stmt.join(ProductStore, Product.id == ProductStore.product_id)
-                    already_joined_product_store = True
+                stmt = stmt.join(ProductStore, Product.id == ProductStore.product_id)
                 stmt = stmt.where(ProductStore.store_id == store_uuid).distinct()
             except ValueError as e:
                 raise HTTPException(status_code=400, detail="Invalid store_id format") from e
@@ -300,23 +296,23 @@ async def create_product(
         Requires admin role via Entra ID authentication.
     """
     try:
-        # Get user's default context for multi-tenancy
-        user_context = await get_user_default_context(admin.db_user, session)
-        if not user_context:
-            raise HTTPException(status_code=400, detail="No default context found for user")
+        from decimal import Decimal
 
         # Validate package_quantity if provided
         if data.package_quantity is not None and data.package_quantity <= 0:
             raise HTTPException(status_code=400, detail="package_quantity must be positive")
 
+        context_uuid = uuid.UUID(data.context_id)
+        package_qty = Decimal(str(data.package_quantity)) if data.package_quantity else None
+
         product = await service.create_product(
-            context_id=str(user_context.id),
+            context_id=context_uuid,
             name=data.name,
             brand=data.brand,
             category=data.category,
             unit=data.unit,
             package_size=data.package_size,
-            package_quantity=data.package_quantity,
+            package_quantity=package_qty,
         )
         return {"product_id": str(product.id), "message": "Product created successfully"}
     except HTTPException:
@@ -469,9 +465,11 @@ async def update_product(
         if data.package_size is not None:
             product.package_size = data.package_size if data.package_size else None
         if data.package_quantity is not None:
+            from decimal import Decimal
+
             if data.package_quantity <= 0:
                 raise HTTPException(status_code=400, detail="package_quantity must be positive")
-            product.package_quantity = data.package_quantity
+            product.package_quantity = Decimal(str(data.package_quantity))
 
         await session.commit()
         return {"message": "Product updated successfully"}

@@ -123,7 +123,7 @@ async def get_crash_log() -> dict[str, Any]:
     Security:
         Requires admin role via Entra ID authentication.
     """
-    log_path = Path("services/agent/last_crash.log")
+    log_path = Path("data/crash.log")
     if not log_path.exists():
         return {"exists": False, "content": None, "message": "No crash log found"}
 

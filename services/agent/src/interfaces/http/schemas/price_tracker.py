@@ -16,6 +16,7 @@ class ProductCreate(BaseModel):
     This enables unit price comparison across package sizes.
     """
 
+    context_id: str
     name: str
     brand: str | None = None
     category: str | None = None

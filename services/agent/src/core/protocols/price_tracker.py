@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -13,23 +13,6 @@ class IPriceTracker(Protocol):
     This protocol defines the contract for tracking product prices across stores,
     managing price history, and handling user watch alerts.
     """
-
-    async def check_price(self, product_store_id: str) -> dict[str, Any]:
-        """Fetch and store current price for a product-store combination.
-
-        Args:
-            product_store_id: UUID of the ProductStore to check.
-
-        Returns:
-            Dictionary containing:
-                - product_store_id: UUID string
-                - price_sek: Current price
-                - offer_price_sek: Offer price if applicable
-                - in_stock: Stock status
-                - checked_at: Timestamp of check
-                - error: Error message if failed (optional)
-        """
-        ...
 
     async def get_price_history(
         self, product_id: str, days: int = 30

@@ -7,7 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 from shared.models import AgentRequest
 
-from core.core.app import create_app, get_db, get_service
+from core.db.engine import get_db
+from interfaces.http.app import create_app
 
 # Mock Data
 MOCK_STEP_ID = "step-123"
@@ -45,11 +46,11 @@ class MockAgentService:
 @pytest.fixture
 def test_client():
     """Create a TestClient with mocked dependencies."""
-    app = create_app()
-
-    # Override the AgentService dependency
+    # Create mock service
     mock_service = MockAgentService()
-    app.dependency_overrides[get_service] = lambda: mock_service
+
+    # Pass mock service to create_app (it will be stored in app.state.test_service)
+    app = create_app(service=mock_service)
 
     # Override DB session to avoid connection errors
     mock_session = AsyncMock()

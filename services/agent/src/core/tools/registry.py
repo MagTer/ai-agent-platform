@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from .base import Tool
+from core.tools.base import Tool
 
 
 class ToolRegistry:

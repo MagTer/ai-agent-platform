@@ -225,10 +225,12 @@ class TestPriceTrackerService:
     @pytest.mark.asyncio
     async def test_create_product(self, mock_session_factory: Mock) -> None:
         """Test create_product creates new product."""
+        import uuid
+
         mock_session = AsyncMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
-        context_id = str(uuid.uuid4())
+        context_id = uuid.uuid4()
         service = PriceTrackerService(mock_session_factory)
         product = await service.create_product(
             context_id=context_id,
@@ -238,6 +240,7 @@ class TestPriceTrackerService:
             unit="kg",
         )
 
+        assert product.context_id == context_id
         assert product.name == "Smör Bregott"
         assert product.brand == "Arla"
         assert product.category == "Mejeri"
@@ -251,7 +254,7 @@ class TestPriceTrackerService:
         mock_session = AsyncMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
-        context_id = str(uuid.uuid4())
+        context_id = uuid.uuid4()
         service = PriceTrackerService(mock_session_factory)
         product = await service.create_product(
             context_id=context_id,
@@ -260,12 +263,12 @@ class TestPriceTrackerService:
             category="Hygiene",
             unit="st",
             package_size="24-pack",
-            package_quantity=24.0,
+            package_quantity=Decimal("24.0"),
         )
 
         assert product.name == "Toalettpapper 24-pack"
         assert product.package_size == "24-pack"
-        assert product.package_quantity == 24.0
+        assert product.package_quantity == Decimal("24.0")
         assert mock_session.add.called
         assert mock_session.commit.called
 
