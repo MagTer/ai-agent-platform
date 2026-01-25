@@ -12,8 +12,8 @@ from typing import Any
 
 import yaml
 
-from .base import Tool
-from .registry import ToolRegistry
+from core.tools.base import Tool
+from core.tools.registry import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
 

@@ -7,8 +7,8 @@ import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
-from . import tooling
-from .utils import (
+from stack import tooling
+from stack.utils import (
     load_environment,
     resolve_compose_files,
     resolve_project_name,

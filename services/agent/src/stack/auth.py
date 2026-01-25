@@ -7,7 +7,7 @@ import re
 import typer
 from rich.console import Console
 
-from .utils import PROJECT_ROOT
+from stack.utils import PROJECT_ROOT
 
 console = Console()
 app = typer.Typer(help="Manage authentication for stack services.")

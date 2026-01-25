@@ -9,8 +9,10 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any, cast
 from urllib.parse import urlparse
+from uuid import UUID
 
 from shared.models import AgentMessage
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.command_loader import load_command
 from core.core.litellm_client import LiteLLMClient
@@ -110,8 +112,8 @@ class SkillDelegateTool(Tool):
         self,
         skill: str,
         goal: str,
-        user_id: Any | None = None,
-        session: Any | None = None,
+        user_id: UUID | None = None,
+        session: AsyncSession | None = None,
         **kwargs: Any,  # Accept and ignore extra arguments from LLM
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute a sub-agent loop for the given skill and goal.

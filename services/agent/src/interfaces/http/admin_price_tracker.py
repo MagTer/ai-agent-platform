@@ -18,11 +18,7 @@ from core.db.engine import AsyncSessionLocal, get_db
 from core.providers import get_fetcher
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
-from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
-from modules.price_tracker.parser import PriceParser
-from modules.price_tracker.service import PriceTrackerService
-
-from .schemas.price_tracker import (
+from interfaces.http.schemas.price_tracker import (
     DealResponse,
     PricePointResponse,
     PriceWatchCreate,
@@ -33,6 +29,9 @@ from .schemas.price_tracker import (
     ProductUpdate,
     StoreResponse,
 )
+from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
+from modules.price_tracker.parser import PriceParser
+from modules.price_tracker.service import PriceTrackerService
 
 LOGGER = logging.getLogger(__name__)
 

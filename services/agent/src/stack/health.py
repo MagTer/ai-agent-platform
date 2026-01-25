@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover
 from rich.console import Console
 from rich.table import Table
 
-from .utils import load_environment, resolve_project_name
+from stack.utils import load_environment, resolve_project_name
 
 
 class StatusTable(Table):

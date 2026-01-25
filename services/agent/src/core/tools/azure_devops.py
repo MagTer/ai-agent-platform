@@ -12,8 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.credential_service import CredentialService
 from core.core.config import get_settings
-
-from .base import Tool
+from core.tools.base import Tool
 
 LOGGER = logging.getLogger(__name__)
 

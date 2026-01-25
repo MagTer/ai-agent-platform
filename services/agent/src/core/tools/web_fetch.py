@@ -4,8 +4,7 @@ import logging
 from typing import Any
 
 from core.providers import get_fetcher
-
-from .base import Tool, ToolError
+from core.tools.base import Tool, ToolError
 
 LOGGER = logging.getLogger(__name__)
 

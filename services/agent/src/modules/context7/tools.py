@@ -1,8 +1,7 @@
 import logging
 
 from core.tools.base import Tool
-
-from .client import get_context7_client
+from modules.context7.client import get_context7_client
 
 LOGGER = logging.getLogger(__name__)
 

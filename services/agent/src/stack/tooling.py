@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from .utils import (
+from stack.utils import (
     PROJECT_ROOT,
     load_environment,
     resolve_compose_files,

@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import typer
 
-from . import compose, tooling
+from stack import compose, tooling
 
 app = typer.Typer(help="Qdrant schema, backup and restore helpers.")
 

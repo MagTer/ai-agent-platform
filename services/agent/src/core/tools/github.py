@@ -9,7 +9,7 @@ from typing import Any
 
 import httpx
 
-from .base import Tool
+from core.tools.base import Tool
 
 LOGGER = logging.getLogger(__name__)
 

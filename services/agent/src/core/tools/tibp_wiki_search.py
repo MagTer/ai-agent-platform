@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from core.providers import get_rag_manager
-
-from .base import Tool
+from core.tools.base import Tool
 
 
 class TibpWikiSearchTool(Tool):

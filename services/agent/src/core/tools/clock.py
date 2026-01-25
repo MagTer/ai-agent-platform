@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from .base import Tool
+from core.tools.base import Tool
 
 LOGGER = logging.getLogger(__name__)
 
