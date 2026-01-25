@@ -211,8 +211,9 @@ class DebugLogger:
                     {
                         "id": s.id,
                         "label": s.label,
-                        "tool": s.tool,
+                        "executor": s.executor,
                         "action": s.action,
+                        "tool": s.tool,
                         "args": s.args,
                     }
                     for s in (plan.steps if hasattr(plan, "steps") else [])

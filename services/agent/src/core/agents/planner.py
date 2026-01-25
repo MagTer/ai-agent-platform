@@ -255,12 +255,18 @@ class PlannerAgent:
                 exc_msg = None
 
                 if candidate:
-                    # Guardrail: Force executor='agent' for tool actions to prevent hallucinations
+                    # Guardrails: Force correct executor for each action type
                     steps = candidate.get("steps")
                     if isinstance(steps, list):
                         for step in steps:
-                            if isinstance(step, dict) and step.get("action") == "tool":
-                                step["executor"] = "agent"
+                            if isinstance(step, dict):
+                                action = step.get("action")
+                                if action == "tool":
+                                    step["executor"] = "agent"
+                                elif action == "skill":
+                                    step["executor"] = "skill"
+                                elif action == "completion":
+                                    step["executor"] = step.get("executor") or "litellm"
 
                     try:
                         plan = Plan(**candidate)
