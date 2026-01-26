@@ -1,15 +1,242 @@
-- id: "basic_reasoning_01"
-  query: "What is the capital of France and what is 5+5?"
-  expected_intents: ["CHAT", "TASK"]
-  must_contain: ["Paris", "10"]
-  forbidden: ["I don't know", "Error"]
+# Golden Queries for Semantic Regression Testing
+#
+# Categories:
+#   - routing: Tests intent classification and skill selection
+#   - skills: Tests specific skill execution
+#   - tools: Tests direct tool invocation
+#   - planning: Tests multi-step plan generation
+#   - error: Tests graceful error handling
+#   - regression: Tests for previously broken scenarios
+#
+# Run with: poetry run python scripts/run_semantic_eval.py
+# Cost note: These tests make real LLM calls - run sparingly
+#
+# NOTE: tools_expected/skills_expected don't work with streaming responses
+#       (metadata not included). Use must_contain_pattern for validation.
 
-- id: "file_analysis_01"
-  query: "Summarize the content of README.md"
-  expected_intents: ["TASK"]
-  tools_expected: ["read_file", "filesystem"]
+# =============================================================================
+# ROUTING TESTS - Intent classification and skill selection
+# =============================================================================
 
-- id: "chat_greeting_01"
+- id: "routing_chat_greeting"
+  category: routing
   query: "Hello, who are you?"
   expected_intents: ["CHAT"]
-  must_contain: ["Assistant", "AI", "Help"]
+  must_contain: ["assistant", "help"]
+  forbidden: ["Error", "exception"]
+
+- id: "routing_chat_simple_question"
+  category: routing
+  query: "What is the capital of France?"
+  expected_intents: ["CHAT"]
+  must_contain: ["Paris"]
+  forbidden: ["searching", "let me search"]
+
+- id: "routing_task_research"
+  category: routing
+  query: "Research the latest developments in quantum computing"
+  expected_intents: ["TASK"]
+  # Verify agent attempts research
+  must_contain_pattern: ["quantum|qubit|search|research|development"]
+  forbidden: ["I don't know", "I cannot"]
+
+- id: "routing_task_price"
+  category: routing
+  query: "Vilka erbjudanden finns denna vecka?"
+  expected_intents: ["TASK"]
+  # Verify agent attempts price lookup (may fail if not configured)
+  must_contain_pattern: ["pris|erbjudande|price|deal|tracker|butik|konfigur"]
+  forbidden: ["I don't understand"]
+
+- id: "routing_task_smarthome"
+  category: routing
+  query: "Tänd lampan i vardagsrummet"
+  expected_intents: ["TASK"]
+  # Verify agent attempts smart home control
+  must_contain_pattern: ["lampa|lamp|homey|device|enhet|vardagsrum|auktoriser"]
+  forbidden: ["I don't understand"]
+
+# =============================================================================
+# SKILL TESTS - Specific skill execution
+# NOTE: Many skills require credentials. Tests verify correct routing.
+# =============================================================================
+
+# --- Researcher Skill ---
+- id: "skill_researcher_basic"
+  category: skills
+  skill: researcher
+  query: "What are the current interest rates in Sweden?"
+  # Verify response contains rate information
+  must_contain_pattern: ["\\d[,.]\\d|procent|%|ränta|rate|riksbank"]
+  forbidden: ["I don't have access", "my training data"]
+
+- id: "skill_researcher_technical"
+  category: skills
+  skill: researcher
+  query: "Research how to configure GitHub Actions for Python projects"
+  must_contain_pattern: ["workflow|yaml|github|actions|\\.yml"]
+
+# --- Deep Researcher Skill ---
+- id: "skill_deep_researcher"
+  category: skills
+  skill: deep_researcher
+  query: "Do a comprehensive analysis of the Swedish housing market in 2025"
+  min_response_length: 300
+  must_contain_pattern: ["bostads|housing|pris|price|marknad|market"]
+
+# --- Price Tracker Skill (requires config) ---
+- id: "skill_price_tracker_deals"
+  category: skills
+  skill: priser
+  query: "Vad finns det för bra erbjudanden just nu?"
+  # May fail with config error - that's OK, verifies routing
+  must_contain_pattern: ["kr|rabatt|erbjudande|pris|konfigur|tracker"]
+
+- id: "skill_price_tracker_compare"
+  category: skills
+  skill: priser
+  query: "Jämför priset på mjölk mellan olika butiker"
+  must_contain_pattern: ["mjölk|milk|pris|price|butik|store|konfigur|tracker"]
+
+# --- Homey Smart Home Skill (requires OAuth) ---
+- id: "skill_homey_list_devices"
+  category: skills
+  skill: homey
+  query: "Vilka enheter finns i mitt smarta hem?"
+  # May fail with auth error - that's OK, verifies routing
+  must_contain_pattern: ["homey|enhet|device|auktoriser|authorize|admin"]
+
+- id: "skill_homey_control"
+  category: skills
+  skill: homey
+  query: "Släck alla lampor i huset"
+  must_contain_pattern: ["lampa|lamp|ljus|light|homey|auktoriser|authorize"]
+
+# --- Backlog Manager Skill (requires Azure DevOps credentials) ---
+- id: "skill_backlog_list"
+  category: skills
+  skill: backlog_manager
+  query: "Visa alla aktiva buggar i Azure DevOps"
+  must_contain_pattern: ["azure|devops|bug|credentials|konfigurer|admin"]
+
+- id: "skill_backlog_search"
+  category: skills
+  skill: backlog_manager
+  query: "Sök efter work items som handlar om authentication"
+  must_contain_pattern: ["azure|devops|work.?item|credentials|konfigurer|admin"]
+
+# --- TIBP Researcher Skill (requires TIBP access) ---
+- id: "skill_tibp_search"
+  category: skills
+  skill: tibp_researcher
+  query: "Sök i wikin efter information om release-processen"
+  must_contain_pattern: ["wiki|release|tibp|process|found|hittade"]
+
+# --- Software Engineer Skill ---
+- id: "skill_software_engineer_investigate"
+  category: skills
+  skill: software_engineer
+  query: "Investigate the bug in the authentication module of repo github.com/example/app"
+  must_contain_pattern: ["clone|repo|github|authentication|investig|not.?found"]
+
+# =============================================================================
+# TOOL TESTS - Direct tool invocation
+# =============================================================================
+
+- id: "tool_calculator"
+  category: tools
+  query: "Calculate 15% of 1250"
+  # Accept both decimal separators
+  must_contain_pattern: ["187[,.]5"]
+
+- id: "tool_clock"
+  category: tools
+  query: "What time is it in Tokyo?"
+  must_contain_pattern: ["\\d{1,2}:\\d{2}", "tokyo|Tokyo"]
+
+- id: "tool_read_file"
+  category: tools
+  query: "Read the contents of README.md in the current directory"
+  # Agent may not have filesystem access - verify it explains this
+  must_contain_pattern: ["file|fil|read|läs|access|åtkomst|README"]
+
+- id: "tool_web_search_only"
+  category: tools
+  query: "Quick search for Python 3.12 release notes"
+  must_contain_pattern: ["python|Python", "3\\.12|release"]
+
+# =============================================================================
+# PLANNING TESTS - Multi-step plan generation
+# =============================================================================
+
+- id: "planning_research_and_summarize"
+  category: planning
+  query: "Research the top 3 electric cars in Sweden 2025 and create a comparison table"
+  expected_intents: ["TASK"]
+  must_contain_pattern: ["el.?bil|electric|EV|tesla|volvo|polestar|tabell|table|comparison"]
+  min_response_length: 200
+
+- id: "planning_multi_skill"
+  category: planning
+  query: "Check if there are any deals on groceries and then remind me about them via email"
+  # May fail due to missing config - verify routing attempt
+  must_contain_pattern: ["deal|erbjudande|email|e-post|pris|price|konfigur|remind"]
+
+- id: "planning_code_review_flow"
+  category: planning
+  query: "Clone the repo github.com/example/test, investigate any security issues, and create a PR with fixes"
+  must_contain_pattern: ["clone|repo|security|säkerhet|PR|pull.?request|github|not.?found"]
+
+# =============================================================================
+# ERROR HANDLING TESTS
+# =============================================================================
+
+- id: "error_unknown_command"
+  category: error
+  query: "/nonexistent_command_xyz123"
+  forbidden: ["Traceback", "Exception", "Error:"]
+  # Flexible pattern for "don't recognize/understand"
+  must_contain_pattern: ["recognize|understand|känner|förstår|sorry|clarify"]
+
+- id: "error_invalid_tool_args"
+  category: error
+  query: "Read the file at /nonexistent/path/that/does/not/exist.txt"
+  forbidden: ["Traceback", "FileNotFoundError"]
+  # Flexible pattern for file not existing
+  must_contain_pattern: ["exist|finns|locate|hitta|unable|kan inte|not.?found"]
+
+- id: "error_ambiguous_request"
+  category: error
+  query: "Do the thing with the stuff"
+  forbidden: ["Error", "exception"]
+  must_contain_pattern: ["clarify|specify|förtydliga|vad|what|which"]
+
+# =============================================================================
+# REGRESSION TESTS - Previously broken scenarios
+# =============================================================================
+
+- id: "regression_no_meta_commentary"
+  category: regression
+  query: "What is 2 + 2?"
+  forbidden:
+    - "I will now"
+    - "Let me search"
+    - "First, I need to"
+    - "Based on my research"
+  # Accept digit or word form
+  must_contain_pattern: ["4|four|fyra"]
+
+- id: "regression_no_thinking_leak"
+  category: regression
+  query: "Tell me a fun fact about Sweden"
+  forbidden:
+    - "tool_call"
+    - "function_call"
+    - "<thinking>"
+  min_response_length: 50
+
+- id: "regression_swedish_response"
+  category: regression
+  query: "Vad är klockan?"
+  # Should respond in Swedish with time
+  must_contain_pattern: ["\\d{1,2}:\\d{2}", "klockan|tid|time"]

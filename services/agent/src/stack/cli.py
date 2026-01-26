@@ -536,6 +536,12 @@ def test(
         "--semantic",
         help="Include semantic end-to-end tests (requires running agent).",
     ),
+    semantic_category: str | None = typer.Option(
+        None,
+        "--semantic-category",
+        "-sc",
+        help="Run only semantic tests in this category.",
+    ),
 ) -> None:
     """Run pytest test suite.
 
@@ -543,8 +549,9 @@ def test(
     end-to-end tests (requires a running agent).
 
     Example:
-        stack test            # Unit + integration tests
-        stack test --semantic # Include e2e tests
+        stack test                           # Unit + integration tests
+        stack test --semantic                # Include all e2e tests
+        stack test --semantic-category routing  # Only routing e2e tests
     """
     checks.ensure_dependencies()
     result = checks.run_pytest(repo_root=_repo_root())
@@ -553,8 +560,12 @@ def test(
         console.print("[bold red]Tests failed.[/bold red]")
         raise typer.Exit(code=1)
 
-    if semantic:
-        semantic_result = checks.run_semantic_tests(repo_root=_repo_root())
+    # Run semantic tests if requested (either flag or category implies semantic)
+    if semantic or semantic_category:
+        semantic_result = checks.run_semantic_tests(
+            repo_root=_repo_root(),
+            category=semantic_category,
+        )
         if not semantic_result.success:
             console.print("[bold red]Semantic tests failed.[/bold red]")
             raise typer.Exit(code=1)
@@ -574,6 +585,12 @@ def check(
         "--semantic",
         help="Include semantic end-to-end tests (requires running agent).",
     ),
+    semantic_category: str | None = typer.Option(
+        None,
+        "--semantic-category",
+        "-sc",
+        help="Run only semantic tests in this category.",
+    ),
 ) -> None:
     """Run all quality checks (ruff, black, mypy, pytest).
 
@@ -587,14 +604,20 @@ def check(
     Use --semantic to include end-to-end tests (requires running agent).
 
     Example:
-        stack check              # Full check with auto-fix
-        stack check --no-fix     # CI mode (no auto-fix)
-        stack check --semantic   # Include e2e tests
+        stack check                              # Full check with auto-fix
+        stack check --no-fix                     # CI mode (no auto-fix)
+        stack check --semantic                   # Include all e2e tests
+        stack check --semantic-category routing  # Only routing e2e tests
     """
     checks.ensure_dependencies()
+
+    # If semantic category is provided, it implies semantic=True
+    include_semantic = semantic or (semantic_category is not None)
+
     results = checks.run_all_checks(
         fix=fix,
-        include_semantic=semantic,
+        include_semantic=include_semantic,
+        semantic_category=semantic_category,
         repo_root=_repo_root(),
     )
 

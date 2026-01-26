@@ -5,17 +5,19 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
-from shared.models import AgentMessage, AgentRequest, Plan, PlanStep, RoutingDecision
+from shared.models import AgentRequest, Plan, PlanStep, RoutingDecision
 from shared.streaming import AgentChunk
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.template import substitute_variables
 
+from core.command_loader import get_registry_index
 from core.core.litellm_client import LiteLLMClient
 from core.core.routing import registry
 from core.core.service import AgentService
 from core.db.models import Context, Conversation, Message, Session
 from core.routing import IntentClassifier
+from core.routing.unified_orchestrator import UnifiedOrchestrator
 from orchestrator.skill_loader import SkillLoader
 
 LOGGER = logging.getLogger(__name__)
@@ -40,7 +42,8 @@ class Dispatcher:
     def __init__(self, skill_loader: SkillLoader, litellm: LiteLLMClient):
         self.skill_loader = skill_loader
         self.litellm = litellm
-        self._intent_classifier = IntentClassifier(litellm)
+        self._intent_classifier = IntentClassifier(litellm)  # Keep for fallback
+        self._unified_orchestrator = UnifiedOrchestrator(litellm)
         if not self.skill_loader.skills:
             self.skill_loader.load_skills()
 
@@ -180,56 +183,41 @@ class Dispatcher:
                 yield chunk
             return
 
-        # 3. Intent Classification (Structured Output)
-        intent = await self._intent_classifier.classify(stripped_message)
-        LOGGER.info(
-            "Intent classified: route=%s confidence=%.2f",
-            intent.route,
-            intent.confidence,
+        # 3. Unified Orchestration (Option C)
+        # Single LLM call that either returns a direct answer OR a plan
+        chat_history = history or []
+        if not chat_history and agent_service and db_session:
+            chat_history = await agent_service.get_history(conversation_id, db_session)
+
+        available_skills_text = get_registry_index()
+
+        result = await self._unified_orchestrator.process(
+            stripped_message,
+            history=chat_history,
+            available_skills_text=available_skills_text,
         )
 
-        # Yield classification event for observability
-        yield {
-            "type": "thinking",
-            "content": f"Intent: {intent.route} (confidence: {intent.confidence:.0%})",
-            "tool_call": None,
-            "metadata": {
-                "intent_route": intent.route,
-                "intent_confidence": intent.confidence,
-                "intent_reasoning": intent.reasoning,
-            },
-        }
+        if result.is_direct:
+            # Direct answer - no plan needed
+            LOGGER.info("UnifiedOrchestrator: direct answer")
+            yield {
+                "type": "thinking",
+                "content": "Direct answer (no tools needed)",
+                "tool_call": None,
+                "metadata": {"orchestration": "direct"},
+            }
 
-        if intent.route == "chat":
-            # Direct Streaming Chat
-            # Use injected history from OpenWebUI if available, otherwise fall back to DB
-            chat_history = history or []
-            if not chat_history and agent_service and db_session:
-                chat_history = await agent_service.get_history(conversation_id, db_session)
+            # Yield the direct answer as content
+            yield {
+                "type": "content",
+                "content": result.direct_answer,
+                "tool_call": None,
+                "metadata": None,
+            }
 
-            # Stream response
-            full_content = ""
-            # Inject Date Context for CHAT
-            from datetime import datetime
-
-            now = datetime.now().strftime("%Y-%m-%d %H:%M")
-            year = datetime.now().year
-            system_msg = AgentMessage(
-                role="system", content=f"Current Date: {now}. You are live in {year}."
-            )
-
-            chat_messages = [system_msg] + chat_history
-            chat_messages.append(AgentMessage(role="user", content=stripped_message))
-
-            async for chunk in self.litellm.stream_chat(messages=chat_messages):
-                yield chunk
-                if chunk["type"] == "content" and chunk["content"]:
-                    full_content += chunk["content"]
-
-            # Persist chat history
+            # Persist to database
             if db_session:
                 try:
-                    # 1. Get or Create Active Session
                     try:
                         conv_uuid = uuid.UUID(conversation_id)
                     except ValueError:
@@ -240,8 +228,8 @@ class Dispatcher:
                             Session.conversation_id == conv_uuid,
                             Session.active.is_(True),
                         )
-                        result = await db_session.execute(stmt)
-                        session_obj = result.scalar_one_or_none()
+                        db_result = await db_session.execute(stmt)
+                        session_obj = db_result.scalar_one_or_none()
 
                         if not session_obj:
                             session_obj = Session(
@@ -250,7 +238,6 @@ class Dispatcher:
                             db_session.add(session_obj)
                             await db_session.flush()
 
-                        # 2. Save Messages
                         db_session.add(
                             Message(session_id=session_obj.id, role="user", content=message)
                         )
@@ -258,26 +245,40 @@ class Dispatcher:
                             Message(
                                 session_id=session_obj.id,
                                 role="assistant",
-                                content=full_content,
+                                content=result.direct_answer or "",
                             )
                         )
                         await db_session.commit()
                 except Exception as e:
-                    LOGGER.error(f"Failed to persist CHAT history: {e}")
+                    LOGGER.error(f"Failed to persist direct answer history: {e}")
 
         else:
-            # AGENTIC / TASK
-            # Merge metadata
-            agent_metadata = {"routing_decision": RoutingDecision.AGENTIC}
+            # Plan returned - execute via AgentService
+            LOGGER.info(
+                "UnifiedOrchestrator: plan with %d steps",
+                len(result.plan.steps) if result.plan else 0,
+            )
+            yield {
+                "type": "thinking",
+                "content": f"Plan: {result.plan.description if result.plan else 'unknown'}",
+                "tool_call": None,
+                "metadata": {"orchestration": "plan"},
+            }
+
+            # Inject the plan into metadata so service.py skips planning
+            plan_metadata: dict[str, Any] = {
+                "routing_decision": RoutingDecision.AGENTIC,
+                "plan": result.plan.model_dump() if result.plan else None,
+            }
             if metadata:
-                agent_metadata.update(metadata)
+                plan_metadata.update(metadata)
 
             async for chunk in self._stream_agent_execution(
                 prompt=message,
                 conversation_id=conversation_id,
                 db_session=db_session,
                 agent_service=agent_service,
-                metadata=agent_metadata,
+                metadata=plan_metadata,
                 history=history,
             ):
                 yield chunk

@@ -162,6 +162,7 @@ class PlannerAgent:
                 "- Azure DevOps READ (list/get/search items): `backlog_manager`\n"
                 "- Azure DevOps PLAN (draft/design items): `requirements_drafter`\n"
                 "- Azure DevOps WRITE (execute creation): `requirements_writer`\n"
+                "- TIBP/internal wiki/policies: `work/tibp_researcher`\n"
                 "- Web research with page reading: `researcher`\n"
                 "- Quick web search (snippets only): `search`\n"
                 "- Deep multi-source research (complex topics): `deep_research`\n"
@@ -177,27 +178,32 @@ class PlannerAgent:
                 "}\n\n"
                 "## RULES\n"
                 "1. DELEGATE to skills - never guess answers needing current data\n"
-                "2. FINAL STEP must be action=completion, executor=litellm\n"
-                "3. Skill step format: executor=skill, action=skill, tool=skill_name\n"
-                "4. Simple questions (translations, math, syntax) = single completion step\n"
-                "5. SMART HOME commands (lights, devices, flows, tänd, släck, dimma) "
-                "ALWAYS require skill call - you cannot control physical devices\n\n"
+                "2. Skill step format: executor=skill, action=skill, tool=skill_name\n"
+                "3. Simple questions (translations, math, syntax) = single completion step\n"
+                "4. SMART HOME commands ALWAYS require skill call\n"
+                "5. COMPLETION RULES:\n"
+                "   - Single skill = NO completion (skill output is the answer)\n"
+                "   - Multiple skills = completion ONLY at end to synthesize results\n"
+                "   - Simple questions = single completion step only\n\n"
                 "## EXAMPLES\n"
-                '"What is hello in French?" → direct answer (you know this):\n'
+                '"What is hello in French?" → direct answer:\n'
                 '{"description":"Translation","steps":[{"id":"1","label":"Answer",'
                 '"executor":"litellm","action":"completion","args":{}}]}\n\n'
-                '"Research Python 3.12" → delegate then answer:\n'
+                '"Research Python 3.12" → skill only:\n'
                 '{"description":"Research","steps":[{"id":"1","label":"Research",'
                 '"executor":"skill","action":"skill","tool":"researcher",'
-                '"args":{"goal":"Python 3.12 features"}},'
-                '{"id":"2","label":"Answer","executor":"litellm",'
-                '"action":"completion","args":{}}]}\n\n'
-                '"Släck lampan i köket" / "Turn off lights" → MUST delegate to homey:\n'
+                '"args":{"goal":"Python 3.12 features"}}]}\n\n'
+                '"Turn off lights" → skill only:\n'
                 '{"description":"Smart home","steps":[{"id":"1","label":"Control",'
                 '"executor":"skill","action":"skill","tool":"general/homey",'
-                '"args":{"goal":"Turn off the kitchen lamp"}},'
-                '{"id":"2","label":"Confirm","executor":"litellm",'
-                '"action":"completion","args":{}}]}\n'
+                '"args":{"goal":"Turn off the kitchen lamp"}}]}\n\n'
+                '"Research X then draft work item" → multiple skills + completion:\n'
+                '{"description":"Research and draft","steps":['
+                '{"id":"1","label":"Research","executor":"skill","action":"skill",'
+                '"tool":"deep_research","args":{"goal":"Research X"}},'
+                '{"id":"2","label":"Draft","executor":"skill","action":"skill",'
+                '"tool":"requirements_drafter","args":{"goal":"Draft based on research"}},'
+                '{"id":"3","label":"Summary","executor":"litellm","action":"completion","args":{}}]}\n'
             ),
         )
 
