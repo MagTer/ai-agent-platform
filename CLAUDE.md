@@ -198,16 +198,32 @@ Use `stack check --no-fix` for CI-style check-only mode.
 - Always commit changes first to avoid losing work
 - Use for testing and rapid development
 
-**Production** - Requires PR:
+**Production** - Requires PR + semantic tests:
 - Must go through main branch (PR + CI)
-- CI takes time, so batch production deploys
-- Deploy to prod periodically, not after every change
+- Run semantic regression tests before deploying
+- Deploy to prod on request, not after every change
 
 **Recommended workflow:**
 1. Make changes and commit to a feature branch
 2. Deploy to dev: `./stack dev restart`
 3. Test in dev environment
-4. When ready for prod: create PR, wait for CI, merge, then `./stack deploy`
+4. When ready for prod: create PR, wait for CI, merge
+5. **Run semantic tests against dev** (RECOMMENDED before prod deploy):
+   ```bash
+   ./stack test --semantic-category routing  # Fast, cheap (~30s)
+   ./stack test --semantic                   # Full regression (expensive)
+   ```
+6. Deploy to prod: `./stack deploy`
+
+**Semantic test categories:**
+| Category | Tests | When to run |
+|----------|-------|-------------|
+| routing | 5 | Always before prod deploy |
+| regression | 3 | After model/prompt changes |
+| skills | 11 | After skill changes |
+| tools | 4 | After tool changes |
+| planning | 3 | After orchestrator changes |
+| error | 3 | After error handling changes |
 
 ### Commit Process
 
