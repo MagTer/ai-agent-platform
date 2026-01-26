@@ -288,6 +288,16 @@ class SkillExecutor:
                                 full_content.append(content)
                                 yield {"type": "content", "content": content}
 
+                            elif chunk["type"] == "thinking" and chunk["content"]:
+                                # Forward reasoning/thinking from LLM (gpt-oss, etc.)
+                                # Preserve source metadata for filtering in adapter
+                                meta = chunk.get("metadata") or {"source": "reasoning_model"}
+                                yield {
+                                    "type": "thinking",
+                                    "content": chunk["content"],
+                                    "metadata": meta,
+                                }
+
                             elif chunk["type"] == "tool_start":
                                 tc = chunk.get("tool_call")
                                 if tc:
