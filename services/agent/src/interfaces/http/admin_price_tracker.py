@@ -3,14 +3,17 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import random
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.user_service import get_user_default_context
@@ -29,7 +32,7 @@ from interfaces.http.schemas.price_tracker import (
     ProductUpdate,
     StoreResponse,
 )
-from modules.price_tracker.models import PriceWatch, Product, ProductStore, Store
+from modules.price_tracker.models import PricePoint, PriceWatch, Product, ProductStore, Store
 from modules.price_tracker.parser import PriceParser
 from modules.price_tracker.service import PriceTrackerService
 
@@ -1200,6 +1203,420 @@ async def delete_product(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/export")
+async def export_data(
+    include_history: bool = False,
+    history_days: int = 30,
+    admin: AdminUser = Depends(verify_admin_user),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    """Export user's price tracker data as JSON.
+
+    Exports all products, store links, and watches for the user's context.
+    Optionally includes price history (can be large).
+
+    Args:
+        include_history: Whether to include price history (default: False).
+        history_days: Days of history to include if include_history=True (max 365).
+        admin: Authenticated admin user.
+        session: Database session.
+
+    Returns:
+        JSON file download with Content-Disposition header.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Only exports data for the user's own context.
+    """
+    try:
+        # Get user's context
+        user_context = await get_user_default_context(admin.db_user, session)
+        if not user_context:
+            raise HTTPException(status_code=400, detail="No context found for user")
+
+        context_id = user_context.id
+
+        # Limit history_days to max 365
+        history_days = min(history_days, 365)
+
+        # Get all products with watches in this context
+        stmt = (
+            select(Product)
+            .join(PriceWatch, Product.id == PriceWatch.product_id)
+            .where(PriceWatch.context_id == context_id)
+            .where(PriceWatch.is_active.is_(True))
+            .distinct()
+        )
+        result = await session.execute(stmt)
+        products = result.scalars().all()
+
+        products_data: list[dict[str, Any]] = []
+
+        for product in products:
+            # Get store links
+            ps_stmt = (
+                select(ProductStore, Store)
+                .join(Store, ProductStore.store_id == Store.id)
+                .where(ProductStore.product_id == product.id)
+            )
+            ps_result = await session.execute(ps_stmt)
+            ps_rows = ps_result.all()
+
+            store_links = [
+                {
+                    "store_slug": store.slug,
+                    "store_url": ps.store_url,
+                    "check_frequency_hours": ps.check_frequency_hours,
+                    "check_weekday": ps.check_weekday,
+                    "is_active": ps.is_active,
+                }
+                for ps, store in ps_rows
+            ]
+
+            # Get watches for this product in this context
+            watch_stmt = select(PriceWatch).where(
+                PriceWatch.product_id == product.id,
+                PriceWatch.context_id == context_id,
+                PriceWatch.is_active.is_(True),
+            )
+            watch_result = await session.execute(watch_stmt)
+            watches = watch_result.scalars().all()
+
+            watches_data = [
+                {
+                    "email_address": watch.email_address,
+                    "target_price_sek": (
+                        float(watch.target_price_sek) if watch.target_price_sek else None
+                    ),
+                    "alert_on_any_offer": watch.alert_on_any_offer,
+                    "price_drop_threshold_percent": watch.price_drop_threshold_percent,
+                    "unit_price_target_sek": (
+                        float(watch.unit_price_target_sek) if watch.unit_price_target_sek else None
+                    ),
+                    "unit_price_drop_threshold_percent": watch.unit_price_drop_threshold_percent,
+                }
+                for watch in watches
+            ]
+
+            product_dict: dict[str, Any] = {
+                "id": str(product.id),
+                "name": product.name,
+                "brand": product.brand,
+                "category": product.category,
+                "unit": product.unit,
+                "package_size": product.package_size,
+                "package_quantity": (
+                    float(product.package_quantity) if product.package_quantity else None
+                ),
+                "store_links": store_links,
+                "watches": watches_data,
+            }
+            products_data.append(product_dict)
+
+        # Build export data
+        export_data: dict[str, Any] = {
+            "version": "1.0",
+            "exported_at": datetime.now(UTC).isoformat(),
+            "context_id": str(context_id),
+            "products": products_data,
+            "include_price_history": include_history,
+            "price_history": [],
+        }
+
+        # Optionally include price history
+        if include_history:
+            cutoff_date = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=history_days)
+            price_history: list[dict[str, Any]] = []
+
+            for product in products:
+                # Get price points for all product stores
+                ps_history_stmt = select(ProductStore).where(ProductStore.product_id == product.id)
+                ps_history_result = await session.execute(ps_history_stmt)
+                product_stores = ps_history_result.scalars().all()
+
+                for ps in product_stores:
+                    price_stmt = (
+                        select(PricePoint, Store)
+                        .join(ProductStore, PricePoint.product_store_id == ProductStore.id)
+                        .join(Store, ProductStore.store_id == Store.id)
+                        .where(PricePoint.product_store_id == ps.id)
+                        .where(PricePoint.checked_at >= cutoff_date)
+                        .order_by(PricePoint.checked_at.desc())
+                    )
+                    price_result = await session.execute(price_stmt)
+                    price_rows = price_result.all()
+
+                    for pp, store in price_rows:
+                        price_history.append(
+                            {
+                                "product_id": str(product.id),
+                                "store_slug": store.slug,
+                                "checked_at": pp.checked_at.isoformat(),
+                                "price_sek": float(pp.price_sek) if pp.price_sek else None,
+                                "unit_price_sek": (
+                                    float(pp.unit_price_sek) if pp.unit_price_sek else None
+                                ),
+                                "offer_price_sek": (
+                                    float(pp.offer_price_sek) if pp.offer_price_sek else None
+                                ),
+                                "offer_type": pp.offer_type,
+                                "offer_details": pp.offer_details,
+                                "in_stock": pp.in_stock,
+                            }
+                        )
+
+            export_data["price_history"] = price_history
+
+        # Generate filename
+        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
+        filename = f"price-tracker-export-{date_str}.json"
+
+        json_content = json.dumps(export_data, indent=2, ensure_ascii=False)
+
+        return Response(
+            content=json_content,
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.exception("Failed to export price tracker data")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/import")
+async def import_data(
+    file: UploadFile,
+    mode: str = "merge",
+    admin: AdminUser = Depends(verify_admin_user),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Import price tracker data from JSON.
+
+    Imports products, store links, and watches from a previously exported JSON file.
+
+    Args:
+        file: JSON file upload.
+        mode: Import mode - "merge" (update existing, add new) or "replace" (delete all first).
+        admin: Authenticated admin user.
+        session: Database session.
+
+    Returns:
+        Summary with counts of created, updated, skipped items and any warnings.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Only imports data to the user's own context.
+    """
+    if mode not in ("merge", "replace"):
+        raise HTTPException(status_code=400, detail="mode must be 'merge' or 'replace'")
+
+    try:
+        # Get user's context
+        user_context = await get_user_default_context(admin.db_user, session)
+        if not user_context:
+            raise HTTPException(status_code=400, detail="No context found for user")
+
+        context_id = user_context.id
+
+        # Read and parse JSON
+        content = await file.read()
+        try:
+            data = json.loads(content.decode("utf-8"))
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}") from e
+
+        # Validate version
+        version = data.get("version")
+        if version != "1.0":
+            raise HTTPException(status_code=400, detail=f"Unsupported export version: {version}")
+
+        products_data = data.get("products", [])
+        if not isinstance(products_data, list):
+            raise HTTPException(status_code=400, detail="Invalid products format")
+
+        # Get all stores for slug lookup
+        stores_stmt = select(Store)
+        stores_result = await session.execute(stores_stmt)
+        stores = stores_result.scalars().all()
+        store_by_slug: dict[str, Store] = {store.slug: store for store in stores}
+
+        # If replace mode, delete all user's watches first (products are shared)
+        if mode == "replace":
+            delete_stmt = delete(PriceWatch).where(PriceWatch.context_id == context_id)
+            await session.execute(delete_stmt)
+            await session.commit()
+
+        # Import statistics
+        products_created = 0
+        products_updated = 0
+        products_skipped = 0
+        store_links_created = 0
+        store_links_skipped = 0
+        watches_created = 0
+        watches_skipped = 0
+        warnings: list[str] = []
+
+        # Email validation regex
+        email_pattern = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+
+        for prod_data in products_data:
+            # Validate required fields
+            name = prod_data.get("name")
+            if not name:
+                warnings.append("Skipped product with missing name")
+                products_skipped += 1
+                continue
+
+            brand = prod_data.get("brand")
+
+            # Find or create product by name+brand
+            product_stmt = select(Product).where(Product.name == name)
+            if brand:
+                product_stmt = product_stmt.where(Product.brand == brand)
+            else:
+                product_stmt = product_stmt.where(Product.brand.is_(None))
+
+            product_result = await session.execute(product_stmt)
+            product = product_result.scalar_one_or_none()
+
+            if product:
+                # Update existing product
+                product.category = prod_data.get("category") or product.category
+                product.unit = prod_data.get("unit") or product.unit
+                product.package_size = prod_data.get("package_size") or product.package_size
+                if prod_data.get("package_quantity"):
+                    product.package_quantity = Decimal(str(prod_data["package_quantity"]))
+                products_updated += 1
+            else:
+                # Create new product
+                package_qty = None
+                if prod_data.get("package_quantity"):
+                    package_qty = Decimal(str(prod_data["package_quantity"]))
+
+                product = Product(
+                    name=name,
+                    brand=brand,
+                    category=prod_data.get("category"),
+                    unit=prod_data.get("unit"),
+                    package_size=prod_data.get("package_size"),
+                    package_quantity=package_qty,
+                )
+                session.add(product)
+                await session.flush()  # Get product ID
+                products_created += 1
+
+            # Process store links
+            for link_data in prod_data.get("store_links", []):
+                store_slug = link_data.get("store_slug")
+                store_url = link_data.get("store_url")
+
+                if not store_slug or not store_url:
+                    warnings.append("Skipped store link with missing slug or URL")
+                    store_links_skipped += 1
+                    continue
+
+                store = store_by_slug.get(store_slug)
+                if not store:
+                    warnings.append(f"Store slug '{store_slug}' not found, skipped link")
+                    store_links_skipped += 1
+                    continue
+
+                # Check if link already exists
+                ps_stmt = select(ProductStore).where(
+                    ProductStore.product_id == product.id,
+                    ProductStore.store_id == store.id,
+                )
+                ps_result = await session.execute(ps_stmt)
+                existing_ps = ps_result.scalar_one_or_none()
+
+                if not existing_ps:
+                    # Create new link
+                    ps = ProductStore(
+                        product_id=product.id,
+                        store_id=store.id,
+                        store_url=store_url,
+                        check_frequency_hours=link_data.get("check_frequency_hours", 168),
+                        check_weekday=link_data.get("check_weekday"),
+                        is_active=link_data.get("is_active", True),
+                    )
+                    session.add(ps)
+                    store_links_created += 1
+                else:
+                    store_links_skipped += 1
+
+            # Process watches
+            for watch_data in prod_data.get("watches", []):
+                email = watch_data.get("email_address")
+                if not email or not email_pattern.match(email):
+                    warnings.append(f"Skipped watch with invalid email: {email}")
+                    watches_skipped += 1
+                    continue
+
+                # Check if watch already exists
+                watch_stmt = select(PriceWatch).where(
+                    PriceWatch.product_id == product.id,
+                    PriceWatch.context_id == context_id,
+                    PriceWatch.email_address == email,
+                    PriceWatch.is_active.is_(True),
+                )
+                watch_result = await session.execute(watch_stmt)
+                existing_watch = watch_result.scalar_one_or_none()
+
+                if not existing_watch:
+                    target_price = None
+                    if watch_data.get("target_price_sek"):
+                        target_price = Decimal(str(watch_data["target_price_sek"]))
+
+                    unit_target = None
+                    if watch_data.get("unit_price_target_sek"):
+                        unit_target = Decimal(str(watch_data["unit_price_target_sek"]))
+
+                    watch = PriceWatch(
+                        product_id=product.id,
+                        context_id=context_id,
+                        email_address=email,
+                        target_price_sek=target_price,
+                        alert_on_any_offer=watch_data.get("alert_on_any_offer", False),
+                        price_drop_threshold_percent=watch_data.get("price_drop_threshold_percent"),
+                        unit_price_target_sek=unit_target,
+                        unit_price_drop_threshold_percent=watch_data.get(
+                            "unit_price_drop_threshold_percent"
+                        ),
+                        is_active=True,
+                    )
+                    session.add(watch)
+                    watches_created += 1
+                else:
+                    watches_skipped += 1
+
+        await session.commit()
+
+        return {
+            "message": "Import completed",
+            "mode": mode,
+            "summary": {
+                "products_created": products_created,
+                "products_updated": products_updated,
+                "products_skipped": products_skipped,
+                "store_links_created": store_links_created,
+                "store_links_skipped": store_links_skipped,
+                "watches_created": watches_created,
+                "watches_skipped": watches_skipped,
+                "warnings": warnings,
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await session.rollback()
+        LOGGER.exception("Failed to import price tracker data")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/", response_class=UTF8HTMLResponse)
 async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
     """Server-rendered admin dashboard for price tracking.
@@ -1226,6 +1643,9 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 <button class="btn" onclick="showDealsView()">Current Deals</button>
                 <button class="btn" onclick="showWatchesView()">My Watches</button>
                 <button class="btn" onclick="showStoresView()">Stores</button>
+                <span style="border-left: 1px solid var(--border); margin: 0 4px;"></span>
+                <button class="btn" onclick="exportData()">Export JSON</button>
+                <button class="btn" onclick="showImportModal()">Import JSON</button>
             </div>
         </div>
 
@@ -1248,14 +1668,14 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
         .price { font-weight: 600; color: var(--success); }
         .deal-badge { background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
         .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-        .modal { background: var(--bg-primary); border-radius: 8px; padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .modal { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06); }
         .modal-header { font-weight: 600; font-size: 18px; margin-bottom: 16px; }
         .modal label { display: block; margin-top: 12px; margin-bottom: 4px; font-size: 13px; font-weight: 500; }
-        .modal input, .modal select, .modal textarea { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-family: inherit; }
+        .modal input, .modal select, .modal textarea { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-family: inherit; background: #ffffff; color: #111827; }
         .modal-actions { margin-top: 20px; display: flex; gap: 8px; justify-content: flex-end; }
-        .store-link { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: var(--bg-secondary); border-radius: 4px; margin-top: 8px; font-size: 12px; }
+        .store-link { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: #f3f4f6; border-radius: 4px; margin-top: 8px; font-size: 12px; }
         .btn-sm { padding: 4px 8px; font-size: 12px; }
-        .btn-danger { background: var(--error); color: white; }
+        .btn-danger { background: #ef4444; color: white; }
         .btn-danger:hover { background: #dc2626; }
     """
 
@@ -1861,6 +2281,164 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             const div = document.createElement('div');
             div.textContent = str;
             return div.innerHTML;
+        }
+
+        // Export/Import functions
+        async function exportData() {
+            const includeHistory = confirm('Include price history? (This makes the file larger but includes all historical price data)');
+            try {
+                const url = `/platformadmin/price-tracker/export?include_history=${includeHistory}&history_days=90`;
+                const res = await fetch(url);
+                if (!res.ok) {
+                    const err = await res.json();
+                    alert('Export failed: ' + (err.detail || 'Unknown error'));
+                    return;
+                }
+                const blob = await res.blob();
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `price-tracker-export-${new Date().toISOString().slice(0,10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+            } catch (e) {
+                alert('Export failed: ' + e.message);
+            }
+        }
+
+        function showImportModal() {
+            showModal({
+                title: 'Import Data',
+                content: `
+                    <label>JSON File *</label>
+                    <input type="file" id="import-file" accept=".json" required>
+
+                    <label style="margin-top: 16px;">Import Mode</label>
+                    <div style="margin-top: 8px;">
+                        <label style="display: flex; align-items: center; margin-bottom: 8px;">
+                            <input type="radio" name="import-mode" value="merge" checked style="width: auto; margin-right: 8px;">
+                            <div>
+                                <strong>Merge</strong>
+                                <div style="font-size: 12px; color: var(--text-muted);">Update existing products, add new ones</div>
+                            </div>
+                        </label>
+                        <label style="display: flex; align-items: center;">
+                            <input type="radio" name="import-mode" value="replace" style="width: auto; margin-right: 8px;">
+                            <div>
+                                <strong>Replace</strong>
+                                <div style="font-size: 12px; color: var(--text-muted);">Delete all your watches first, then import fresh</div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div id="import-preview" style="margin-top: 16px; padding: 12px; background: #f3f4f6; border-radius: 4px; display: none;">
+                        <div style="font-weight: 500; margin-bottom: 4px;">File Preview</div>
+                        <div id="import-preview-content" style="font-size: 13px; color: var(--text-muted);"></div>
+                    </div>
+
+                    <p id="import-warning" style="margin-top: 12px; color: #dc2626; display: none; font-size: 13px;">
+                        Warning: Replace mode will delete all your existing price watches before importing!
+                    </p>
+                `,
+                onSubmit: importData
+            });
+
+            document.getElementById('import-file').onchange = previewImport;
+            document.querySelectorAll('input[name="import-mode"]').forEach(radio => {
+                radio.onchange = () => {
+                    const warning = document.getElementById('import-warning');
+                    warning.style.display = radio.value === 'replace' && radio.checked ? 'block' : 'none';
+                };
+            });
+        }
+
+        async function previewImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const preview = document.getElementById('import-preview');
+            const content = document.getElementById('import-preview-content');
+
+            try {
+                const text = await file.text();
+                const data = JSON.parse(text);
+
+                const productCount = (data.products || []).length;
+                const watchCount = (data.products || []).reduce((sum, p) => sum + (p.watches || []).length, 0);
+                const storeLinksCount = (data.products || []).reduce((sum, p) => sum + (p.store_links || []).length, 0);
+                const hasHistory = data.include_price_history && (data.price_history || []).length > 0;
+
+                content.innerHTML = `
+                    <div>Products: <strong>${productCount}</strong></div>
+                    <div>Store Links: <strong>${storeLinksCount}</strong></div>
+                    <div>Watches: <strong>${watchCount}</strong></div>
+                    <div>Price History: <strong>${hasHistory ? data.price_history.length + ' records' : 'Not included'}</strong></div>
+                    <div style="margin-top: 4px; font-size: 11px;">Version: ${data.version || 'Unknown'}</div>
+                `;
+                preview.style.display = 'block';
+            } catch (e) {
+                content.innerHTML = '<span style="color: #dc2626;">Invalid JSON file</span>';
+                preview.style.display = 'block';
+            }
+        }
+
+        async function importData() {
+            const fileInput = document.getElementById('import-file');
+            const file = fileInput.files[0];
+
+            if (!file) {
+                alert('Please select a file');
+                return;
+            }
+
+            const mode = document.querySelector('input[name="import-mode"]:checked').value;
+
+            if (mode === 'replace') {
+                if (!confirm('Are you sure? This will delete ALL your existing price watches before importing.')) {
+                    return;
+                }
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch(`/platformadmin/price-tracker/import?mode=${mode}`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await res.json();
+
+                if (!res.ok) {
+                    alert('Import failed: ' + (result.detail || 'Unknown error'));
+                    return;
+                }
+
+                const s = result.summary;
+                let message = `Import completed!
+
+Products: ${s.products_created} created, ${s.products_updated} updated, ${s.products_skipped} skipped
+Store Links: ${s.store_links_created} created, ${s.store_links_skipped} skipped
+Watches: ${s.watches_created} created, ${s.watches_skipped} skipped`;
+
+                if (s.warnings && s.warnings.length > 0) {
+                    message += `
+
+Warnings (${s.warnings.length}):
+` + s.warnings.slice(0, 5).join('\\n');
+                    if (s.warnings.length > 5) {
+                        message += `\\n... and ${s.warnings.length - 5} more`;
+                    }
+                }
+
+                alert(message);
+                closeModal();
+                showProductsView();
+            } catch (e) {
+                alert('Import failed: ' + e.message);
+            }
         }
 
         // Auto-load products on page load

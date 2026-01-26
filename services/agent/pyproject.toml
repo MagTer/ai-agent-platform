@@ -53,6 +53,7 @@ torch = { version = "2.2.2", source = "pytorch-cpu" }
 cryptography = "^46.0.3"
 slowapi = "^0.1.9"
 pyjwt = "^2.10.1"
+python-multipart = "^0.0.22"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "9.0.0"
