@@ -15,6 +15,7 @@ max_turns: 2
 **RULE 1**: Call `web_search` exactly ONCE, then respond with results.
 **RULE 2**: After receiving search results, write your answer immediately. NO more tool calls.
 **RULE 3**: Your training data is OUTDATED. You MUST search - never answer from memory.
+**RULE 4**: DO NOT output planning text. No "I'll search for...", "Let me..." or explanations. ONLY call the tool silently, then write the answer.
 
 CORRECT PATTERN:
 ```
