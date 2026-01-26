@@ -162,6 +162,7 @@ class PlannerAgent:
                 "- Azure DevOps READ (list/get/search items): `backlog_manager`\n"
                 "- Azure DevOps PLAN (draft/design items): `requirements_drafter`\n"
                 "- Azure DevOps WRITE (execute creation): `requirements_writer`\n"
+                "- TIBP/internal wiki/policies: `work/tibp_researcher`\n"
                 "- Web research with page reading: `researcher`\n"
                 "- Quick web search (snippets only): `search`\n"
                 "- Deep multi-source research (complex topics): `deep_research`\n"

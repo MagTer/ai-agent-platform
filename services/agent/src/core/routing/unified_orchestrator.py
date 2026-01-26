@@ -66,6 +66,7 @@ CURRENT data from {year}), return a JSON plan:
 - Web research: `researcher`
 - Quick search (snippets): `search`
 - Deep research: `deep_research`
+- TIBP/internal wiki/policies: `work/tibp_researcher`
 - Smart home: `general/homey`
 - Price tracking: `general/priser`
 - Azure DevOps READ: `backlog_manager`

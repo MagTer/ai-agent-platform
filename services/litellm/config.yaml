@@ -69,7 +69,7 @@ model_list:
   # Needs: Reliable tool calling, fast
   - model_name: skillsrunner
     litellm_params:
-      model: openrouter/meta-llama/llama-4-scout
+      model: openrouter/meta-llama/llama-4-maverick
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.2
       max_tokens: 8192
