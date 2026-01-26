@@ -1222,6 +1222,7 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             </div>
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                 <button class="btn btn-primary" onclick="showProductsView()">View Products</button>
+                <button class="btn btn-primary" onclick="showCreateProductModal()">+ Add Product</button>
                 <button class="btn" onclick="showDealsView()">Current Deals</button>
                 <button class="btn" onclick="showWatchesView()">My Watches</button>
                 <button class="btn" onclick="showStoresView()">Stores</button>
@@ -1246,6 +1247,16 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
         .product-meta { font-size: 12px; color: var(--text-muted); }
         .price { font-weight: 600; color: var(--success); }
         .deal-badge { background: #fef3c7; color: #92400e; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal { background: var(--bg-primary); border-radius: 8px; padding: 24px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; }
+        .modal-header { font-weight: 600; font-size: 18px; margin-bottom: 16px; }
+        .modal label { display: block; margin-top: 12px; margin-bottom: 4px; font-size: 13px; font-weight: 500; }
+        .modal input, .modal select, .modal textarea { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-family: inherit; }
+        .modal-actions { margin-top: 20px; display: flex; gap: 8px; justify-content: flex-end; }
+        .store-link { display: flex; justify-content: space-between; align-items: center; padding: 8px; background: var(--bg-secondary); border-radius: 4px; margin-top: 8px; font-size: 12px; }
+        .btn-sm { padding: 4px 8px; font-size: 12px; }
+        .btn-danger { background: var(--error); color: white; }
+        .btn-danger:hover { background: #dc2626; }
     """
 
     extra_js = """
@@ -1264,6 +1275,426 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             }
         }
 
+        // Modal infrastructure
+        function showModal({title, content, onSubmit}) {
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+
+            overlay.innerHTML = `
+                <div class="modal">
+                    <div class="modal-header">${escapeHtml(title)}</div>
+                    <form id="modal-form">
+                        ${content}
+                        <div class="modal-actions">
+                            <button type="button" class="btn" onclick="closeModal()">Cancel</button>
+                            <button type="submit" class="btn btn-primary">Save</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            document.body.appendChild(overlay);
+
+            document.getElementById('modal-form').onsubmit = (e) => {
+                e.preventDefault();
+                onSubmit();
+            };
+        }
+
+        function closeModal() {
+            document.querySelector('.modal-overlay')?.remove();
+        }
+
+        // Product Management
+        async function showCreateProductModal() {
+            showModal({
+                title: 'Add New Product',
+                content: `
+                    <label>Name *</label>
+                    <input type="text" id="prod-name" required>
+                    <label>Brand</label>
+                    <input type="text" id="prod-brand">
+                    <label>Category</label>
+                    <input type="text" id="prod-category">
+                    <label>Unit (e.g., "kg", "st", "liter")</label>
+                    <input type="text" id="prod-unit">
+                    <label>Package Size (e.g., "500g", "1L")</label>
+                    <input type="text" id="prod-package-size">
+                    <label>Package Quantity</label>
+                    <input type="number" id="prod-package-qty" step="0.01">
+                `,
+                onSubmit: createProduct
+            });
+        }
+
+        async function createProduct() {
+            const contextId = await getUserContext();
+            const data = {
+                name: document.getElementById('prod-name').value,
+                brand: document.getElementById('prod-brand').value || null,
+                category: document.getElementById('prod-category').value || null,
+                unit: document.getElementById('prod-unit').value || null,
+                package_size: document.getElementById('prod-package-size').value || null,
+                package_quantity: parseFloat(document.getElementById('prod-package-qty').value) || null,
+                context_id: contextId
+            };
+            await fetch('/platformadmin/price-tracker/products', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            closeModal();
+            showProductsView();
+        }
+
+        async function editProduct(productId) {
+            const res = await fetch(`/platformadmin/price-tracker/products/${productId}`);
+            const product = await res.json();
+
+            showModal({
+                title: 'Edit Product',
+                content: `
+                    <label>Name *</label>
+                    <input type="text" id="prod-name" value="${escapeHtml(product.name)}" required>
+                    <label>Brand</label>
+                    <input type="text" id="prod-brand" value="${escapeHtml(product.brand || '')}">
+                    <label>Category</label>
+                    <input type="text" id="prod-category" value="${escapeHtml(product.category || '')}">
+                    <label>Unit</label>
+                    <input type="text" id="prod-unit" value="${escapeHtml(product.unit || '')}">
+                    <label>Package Size</label>
+                    <input type="text" id="prod-package-size" value="${escapeHtml(product.package_size || '')}">
+                    <label>Package Quantity</label>
+                    <input type="number" id="prod-package-qty" step="0.01" value="${product.package_quantity || ''}">
+                `,
+                onSubmit: () => updateProduct(productId)
+            });
+        }
+
+        async function updateProduct(productId) {
+            const data = {
+                name: document.getElementById('prod-name').value,
+                brand: document.getElementById('prod-brand').value || null,
+                category: document.getElementById('prod-category').value || null,
+                unit: document.getElementById('prod-unit').value || null,
+                package_size: document.getElementById('prod-package-size').value || null,
+                package_quantity: parseFloat(document.getElementById('prod-package-qty').value) || null
+            };
+            await fetch(`/platformadmin/price-tracker/products/${productId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            closeModal();
+            showProductsView();
+        }
+
+        async function deleteProduct(id, name) {
+            if (!confirm(`Delete product "${name}" and all its price history?`)) return;
+            await fetch(`/platformadmin/price-tracker/products/${id}`, {method: 'DELETE'});
+            showProductsView();
+        }
+
+        // Store Link Management
+        async function showLinkStoreModal(productId) {
+            const storesRes = await fetch('/platformadmin/price-tracker/stores');
+            const stores = await storesRes.json();
+
+            showModal({
+                title: 'Link Product to Store',
+                content: `
+                    <label>Store *</label>
+                    <select id="link-store-id" required>
+                        ${stores.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('')}
+                    </select>
+                    <label>Product URL *</label>
+                    <input type="url" id="link-url" placeholder="https://..." required>
+                    <label>Check Frequency</label>
+                    <select id="link-freq">
+                        <option value="72">Every 3 days</option>
+                        <option value="96">Every 4 days</option>
+                        <option value="120">Every 5 days</option>
+                        <option value="168" selected>Every 7 days (weekly)</option>
+                        <option value="240">Every 10 days</option>
+                    </select>
+                    <label>Check on Specific Weekday (for weekly offers)</label>
+                    <select id="link-weekday">
+                        <option value="">Use frequency</option>
+                        <option value="0">Monday (ICA/Willys offers)</option>
+                        <option value="1">Tuesday</option>
+                        <option value="2">Wednesday</option>
+                        <option value="3">Thursday</option>
+                        <option value="4">Friday</option>
+                        <option value="5">Saturday</option>
+                        <option value="6">Sunday</option>
+                    </select>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+                        Weekday checks run between 06:00-12:00 to catch morning offer updates.
+                    </p>
+                `,
+                onSubmit: () => linkProductToStore(productId)
+            });
+        }
+
+        async function linkProductToStore(productId) {
+            const weekday = document.getElementById('link-weekday').value;
+            const data = {
+                store_id: document.getElementById('link-store-id').value,
+                store_url: document.getElementById('link-url').value,
+                check_frequency_hours: parseInt(document.getElementById('link-freq').value),
+                check_weekday: weekday ? parseInt(weekday) : null
+            };
+            await fetch(`/platformadmin/price-tracker/products/${productId}/stores`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            closeModal();
+            showProductsView();
+        }
+
+        async function showFrequencyModal(productId, storeId, currentFreq, currentWeekday) {
+            showModal({
+                title: 'Edit Check Schedule',
+                content: `
+                    <label>Check Frequency</label>
+                    <select id="edit-freq">
+                        <option value="72" ${currentFreq === 72 ? 'selected' : ''}>Every 3 days</option>
+                        <option value="96" ${currentFreq === 96 ? 'selected' : ''}>Every 4 days</option>
+                        <option value="120" ${currentFreq === 120 ? 'selected' : ''}>Every 5 days</option>
+                        <option value="168" ${currentFreq === 168 ? 'selected' : ''}>Every 7 days (weekly)</option>
+                        <option value="240" ${currentFreq === 240 ? 'selected' : ''}>Every 10 days</option>
+                    </select>
+                    <label>Check on Specific Weekday</label>
+                    <select id="edit-weekday">
+                        <option value="" ${currentWeekday === null ? 'selected' : ''}>Use frequency</option>
+                        <option value="0" ${currentWeekday === 0 ? 'selected' : ''}>Monday (ICA/Willys offers)</option>
+                        <option value="1" ${currentWeekday === 1 ? 'selected' : ''}>Tuesday</option>
+                        <option value="2" ${currentWeekday === 2 ? 'selected' : ''}>Wednesday</option>
+                        <option value="3" ${currentWeekday === 3 ? 'selected' : ''}>Thursday</option>
+                        <option value="4" ${currentWeekday === 4 ? 'selected' : ''}>Friday</option>
+                        <option value="5" ${currentWeekday === 5 ? 'selected' : ''}>Saturday</option>
+                        <option value="6" ${currentWeekday === 6 ? 'selected' : ''}>Sunday</option>
+                    </select>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+                        Monday is recommended for ICA/Willys weekly offers.
+                    </p>
+                `,
+                onSubmit: () => updateFrequency(productId, storeId)
+            });
+        }
+
+        async function updateFrequency(productId, storeId) {
+            const weekday = document.getElementById('edit-weekday').value;
+            const data = {
+                check_frequency_hours: parseInt(document.getElementById('edit-freq').value),
+                check_weekday: weekday ? parseInt(weekday) : null
+            };
+            await fetch(`/platformadmin/price-tracker/products/${productId}/stores/${storeId}/frequency`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            closeModal();
+            showProductsView();
+        }
+
+        async function unlinkProductFromStore(productId, storeId, storeName) {
+            if (!confirm(`Unlink from ${storeName}?`)) return;
+            await fetch(`/platformadmin/price-tracker/products/${productId}/stores/${storeId}`, {
+                method: 'DELETE'
+            });
+            showProductsView();
+        }
+
+        async function triggerPriceCheck(productStoreId) {
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = 'Checking...';
+
+            try {
+                const res = await fetch(`/platformadmin/price-tracker/check/${productStoreId}`, {
+                    method: 'POST'
+                });
+                const result = await res.json();
+                if (result.price_sek) {
+                    alert(`Price: ${result.price_sek} SEK${result.offer_price_sek ? ` (Offer: ${result.offer_price_sek} SEK)` : ''}`);
+                } else {
+                    alert(result.message || 'Price extraction failed');
+                }
+            } catch (e) {
+                alert('Failed to check price');
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Check Now';
+            showProductsView();
+        }
+
+        // Watch Management
+        async function showCreateWatchModal(productId, productName) {
+            showModal({
+                title: `Create Watch for ${escapeHtml(productName)}`,
+                content: `
+                    <label>Email for Alerts *</label>
+                    <input type="email" id="watch-email" required>
+
+                    <label>Target Price (SEK)</label>
+                    <input type="number" id="watch-target" step="0.01" placeholder="Alert when price drops below">
+
+                    <label style="display: flex; align-items: center; margin-top: 8px;">
+                        <input type="checkbox" id="watch-any-offer" style="width: auto; margin-right: 8px;">
+                        Alert on any offer
+                    </label>
+
+                    <label>Price Drop Threshold (%)</label>
+                    <input type="number" id="watch-drop" placeholder="e.g., 20 for 20% off">
+
+                    <label>Unit Price Target (SEK/unit)</label>
+                    <input type="number" id="watch-unit-target" step="0.01">
+
+                    <label>Unit Price Drop Threshold (%)</label>
+                    <input type="number" id="watch-unit-drop">
+                `,
+                onSubmit: () => createWatch(productId)
+            });
+        }
+
+        async function createWatch(productId) {
+            const contextId = await getUserContext();
+            const data = {
+                product_id: productId,
+                email_address: document.getElementById('watch-email').value,
+                target_price_sek: parseFloat(document.getElementById('watch-target').value) || null,
+                alert_on_any_offer: document.getElementById('watch-any-offer').checked,
+                price_drop_threshold_percent: parseFloat(document.getElementById('watch-drop').value) || null,
+                unit_price_target_sek: parseFloat(document.getElementById('watch-unit-target').value) || null,
+                unit_price_drop_threshold_percent: parseFloat(document.getElementById('watch-unit-drop').value) || null
+            };
+            await fetch(`/platformadmin/price-tracker/watches?context_id=${contextId}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            closeModal();
+            showWatchesView();
+        }
+
+        async function editWatch(watchId) {
+            const contextId = await getUserContext();
+            const res = await fetch(`/platformadmin/price-tracker/watches?context_id=${contextId}`);
+            const watches = await res.json();
+            const watch = watches.find(w => w.watch_id === watchId);
+
+            if (!watch) {
+                alert('Watch not found');
+                return;
+            }
+
+            showModal({
+                title: `Edit Watch for ${escapeHtml(watch.product_name)}`,
+                content: `
+                    <label>Email for Alerts *</label>
+                    <input type="email" id="watch-email" value="${escapeHtml(watch.email_address)}" required>
+
+                    <label>Target Price (SEK)</label>
+                    <input type="number" id="watch-target" step="0.01" value="${watch.target_price_sek || ''}">
+
+                    <label style="display: flex; align-items: center; margin-top: 8px;">
+                        <input type="checkbox" id="watch-any-offer" ${watch.alert_on_any_offer ? 'checked' : ''} style="width: auto; margin-right: 8px;">
+                        Alert on any offer
+                    </label>
+
+                    <label>Price Drop Threshold (%)</label>
+                    <input type="number" id="watch-drop" value="${watch.price_drop_threshold_percent || ''}">
+
+                    <label>Unit Price Target (SEK/unit)</label>
+                    <input type="number" id="watch-unit-target" step="0.01" value="${watch.unit_price_target_sek || ''}">
+
+                    <label>Unit Price Drop Threshold (%)</label>
+                    <input type="number" id="watch-unit-drop" value="${watch.unit_price_drop_threshold_percent || ''}">
+                `,
+                onSubmit: () => updateWatch(watchId)
+            });
+        }
+
+        async function updateWatch(watchId) {
+            const data = {
+                email_address: document.getElementById('watch-email').value,
+                target_price_sek: parseFloat(document.getElementById('watch-target').value) || null,
+                alert_on_any_offer: document.getElementById('watch-any-offer').checked,
+                price_drop_threshold_percent: parseFloat(document.getElementById('watch-drop').value) || null,
+                unit_price_target_sek: parseFloat(document.getElementById('watch-unit-target').value) || null,
+                unit_price_drop_threshold_percent: parseFloat(document.getElementById('watch-unit-drop').value) || null
+            };
+            await fetch(`/platformadmin/price-tracker/watches/${watchId}`, {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            });
+            closeModal();
+            showWatchesView();
+        }
+
+        async function deleteWatch(watchId, productName) {
+            if (!confirm(`Delete watch for "${productName}"?`)) return;
+            await fetch(`/platformadmin/price-tracker/watches/${watchId}`, {method: 'DELETE'});
+            showWatchesView();
+        }
+
+        // Price History Chart
+        async function showPriceHistory(productId, productName) {
+            const contentEl = document.getElementById('main-content');
+            contentEl.innerHTML = '<div class="loading">Loading price history...</div>';
+
+            const res = await fetch(`/platformadmin/price-tracker/products/${productId}/prices?days=90`);
+            const prices = await res.json();
+
+            if (prices.length === 0) {
+                contentEl.innerHTML = '<div class="card"><p>No price history available</p><button class="btn btn-sm" onclick="showProductsView()">Back</button></div>';
+                return;
+            }
+
+            const byStore = {};
+            prices.forEach(p => {
+                if (!byStore[p.store_name]) byStore[p.store_name] = [];
+                byStore[p.store_name].push({
+                    x: new Date(p.checked_at),
+                    y: p.offer_price_sek || p.price_sek
+                });
+            });
+
+            contentEl.innerHTML = `
+                <div class="card">
+                    <div class="card-header">
+                        <span class="card-title">Price History: ${escapeHtml(productName)}</span>
+                        <button class="btn btn-sm" onclick="showProductsView()">Back</button>
+                    </div>
+                    <canvas id="price-chart" height="300"></canvas>
+                </div>
+            `;
+
+            const datasets = Object.entries(byStore).map(([store, data], i) => ({
+                label: store,
+                data: data.sort((a, b) => a.x - b.x),
+                borderColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][i % 4],
+                fill: false
+            }));
+
+            new Chart(document.getElementById('price-chart'), {
+                type: 'line',
+                data: {datasets},
+                options: {
+                    scales: {
+                        x: {type: 'time', time: {unit: 'day'}},
+                        y: {beginAtZero: false, title: {display: true, text: 'SEK'}}
+                    }
+                }
+            });
+        }
+
+        // Views
         async function showProductsView() {
             const contentEl = document.getElementById('main-content');
             contentEl.innerHTML = '<div class="loading">Loading products...</div>';
@@ -1279,7 +1710,7 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 const products = await res.json();
 
                 if (products.length === 0) {
-                    contentEl.innerHTML = '<div class="card"><p style="color: var(--text-muted);">No products tracked yet</p></div>';
+                    contentEl.innerHTML = '<div class="card"><p style="color: var(--text-muted);">No products tracked yet. Click "Add Product" to get started.</p></div>';
                     return;
                 }
 
@@ -1290,11 +1721,28 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                             <div class="product-meta">
                                 Brand: ${escapeHtml(p.brand || 'N/A')} | Category: ${escapeHtml(p.category || 'N/A')}
                             </div>
+                            <div style="margin-top: 8px;">
+                                <button class="btn btn-sm" onclick="editProduct('${p.id}')">Edit</button>
+                                <button class="btn btn-sm" onclick="showLinkStoreModal('${p.id}')">+ Link Store</button>
+                                <button class="btn btn-sm" onclick="showCreateWatchModal('${p.id}', '${escapeHtml(p.name)}')">+ Watch</button>
+                                <button class="btn btn-sm" onclick="showPriceHistory('${p.id}', '${escapeHtml(p.name)}')">History</button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteProduct('${p.id}', '${escapeHtml(p.name)}')">Delete</button>
+                            </div>
                             ${p.stores.map(s => `
-                                <div style="margin-top: 8px; font-size: 12px;">
-                                    ${escapeHtml(s.store_name)}:
-                                    ${s.price_sek ? `<span class="price">${s.price_sek} SEK</span>` : 'No price'}
-                                    ${s.in_stock === false ? '<span style="color: var(--error); margin-left: 8px;">Out of stock</span>' : ''}
+                                <div class="store-link">
+                                    <div>
+                                        <strong>${escapeHtml(s.store_name)}</strong>
+                                        ${s.price_sek ? `<span class="price" style="margin-left: 8px;">${s.price_sek} SEK</span>` : '<span style="color: var(--text-muted); margin-left: 8px;">No price</span>'}
+                                        ${s.in_stock === false ? '<span style="color: var(--error); margin-left: 8px;">Out of stock</span>' : ''}
+                                        <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                                            Check: ${s.check_weekday !== null ? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][s.check_weekday] : `Every ${s.check_frequency_hours}h`}
+                                        </div>
+                                    </div>
+                                    <div style="display: flex; gap: 4px;">
+                                        <button class="btn btn-sm" onclick="triggerPriceCheck('${s.product_store_id}')">Check Now</button>
+                                        <button class="btn btn-sm" onclick="showFrequencyModal('${p.id}', '${s.store_id}', ${s.check_frequency_hours}, ${s.check_weekday})">Edit</button>
+                                        <button class="btn btn-sm btn-danger" onclick="unlinkProductFromStore('${p.id}', '${s.store_id}', '${escapeHtml(s.store_name)}')">Unlink</button>
+                                    </div>
                                 </div>
                             `).join('')}
                         </div>
@@ -1351,7 +1799,7 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 const watches = await res.json();
 
                 if (watches.length === 0) {
-                    contentEl.innerHTML = '<div class="card"><p style="color: var(--text-muted);">No price watches configured</p></div>';
+                    contentEl.innerHTML = '<div class="card"><p style="color: var(--text-muted);">No price watches configured. Add a product first, then create a watch.</p></div>';
                     return;
                 }
 
@@ -1362,9 +1810,14 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                             <div class="product-meta">
                                 Target: ${w.target_price_sek ? `${w.target_price_sek} SEK` : 'Any offer'}
                                 ${w.alert_on_any_offer ? ' | Alert on any offer' : ''}
+                                ${w.price_drop_threshold_percent ? ` | Drop threshold: ${w.price_drop_threshold_percent}%` : ''}
                             </div>
                             <div style="margin-top: 4px; font-size: 12px; color: var(--text-muted);">
                                 Email: ${escapeHtml(w.email_address)}
+                            </div>
+                            <div style="margin-top: 8px;">
+                                <button class="btn btn-sm" onclick="editWatch('${w.watch_id}')">Edit</button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteWatch('${w.watch_id}', '${escapeHtml(w.product_name)}')">Delete</button>
                             </div>
                         </div>
                     `).join('') + '</div>';
