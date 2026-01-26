@@ -16,6 +16,7 @@ max_turns: 7
 **RULE 2**: You have budget for up to 7 turns and 6 tools per turn. Use strategically.
 **RULE 3**: AVOID repeating identical tool calls - if you searched "X", don't search "X" again.
 **RULE 4**: PROGRESSIVE RESEARCH: Start broad, then fetch promising pages for depth.
+**RULE 5**: DO NOT output planning text. No "I'll search for...", "Let me..." or step explanations. ONLY call tools silently, then write the final answer.
 
 CORRECT PATTERN:
 ```

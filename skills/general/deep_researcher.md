@@ -17,6 +17,7 @@ max_turns: 10
 **RULE 3**: NEVER repeat a tool call with identical arguments.
 **RULE 4**: Follow the PHASE STRUCTURE below. Move to next phase when current phase goals are met.
 **RULE 5**: After completing Phase 3, STOP and write your report. No more tool calls.
+**RULE 6**: DO NOT output planning text. No "I'll search for...", "Step 1:", or explanations. ONLY call tools silently, then write the final report.
 
 ## BUDGET
 
