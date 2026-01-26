@@ -182,7 +182,7 @@ def test_test_command_success(monkeypatch: MonkeyPatch) -> None:
 
 def test_test_command_with_semantic(monkeypatch: MonkeyPatch) -> None:
     """Test that test --semantic also runs semantic tests."""
-    called: dict[str, bool] = {}
+    called: dict[str, Any] = {}
 
     monkeypatch.setattr(cli.checks, "ensure_dependencies", lambda: None)
     monkeypatch.setattr(
@@ -191,8 +191,11 @@ def test_test_command_with_semantic(monkeypatch: MonkeyPatch) -> None:
         lambda repo_root: checks.CheckResult(success=True, name="pytest"),
     )
 
-    def fake_run_semantic(repo_root: Path | None) -> checks.CheckResult:
+    def fake_run_semantic(
+        *, repo_root: Path | None, category: str | None = None
+    ) -> checks.CheckResult:
         called["semantic"] = True
+        called["category"] = category
         return checks.CheckResult(success=True, name="semantic")
 
     monkeypatch.setattr(cli.checks, "run_semantic_tests", fake_run_semantic)
@@ -212,10 +215,15 @@ def test_check_command_success(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(cli.checks, "ensure_dependencies", lambda: None)
 
     def fake_run_all(
-        *, fix: bool, include_semantic: bool, repo_root: Path | None
+        *,
+        fix: bool,
+        include_semantic: bool,
+        semantic_category: str | None = None,
+        repo_root: Path | None,
     ) -> list[checks.CheckResult]:
         called["fix"] = fix
         called["include_semantic"] = include_semantic
+        called["semantic_category"] = semantic_category
         return [
             checks.CheckResult(success=True, name="ruff"),
             checks.CheckResult(success=True, name="black"),
@@ -239,7 +247,11 @@ def test_check_command_no_fix(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(cli.checks, "ensure_dependencies", lambda: None)
 
     def fake_run_all(
-        *, fix: bool, include_semantic: bool, repo_root: Path | None
+        *,
+        fix: bool,
+        include_semantic: bool,
+        semantic_category: str | None = None,
+        repo_root: Path | None,
     ) -> list[checks.CheckResult]:
         called["fix"] = fix
         return [checks.CheckResult(success=True, name="ruff")]
@@ -256,7 +268,11 @@ def test_check_command_failure(monkeypatch: MonkeyPatch) -> None:
     monkeypatch.setattr(cli.checks, "ensure_dependencies", lambda: None)
 
     def fake_run_all(
-        *, fix: bool, include_semantic: bool, repo_root: Path | None
+        *,
+        fix: bool,
+        include_semantic: bool,
+        semantic_category: str | None = None,
+        repo_root: Path | None,
     ) -> list[checks.CheckResult]:
         return [
             checks.CheckResult(success=True, name="ruff"),

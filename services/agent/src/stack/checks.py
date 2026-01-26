@@ -222,7 +222,11 @@ def run_pytest(*, repo_root: Path | None = None) -> CheckResult:
         return CheckResult(success=False, name="pytest", message="Test failures")
 
 
-def run_semantic_tests(*, repo_root: Path | None = None) -> CheckResult:
+def run_semantic_tests(
+    *,
+    repo_root: Path | None = None,
+    category: str | None = None,
+) -> CheckResult:
     """Run semantic end-to-end tests.
 
     These tests require a running agent and make real LLM calls.
@@ -230,6 +234,7 @@ def run_semantic_tests(*, repo_root: Path | None = None) -> CheckResult:
 
     Args:
         repo_root: Repository root path. Defaults to auto-detected.
+        category: Optional category filter (routing, skills, tools, planning, error, regression).
 
     Returns:
         CheckResult indicating success or failure.
@@ -242,20 +247,23 @@ def run_semantic_tests(*, repo_root: Path | None = None) -> CheckResult:
         _print_info("No semantic tests found")
         return CheckResult(success=True, name="semantic", message="Skipped - no tests")
 
-    _print_step("Running Semantic Tests")
-    _print_info("These tests require a running agent")
+    _print_step("Running Semantic Tests (Golden Queries)")
+    _print_info("These tests require a running agent and make real LLM calls")
 
-    result = _run_cmd(
-        ["python", "-m", "pytest", "tests/semantic/test_end_to_end.py", "-v"],
-        cwd=service_dir,
-    )
+    # Use the golden query runner instead of pytest
+    cmd = ["python", "scripts/run_semantic_eval.py"]
+    if category:
+        cmd.extend(["--category", category])
+        _print_info(f"Category filter: {category}")
+
+    result = _run_cmd(cmd, cwd=service_dir)
 
     if result.returncode == 0:
         _print_success("Semantic tests passed")
         return CheckResult(success=True, name="semantic")
     else:
         _print_error("Semantic tests failed")
-        return CheckResult(success=False, name="semantic", message="End-to-end test failures")
+        return CheckResult(success=False, name="semantic", message="Golden query test failures")
 
 
 def run_lint(*, fix: bool = True, repo_root: Path | None = None) -> list[CheckResult]:
@@ -281,6 +289,7 @@ def run_all_checks(
     *,
     fix: bool = True,
     include_semantic: bool = False,
+    semantic_category: str | None = None,
     repo_root: Path | None = None,
 ) -> list[CheckResult]:
     """Run all quality checks in sequence.
@@ -290,6 +299,7 @@ def run_all_checks(
     Args:
         fix: If True, auto-fix linting issues. If False, check only.
         include_semantic: If True, include semantic e2e tests.
+        semantic_category: Optional category filter for semantic tests.
         repo_root: Repository root path. Defaults to auto-detected.
 
     Returns:
@@ -328,7 +338,7 @@ def run_all_checks(
 
     # Semantic tests (optional, local only)
     if include_semantic:
-        semantic_result = run_semantic_tests(repo_root=root)
+        semantic_result = run_semantic_tests(repo_root=root, category=semantic_category)
         results.append(semantic_result)
 
     return results
