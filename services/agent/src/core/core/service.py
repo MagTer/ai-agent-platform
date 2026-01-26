@@ -278,6 +278,8 @@ class AgentService:
                 completion_provider = "litellm"
                 completion_model = self._settings.model_composer
                 execution_complete = False
+                # Track if a skill already yielded content (for smart completion skip)
+                skill_content_yielded = False
 
                 # ═══════════════════════════════════════════════════════════════════
                 # ADAPTIVE EXECUTION LOOP
@@ -440,6 +442,10 @@ class AgentService:
                                     ):
                                         if event["type"] == "content":
                                             yield {"type": "content", "content": event["content"]}
+                                            # Track skill content for smart completion skip
+                                            content = event["content"]
+                                            if content and len(content) > 100:
+                                                skill_content_yielded = True
                                         elif event["type"] == "thinking":
                                             meta = (event.get("metadata") or {}).copy()
                                             meta["id"] = plan_step.id
@@ -737,7 +743,29 @@ class AgentService:
                 # END ADAPTIVE EXECUTION LOOP
                 # ═══════════════════════════════════════════════════════════════════
 
-                if not completion_text:
+                # Check if plan had an explicit completion step
+                has_completion_step = (
+                    plan is not None
+                    and plan.steps
+                    and any(s.action == "completion" for s in plan.steps)
+                )
+
+                # If skill yielded comprehensive content and no completion step exists,
+                # use the skill's output as the final response (skip extra LLM call)
+                if skill_content_yielded and not has_completion_step and not completion_text:
+                    # Get the last skill's output from the step result for database storage
+                    for msg in reversed(prompt_history):
+                        if msg.role == "tool" and msg.content:
+                            completion_text = msg.content
+                            LOGGER.info("Using skill output as final response (no completion step)")
+                            break
+
+                if not completion_text and not (skill_content_yielded and not has_completion_step):
+                    # Generate fallback completion only if:
+                    # 1. No completion text was set by a completion step, AND
+                    # 2. NOT (skill already yielded content AND plan had no completion step)
+                    # This allows research skills to be the final output without extra summarization
+
                     # Check for work item drafts in recent history to prevent translation
                     # Heuristic: Look for common work item markers in the last few messages
                     work_item_detected = False
