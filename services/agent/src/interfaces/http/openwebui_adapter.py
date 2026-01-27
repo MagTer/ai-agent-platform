@@ -504,6 +504,8 @@ async def chat_completions(
 def _should_show_chunk_default(
     chunk_type: str,
     metadata: dict[str, Any] | None = None,
+    content: str | None = None,
+    tool_call: dict[str, Any] | None = None,
 ) -> bool:
     """Determine if a chunk should be shown in DEFAULT verbosity mode.
 
@@ -511,12 +513,14 @@ def _should_show_chunk_default(
     - Final answer (content)
     - Errors
     - Plan announcement (Agent: Plan: ...)
-    - Skill start (Executor: <skill name>)
-    - Supervisor replan notices
+    - Skill start (Using skill: <skill name>)
+    - Supervisor replan notices (NOT "Plan approved")
 
     Args:
         chunk_type: The type of the agent chunk.
         metadata: Optional chunk metadata.
+        content: Optional chunk content (for content-based filtering).
+        tool_call: Optional tool call data (for tool_start filtering).
 
     Returns:
         True if the chunk should be shown, False otherwise.
@@ -539,9 +543,11 @@ def _should_show_chunk_default(
         # Show Planner messages (plan announcements, replans)
         if role == "Planner":
             return True
-        # Show Supervisor messages (replan notices, important status)
+        # Supervisor: Only show replan notices, NOT "Plan approved" or similar
         if role == "Supervisor":
-            return True
+            if content and "replan" in content.lower():
+                return True
+            return False
 
         # Show plan announcements (may not have role but have orchestration/type)
         orchestration = meta.get("orchestration", "")
@@ -551,17 +557,21 @@ def _should_show_chunk_default(
 
         return False
 
-    # Show tool_start for skills (Executor: <skill name>)
+    # Show tool_start ONLY for skills (consult_expert), not all tools
     if chunk_type == "tool_start":
-        return True
+        if tool_call:
+            tool_name = tool_call.get("name", "")
+            if tool_name == "consult_expert":
+                return True
+        return False
 
-    # Show tool_output for skill completion status
-    if chunk_type == "tool_output":
-        return True
+    # Hide tool_output in DEFAULT mode (don't show "Done" messages)
+    # The user only wants to see skill start, not completion
 
     # Hide everything else in DEFAULT mode:
     # - step_start (internal progress)
     # - skill_activity (search queries, URLs)
+    # - tool_output (completion status)
     return False
 
 
@@ -693,7 +703,8 @@ async def stream_response_generator(
 
             # Apply verbosity filter (DEFAULT mode only)
             if verbosity == VerbosityLevel.DEFAULT:
-                if not _should_show_chunk_default(chunk_type, metadata):
+                tool_call = agent_chunk.get("tool_call")
+                if not _should_show_chunk_default(chunk_type, metadata, content, tool_call):
                     continue
 
             # DEBUG mode: Show categorized JSON for all chunks except completion content
@@ -872,7 +883,7 @@ async def stream_response_generator(
                         args_str = ""  # Fallback
 
                     if skill_name:
-                        formatted = f"\n🧠 **{role}:** Using Skill `{skill_name}`\n"
+                        formatted = f"\n🧠 **Using skill:** `{skill_name}`\n"
                     else:
                         formatted = f"\n🛠️ **{role}:** `{tool_name}` *{args_str}*\n"
 
