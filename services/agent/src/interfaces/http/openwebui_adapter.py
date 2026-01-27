@@ -610,11 +610,7 @@ async def stream_response_generator(
     last_flush_time = time.time()
 
     # Track execution phase for content filtering
-    # - skill_active: True when a skill is currently executing (suppress reasoning content)
-    # - skill_completed: True after a skill has completed (show its output)
     in_completion_phase = False
-    skill_active = False
-    skill_completed = False
 
     # Track displayed plans to avoid duplicates
     shown_plan_descriptions: set[str] = set()
@@ -641,14 +637,13 @@ async def stream_response_generator(
 
             # In DEFAULT mode, also filter accumulated reasoning content and noise
             if verbosity == VerbosityLevel.DEFAULT:
-                # During active skill execution, suppress content
-                if skill_active and not skill_completed and not in_completion_phase:
-                    LOGGER.debug("Filtered active-skill content: %s", batched_content[:100])
-                    return
-                if _is_reasoning_content(batched_content):
+                # Always show content with AWAITING_USER_INPUT marker
+                if "[AWAITING_USER_INPUT" in batched_content:
+                    pass  # Don't filter
+                elif not in_completion_phase and _is_reasoning_content(batched_content):
                     LOGGER.debug("Filtered reasoning content: %s", batched_content[:100])
                     return
-                if _is_noise_fragment(batched_content):
+                elif _is_noise_fragment(batched_content):
                     LOGGER.debug("Filtered noise fragment: %r", batched_content)
                     return
 
@@ -682,20 +677,10 @@ async def stream_response_generator(
             # Track execution phase for filtering
             # - step_start with skill: skill starts (suppress reasoning content)
             # - tool_output: skill completes (allow content through)
-            # - step_start with completion: final answer phase (always allow)
+            # - step_start with completion: final answer phase (always allow content)
             if chunk_type == "step_start":
                 action = (metadata or {}).get("action", "")
-                executor = (metadata or {}).get("executor", "")
                 in_completion_phase = action == "completion"
-                if action == "skill" or executor == "skill":
-                    skill_active = True
-                    skill_completed = False
-
-            # When we receive tool_output, the skill has completed its work
-            # Content after this point is the actual output, not reasoning
-            if chunk_type == "tool_output":
-                skill_active = False
-                skill_completed = True
 
             # Apply verbosity filter (DEFAULT mode only)
             if verbosity == VerbosityLevel.DEFAULT:
@@ -732,21 +717,17 @@ async def stream_response_generator(
                     LOGGER.debug("Skipping content with raw tokens: %s", content[:80])
                     continue
 
-                # In DEFAULT mode, apply aggressive filtering
+                # In DEFAULT mode, apply filtering for reasoning/noise
                 if verbosity == VerbosityLevel.DEFAULT:
-                    # During active skill execution (before tool_output), suppress content
-                    # This is the skill's internal reasoning, not the final output
-                    if skill_active and not skill_completed and not in_completion_phase:
-                        LOGGER.debug("Skipping active-skill content: %s", content[:80])
-                        continue
-
-                    # Also filter reasoning patterns that slip through
-                    if _is_reasoning_content(content):
+                    # Always show content with AWAITING_USER_INPUT marker
+                    if "[AWAITING_USER_INPUT" in content:
+                        pass  # Don't filter this
+                    # Filter reasoning patterns (but not during completion phase)
+                    elif not in_completion_phase and _is_reasoning_content(content):
                         LOGGER.debug("Skipping reasoning content: %s", content[:80])
                         continue
-
                     # Filter out noise fragments from reasoning model streaming
-                    if _is_noise_fragment(content):
+                    elif _is_noise_fragment(content):
                         LOGGER.debug("Skipping noise fragment: %r", content)
                         continue
 
