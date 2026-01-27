@@ -243,6 +243,36 @@ class LiteLLMClient:
         except httpx.HTTPError as exc:
             raise LiteLLMError(f"Tool completion failed: {exc}") from exc
 
+    async def embed(
+        self,
+        texts: list[str],
+        model: str = "embedder",
+    ) -> list[list[float]]:
+        """Get embeddings via LiteLLM proxy.
+
+        Args:
+            texts: List of strings to embed
+            model: Model name configured in LiteLLM (default: "embedder")
+
+        Returns:
+            List of embedding vectors (list of floats)
+
+        Raises:
+            LiteLLMError: If the API returns an error
+        """
+        payload = {"model": model, "input": texts}
+        response = await self._client.post(
+            "/v1/embeddings",
+            json=payload,
+            headers=self._build_headers(),
+        )
+        if response.status_code >= 400:
+            error_text = response.text
+            LOGGER.error("LiteLLM embedding error %s: %s", response.status_code, error_text)
+            raise LiteLLMError(f"Embedding failed: {response.status_code} - {error_text[:200]}")
+        data = response.json()
+        return [item["embedding"] for item in data["data"]]
+
     async def list_models(self) -> dict[str, Any]:
         """Return the raw body from LiteLLM's `/v1/models` endpoint."""
 

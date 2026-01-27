@@ -76,8 +76,8 @@ CURRENT data from {year}), return a JSON plan:
 ## RULES
 1. Simple questions (translations, math, greetings) = DIRECT ANSWER
 2. Anything needing current/live data = PLAN (your knowledge is outdated)
-3. Single skill = just that skill step (no completion step needed)
-4. Multiple skills = all skill steps (completion only if synthesizing results)
+3. NEVER add completion step if plan has ANY skills
+4. Skills communicate via history - skill output IS the answer
 5. NEVER wrap direct answers in JSON
 6. NEVER hallucinate current data - if unsure, use a skill
 

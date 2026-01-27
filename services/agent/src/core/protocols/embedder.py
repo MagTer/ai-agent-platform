@@ -13,16 +13,20 @@ class IEmbedder(Protocol):
     Implementations can use local models (SentenceTransformers) or remote APIs.
     """
 
-    def embed(self, texts: list[str], normalize: bool = True) -> list[list[float]]:
+    async def embed(self, texts: list[str]) -> list[list[float]]:
         """Embed a list of texts into vectors.
 
         Args:
             texts: List of text strings to embed.
-            normalize: Whether to normalize the output vectors.
 
         Returns:
             List of embedding vectors, one per input text.
         """
+        ...
+
+    @property
+    def dimension(self) -> int:
+        """Vector dimension size."""
         ...
 
 

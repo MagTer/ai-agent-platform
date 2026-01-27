@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -51,6 +52,29 @@ RAW_MODEL_TOKENS = frozenset(
     ]
 )
 
+# Patterns that indicate model reasoning/planning output (not final content)
+# These are used for more aggressive filtering in DEFAULT mode
+_REASONING_PATTERNS = [
+    # Tool call patterns from reasoning models
+    re.compile(r"^\s*\[?\s*web_search\s*\(", re.IGNORECASE),
+    re.compile(r"^\s*\[?\s*web_fetch\s*\(", re.IGNORECASE),
+    re.compile(r"^\s*\[?\s*\w+_\w+\s*\(.*\)\s*[,\]]", re.IGNORECASE),  # tool_name(...)
+    # Planning/reasoning phrases at start of content
+    re.compile(r"^(Let's|Let me|I'll|I will|I need to|First,|Step \d)", re.IGNORECASE),
+    re.compile(r"^(Now I|Now let|Proceeding|Starting|Begin)", re.IGNORECASE),
+    re.compile(r"^(Turn \d|Round \d|Attempt \d)", re.IGNORECASE),
+    re.compile(r"^(Next,|Then,|After that|Finally,|Additionally)", re.IGNORECASE),
+    # Partial reasoning phrases (may appear mid-stream)
+    re.compile(r"start by searching", re.IGNORECASE),
+    re.compile(r"let's fetch", re.IGNORECASE),
+    re.compile(r"fetch (some|the|another|more)", re.IGNORECASE),
+    re.compile(r"searching for (the|Tesla|more)", re.IGNORECASE),
+    re.compile(r"get (the latest|more info)", re.IGNORECASE),
+    # JSON-like tool calls
+    re.compile(r'^\s*\{\s*"tool"\s*:', re.IGNORECASE),
+    re.compile(r'^\s*\{\s*"action"\s*:', re.IGNORECASE),
+]
+
 
 def _contains_raw_model_tokens(content: str) -> bool:
     """Check if content contains raw model tokens that should be filtered.
@@ -63,6 +87,50 @@ def _contains_raw_model_tokens(content: str) -> bool:
     for token in RAW_MODEL_TOKENS:
         if token in content:
             return True
+    return False
+
+
+def _is_reasoning_content(content: str) -> bool:
+    """Check if content looks like model reasoning/planning output.
+
+    This catches natural language reasoning that reasoning models output
+    as content instead of in reasoning_content field.
+
+    NOTE: This function is NOT used for streaming content filtering because
+    streaming sends partial chunks that may match patterns incorrectly.
+    It's kept for potential use in buffered content filtering.
+    """
+    if not content:
+        return False
+
+    # Check for reasoning patterns
+    for pattern in _REASONING_PATTERNS:
+        if pattern.search(content):
+            return True
+
+    return False
+
+
+def _is_noise_fragment(content: str) -> bool:
+    """Check if content is a noise fragment from reasoning model streaming.
+
+    Reasoning models often stream their chain-of-thought character by character,
+    resulting in fragments like '[', '[]', '{', etc. that should be filtered.
+    """
+    if not content:
+        return False
+
+    stripped = content.strip()
+
+    # Very short fragments that are likely noise
+    if len(stripped) <= 3:
+        # Single brackets, braces, or short combos
+        if stripped in ("[", "]", "[]", "{", "}", "{}", "(", ")", "()", "[{", "}]"):
+            return True
+        # Single punctuation or whitespace
+        if stripped in (",", ":", ";", ".", "\n", "\t"):
+            return True
+
     return False
 
 
@@ -440,15 +508,21 @@ async def chat_completions(
 def _should_show_chunk_default(
     chunk_type: str,
     metadata: dict[str, Any] | None = None,
+    content: str | None = None,
 ) -> bool:
     """Determine if a chunk should be shown in DEFAULT verbosity mode.
 
-    DEFAULT mode shows minimal output: final answer, errors, brief skill status,
-    and initial planning feedback (so users know something is happening).
+    DEFAULT mode shows minimal output:
+    - Final answer (content)
+    - Errors
+    - Plan announcement (Agent: Plan: ...)
+    - Skill start (Using skill: <skill name>)
+    - Supervisor replan notices (NOT "Plan approved")
 
     Args:
         chunk_type: The type of the agent chunk.
         metadata: Optional chunk metadata.
+        content: Optional chunk content (for content-based filtering).
 
     Returns:
         True if the chunk should be shown, False otherwise.
@@ -457,31 +531,46 @@ def _should_show_chunk_default(
     if chunk_type in ("content", "error"):
         return True
 
-    # Show thinking chunks from Planner (gives initial feedback that work is starting)
+    # Show thinking chunks from Planner and Supervisor (important status updates)
     # Never show internal thinking that clutters UI:
     # - reasoning_model: LLM chain-of-thought (gpt-oss-120b, Qwen3)
     # - skill_internal: Skill executor progress (Goal:, Searching:)
     if chunk_type == "thinking":
-        source = (metadata or {}).get("source", "")
+        meta = metadata or {}
+        source = meta.get("source", "")
         if source in ("reasoning_model", "skill_internal"):
             return False
-        role = (metadata or {}).get("role", "")
+
+        role = meta.get("role", "")
+        # Show Planner messages (plan announcements, replans)
         if role == "Planner":
             return True
+        # Supervisor: Only show replan notices, NOT "Plan approved" or similar
+        if role == "Supervisor":
+            if content and "replan" in content.lower():
+                return True
+            return False
+
+        # Show plan announcements (may not have role but have orchestration/type)
+        orchestration = meta.get("orchestration", "")
+        msg_type = meta.get("type", "")
+        if orchestration == "plan" or msg_type == "plan":
+            return True
+
         return False
 
-    # Show tool_start/tool_output only for skills (brief start/completion status)
-    if chunk_type in ("tool_start", "tool_output"):
-        # Check tool name from metadata or tool_call
-        tool_call = (metadata or {}).get("tool_call") or {}
-        tool_name = (metadata or {}).get("name") or tool_call.get("name", "")
-        if tool_name == "consult_expert":
+    # Show step_start for skill steps (executor="skill" or action="skill")
+    if chunk_type == "step_start":
+        meta = metadata or {}
+        executor = meta.get("executor", "")
+        action = meta.get("action", "")
+        if executor == "skill" or action == "skill":
             return True
         return False
 
     # Hide everything else in DEFAULT mode:
-    # - thinking from other roles (verbose)
-    # - step_start (internal progress)
+    # - tool_start (internal tool calls)
+    # - tool_output (completion status)
     # - skill_activity (search queries, URLs)
     return False
 
@@ -524,7 +613,7 @@ async def stream_response_generator(
     content_buffer: list[str] = []
     last_flush_time = time.time()
 
-    # Track completion phase for DEBUG mode
+    # Track execution phase for content filtering
     in_completion_phase = False
 
     # Track displayed plans to avoid duplicates
@@ -536,7 +625,8 @@ async def stream_response_generator(
     async def flush_content_buffer() -> AsyncGenerator[str, None]:
         """Flush accumulated content buffer if not empty.
 
-        Filters out content containing raw model tokens before yielding.
+        Filters out content containing raw model tokens or reasoning patterns
+        (in DEFAULT mode) before yielding.
         """
         nonlocal content_buffer, last_flush_time, has_shown_output
         if content_buffer:
@@ -548,6 +638,12 @@ async def stream_response_generator(
             if _contains_raw_model_tokens(batched_content):
                 LOGGER.debug("Filtered content with raw model tokens: %s", batched_content[:100])
                 return
+
+            # In DEFAULT mode, filter noise fragments
+            if verbosity == VerbosityLevel.DEFAULT:
+                if _is_noise_fragment(batched_content):
+                    LOGGER.debug("Filtered noise fragment: %r", batched_content)
+                    return
 
             has_shown_output = True
             yield _format_chunk(chunk_id, created, model_name, batched_content)
@@ -576,14 +672,17 @@ async def stream_response_generator(
             content = agent_chunk.get("content")
             metadata = agent_chunk.get("metadata")
 
-            # Track completion phase for DEBUG mode
+            # Track execution phase for filtering
+            # - step_start with skill: skill starts (suppress reasoning content)
+            # - tool_output: skill completes (allow content through)
+            # - step_start with completion: final answer phase (always allow content)
             if chunk_type == "step_start":
                 action = (metadata or {}).get("action", "")
                 in_completion_phase = action == "completion"
 
             # Apply verbosity filter (DEFAULT mode only)
             if verbosity == VerbosityLevel.DEFAULT:
-                if not _should_show_chunk_default(chunk_type, metadata):
+                if not _should_show_chunk_default(chunk_type, metadata, content):
                     continue
 
             # DEBUG mode: Show categorized JSON for all chunks except completion content
@@ -615,6 +714,20 @@ async def stream_response_generator(
                 if _contains_raw_model_tokens(content):
                     LOGGER.debug("Skipping content with raw tokens: %s", content[:80])
                     continue
+
+                # In DEFAULT mode, apply filtering for reasoning/noise
+                if verbosity == VerbosityLevel.DEFAULT:
+                    # Always show content with AWAITING_USER_INPUT marker
+                    if "[AWAITING_USER_INPUT" in content:
+                        pass  # Don't filter this
+                    # Filter out noise fragments from reasoning model streaming
+                    elif _is_noise_fragment(content):
+                        LOGGER.debug("Skipping noise fragment: %r", content)
+                        continue
+                    # Filter raw model tokens
+                    elif _contains_raw_model_tokens(content):
+                        LOGGER.debug("Skipping raw tokens: %s", content[:80])
+                        continue
 
                 # Add to buffer instead of yielding immediately
                 content_buffer.append(content)
@@ -683,17 +796,18 @@ async def stream_response_generator(
                 # Provide visibility into the plan
                 # Clean the content to handle dicts/JSON
                 label = _clean_content(content)
-                role = (agent_chunk.get("metadata") or {}).get("role", "Executor")
-                action = (agent_chunk.get("metadata") or {}).get("action", "")
-                tool_name = (agent_chunk.get("metadata") or {}).get("tool", "")
+                meta = agent_chunk.get("metadata") or {}
+                role = meta.get("role", "Executor")
+                action = meta.get("action", "")
+                executor = meta.get("executor", "")
+                tool_name = meta.get("tool", "")
 
                 # Improve labels for clarity
                 if action == "completion":
                     formatted = "\n\n📝 **Agent:** *Composing final answer*\n\n"
-                elif tool_name == "consult_expert":
-                    args = (agent_chunk.get("metadata") or {}).get("args") or {}
-                    skill = args.get("skill", "expert")
-                    formatted = f"\n\n🧠 **{skill.title()}:** *Starting research*\n\n"
+                elif executor == "skill" or action == "skill":
+                    # Skills-native execution: tool_name is the skill name
+                    formatted = f"\n\n🧠 **Using skill:** `{tool_name}`\n\n"
                 else:
                     formatted = f"\n\n👣 **{role}:** *{label}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
@@ -704,27 +818,20 @@ async def stream_response_generator(
                 if tool_call:
                     tool_name = tool_call.get("name", "unknown")
                     args = tool_call.get("arguments", {})
-                    # Format args concisely
                     args_str = ""
-                    skill_name = None
 
                     try:
-                        # 1. Normalize args to dict if possible
+                        # Normalize args to dict if possible
                         parsed_args = args
                         if isinstance(args, str):
-                            # Try parsing stringified JSON
                             args = args.strip()
                             if args.startswith("{"):
                                 try:
                                     parsed_args = json.loads(args)
                                 except json.JSONDecodeError:
-                                    pass  # Keep as string
+                                    pass
 
-                        # 2. Extract Skill
-                        if tool_name == "consult_expert" and isinstance(parsed_args, dict):
-                            skill_name = parsed_args.get("skill")
-
-                        # 3. Format visual args string
+                        # Format args string
                         if parsed_args:
                             if isinstance(parsed_args, dict):
                                 parts = [f"{k}={v}" for k, v in parsed_args.items()]
@@ -741,40 +848,26 @@ async def stream_response_generator(
 
                     except Exception as e:
                         LOGGER.warning(f"Error formatting tool args: {e}")
-                        args_str = ""  # Fallback
+                        args_str = ""
 
-                    if skill_name:
-                        formatted = f"\n🧠 **{role}:** Using Skill `{skill_name}`\n"
-                    else:
-                        formatted = f"\n🛠️ **{role}:** `{tool_name}` *{args_str}*\n"
-
-                    yield _format_chunk(
-                        chunk_id,
-                        created,
-                        model_name,
-                        formatted,
-                    )
+                    formatted = f"\n🛠️ **{role}:** `{tool_name}` *{args_str}*\n"
+                    yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "tool_output":
                 # Check status in metadata to determine success/failure
                 meta = agent_chunk.get("metadata") or {}
                 status = meta.get("status", "success")
                 role = meta.get("role", "Executor")
-                tool_name = meta.get("name", "")
+                skill_name = meta.get("skill")  # Set by service.py for skill steps
                 source_count = meta.get("source_count", 0)
 
-                # Improve labels based on tool type
-                if tool_name == "consult_expert":
-                    skill = meta.get("skill", "Research")
+                # Format based on whether this is a skill or regular tool
+                if skill_name:
                     if status == "error":
-                        msg = f"\n❌ **{skill.title()}:** Research failed\n"
+                        msg = f"\n❌ **{skill_name}:** Failed\n"
                     else:
-                        # Always include source count (even if 0) for transparency
                         source_text = "source" if source_count == 1 else "sources"
-                        msg = (
-                            f"\n✅ **{skill.title()}:** "
-                            f"Research complete ({source_count} {source_text})\n"
-                        )
+                        msg = f"\n✅ **{skill_name}:** Done ({source_count} {source_text})\n"
                 else:
                     if status == "error":
                         msg = f"\n❌ **{role}:** Failed\n"
