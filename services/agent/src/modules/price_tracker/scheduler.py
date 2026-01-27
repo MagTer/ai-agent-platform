@@ -22,7 +22,7 @@ class PriceCheckScheduler:
     """Background scheduler for periodic price checks."""
 
     CHECK_INTERVAL_SECONDS = 300  # Check for due items every 5 minutes
-    RATE_LIMIT_DELAY = 5.0  # Seconds between requests to same store
+    RATE_LIMIT_DELAY = 60.0  # Seconds between requests to same store
     BATCH_SIZE = 10  # Max items to check per cycle
 
     def __init__(
