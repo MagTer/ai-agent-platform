@@ -30,6 +30,78 @@ LOGGER = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Raw model tokens that should never be shown to users
+# These indicate internal chain-of-thought or model formatting
+RAW_MODEL_TOKENS = frozenset(
+    [
+        "<|header_start|>",
+        "<|header_end|>",
+        "<|im_start|>",
+        "<|im_end|>",
+        "<|endoftext|>",
+        "<|assistant|>",
+        "<|user|>",
+        "<|system|>",
+        "<|ipython|>",
+        "<think>",
+        "</think>",
+        "<|eot_id|>",
+        "<|start_header_id|>",
+        "<|end_header_id|>",
+    ]
+)
+
+
+def _contains_raw_model_tokens(content: str) -> bool:
+    """Check if content contains raw model tokens that should be filtered.
+
+    These tokens indicate internal chain-of-thought or model formatting
+    that shouldn't be displayed to end users.
+    """
+    if not content:
+        return False
+    for token in RAW_MODEL_TOKENS:
+        if token in content:
+            return True
+    return False
+
+
+def _get_debug_category(chunk_type: str, metadata: dict[str, Any] | None) -> tuple[str, str]:
+    """Get category icon and label for DEBUG mode output.
+
+    Returns:
+        Tuple of (icon, category_label) for the chunk type.
+    """
+    meta = metadata or {}
+
+    if chunk_type == "thinking":
+        role = meta.get("role", "")
+        source = meta.get("source", "")
+        if role == "Planner" or source == "":
+            return ("🔵", "planning")
+        if source == "reasoning_model":
+            return ("🟣", "reasoning")
+        if source == "skill_internal":
+            return ("🟡", "skill")
+        return ("🔵", "thinking")
+
+    if chunk_type in ("step_start", "tool_start", "tool_output"):
+        return ("🟢", "execution")
+
+    if chunk_type == "skill_activity":
+        return ("🟡", "activity")
+
+    if chunk_type in ("content", "result"):
+        return ("⚪", "output")
+
+    if chunk_type == "error":
+        return ("🔴", "error")
+
+    if chunk_type in ("plan", "completion", "history_snapshot", "done"):
+        return ("⚫", "meta")
+
+    return ("⚪", chunk_type)
+
 
 class OpenWebUIAdapter(PlatformAdapter):
     """
@@ -455,13 +527,29 @@ async def stream_response_generator(
     # Track completion phase for DEBUG mode
     in_completion_phase = False
 
+    # Track displayed plans to avoid duplicates
+    shown_plan_descriptions: set[str] = set()
+
+    # Track if we've shown any substantive output yet
+    has_shown_output = False
+
     async def flush_content_buffer() -> AsyncGenerator[str, None]:
-        """Flush accumulated content buffer if not empty."""
-        nonlocal content_buffer, last_flush_time
+        """Flush accumulated content buffer if not empty.
+
+        Filters out content containing raw model tokens before yielding.
+        """
+        nonlocal content_buffer, last_flush_time, has_shown_output
         if content_buffer:
             batched_content = "".join(content_buffer)
             content_buffer = []
             last_flush_time = time.time()
+
+            # Filter out content with raw model tokens
+            if _contains_raw_model_tokens(batched_content):
+                LOGGER.debug("Filtered content with raw model tokens: %s", batched_content[:100])
+                return
+
+            has_shown_output = True
             yield _format_chunk(chunk_id, created, model_name, batched_content)
 
     # Build metadata for tools
@@ -498,21 +586,36 @@ async def stream_response_generator(
                 if not _should_show_chunk_default(chunk_type, metadata):
                     continue
 
-            # DEBUG mode: Show raw JSON for all chunks except completion content
+            # DEBUG mode: Show categorized JSON for all chunks except completion content
             if verbosity == VerbosityLevel.DEBUG:
                 # Skip JSON output for content during completion (let it render normally below)
                 if not (chunk_type == "content" and in_completion_phase):
                     # Flush any pending content first
                     async for chunk in flush_content_buffer():
                         yield chunk
-                    debug_output = f"\n> **[DEBUG]** `{chunk_type}`\n"
+
+                    # Get category for better visual organization
+                    icon, category = _get_debug_category(chunk_type, metadata)
+                    debug_output = f"\n> {icon} **[{category}]** `{chunk_type}`\n"
                     debug_output += "> ```json\n"
-                    debug_output += f"> {json.dumps(agent_chunk, indent=2)}\n"
+
+                    # Format JSON with proper indentation for readability
+                    try:
+                        json_str = json.dumps(agent_chunk, indent=2, ensure_ascii=False)
+                        debug_output += f"> {json_str}\n"
+                    except (TypeError, ValueError):
+                        debug_output += f"> {agent_chunk!r}\n"
+
                     debug_output += "> ```\n\n"
                     yield _format_chunk(chunk_id, created, model_name, debug_output)
 
             # Process chunks normally (formatted output for DEFAULT/VERBOSE, or content for DEBUG)
             if chunk_type == "content" and content:
+                # Filter out content with raw model tokens early
+                if _contains_raw_model_tokens(content):
+                    LOGGER.debug("Skipping content with raw tokens: %s", content[:80])
+                    continue
+
                 # Add to buffer instead of yielding immediately
                 content_buffer.append(content)
 
@@ -537,9 +640,28 @@ async def stream_response_generator(
                 if source in skip_sources and verbosity != VerbosityLevel.DEBUG:
                     continue
 
+                # Filter out thinking with raw model tokens
+                if _contains_raw_model_tokens(content):
+                    LOGGER.debug("Skipping thinking with raw tokens: %s", content[:80])
+                    continue
+
+                # Skip duplicate plan descriptions
+                cleaned = _clean_content(content)
+                if cleaned.startswith("Plan:"):
+                    plan_key = cleaned[:100]  # Use first 100 chars as key
+                    if plan_key in shown_plan_descriptions:
+                        LOGGER.debug("Skipping duplicate plan: %s", plan_key[:50])
+                        continue
+                    shown_plan_descriptions.add(plan_key)
+
                 # Flush any pending content before thinking output
                 async for chunk in flush_content_buffer():
                     yield chunk
+
+                # Show initial processing indicator on first substantive output
+                if not has_shown_output:
+                    has_shown_output = True
+
                 # Check for streaming flag
                 is_stream = False
                 if (
@@ -550,18 +672,11 @@ async def stream_response_generator(
                     is_stream = True
 
                 if is_stream:
-                    # Just yield content for cleaner token streaming.
-                    # (though WebUI might not render it as nicely inline)
-                    # Ideally we want to stream into a single block.
-                    # But OpenWebUI receives deltas.
-                    # If we send `> 🧠 ` once, then tokens?
-                    # Hard to coordinate state.
-                    # Fallback: Just send the token as raw content prefixed? No.
-                    # Send as italics?
+                    # Just yield content for cleaner token streaming
                     yield _format_chunk(chunk_id, created, model_name, content)
                 else:
                     role = (agent_chunk.get("metadata") or {}).get("role", "Agent")
-                    formatted = f"\n🧠 **{role}:** *{_clean_content(content)}*\n\n"
+                    formatted = f"\n🧠 **{role}:** *{cleaned}*\n\n"
                     yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "step_start":
@@ -673,6 +788,8 @@ async def stream_response_generator(
                 query = meta.get("search_query")
                 url = meta.get("fetch_url")
                 file_path = meta.get("file_path")
+                tool_name = meta.get("tool", "")
+                skill_name = meta.get("skill", "")
 
                 if query:
                     formatted = f"\n🔍 *Searching: {query}*\n"
@@ -682,28 +799,64 @@ async def stream_response_generator(
                     formatted = f"\n🌐 *Fetching: [{short_url}]({url})*\n"
                 elif file_path:
                     formatted = f"\n📄 *Reading: {file_path}*\n"
+                elif tool_name:
+                    # Show tool name if available
+                    formatted = f"\n⚙️ *Using {tool_name}*\n"
+                elif skill_name:
+                    formatted = f"\n🧠 *{skill_name}: Working...*\n"
                 else:
-                    formatted = f"\n⚙️ *{_clean_content(content)}*\n"
+                    # Fallback with content
+                    cleaned = _clean_content(content) if content else "Processing"
+                    if not _contains_raw_model_tokens(cleaned):
+                        formatted = f"\n⚙️ *{cleaned}*\n"
+                    else:
+                        continue  # Skip if contains raw tokens
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "error":
                 formatted = f"\n❌ **Error:** {_clean_content(content)}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
-            # Explicitly ignore history_snapshot and other internal events
-            # (in VERBOSE/DEBUG mode, these are already shown above via the raw JSON output)
-            elif chunk_type in ["history_snapshot", "plan"]:
+            # Explicitly ignore internal events
+            # (in DEBUG mode, these are already shown above via the raw JSON output)
+            elif chunk_type in ["history_snapshot", "plan", "done"]:
                 pass
 
+            elif chunk_type == "completion":
+                # Completion metadata - log for debugging but don't display
+                meta = agent_chunk.get("metadata") or {}
+                LOGGER.debug(
+                    "Completion: provider=%s, model=%s",
+                    meta.get("provider"),
+                    meta.get("model"),
+                )
+
             elif chunk_type == "result":
-                # Skill/tool final output - display as regular content
-                output = agent_chunk.get("output")
+                # Skill/tool final output - extract from StepResult if present
+                result_obj = agent_chunk.get("result")
+                output = None
+
+                # Handle StepResult object
+                if result_obj:
+                    if hasattr(result_obj, "result") and isinstance(result_obj.result, dict):
+                        output = result_obj.result.get("output")
+                    elif isinstance(result_obj, dict):
+                        output = result_obj.get("output") or result_obj.get("result", {}).get(
+                            "output"
+                        )
+
+                # Fallback to direct output field
+                if not output:
+                    output = agent_chunk.get("output")
+
                 if output and isinstance(output, str):
-                    yield _format_chunk(chunk_id, created, model_name, output)
+                    # Filter raw tokens from result output too
+                    if not _contains_raw_model_tokens(output):
+                        yield _format_chunk(chunk_id, created, model_name, output)
 
             else:
                 # Log but do not show unknown events to user to avoid noise
-                LOGGER.debug(f"Ignored chunk type: {chunk_type}")
+                LOGGER.debug("Ignored chunk type: %s", chunk_type)
 
     except Exception as e:
         # Flush any remaining content before error
