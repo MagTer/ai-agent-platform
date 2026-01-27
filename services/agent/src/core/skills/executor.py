@@ -286,7 +286,12 @@ class SkillExecutor:
                             if chunk["type"] == "content" and chunk["content"]:
                                 content = chunk["content"]
                                 full_content.append(content)
-                                yield {"type": "content", "content": content}
+                                # Mark skill content for filtering in adapter
+                                yield {
+                                    "type": "content",
+                                    "content": content,
+                                    "metadata": {"source": "skill_stream"},
+                                }
 
                             elif chunk["type"] == "thinking" and chunk["content"]:
                                 # Forward reasoning/thinking from LLM (gpt-oss, etc.)

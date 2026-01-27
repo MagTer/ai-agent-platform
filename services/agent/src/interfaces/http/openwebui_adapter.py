@@ -107,6 +107,46 @@ def _is_reasoning_content(content: str) -> bool:
     return False
 
 
+# Additional patterns for skill reasoning (more aggressive)
+_SKILL_REASONING_PATTERNS = [
+    # Internal planning
+    re.compile(r"^(I should|I need to|I will|I'll|My goal)", re.IGNORECASE),
+    re.compile(r"^(Looking at|Based on|According to|From the)", re.IGNORECASE),
+    re.compile(r"^(The (search|results?|information|data))", re.IGNORECASE),
+    re.compile(r"^(This (shows|indicates|suggests|means))", re.IGNORECASE),
+    # Tool-related reasoning
+    re.compile(r"(call|use|invoke)\s+(the\s+)?\w+\s+tool", re.IGNORECASE),
+    re.compile(r"search(ing)?\s+for\s+", re.IGNORECASE),
+    re.compile(r"fetch(ing)?\s+(the|some|more)", re.IGNORECASE),
+    # Step indicators
+    re.compile(r"^(Now|OK|Alright|Great),?\s+(I|let)", re.IGNORECASE),
+    re.compile(r"^(Here'?s?|So|Thus|Therefore)", re.IGNORECASE),
+    # Internal monologue
+    re.compile(r"^(Hmm|Well|Actually|Interesting)", re.IGNORECASE),
+    re.compile(r"^(Let me (think|check|see|look))", re.IGNORECASE),
+]
+
+
+def _is_skill_reasoning(content: str) -> bool:
+    """Check if content looks like skill's internal reasoning.
+
+    More aggressive than _is_reasoning_content, used for skill_stream content.
+    """
+    if not content:
+        return False
+
+    # Short content is often reasoning fragments
+    stripped = content.strip()
+    if len(stripped) < 20 and not stripped.endswith((".", "?", "!")):
+        return True
+
+    for pattern in _SKILL_REASONING_PATTERNS:
+        if pattern.search(content):
+            return True
+
+    return False
+
+
 def _is_noise_fragment(content: str) -> bool:
     """Check if content is a noise fragment from reasoning model streaming.
 
@@ -722,6 +762,13 @@ async def stream_response_generator(
                     # Always show content with AWAITING_USER_INPUT marker
                     if "[AWAITING_USER_INPUT" in content:
                         pass  # Don't filter this
+                    # Filter skill stream content unless it's the final answer
+                    # Skill content often contains intermediate reasoning
+                    elif (metadata or {}).get("source") == "skill_stream":
+                        # Only show if it looks like final output, not reasoning
+                        if _is_reasoning_content(content) or _is_skill_reasoning(content):
+                            LOGGER.debug("Skipping skill reasoning: %s", content[:80])
+                            continue
                     # Filter reasoning patterns (but not during completion phase)
                     elif not in_completion_phase and _is_reasoning_content(content):
                         LOGGER.debug("Skipping reasoning content: %s", content[:80])

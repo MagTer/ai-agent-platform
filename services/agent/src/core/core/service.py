@@ -450,9 +450,15 @@ class AgentService:
                                         retry_feedback=retry_feedback,
                                     ):
                                         if event["type"] == "content":
-                                            yield {"type": "content", "content": event["content"]}
-                                            # Track skill content for smart completion skip
                                             content = event["content"]
+                                            # Pass through metadata from skill (for filtering)
+                                            meta = event.get("metadata") or {}
+                                            yield {
+                                                "type": "content",
+                                                "content": content,
+                                                "metadata": meta,
+                                            }
+                                            # Track skill content for smart completion skip
                                             if content and len(content) > 100:
                                                 skill_content_yielded = True
                                             # Track if skill is awaiting user input
