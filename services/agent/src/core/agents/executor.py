@@ -339,9 +339,7 @@ class StepExecutorAgent:
                         final_args["user_email"] = user_email
 
             # Inject user_id and session for tools that need credential lookup
-            # This includes direct tools (azure_devops) and orchestration tools (consult_expert)
-            # that forward credentials to sub-tools
-            if step.tool in ("azure_devops", "consult_expert"):
+            if step.tool in ("azure_devops",):
                 user_id_str = (request.metadata or {}).get("user_id")
                 db_session = (request.metadata or {}).get("_db_session")
                 if user_id_str and db_session:
@@ -357,8 +355,7 @@ class StepExecutorAgent:
                         final_args["session"] = db_session
 
             # Inject context_id for tools that need OAuth token lookup or context isolation
-            # This includes direct tools (homey, git_clone) and orchestration tools
-            if step.tool in ("homey", "consult_expert", "git_clone"):
+            if step.tool in ("homey", "git_clone"):
                 context_id_str = (request.metadata or {}).get("context_id")
                 if context_id_str:
                     from uuid import UUID
@@ -685,7 +682,7 @@ class StepExecutorAgent:
                 await asyncio.sleep(0)  # Yield for flush
 
         # If no 'final' event was received, build StepResult from collected content/results
-        # This handles streaming tools like SkillDelegateTool (consult_expert)
+        # This handles streaming tools that yield content chunks
         if not got_final:
             # Prefer streamed content over result messages
             if content_chunks:

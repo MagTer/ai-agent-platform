@@ -505,7 +505,6 @@ def _should_show_chunk_default(
     chunk_type: str,
     metadata: dict[str, Any] | None = None,
     content: str | None = None,
-    tool_call: dict[str, Any] | None = None,
 ) -> bool:
     """Determine if a chunk should be shown in DEFAULT verbosity mode.
 
@@ -520,7 +519,6 @@ def _should_show_chunk_default(
         chunk_type: The type of the agent chunk.
         metadata: Optional chunk metadata.
         content: Optional chunk content (for content-based filtering).
-        tool_call: Optional tool call data (for tool_start filtering).
 
     Returns:
         True if the chunk should be shown, False otherwise.
@@ -558,7 +556,6 @@ def _should_show_chunk_default(
         return False
 
     # Show step_start for skill steps (executor="skill" or action="skill")
-    # This is the primary way skills are invoked in the new architecture
     if chunk_type == "step_start":
         meta = metadata or {}
         executor = meta.get("executor", "")
@@ -567,20 +564,10 @@ def _should_show_chunk_default(
             return True
         return False
 
-    # Show tool_start ONLY for skills (consult_expert - legacy style)
-    if chunk_type == "tool_start":
-        if tool_call:
-            tool_name = tool_call.get("name", "")
-            if tool_name == "consult_expert":
-                return True
-        return False
-
-    # Hide tool_output in DEFAULT mode (don't show "Done" messages)
-    # The user only wants to see skill start, not completion
-
     # Hide everything else in DEFAULT mode:
-    # - skill_activity (search queries, URLs)
+    # - tool_start (internal tool calls)
     # - tool_output (completion status)
+    # - skill_activity (search queries, URLs)
     return False
 
 
@@ -712,8 +699,7 @@ async def stream_response_generator(
 
             # Apply verbosity filter (DEFAULT mode only)
             if verbosity == VerbosityLevel.DEFAULT:
-                tool_call = agent_chunk.get("tool_call")
-                if not _should_show_chunk_default(chunk_type, metadata, content, tool_call):
+                if not _should_show_chunk_default(chunk_type, metadata, content):
                     continue
 
             # DEBUG mode: Show categorized JSON for all chunks except completion content
@@ -843,11 +829,6 @@ async def stream_response_generator(
                 elif executor == "skill" or action == "skill":
                     # Skills-native execution: tool_name is the skill name
                     formatted = f"\n\n🧠 **Using skill:** `{tool_name}`\n\n"
-                elif tool_name == "consult_expert":
-                    # Legacy skill invocation via consult_expert tool
-                    args = meta.get("args") or {}
-                    skill = args.get("skill", "expert")
-                    formatted = f"\n\n🧠 **Using skill:** `{skill}`\n\n"
                 else:
                     formatted = f"\n\n👣 **{role}:** *{label}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
@@ -858,27 +839,20 @@ async def stream_response_generator(
                 if tool_call:
                     tool_name = tool_call.get("name", "unknown")
                     args = tool_call.get("arguments", {})
-                    # Format args concisely
                     args_str = ""
-                    skill_name = None
 
                     try:
-                        # 1. Normalize args to dict if possible
+                        # Normalize args to dict if possible
                         parsed_args = args
                         if isinstance(args, str):
-                            # Try parsing stringified JSON
                             args = args.strip()
                             if args.startswith("{"):
                                 try:
                                     parsed_args = json.loads(args)
                                 except json.JSONDecodeError:
-                                    pass  # Keep as string
+                                    pass
 
-                        # 2. Extract Skill
-                        if tool_name == "consult_expert" and isinstance(parsed_args, dict):
-                            skill_name = parsed_args.get("skill")
-
-                        # 3. Format visual args string
+                        # Format args string
                         if parsed_args:
                             if isinstance(parsed_args, dict):
                                 parts = [f"{k}={v}" for k, v in parsed_args.items()]
@@ -895,40 +869,26 @@ async def stream_response_generator(
 
                     except Exception as e:
                         LOGGER.warning(f"Error formatting tool args: {e}")
-                        args_str = ""  # Fallback
+                        args_str = ""
 
-                    if skill_name:
-                        formatted = f"\n🧠 **Using skill:** `{skill_name}`\n"
-                    else:
-                        formatted = f"\n🛠️ **{role}:** `{tool_name}` *{args_str}*\n"
-
-                    yield _format_chunk(
-                        chunk_id,
-                        created,
-                        model_name,
-                        formatted,
-                    )
+                    formatted = f"\n🛠️ **{role}:** `{tool_name}` *{args_str}*\n"
+                    yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "tool_output":
                 # Check status in metadata to determine success/failure
                 meta = agent_chunk.get("metadata") or {}
                 status = meta.get("status", "success")
                 role = meta.get("role", "Executor")
-                tool_name = meta.get("name", "")
+                skill_name = meta.get("skill")  # Set by service.py for skill steps
                 source_count = meta.get("source_count", 0)
 
-                # Improve labels based on tool type
-                if tool_name == "consult_expert":
-                    skill = meta.get("skill", "Research")
+                # Format based on whether this is a skill or regular tool
+                if skill_name:
                     if status == "error":
-                        msg = f"\n❌ **{skill.title()}:** Research failed\n"
+                        msg = f"\n❌ **{skill_name}:** Failed\n"
                     else:
-                        # Always include source count (even if 0) for transparency
                         source_text = "source" if source_count == 1 else "sources"
-                        msg = (
-                            f"\n✅ **{skill.title()}:** "
-                            f"Research complete ({source_count} {source_text})\n"
-                        )
+                        msg = f"\n✅ **{skill_name}:** Done ({source_count} {source_text})\n"
                 else:
                     if status == "error":
                         msg = f"\n❌ **{role}:** Failed\n"
