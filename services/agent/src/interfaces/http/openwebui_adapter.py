@@ -557,7 +557,17 @@ def _should_show_chunk_default(
 
         return False
 
-    # Show tool_start ONLY for skills (consult_expert), not all tools
+    # Show step_start for skill steps (executor="skill" or action="skill")
+    # This is the primary way skills are invoked in the new architecture
+    if chunk_type == "step_start":
+        meta = metadata or {}
+        executor = meta.get("executor", "")
+        action = meta.get("action", "")
+        if executor == "skill" or action == "skill":
+            return True
+        return False
+
+    # Show tool_start ONLY for skills (consult_expert - legacy style)
     if chunk_type == "tool_start":
         if tool_call:
             tool_name = tool_call.get("name", "")
@@ -569,7 +579,6 @@ def _should_show_chunk_default(
     # The user only wants to see skill start, not completion
 
     # Hide everything else in DEFAULT mode:
-    # - step_start (internal progress)
     # - skill_activity (search queries, URLs)
     # - tool_output (completion status)
     return False
@@ -822,17 +831,23 @@ async def stream_response_generator(
                 # Provide visibility into the plan
                 # Clean the content to handle dicts/JSON
                 label = _clean_content(content)
-                role = (agent_chunk.get("metadata") or {}).get("role", "Executor")
-                action = (agent_chunk.get("metadata") or {}).get("action", "")
-                tool_name = (agent_chunk.get("metadata") or {}).get("tool", "")
+                meta = agent_chunk.get("metadata") or {}
+                role = meta.get("role", "Executor")
+                action = meta.get("action", "")
+                executor = meta.get("executor", "")
+                tool_name = meta.get("tool", "")
 
                 # Improve labels for clarity
                 if action == "completion":
                     formatted = "\n\n📝 **Agent:** *Composing final answer*\n\n"
+                elif executor == "skill" or action == "skill":
+                    # Skills-native execution: tool_name is the skill name
+                    formatted = f"\n\n🧠 **Using skill:** `{tool_name}`\n\n"
                 elif tool_name == "consult_expert":
-                    args = (agent_chunk.get("metadata") or {}).get("args") or {}
+                    # Legacy skill invocation via consult_expert tool
+                    args = meta.get("args") or {}
                     skill = args.get("skill", "expert")
-                    formatted = f"\n\n🧠 **{skill.title()}:** *Starting research*\n\n"
+                    formatted = f"\n\n🧠 **Using skill:** `{skill}`\n\n"
                 else:
                     formatted = f"\n\n👣 **{role}:** *{label}*\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)
