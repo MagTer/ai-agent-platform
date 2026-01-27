@@ -394,8 +394,17 @@ class AgentService:
                     # ─────────────────────────────────────────────────────────────
                     needs_replan = False
                     abort_execution = False
+                    # Track if a skill is awaiting user input (skip completion if so)
+                    awaiting_user_input = False
 
                     for plan_step in plan.steps:
+                        # Skip completion step if a skill is awaiting user input
+                        # This prevents hallucinated responses when user needs to answer first
+                        if plan_step.action == "completion" and awaiting_user_input:
+                            LOGGER.info("Skipping completion step - skill awaiting user input")
+                            execution_complete = True
+                            break
+
                         # Per-step retry tracking for self-correction
                         retry_count = 0
                         retry_feedback: str | None = None
@@ -446,6 +455,9 @@ class AgentService:
                                             content = event["content"]
                                             if content and len(content) > 100:
                                                 skill_content_yielded = True
+                                            # Track if skill is awaiting user input
+                                            if content and "[AWAITING_USER_INPUT" in content:
+                                                awaiting_user_input = True
                                         elif event["type"] == "thinking":
                                             meta = (event.get("metadata") or {}).copy()
                                             meta["id"] = plan_step.id
