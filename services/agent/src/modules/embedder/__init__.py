@@ -1,8 +1,11 @@
 import logging
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from core.core.litellm_client import LiteLLMClient
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -52,7 +55,12 @@ class Embedder:
         """Check if the model is loaded without triggering lazy load."""
         return self._model is not None
 
-    def embed(self, texts: list[str], normalize: bool = True) -> list[list[float]]:
+    @property
+    def dimension(self) -> int:
+        """Vector dimension size (384 for paraphrase-multilingual-MiniLM-L12-v2)."""
+        return 384
+
+    async def embed(self, texts: list[str], normalize: bool = True) -> list[list[float]]:
         """Embed texts into vectors. Triggers lazy model load on first call."""
         self._ensure_model_loaded()
 
@@ -60,6 +68,26 @@ class Embedder:
         if isinstance(vectors, np.ndarray):
             return vectors.tolist()
         return vectors
+
+
+class LiteLLMEmbedder:
+    """Embedder using LiteLLM proxy (OpenRouter API).
+
+    Uses voyageai/voyage-multilingual-2 which produces 1024-dimensional vectors.
+    """
+
+    def __init__(self, litellm_client: "LiteLLMClient") -> None:
+        self._client = litellm_client
+        self._dimension = 1024  # voyage-multilingual-2
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        """Embed texts using LiteLLM proxy."""
+        return await self._client.embed(texts)
+
+    @property
+    def dimension(self) -> int:
+        """Vector dimension size (1024 for voyage-multilingual-2)."""
+        return self._dimension
 
 
 # Global instance for easy access
@@ -71,3 +99,6 @@ def get_embedder() -> Embedder:
     if _embedder is None:
         _embedder = Embedder()
     return _embedder
+
+
+__all__ = ["Embedder", "LiteLLMEmbedder", "get_embedder"]

@@ -1,5 +1,6 @@
 """Ingest TIBP Wiki documents into Qdrant."""
 
+import argparse
 import asyncio
 import os
 import sys
@@ -12,6 +13,9 @@ sys.path.append(str(project_root / "services" / "agent" / "src"))
 from colorama import Fore, Style, init  # noqa: E402
 from qdrant_client.http import models  # noqa: E402
 
+from core.core.config import Settings  # noqa: E402
+from core.core.litellm_client import LiteLLMClient  # noqa: E402
+from modules.embedder import LiteLLMEmbedder  # noqa: E402
 from modules.rag import RAGManager  # noqa: E402
 
 init(autoreset=True)
@@ -20,36 +24,50 @@ DATA_DIR = project_root / "services" / "agent" / "data" / "tibp_wiki_export"
 COLLECTION_NAME = "tibp-wiki"
 
 
-async def main():
+async def main(force: bool = False):
     print(f"{Style.BRIGHT}🚀 Starting TIBP Wiki Ingestion...")
 
-    # 1. Initialize RAG
-    # We must override collection in env or init? RAGManager takes defaults from ENV.
-    # But RAGManager.__init__ reads ENV.
-    # We can pass specific connection if we modify RAGManager or just hack ENV before init?
-    # RAGManager uses `self.collection_name = os.getenv("QDRANT_COLLECTION", ...)`
-    # So we set ENV.
+    # 1. Initialize LiteLLM and RAG with dependency injection
+    settings = Settings()
+    litellm_client = LiteLLMClient(settings)
+    embedder = LiteLLMEmbedder(litellm_client)
 
     os.environ["QDRANT_COLLECTION"] = COLLECTION_NAME
-    rag = RAGManager()
+    rag = RAGManager(embedder=embedder)
 
     try:
         print(f"📦 Checking collection '{COLLECTION_NAME}'...")
         try:
             exists = await rag.client.collection_exists(COLLECTION_NAME)
-            if not exists:
-                print("   Creating new collection...")
-                await rag.client.create_collection(
-                    collection_name=COLLECTION_NAME,
-                    vectors_config=models.VectorParams(
-                        size=384, distance=models.Distance.COSINE  # Default from config
-                    ),
+
+            if exists and not force:
+                print(
+                    f"   {Fore.YELLOW}⚠️  Collection '{COLLECTION_NAME}' exists. "
+                    "Use --force to recreate."
                 )
-            else:
-                print("   Collection exists.")
+                return
+
+            if exists and force:
+                print(f"   {Fore.YELLOW}Deleting existing collection '{COLLECTION_NAME}'...")
+                await rag.client.delete_collection(COLLECTION_NAME)
+
+            print("   Creating new collection with 1024-dim vectors and HNSW config...")
+            await rag.client.create_collection(
+                collection_name=COLLECTION_NAME,
+                vectors_config=models.VectorParams(
+                    size=1024,  # voyage-multilingual-2
+                    distance=models.Distance.COSINE,
+                ),
+                hnsw_config=models.HnswConfigDiff(
+                    m=32,
+                    ef_construct=256,
+                ),
+            )
+            print(f"   {Fore.GREEN}✓ Collection created successfully.")
+
         except Exception as e:
-            print(f"   ⚠️ Could not check/create collection: {e}")
-            # Continue to try ingesting anyway (maybe just check failed)
+            print(f"   {Fore.RED}❌ Could not check/create collection: {e}")
+            raise
 
         # 3. Read Files
         if not DATA_DIR.exists():
@@ -63,7 +81,7 @@ async def main():
 
         print(f"📂 Found {len(files)} documents.")
 
-        # 4. Ingest
+        # 4. Ingest with updated chunk size (~2000 chars ≈ 512 tokens)
         total_chunks = 0
         for f in files:
             print(f"   Processing {f.name}...")
@@ -78,7 +96,12 @@ async def main():
                 "type": "documentation",
             }
 
-            n = await rag.ingest_document(content, metadata)
+            n = await rag.ingest_document(
+                content,
+                metadata,
+                chunk_size=2000,  # ~512 tokens for voyage-multilingual-2
+                chunk_overlap=300,
+            )
             print(f"     -> Added {n} chunks.")
             total_chunks += n
 
@@ -86,9 +109,20 @@ async def main():
 
     except Exception as e:
         print(f"{Fore.RED}❌ Error: {e}")
+        raise
     finally:
+        print(f"\n{Style.DIM}Cleaning up connections...")
         await rag.close()
+        await litellm_client.aclose()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    parser = argparse.ArgumentParser(description="Ingest TIBP Wiki into Qdrant")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Delete and recreate collection if it exists",
+    )
+    args = parser.parse_args()
+
+    asyncio.run(main(force=args.force))

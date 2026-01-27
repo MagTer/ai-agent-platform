@@ -83,7 +83,7 @@ class RAGManager:
         k = top_k or self.top_k
         target_collection = collection_name or self.collection_name
         try:
-            vecs = self.embedder.embed([query])
+            vecs = await self.embedder.embed([query])
             if not vecs:
                 return []
             qvec = np.array(vecs[0], dtype=np.float32)
@@ -188,7 +188,7 @@ class RAGManager:
 
         try:
             # Embed all chunks
-            embeddings = self.embedder.embed(chunks)
+            embeddings = await self.embedder.embed(chunks)
             if not embeddings:
                 logger.warning("Embedder returned no embeddings")
                 return 0

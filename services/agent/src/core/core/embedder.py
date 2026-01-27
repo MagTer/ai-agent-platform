@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from collections.abc import Sequence
 
@@ -24,6 +23,11 @@ class EmbedderClient:
         # entirely since that service is likely missing.
         self._use_internal = "embedder" in self._base_url or "localhost" in self._base_url
 
+    @property
+    def dimension(self) -> int:
+        """Vector dimension size from the registered embedder."""
+        return get_embedder().dimension
+
     async def embed(self, inputs: Sequence[str]) -> list[list[float]]:
         """Return vectors for each provided input string."""
         if not inputs:
@@ -31,11 +35,8 @@ class EmbedderClient:
 
         if self._use_internal:
             try:
-                loop = asyncio.get_running_loop()
-                # Run CPU-bound embedding in a separate thread to avoid blocking the event loop
-                processed = await loop.run_in_executor(
-                    None, lambda: get_embedder().embed(list(inputs), normalize=True)
-                )
+                # Call the async embed method from the registered embedder
+                processed = await get_embedder().embed(list(inputs))
                 return processed
             except Exception as exc:
                 LOGGER.error("Internal embedder failed: %s", exc)

@@ -22,9 +22,11 @@ def ensure_schema(
     host: str = typer.Option("localhost", help="Qdrant host."),
     port: int = typer.Option(6333, help="Qdrant HTTP port."),
     collection: str = typer.Option("memory", help="Collection name."),
-    size: int = typer.Option(384, help="Vector size."),
+    size: int = typer.Option(1024, help="Vector size."),
     distance: str = typer.Option("Cosine", help="Distance metric (Cosine, Euclid, Dot)."),
     recreate: bool = typer.Option(False, help="Drop the collection before ensuring schema."),
+    hnsw_m: int = typer.Option(32, help="HNSW index M parameter (graph connectivity)."),
+    hnsw_ef_construct: int = typer.Option(256, help="HNSW ef_construct (build quality)."),
 ) -> None:
     """Ensure the target Qdrant collection exists with the requested schema."""
 
@@ -46,7 +48,10 @@ def ensure_schema(
             exists = False
 
         if not exists:
-            payload = {"vectors": {"size": size, "distance": distance_value}}
+            payload = {
+                "vectors": {"size": size, "distance": distance_value},
+                "hnsw_config": {"m": hnsw_m, "ef_construct": hnsw_ef_construct},
+            }
             client.put(f"{base_url}/collections/{collection}", json=payload).raise_for_status()
         typer.echo(f"Collection '{collection}' is ensured at {host}:{port}.")
     finally:

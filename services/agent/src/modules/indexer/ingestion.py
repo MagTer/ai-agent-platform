@@ -115,7 +115,7 @@ class CodeIndexer:
 
         # Embed
         texts = [c["text"] for c in chunks]
-        vectors = self.embedder.embed(texts)
+        vectors = await self.embedder.embed(texts)
 
         # Prepare Points
         points = []
