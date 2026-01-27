@@ -179,13 +179,11 @@ class PlannerAgent:
                 "## RULES\n"
                 "1. DELEGATE to skills - never guess answers needing current data\n"
                 "2. Skill step format: executor=skill, action=skill, tool=skill_name\n"
-                "3. Simple questions (translations, math, syntax) = single completion step\n"
-                "4. SMART HOME commands ALWAYS require skill call\n"
-                "5. COMPLETION RULES (CRITICAL - follow exactly):\n"
-                "   - Single skill = NO completion step (skill output IS the answer)\n"
-                "   - Multiple skills = completion ONLY at end to synthesize\n"
-                "   - Simple questions = single completion step only\n"
-                "   - NEVER add completion after drafting/research skills\n\n"
+                "3. SMART HOME commands ALWAYS require skill call\n"
+                "4. COMPLETION RULES (CRITICAL):\n"
+                "   - NEVER add completion step if plan has ANY skills\n"
+                "   - Skills communicate via history, skill output IS the answer\n"
+                "   - User sees skill output directly, no synthesis needed\n\n"
                 "## MULTI-TURN SKILL ROUTING (CRITICAL)\n"
                 "If history contains `[AWAITING_USER_INPUT:*]` from a skill:\n"
                 "- The user's current message is answering that skill's question\n"
@@ -194,26 +192,22 @@ class PlannerAgent:
                 "- Example: If requirements_drafter asked 'Which team?' and user says 'security',\n"
                 "  route to requirements_drafter with goal including 'team: security'\n\n"
                 "## EXAMPLES\n"
-                '"What is hello in French?" → direct answer:\n'
-                '{"description":"Translation","steps":[{"id":"1","label":"Answer",'
-                '"executor":"litellm","action":"completion","args":{}}]}\n\n'
-                '"Research Python 3.12" → skill only:\n'
+                '"Research Python 3.12" → single skill (NO completion):\n'
                 '{"description":"Research","steps":[{"id":"1","label":"Research",'
                 '"executor":"skill","action":"skill","tool":"researcher",'
                 '"args":{"goal":"Python 3.12 features"}}]}\n\n'
-                '"Turn off lights" → skill only:\n'
+                '"Turn off lights" → single skill (NO completion):\n'
                 '{"description":"Smart home","steps":[{"id":"1","label":"Control",'
                 '"executor":"skill","action":"skill","tool":"general/homey",'
                 '"args":{"goal":"Turn off the kitchen lamp"}}]}\n\n'
-                '"Research X then draft work item" → multiple skills + completion:\n'
+                '"Research X then draft work item" → multiple skills (NO completion):\n'
                 '{"description":"Research and draft","steps":['
                 '{"id":"1","label":"Research","executor":"skill","action":"skill",'
                 '"tool":"deep_research","args":{"goal":"Research X"}},'
                 '{"id":"2","label":"Draft","executor":"skill","action":"skill",'
-                '"tool":"requirements_drafter","args":{"goal":"Draft based on research"}},'
-                '{"id":"3","label":"Summary","executor":"litellm","action":"completion","args":{}}]}\n\n'
-                "Multi-turn example (history contains [AWAITING_USER_INPUT:team_selection] "
-                'from requirements_drafter, user says "security"):\n'
+                '"tool":"requirements_drafter","args":{"goal":"Draft based on research"}}]}\n\n'
+                "Multi-turn (history has [AWAITING_USER_INPUT:team_selection], user says "
+                '"security"):\n'
                 '{"description":"Continue drafting","steps":[{"id":"1","label":"Continue draft",'
                 '"executor":"skill","action":"skill","tool":"requirements_drafter",'
                 '"args":{"goal":"Continue drafting with team: security"}}]}\n'
