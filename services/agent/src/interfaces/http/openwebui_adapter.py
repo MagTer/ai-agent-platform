@@ -507,8 +507,12 @@ def _should_show_chunk_default(
 ) -> bool:
     """Determine if a chunk should be shown in DEFAULT verbosity mode.
 
-    DEFAULT mode shows minimal output: final answer, errors, brief skill status,
-    and initial planning feedback (so users know something is happening).
+    DEFAULT mode shows minimal output:
+    - Final answer (content)
+    - Errors
+    - Plan announcement (Agent: Plan: ...)
+    - Skill start (Executor: <skill name>)
+    - Supervisor replan notices
 
     Args:
         chunk_type: The type of the agent chunk.
@@ -521,30 +525,41 @@ def _should_show_chunk_default(
     if chunk_type in ("content", "error"):
         return True
 
-    # Show thinking chunks from Planner (gives initial feedback that work is starting)
+    # Show thinking chunks from Planner and Supervisor (important status updates)
     # Never show internal thinking that clutters UI:
     # - reasoning_model: LLM chain-of-thought (gpt-oss-120b, Qwen3)
     # - skill_internal: Skill executor progress (Goal:, Searching:)
     if chunk_type == "thinking":
-        source = (metadata or {}).get("source", "")
+        meta = metadata or {}
+        source = meta.get("source", "")
         if source in ("reasoning_model", "skill_internal"):
             return False
-        role = (metadata or {}).get("role", "")
+
+        role = meta.get("role", "")
+        # Show Planner messages (plan announcements, replans)
         if role == "Planner":
             return True
+        # Show Supervisor messages (replan notices, important status)
+        if role == "Supervisor":
+            return True
+
+        # Show plan announcements (may not have role but have orchestration/type)
+        orchestration = meta.get("orchestration", "")
+        msg_type = meta.get("type", "")
+        if orchestration == "plan" or msg_type == "plan":
+            return True
+
         return False
 
-    # Show tool_start/tool_output only for skills (brief start/completion status)
-    if chunk_type in ("tool_start", "tool_output"):
-        # Check tool name from metadata or tool_call
-        tool_call = (metadata or {}).get("tool_call") or {}
-        tool_name = (metadata or {}).get("name") or tool_call.get("name", "")
-        if tool_name == "consult_expert":
-            return True
-        return False
+    # Show tool_start for skills (Executor: <skill name>)
+    if chunk_type == "tool_start":
+        return True
+
+    # Show tool_output for skill completion status
+    if chunk_type == "tool_output":
+        return True
 
     # Hide everything else in DEFAULT mode:
-    # - thinking from other roles (verbose)
     # - step_start (internal progress)
     # - skill_activity (search queries, URLs)
     return False
