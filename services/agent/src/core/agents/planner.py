@@ -185,6 +185,13 @@ class PlannerAgent:
                 "   - Single skill = NO completion (skill output is the answer)\n"
                 "   - Multiple skills = completion ONLY at end to synthesize results\n"
                 "   - Simple questions = single completion step only\n\n"
+                "## MULTI-TURN SKILL ROUTING (CRITICAL)\n"
+                "If history contains `[AWAITING_USER_INPUT:*]` from a skill:\n"
+                "- The user's current message is answering that skill's question\n"
+                "- Route to the SAME skill that asked the question\n"
+                "- Include the user's answer in the goal\n"
+                "- Example: If requirements_drafter asked 'Which team?' and user says 'security',\n"
+                "  route to requirements_drafter with goal including 'team: security'\n\n"
                 "## EXAMPLES\n"
                 '"What is hello in French?" → direct answer:\n'
                 '{"description":"Translation","steps":[{"id":"1","label":"Answer",'
@@ -203,7 +210,12 @@ class PlannerAgent:
                 '"tool":"deep_research","args":{"goal":"Research X"}},'
                 '{"id":"2","label":"Draft","executor":"skill","action":"skill",'
                 '"tool":"requirements_drafter","args":{"goal":"Draft based on research"}},'
-                '{"id":"3","label":"Summary","executor":"litellm","action":"completion","args":{}}]}\n'
+                '{"id":"3","label":"Summary","executor":"litellm","action":"completion","args":{}}]}\n\n'
+                "Multi-turn example (history contains [AWAITING_USER_INPUT:team_selection] "
+                'from requirements_drafter, user says "security"):\n'
+                '{"description":"Continue drafting","steps":[{"id":"1","label":"Continue draft",'
+                '"executor":"skill","action":"skill","tool":"requirements_drafter",'
+                '"args":{"goal":"Continue drafting with team: security"}}]}\n'
             ),
         )
 
