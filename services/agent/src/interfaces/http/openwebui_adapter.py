@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -51,6 +52,29 @@ RAW_MODEL_TOKENS = frozenset(
     ]
 )
 
+# Patterns that indicate model reasoning/planning output (not final content)
+# These are used for more aggressive filtering in DEFAULT mode
+_REASONING_PATTERNS = [
+    # Tool call patterns from reasoning models
+    re.compile(r"^\s*\[?\s*web_search\s*\(", re.IGNORECASE),
+    re.compile(r"^\s*\[?\s*web_fetch\s*\(", re.IGNORECASE),
+    re.compile(r"^\s*\[?\s*\w+_\w+\s*\(.*\)\s*[,\]]", re.IGNORECASE),  # tool_name(...)
+    # Planning/reasoning phrases at start of content
+    re.compile(r"^(Let's|Let me|I'll|I will|I need to|First,|Step \d)", re.IGNORECASE),
+    re.compile(r"^(Now I|Now let|Proceeding|Starting|Begin)", re.IGNORECASE),
+    re.compile(r"^(Turn \d|Round \d|Attempt \d)", re.IGNORECASE),
+    re.compile(r"^(Next,|Then,|After that|Finally,|Additionally)", re.IGNORECASE),
+    # Partial reasoning phrases (may appear mid-stream)
+    re.compile(r"start by searching", re.IGNORECASE),
+    re.compile(r"let's fetch", re.IGNORECASE),
+    re.compile(r"fetch (some|the|another|more)", re.IGNORECASE),
+    re.compile(r"searching for (the|Tesla|more)", re.IGNORECASE),
+    re.compile(r"get (the latest|more info)", re.IGNORECASE),
+    # JSON-like tool calls
+    re.compile(r'^\s*\{\s*"tool"\s*:', re.IGNORECASE),
+    re.compile(r'^\s*\{\s*"action"\s*:', re.IGNORECASE),
+]
+
 
 def _contains_raw_model_tokens(content: str) -> bool:
     """Check if content contains raw model tokens that should be filtered.
@@ -63,6 +87,46 @@ def _contains_raw_model_tokens(content: str) -> bool:
     for token in RAW_MODEL_TOKENS:
         if token in content:
             return True
+    return False
+
+
+def _is_reasoning_content(content: str) -> bool:
+    """Check if content looks like model reasoning/planning output.
+
+    This catches natural language reasoning that reasoning models output
+    as content instead of in reasoning_content field.
+    """
+    if not content:
+        return False
+
+    # Check for reasoning patterns
+    for pattern in _REASONING_PATTERNS:
+        if pattern.search(content):
+            return True
+
+    return False
+
+
+def _is_noise_fragment(content: str) -> bool:
+    """Check if content is a noise fragment from reasoning model streaming.
+
+    Reasoning models often stream their chain-of-thought character by character,
+    resulting in fragments like '[', '[]', '{', etc. that should be filtered.
+    """
+    if not content:
+        return False
+
+    stripped = content.strip()
+
+    # Very short fragments that are likely noise
+    if len(stripped) <= 3:
+        # Single brackets, braces, or short combos
+        if stripped in ("[", "]", "[]", "{", "}", "{}", "(", ")", "()", "[{", "}]"):
+            return True
+        # Single punctuation or whitespace
+        if stripped in (",", ":", ";", ".", "\n", "\t"):
+            return True
+
     return False
 
 
@@ -524,8 +588,12 @@ async def stream_response_generator(
     content_buffer: list[str] = []
     last_flush_time = time.time()
 
-    # Track completion phase for DEBUG mode
+    # Track execution phase for content filtering
+    # - skill_active: True when a skill is currently executing (suppress reasoning content)
+    # - skill_completed: True after a skill has completed (show its output)
     in_completion_phase = False
+    skill_active = False
+    skill_completed = False
 
     # Track displayed plans to avoid duplicates
     shown_plan_descriptions: set[str] = set()
@@ -536,7 +604,8 @@ async def stream_response_generator(
     async def flush_content_buffer() -> AsyncGenerator[str, None]:
         """Flush accumulated content buffer if not empty.
 
-        Filters out content containing raw model tokens before yielding.
+        Filters out content containing raw model tokens or reasoning patterns
+        (in DEFAULT mode) before yielding.
         """
         nonlocal content_buffer, last_flush_time, has_shown_output
         if content_buffer:
@@ -548,6 +617,19 @@ async def stream_response_generator(
             if _contains_raw_model_tokens(batched_content):
                 LOGGER.debug("Filtered content with raw model tokens: %s", batched_content[:100])
                 return
+
+            # In DEFAULT mode, also filter accumulated reasoning content and noise
+            if verbosity == VerbosityLevel.DEFAULT:
+                # During active skill execution, suppress content
+                if skill_active and not skill_completed and not in_completion_phase:
+                    LOGGER.debug("Filtered active-skill content: %s", batched_content[:100])
+                    return
+                if _is_reasoning_content(batched_content):
+                    LOGGER.debug("Filtered reasoning content: %s", batched_content[:100])
+                    return
+                if _is_noise_fragment(batched_content):
+                    LOGGER.debug("Filtered noise fragment: %r", batched_content)
+                    return
 
             has_shown_output = True
             yield _format_chunk(chunk_id, created, model_name, batched_content)
@@ -576,10 +658,23 @@ async def stream_response_generator(
             content = agent_chunk.get("content")
             metadata = agent_chunk.get("metadata")
 
-            # Track completion phase for DEBUG mode
+            # Track execution phase for filtering
+            # - step_start with skill: skill starts (suppress reasoning content)
+            # - tool_output: skill completes (allow content through)
+            # - step_start with completion: final answer phase (always allow)
             if chunk_type == "step_start":
                 action = (metadata or {}).get("action", "")
+                executor = (metadata or {}).get("executor", "")
                 in_completion_phase = action == "completion"
+                if action == "skill" or executor == "skill":
+                    skill_active = True
+                    skill_completed = False
+
+            # When we receive tool_output, the skill has completed its work
+            # Content after this point is the actual output, not reasoning
+            if chunk_type == "tool_output":
+                skill_active = False
+                skill_completed = True
 
             # Apply verbosity filter (DEFAULT mode only)
             if verbosity == VerbosityLevel.DEFAULT:
@@ -615,6 +710,24 @@ async def stream_response_generator(
                 if _contains_raw_model_tokens(content):
                     LOGGER.debug("Skipping content with raw tokens: %s", content[:80])
                     continue
+
+                # In DEFAULT mode, apply aggressive filtering
+                if verbosity == VerbosityLevel.DEFAULT:
+                    # During active skill execution (before tool_output), suppress content
+                    # This is the skill's internal reasoning, not the final output
+                    if skill_active and not skill_completed and not in_completion_phase:
+                        LOGGER.debug("Skipping active-skill content: %s", content[:80])
+                        continue
+
+                    # Also filter reasoning patterns that slip through
+                    if _is_reasoning_content(content):
+                        LOGGER.debug("Skipping reasoning content: %s", content[:80])
+                        continue
+
+                    # Filter out noise fragments from reasoning model streaming
+                    if _is_noise_fragment(content):
+                        LOGGER.debug("Skipping noise fragment: %r", content)
+                        continue
 
                 # Add to buffer instead of yielding immediately
                 content_buffer.append(content)
