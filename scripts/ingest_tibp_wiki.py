@@ -13,9 +13,7 @@ sys.path.append(str(project_root / "services" / "agent" / "src"))
 from colorama import Fore, Style, init  # noqa: E402
 from qdrant_client.http import models  # noqa: E402
 
-from core.core.config import Settings  # noqa: E402
-from core.core.litellm_client import LiteLLMClient  # noqa: E402
-from modules.embedder import LiteLLMEmbedder  # noqa: E402
+from modules.embedder import OpenRouterEmbedder  # noqa: E402
 from modules.rag import RAGManager  # noqa: E402
 
 init(autoreset=True)
@@ -27,10 +25,8 @@ COLLECTION_NAME = "tibp-wiki"
 async def main(force: bool = False):
     print(f"{Style.BRIGHT}🚀 Starting TIBP Wiki Ingestion...")
 
-    # 1. Initialize LiteLLM and RAG with dependency injection
-    settings = Settings()
-    litellm_client = LiteLLMClient(settings)
-    embedder = LiteLLMEmbedder(litellm_client)
+    # 1. Initialize OpenRouter embedder and RAG
+    embedder = OpenRouterEmbedder()  # Uses OPENROUTER_API_KEY from env
 
     os.environ["QDRANT_COLLECTION"] = COLLECTION_NAME
     rag = RAGManager(embedder=embedder)
@@ -51,11 +47,11 @@ async def main(force: bool = False):
                 print(f"   {Fore.YELLOW}Deleting existing collection '{COLLECTION_NAME}'...")
                 await rag.client.delete_collection(COLLECTION_NAME)
 
-            print("   Creating new collection with 1024-dim vectors and HNSW config...")
+            print("   Creating new collection with 4096-dim vectors and HNSW config...")
             await rag.client.create_collection(
                 collection_name=COLLECTION_NAME,
                 vectors_config=models.VectorParams(
-                    size=1024,  # voyage-multilingual-2
+                    size=4096,  # qwen3-embedding-8b
                     distance=models.Distance.COSINE,
                 ),
                 hnsw_config=models.HnswConfigDiff(
@@ -99,7 +95,7 @@ async def main(force: bool = False):
             n = await rag.ingest_document(
                 content,
                 metadata,
-                chunk_size=2000,  # ~512 tokens for voyage-multilingual-2
+                chunk_size=2000,  # ~512 tokens
                 chunk_overlap=300,
             )
             print(f"     -> Added {n} chunks.")
@@ -113,7 +109,7 @@ async def main(force: bool = False):
     finally:
         print(f"\n{Style.DIM}Cleaning up connections...")
         await rag.close()
-        await litellm_client.aclose()
+        await embedder.close()
 
 
 if __name__ == "__main__":

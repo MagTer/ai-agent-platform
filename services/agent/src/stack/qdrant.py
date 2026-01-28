@@ -22,7 +22,7 @@ def ensure_schema(
     host: str = typer.Option("localhost", help="Qdrant host."),
     port: int = typer.Option(6333, help="Qdrant HTTP port."),
     collection: str = typer.Option("memory", help="Collection name."),
-    size: int = typer.Option(1024, help="Vector size."),
+    size: int = typer.Option(4096, help="Vector size."),
     distance: str = typer.Option("Cosine", help="Distance metric (Cosine, Euclid, Dot)."),
     recreate: bool = typer.Option(False, help="Drop the collection before ensuring schema."),
     hnsw_m: int = typer.Option(32, help="HNSW index M parameter (graph connectivity)."),
