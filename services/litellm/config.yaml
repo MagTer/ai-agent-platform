@@ -123,13 +123,3 @@ model_list:
       extra_body:
         provider:
           zdr: true
-
-  # ============================================
-  # EMBEDDING MODELS
-  # ============================================
-
-  - model_name: embedder
-    litellm_params:
-      model: openrouter/voyageai/voyage-multilingual-2
-      api_key: os.environ/OPENROUTER_API_KEY
-      rpm: 100
