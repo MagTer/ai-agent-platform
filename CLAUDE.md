@@ -65,29 +65,32 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 
 ---
 
-### 3. QA (Haiku - Quality Assurance)
+### 3. Ops (Haiku - Git, Test, Deploy)
 
 **Model:** `claude-3-5-haiku` (cost-efficient)
 
 **Use for:**
-- Running tests
-- Fixing linting errors
-- Updating documentation
-- Summarizing changes for PRs
+- ALL git operations (commit, push, sync, PR)
+- Running tests and quality checks
+- Deploying to dev/prod
+- Branch management
 
-**Slash Command:** `/clean`
+**Slash Command:** `/ops`
 
 **What it does:**
-- Runs pytest and reports results
-- Auto-fixes Ruff/Black issues
-- Spawns Engineer for complex Mypy errors
-- Updates docs after code changes
-- Generates PR descriptions
+- Handles git safely (NEVER uses destructive commands)
+- Runs `stack check` for quality verification
+- Creates PRs with proper descriptions
+- Deploys via `stack dev restart` / `stack deploy`
 
 **Example:**
 ```
-/clean Run tests and update docs
+/ops commit and create PR for current changes
+/ops deploy to dev
+/ops run quality checks
 ```
+
+**CRITICAL:** This agent has strict git safety rules. It will NEVER run `git reset --hard` or other destructive commands.
 
 ---
 
@@ -129,7 +132,7 @@ Task(
 # Architect offers to auto-spawn Engineer (Option 1) or manual (Option 2)
 
 # Option 1 (Recommended - Auto-spawn):
-# Architect spawns Engineer → Engineer implements → Engineer spawns QA → Done!
+# Architect spawns Engineer → Engineer implements → Engineer spawns Ops → Done!
 
 # Option 2 (Manual - Fresh session):
 exit
@@ -137,9 +140,9 @@ claude --model sonnet
 /build .claude/plans/2026-01-10-azure-devops.md
 
 # Engineer implements feature
-# Engineer auto-delegates to QA for final quality checks
-# QA runs tests, updates docs, spawns Engineer if complex Mypy errors
-# QA reports results back to Engineer
+# Engineer delegates to Ops for quality checks and commit
+# Ops runs tests, creates PR
+# Ops reports results back to Engineer
 # Engineer confirms completion
 ```
 
@@ -150,10 +153,10 @@ claude --model sonnet
 # Read file, fix bug, run quality checks, done
 ```
 
-### Documentation Update (QA Only)
+### Run Tests and Deploy
 
 ```bash
-/clean Update API docs for new /v1/analyze endpoint
+/ops run quality checks and deploy to dev
 ```
 
 ---
@@ -163,8 +166,8 @@ claude --model sonnet
 All agent instructions are in `.claude/agents/*.md`:
 
 - **`architect.md`** - Planning logic, architecture rules, security checklist, Engineer spawning
-- **`engineer.md`** - Coding standards, implementation patterns, QA delegation
-- **`qa.md`** - Quality assurance, testing, docs, Engineer escalation for complex Mypy
+- **`engineer.md`** - Coding standards, implementation patterns, Ops delegation
+- **`ops.md`** - Git safety, quality checks, deployment, PR workflow
 - **`simple-tasks.md`** - Cost-efficient agent for repetitive edits (text fixes, find-replace)
 
 **The markdown files contain ALL priming instructions.** No need to read separate PRIMER.md files.
@@ -187,126 +190,51 @@ Use `stack check --no-fix` for CI-style check-only mode.
 
 ---
 
-## Git Workflow (Branch Protection)
+## Git, Test & Deploy - USE OPS AGENT
 
-**IMPORTANT:** The `main` branch has branch protection enabled. Direct pushes are blocked.
+**CRITICAL: ALWAYS delegate git, test, and deploy operations to the Ops agent.**
 
-### Dev vs Production Deployment
+```python
+# For ANY git operation, quality check, or deployment:
+Task(
+    subagent_type="ops",
+    description="commit and create PR",
+    prompt="Commit current changes and create a PR"
+)
+```
 
-**Dev environment** - Fast iteration:
-- Deploy directly with `./stack dev restart` (no PR needed)
-- Always commit changes first to avoid losing work
-- Use for testing and rapid development
+**Why?** The Ops agent has strict safety rules that prevent destructive commands like `git reset --hard`. Running git commands directly risks losing uncommitted work.
 
-**Production** - Requires PR + semantic tests:
-- Must go through main branch (PR + CI)
-- Run semantic regression tests before deploying
-- Deploy to prod on request, not after every change
+### What Ops Agent Handles
 
-**Recommended workflow:**
-1. Make changes and commit to a feature branch
-2. Deploy to dev: `./stack dev restart`
-3. Test in dev environment
-4. When ready for prod: create PR, wait for CI, merge
-5. **Run semantic tests against dev** (RECOMMENDED before prod deploy):
-   ```bash
-   ./stack test --semantic-category routing  # Fast, cheap (~30s)
-   ./stack test --semantic                   # Full regression (expensive)
-   ```
-6. Deploy to prod: `./stack deploy`
+| Operation | Example |
+|-----------|---------|
+| Commit changes | `/ops commit with message "feat: add feature"` |
+| Create PR | `/ops create PR for current branch` |
+| Sync branch | `/ops sync with origin/main` |
+| Quality checks | `/ops run stack check` |
+| Deploy to dev | `/ops deploy to dev` |
+| Deploy to prod | `/ops deploy to production` |
 
-**Semantic test categories:**
+### Branch Protection
+
+- `main` branch has protection enabled - direct pushes blocked
+- All changes must go through PRs
+- Ops agent handles the PR workflow safely
+
+### Semantic Tests (Before Prod Deploy)
+
 | Category | Tests | When to run |
 |----------|-------|-------------|
 | routing | 5 | Always before prod deploy |
 | regression | 3 | After model/prompt changes |
 | skills | 11 | After skill changes |
 | tools | 4 | After tool changes |
-| planning | 3 | After orchestrator changes |
-| error | 3 | After error handling changes |
 
-### Commit Process
-
-**CRITICAL: Always commit before deploying to dev.** This ensures work is never lost.
-
-1. **Run quality checks** (MANDATORY for code changes):
-   ```bash
-   stack check
-   ```
-   This runs Ruff, Black, Mypy, and Pytest. **Do not proceed if this fails.**
-
-2. **Check for auto-fixed files** (IMPORTANT):
-   ```bash
-   git status
-   ```
-   `stack check` auto-fixes import sorting and formatting. If files were modified,
-   they must be included in your commit or CI will fail (CI runs with `--no-fix`).
-
-3. **Preserve unrelated work** (CRITICAL - prevents data loss):
-   ```bash
-   # If committing only SOME files, stash unrelated changes first:
-   git stash push -m "WIP: other work" -- path/to/unrelated/
-
-   # Or save everything to a WIP branch first:
-   git stash push -m "WIP: preserve all uncommitted work"
-   ```
-
-4. **Create a feature branch** from your changes:
-   ```bash
-   git checkout -b feat/description   # or fix/description
-   ```
-
-5. **Commit ALL changes** (including auto-fixed files):
-   ```bash
-   git add -A && git commit -m "feat: Description"
-   ```
-
-6. **Push the branch** to origin:
-   ```bash
-   git push -u origin feat/description
-   ```
-
-7. **Create a PR** using GitHub CLI:
-   ```bash
-   gh pr create --title "feat: Description" --body "..."
-   ```
-
-8. **Return to main safely** (IMPORTANT - check for uncommitted work first):
-   ```bash
-   git status                    # Check for uncommitted changes
-   git stash list                # Check for stashed work
-   git checkout main             # Switch to main (will warn if uncommitted changes)
-   git pull origin main          # Get latest (safer than reset --hard)
-   ```
-
-   **Only use `git reset --hard` if you're certain no work will be lost:**
-   ```bash
-   git checkout main && git reset --hard origin/main
-   ```
-
-9. **Restore stashed work** (if you stashed in step 3):
-   ```bash
-   git stash pop                 # Restore and remove from stash
-   # Or: git stash apply         # Restore but keep in stash
-   ```
-
-### Branch Naming
-
-| Type | Pattern | Example |
-|------|---------|---------|
-| Feature | `feat/description` | `feat/email-service` |
-| Bug fix | `fix/description` | `fix/oauth-redirect` |
-| Refactor | `refactor/description` | `refactor/tool-registry` |
-| Docs | `docs/description` | `docs/architecture-diagram` |
-
-### Never Do
-
-- Push without running `stack check` first - CI will fail
-- `git push origin main` - Will be rejected by branch protection
-- `git push --force` on shared branches - Destructive
-- Skip PR review for non-trivial changes
-- **`git reset --hard` without checking `git status` first** - Destroys uncommitted work
-- Commit only some files without stashing unrelated changes first - Risk of losing work on reset
+```bash
+./stack test --semantic-category routing  # Fast (~30s)
+./stack test --semantic                   # Full regression
+```
 
 ---
 
@@ -571,9 +499,9 @@ if step.tool in ("git_clone",):
 | Writing code | Engineer | Sonnet | $$ |
 | Debugging | Engineer | Sonnet | $$ |
 | Complex Mypy fixes | Engineer | Sonnet | $$ |
-| Running tests | QA | Haiku | $ |
-| Fixing simple linting | QA | Haiku | $ |
-| Updating docs | QA | Haiku | $ |
+| Git operations | Ops | Haiku | $ |
+| Running tests | Ops | Haiku | $ |
+| Deployment | Ops | Haiku | $ |
 | Text translations | Simple Tasks | Haiku | $ |
 | Find-and-replace | Simple Tasks | Haiku | $ |
 | Adding type hints | Simple Tasks | Haiku | $ |
@@ -600,8 +528,8 @@ Edit(...) Edit(...) Edit(...) Edit(...)  # Expensive!
 
 **Token Savings:**
 - Agents spawn with fresh context (no bloat from parent agent)
-- Auto-delegation: Engineer → QA (uses Haiku for tests/docs)
-- QA auto-spawns Engineer only when complex errors detected
+- Auto-delegation: Engineer → Ops (uses Haiku for git/test/deploy)
+- Ops auto-spawns Engineer only when complex errors detected
 - Use Haiku for all maintenance tasks (10x cheaper than Sonnet)
 - Markdown-embedded instructions avoid loading separate files
 - **Proactively delegate simple repetitive tasks to Haiku**
@@ -624,12 +552,11 @@ Edit(...) Edit(...) Edit(...) Edit(...)  # Expensive!
 - Refactoring with clear scope
 - **Engineer will auto-delegate to QA when implementation complete**
 
-### ✅ Use /clean (QA - Haiku) when:
-- Running tests
-- Fixing linting errors
-- Updating documentation
-- Summarizing changes
-- **QA will auto-spawn Engineer for complex Mypy errors**
+### ✅ Use /ops (Ops - Haiku) when:
+- ANY git operation (commit, push, sync, PR)
+- Running tests or quality checks
+- Deploying to dev or production
+- **Ops will auto-spawn Engineer for complex errors**
 
 ### ✅ Delegate to Simple Tasks (Haiku) when:
 - Translating/fixing text across files
@@ -909,7 +836,7 @@ def test_execute_step_returns_retry_on_timeout():
 
 1. **For complex features:** Start with `/plan`
 2. **For implementation:** Use `/build` with plan file
-3. **For cleanup:** Use `/clean` for maintenance
+3. **For git/test/deploy:** Use `/ops` - ALWAYS delegate these operations
 4. **For simple repetitive tasks:** Delegate to Haiku via `Task(subagent_type="simple-tasks", model="haiku", ...)`
 5. **For trivial one-off fixes:** Do directly (1-2 edits max)
 
