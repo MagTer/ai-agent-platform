@@ -1,0 +1,15 @@
+# Enforce LF for all files
+* text=auto eol=lf
+
+# Explicitly for python
+*.py text eol=lf
+
+# Explicitly for shell scripts
+*.sh text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

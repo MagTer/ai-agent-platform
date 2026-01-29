@@ -1,0 +1,120 @@
+version: 0.2.0
+kind: capability-catalog
+actions:
+  - id: agent.conversation
+    title: Agent Conversation
+    status: available
+    owner: agent
+    summary: "Generate a response with optional memory and tool usage via the FastAPI agent."
+    entrypoint:
+      type: http
+      method: POST
+      url: http://agent:8000/v1/agent
+      auth: none
+      timeout_s: 30
+    alt_entrypoints:
+      - type: http
+        method: POST
+        url: http://agent:8000/v1/chat/completions
+        notes: OpenAI-compatible schema consumed by Open WebUI.
+    contract:
+      request:
+        content_type: application/json
+        schema:
+          type: object
+          required: [prompt]
+          properties:
+            prompt: { type: string }
+            conversation_id: { type: string, nullable: true }
+            metadata:
+              type: object
+              properties:
+                tools:
+                  type: array
+                  description: Optional allow-list of tool names.
+                  items: { type: string }
+                tool_calls:
+                  type: array
+                  description: Explicit tool invocations executed before the LLM call.
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      args: { type: object }
+      response:
+        content_type: application/json
+        schema:
+          type: object
+          required: [conversation_id, response, created_at]
+          properties:
+            conversation_id: { type: string }
+            response: { type: string }
+            created_at: { type: string, format: date-time }
+            messages: { type: array, items: { type: object } }
+    verification:
+      smoke_test:
+        command: |
+          curl -sS -X POST http://localhost:8000/v1/agent -H 'Content-Type: application/json' -d '{"prompt":"ping"}'
+        expect_json: true
+    openwebui:
+      tool_name: agent.conversation
+      default_backend: chat-completions
+      description: "Compose binds LITELLM_URL/OPENAI_API_BASE_URL to the agent so all chats pass through the orchestrator."
+
+  - id: agent.web_research
+    title: Agent Web Research
+    status: available
+    owner: agent
+    summary: "Blend Qdrant memory recall with live web_fetch context to answer research questions."
+    entrypoint:
+      type: http
+      method: POST
+      url: http://agent:8000/v1/agent
+      auth: none
+      timeout_s: 60
+    contract:
+      request:
+        content_type: application/json
+        schema:
+          type: object
+          required: [prompt, metadata]
+          properties:
+            prompt: { type: string }
+            metadata:
+              type: object
+              properties:
+                tools:
+                  type: array
+                  items: { type: string }
+                  default: ["web_fetch"]
+                tool_calls:
+                  type: array
+                  items:
+                    type: object
+                    required: [name]
+                    properties:
+                      name: { type: string }
+                      args: { type: object }
+      response:
+        content_type: application/json
+    openwebui:
+      tool_name: agent.web_research
+      preset: Research
+      description: "Trigger the agent with the web_fetch tool enabled so memory snippets and live page context are added as system messages."
+      body_template: |
+        {
+          "prompt": "<research question>",
+          "metadata": {
+            "tools": ["web_fetch"],
+            "tool_calls": [
+              {
+                "name": "web_fetch",
+                "args": {
+                  "url": "https://example.com",
+                  "include_html": false,
+                  "summary_max_chars": 800
+                }
+              }
+            ]
+          }
+        }

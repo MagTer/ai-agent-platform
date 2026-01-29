@@ -1,0 +1,68 @@
+- name: tibp_wiki_search
+  type: core.tools.tibp_wiki_search.TibpWikiSearchTool
+  enabled: true
+
+- name: web_search
+  type: core.tools.web_search.WebSearchTool
+  args:
+    base_url: http://webfetch:8081
+    max_results: 5
+
+- name: web_fetch
+  type: core.tools.web_fetch.WebFetchTool
+  args:
+    base_url: http://webfetch:8081
+    include_html: false
+
+- name: clock
+  type: core.tools.clock.ClockTool
+
+- name: calculator
+  type: core.tools.calculator.CalculatorTool
+
+- name: read_file
+  type: core.tools.filesystem.ReadFileTool
+  args:
+    base_path: .
+    max_length: 20000
+
+
+- name: azure_devops
+  type: core.tools.azure_devops.AzureDevOpsTool
+  enabled: true
+  description: "Interacts with Azure DevOps to manage work items."
+
+- name: test_runner
+  type: core.tools.test_runner.TestRunnerTool
+  enabled: true
+  description: "Executes pytest on a specific file or directory. Use this to verify your code changes."
+
+- name: price_tracker
+  type: core.tools.price_tracker.PriceTrackerTool
+  enabled: true
+  description: "Track and compare grocery and pharmacy prices"
+
+- name: send_email
+  type: core.tools.send_email.SendEmailTool
+  enabled: true
+  description: "Send email to yourself with reports, summaries, or reminders"
+
+- name: homey
+  type: core.tools.homey.HomeyTool
+  enabled: true
+  description: "Control Homey smart home devices (lights, sensors, flows)"
+
+- name: git_clone
+  type: core.tools.git_clone.GitCloneTool
+  enabled: true
+  description: "Clone git repositories to workspace for investigation"
+
+- name: claude_code
+  type: core.tools.claude_code.ClaudeCodeTool
+  enabled: true
+  description: "Delegate code investigation/fixes to Claude Code agent"
+
+- name: github_pr
+  type: core.tools.github_pr.GitHubPRTool
+  enabled: true
+  description: "Create pull requests on GitHub"

@@ -1,0 +1,98 @@
+# SearXNG settings.yml 
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "SearXNG"
+  contact_url: false
+  enable_metrics: false
+
+brand:
+  new_issue_url: ""
+  docs_url: ""
+  public_instances: ""
+  wiki_url: ""
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "sv-SE"
+  ban_time_on_fail: 5
+  max_ban_time_on_fail: 120
+  formats:
+    - html
+    - json
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  # secret_key läses från miljövariabeln SEARXNG_SECRET via Compose
+  limiter: false
+  image_proxy: true
+  method: "POST"
+  default_http_headers:
+    X-Content-Type-Options: nosniff
+    X-Download-Options: noopen
+    X-Robots-Tag: noindex, nofollow
+    Referrer-Policy: no-referrer
+
+ui:
+  static_use_hash: true
+  default_theme: simple
+  query_in_title: false
+  infinite_scroll: false
+  center_alignment: false
+  default_locale: "sv"
+
+outgoing:
+  request_timeout: 3.0
+  max_request_timeout: 15.0
+  useragent_suffix: ""
+  pool_connections: 100
+  pool_maxsize: 20
+  enable_http2: true
+  verify: true
+
+redis:
+  url: false
+
+# Enbart sökmotorer som faktiskt fungerar
+engines:
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+
+  - name: google
+    engine: google
+    shortcut: go
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+
+  - name: github
+    engine: github
+    shortcut: gh
+    disabled: false
+
+  - name: brave
+    engine: brave
+    shortcut: br
+    disabled: false
+
+enabled_plugins:
+  - 'Hash plugin'
+  - 'Self Information'
+  - 'Tracker URL remover'
+
+disabled_plugins:
+  - 'Hostnames plugin'

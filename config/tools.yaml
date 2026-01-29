@@ -1,0 +1,21 @@
+- name: web_fetch
+  type: core.tools.web_fetch.WebFetchTool
+  args:
+    base_url: http://webfetch:8081
+    include_html: false
+    summary_max_chars: 1200
+
+- name: azure_devops
+  type: core.tools.azure_devops.AzureDevOpsTool
+  args: {}
+
+- name: web_search
+  type: core.tools.web_search.WebSearchTool
+  args:
+    base_url: http://webfetch:8081
+    max_results: 5
+    lang: en
+
+- name: github_repo
+  type: core.tools.github.GitHubTool
+  args: {}

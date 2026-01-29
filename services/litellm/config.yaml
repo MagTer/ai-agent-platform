@@ -1,0 +1,125 @@
+general_settings:
+  max_input_tokens: 128000
+  max_output_tokens: 8192
+
+litellm_settings:
+  budget_limit: 5.00
+
+logging:
+  level: INFO
+
+model_list:
+  # ============================================
+  # AGENT ORCHESTRATION MODELS
+  # gpt-oss-120b:exacto for planning (reasoning model)
+  # Llama 4 for other orchestration (stable output)
+  # Provider priority: Groq > DeepInfra > Novita
+  # ============================================
+
+  # Planner: Generates execution plans (JSON output)
+  # Needs: Strong reasoning, structured output
+  # Using gpt-oss-120b:exacto - 90% MMLU-Pro, better coding than GPT-4.1
+  - model_name: planner
+    litellm_params:
+      model: openrouter/openai/gpt-oss-120b:exacto
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.1
+      max_tokens: 8192
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+          order: ["Groq", "DeepInfra", "Novita"]
+
+  # Supervisor: Reviews step results, decides next action
+  # Needs: Good judgment, fast decisions
+  # Using gpt-oss-120b:exacto - Strong reasoning, short context OK
+  - model_name: supervisor
+    litellm_params:
+      model: openrouter/openai/gpt-oss-120b:exacto
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.1
+      max_tokens: 16384
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+          order: ["Groq", "DeepInfra", "Novita"]
+
+  # Composer: Writes final answers to user
+  # Needs: Good writing, Swedish support
+  # Using gpt-oss-120b:exacto - Quality output, summarizes skill results
+  - model_name: composer
+    litellm_params:
+      model: openrouter/openai/gpt-oss-120b:exacto
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.3
+      max_tokens: 4096
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+          order: ["Groq", "DeepInfra", "Novita"]
+
+  # ============================================
+  # SKILL EXECUTION MODELS
+  # ============================================
+
+  # Skillsrunner: For skills that need tool calling
+  # Needs: Reliable tool calling, fast
+  - model_name: skillsrunner
+    litellm_params:
+      model: openrouter/meta-llama/llama-4-maverick
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.2
+      max_tokens: 8192
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+          order: ["Groq", "SambaNova"]
+
+  # Software Engineer: Code generation and debugging
+  # Needs: Strong coding ability, precise output
+  - model_name: software_engineer
+    litellm_params:
+      model: openrouter/meta-llama/llama-4-maverick
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.0
+      max_tokens: 8192
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+          order: ["Groq", "SambaNova"]
+
+  # ============================================
+  # SPECIALIZED MODELS
+  # ============================================
+
+  # Price Tracker: For price extraction from product pages
+  # Needs: Fast, structured JSON output
+  - model_name: price_tracker
+    litellm_params:
+      model: openrouter/meta-llama/llama-4-scout
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0
+      max_tokens: 2048
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+          order: ["Groq", "SambaNova"]
+
+  # Price Tracker Fallback: When primary extraction has low confidence
+  # Needs: Higher quality, accepts any confidence
+  - model_name: price_tracker_fallback
+    litellm_params:
+      model: openrouter/anthropic/claude-haiku-4.5
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0
+      max_tokens: 2048
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true

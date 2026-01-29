@@ -1,0 +1,80 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Testing
+tests/
+scripts/test_*
+scripts/debug_*
+.pytest_cache/
+.coverage
+htmlcov/
+.hypothesis/
+
+# Type checking
+.mypy_cache/
+
+# Linting and formatting
+.ruff_cache/
+.pylint.d/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python packaging
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Node modules
+node_modules/
+
+# Documentation (keep poetry files for dependency management)
+*.md
+!README.md
+docs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.circleci/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.docker/
+
+# Development
+.editorconfig
+.pre-commit-config.yaml
+pyproject.toml.bak

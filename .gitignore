@@ -1,0 +1,30 @@
+﻿# Env & secrets
+.env
+.env.*
+!.env.template
+
+# Node/Python
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+.venv_temp/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Open WebUI runtime data is stored on the host but exported as SQL dumps.
+services/openwebui/data/
+
+# Backups (Qdrant etc.)
+backups/
+
+# Local persistent data (bind mounts)
+.data/
+data/
+services/agent/data/tibp_wiki_export/
+
+# n8n sensitive credentials
+flows/credentials.json

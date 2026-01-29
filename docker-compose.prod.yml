@@ -1,0 +1,117 @@
+# =============================================================================
+# PRODUCTION OVERRIDES
+# =============================================================================
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This adds:
+# - Traefik reverse proxy with automatic Let's Encrypt SSL
+# - Security headers and header stripping
+# - No direct port exposure (all traffic via Traefik)
+# - Restart policies for reliability
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Traefik - Reverse Proxy with Let's Encrypt
+  # ===========================================================================
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      # Let's Encrypt
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@falle.se}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Logging
+      - "--accesslog=true"
+      - "--log.level=INFO"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/letsencrypt:/letsencrypt
+    networks:
+      - default
+
+  # ===========================================================================
+  # Service Overrides for Production
+  # ===========================================================================
+
+  open-webui:
+    restart: unless-stopped
+    environment:
+      # Public URL for OAuth callbacks
+      - WEBUI_URL=https://${DOMAIN:-agent.falle.se}
+    labels:
+      # Enable Traefik routing
+      - "traefik.enable=true"
+      # HTTPS Router
+      - "traefik.http.routers.openwebui.rule=Host(`${DOMAIN:-agent.falle.se}`)"
+      - "traefik.http.routers.openwebui.entrypoints=websecure"
+      - "traefik.http.routers.openwebui.tls.certresolver=letsencrypt"
+      - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
+      # CRITICAL: Strip X-OpenWebUI-* headers from external requests
+      # This prevents authentication bypass attacks
+      - "traefik.http.middlewares.strip-headers.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-headers.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-headers.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-headers.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      # Security headers
+      - "traefik.http.middlewares.security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.security.headers.frameDeny=true"
+      - "traefik.http.middlewares.security.headers.browserXssFilter=true"
+      # Apply middlewares
+      - "traefik.http.routers.openwebui.middlewares=strip-headers,security"
+
+  agent:
+    restart: unless-stopped
+    environment:
+      AGENT_ENVIRONMENT: production
+    labels:
+      # Enable Traefik routing for admin portal
+      - "traefik.enable=true"
+      # Admin portal router
+      - "traefik.http.routers.agent-admin.rule=Host(`${DOMAIN:-agent.falle.se}`) && PathPrefix(`/platformadmin`)"
+      - "traefik.http.routers.agent-admin.entrypoints=websecure"
+      - "traefik.http.routers.agent-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.agent-admin.service=agent-admin"
+      - "traefik.http.services.agent-admin.loadbalancer.server.port=8000"
+      # Security: Strip X-OpenWebUI-* headers (prevents header spoofing)
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      # Security headers
+      - "traefik.http.middlewares.agent-security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.agent-security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.agent-security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.agent-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.agent-security.headers.browserXssFilter=true"
+      # Apply middlewares
+      - "traefik.http.routers.agent-admin.middlewares=strip-agent-headers,agent-security"
+
+  postgres:
+    restart: unless-stopped
+
+  qdrant:
+    restart: unless-stopped
+
+  litellm:
+    restart: unless-stopped
+
+  searxng:
+    restart: unless-stopped
