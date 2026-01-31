@@ -430,6 +430,13 @@ class Dispatcher:
                             "conversation_id": chunk.get("conversation_id"),
                         },
                     }
+                elif c_type == "awaiting_input":
+                    yield {
+                        "type": "awaiting_input",
+                        "content": chunk.get("content"),
+                        "tool_call": None,
+                        "metadata": chunk.get("metadata"),
+                    }
                 else:
                     # Fallback
                     yield {

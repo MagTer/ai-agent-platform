@@ -501,8 +501,8 @@ def _should_show_chunk_default(
     Returns:
         True if the chunk should be shown, False otherwise.
     """
-    # Always show: content (final answer), error, trace_info
-    if chunk_type in ("content", "error", "trace_info"):
+    # Always show: content (final answer), error, trace_info, awaiting_input
+    if chunk_type in ("content", "error", "trace_info", "awaiting_input"):
         return True
 
     # Show thinking chunks from Planner and Supervisor (important status updates)
