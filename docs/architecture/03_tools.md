@@ -3,7 +3,7 @@
 Tools extend the agent with deterministic capabilities. Each tool implements the
 `Tool` interface and can be referenced from `config/tools.yaml` (for declarative
 loading) or instantiated manually. The agent boot sequence loads this file via
-`agent.tools.loader.load_tool_registry` so any updates are picked up without
+`core.tools.loader.load_tool_registry` so any updates are picked up without
 code changes.
 
 ## Concepts
@@ -14,7 +14,7 @@ code changes.
 
 ```yaml
 - name: web_fetch
-  type: agent.tools.web_fetch.WebFetchTool
+  type: core.tools.web_fetch.WebFetchTool
   args:
     base_url: http://webfetch:8081
     include_html: false
@@ -22,7 +22,7 @@ code changes.
 ```
 
 The actual loader handles missing files gracefully and supports aliasing tool
-names in configuration. See `agent.tools.loader` for implementation details.
+names in configuration. See `core.tools.loader` for implementation details.
 
 ## Metadata Protocol
 
@@ -57,7 +57,7 @@ deterministically.
 
 ## Planning Orchestration
 
-The agent asks Llama 3.1 8B (via LiteLLM) to plan the work needed to respond before
+The agent asks the planner model (via LiteLLM) to plan the work needed to respond before
 making the final completion call. The planner is provided with the up-to-date
 tool inventory (`memory`/RAG via Qdrant/embedder, `web_fetch`, `ragproxy`, plus
 any MCP-registered helpers) so every step that needs a helper can reference it
@@ -130,8 +130,8 @@ exposes:
 
 Memory/RAG tooling (`qdrant`, `embedder`, `ragproxy`) is invoked via the
 `memory` action or will surface via additional MCP helpers if they are registered.
-Add new entries to `config/tools.yaml` (see `agent.tools.loader`) when you want
-Llama 3.1 8B to orchestrate more capabilities.
+Add new entries to `config/tools.yaml` (see `core.tools.loader`) when you want
+the planner model to orchestrate more capabilities.
 
 ### Web Fetch contract
 
@@ -169,8 +169,8 @@ context before the LLM call.
 ## Example Usage
 
 ```python
-from agent.tools.registry import ToolRegistry
-from agent.tools.web_fetch import WebFetchTool
+from core.tools.registry import ToolRegistry
+from core.tools.web_fetch import WebFetchTool
 
 registry = ToolRegistry([WebFetchTool(base_url="http://webfetch:8081")])
 result = await registry.get("web_fetch").run("https://example.com")

@@ -14,7 +14,7 @@ This document provides a detailed view of the AI Agent Platform's architecture, 
 | **PlanSupervisor** | Core/Agents | Validates plans before execution |
 | **StepExecutor** | Core/Agents | Executes individual plan steps |
 | **StepSupervisor** | Core/Agents | Validates step results, triggers re-planning if needed |
-| **SkillDelegateTool** | Core/Tools | Delegates tasks to specialized worker agents (skills) |
+| **SkillExecutor** | Core/Skills | Executes skills with scoped tool access |
 | **ToolRegistry** | Core/Tools | Manages available tools per context |
 | **MemoryStore** | Core | Vector-based memory for context retrieval |
 | **LiteLLMClient** | Core | Unified interface to multiple LLM providers |
@@ -54,7 +54,7 @@ flowchart TB
 
         subgraph Tools ["Tools & Skills"]
             Registry["Tool Registry"]
-            SkillDelegate["Skill Delegate Tool<br/>(consult_expert)"]
+            SkillExec["Skill Executor<br/>(scoped tools)"]
             NativeTools["Native Tools<br/>(web_fetch, search, etc.)"]
             MCPTools["MCP Tools<br/>(OAuth-enabled)"]
         end
@@ -99,15 +99,15 @@ flowchart TB
     Executor -->|"Tool calls"| Registry
     Registry -->|"Get tool"| NativeTools
     Registry -->|"Get tool"| MCPTools
-    Registry -->|"consult_expert"| SkillDelegate
+    Executor -->|"Skill steps"| SkillExec
 
-    SkillDelegate -->|"Load skill"| SkillLoader
+    SkillExec -->|"Load skill"| SkillLoader
     SkillLoader -->|"Parse .md"| Researcher
     SkillLoader -->|"Parse .md"| BacklogManager
     SkillLoader -->|"Parse .md"| OtherSkills
 
-    SkillDelegate -->|"Worker loop"| LiteLLM
-    SkillDelegate -->|"Execute tools"| NativeTools
+    SkillExec -->|"Worker loop"| LiteLLM
+    SkillExec -->|"Scoped tools"| NativeTools
 
     Executor -->|"Memory search"| MemoryStore
     AgentService -->|"Persist messages"| DB
@@ -183,7 +183,10 @@ sequenceDiagram
 
         alt Tool Step
             Executor->>Executor: _run_tool_gen()
-            Note over Executor: Execute tool or skill
+            Note over Executor: Execute tool
+        else Skill Step
+            Executor->>Executor: _run_skill_gen()
+            Note over Executor: Execute skill with scoped tools
         else Completion Step
             Executor->>LLM: stream_chat(history)
             LLM-->>Executor: Completion tokens
@@ -206,40 +209,41 @@ sequenceDiagram
     end
 ```
 
-### 3. Skill Execution (consult_expert)
+### 3. Skill Execution
 
 ```mermaid
 sequenceDiagram
     participant Executor as StepExecutor
-    participant Delegate as SkillDelegateTool
-    participant Loader as SkillLoader
+    participant SkillExec as SkillExecutor
+    participant Registry as SkillRegistry
     participant LLM as LiteLLM
-    participant Tools as Worker Tools
+    participant Tools as Scoped Tools
 
-    Executor->>Delegate: run(skill="researcher", goal="...")
+    Executor->>SkillExec: execute(skill="researcher", args={...})
 
-    Delegate->>Loader: load_command("researcher")
-    Loader-->>Delegate: {metadata, system_prompt}
+    SkillExec->>Registry: get("researcher")
+    Registry-->>SkillExec: Skill (metadata, prompt, tools)
 
-    Delegate->>Delegate: Build tool schemas for worker
+    SkillExec->>SkillExec: Filter tools to skill.tools only
+    Note over SkillExec: SECURITY: Only tools<br/>declared in skill frontmatter
 
     loop Worker Loop (max_turns)
-        Delegate->>LLM: stream_chat(messages, tools=worker_tools)
+        SkillExec->>LLM: stream_chat(messages, tools=scoped_tools)
 
         alt No Tool Calls
-            LLM-->>Delegate: Final answer content
-            Note over Delegate: Return result
+            LLM-->>SkillExec: Final answer content
+            Note over SkillExec: Return result
         else Tool Calls
-            LLM-->>Delegate: tool_calls array
+            LLM-->>SkillExec: tool_calls array
             loop For each tool_call
-                Delegate->>Tools: tool.run(**args)
-                Tools-->>Delegate: Tool output
-                Note over Delegate: Add to messages
+                SkillExec->>Tools: tool.run(**args)
+                Tools-->>SkillExec: Tool output
+                Note over SkillExec: Add to messages
             end
         end
     end
 
-    Delegate-->>Executor: {type: "result", output: ..., source_count: N}
+    SkillExec-->>Executor: {output: ..., source_count: N}
 ```
 
 ---
@@ -382,7 +386,8 @@ The system uses typed events for streaming responses:
 | StepExecutor | `services/agent/src/core/agents/executor.py` |
 | StepSupervisor | `services/agent/src/core/agents/supervisor_step.py` |
 | PlanSupervisor | `services/agent/src/core/agents/supervisor_plan.py` |
-| SkillDelegateTool | `services/agent/src/core/tools/skill_delegate.py` |
+| SkillRegistry | `services/agent/src/core/skills/registry.py` |
+| SkillExecutor | `services/agent/src/core/skills/executor.py` |
 | ToolRegistry | `services/agent/src/core/tools/registry.py` |
 | SkillLoader | `services/agent/src/orchestrator/skill_loader.py` |
 | LiteLLMClient | `services/agent/src/core/core/litellm_client.py` |
