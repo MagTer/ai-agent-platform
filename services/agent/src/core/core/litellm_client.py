@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from collections.abc import AsyncGenerator, Iterable
 from typing import Any
 
 import httpx
+import orjson
 from shared.streaming import AgentChunk
 
 from core.core.config import Settings
@@ -105,7 +105,7 @@ class LiteLLMClient:
                         break
 
                     try:
-                        data = json.loads(data_str)
+                        data = orjson.loads(data_str)
                         if "model" in data and data["model"]:
                             set_span_attributes({"gen_ai.response.model": data["model"]})
 
@@ -218,7 +218,7 @@ class LiteLLMClient:
                                         "metadata": None,
                                     }
 
-                    except json.JSONDecodeError:
+                    except orjson.JSONDecodeError:
                         LOGGER.warning("Failed to decode JSON chunk: %s", data_str)
                         continue
 

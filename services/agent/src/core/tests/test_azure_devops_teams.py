@@ -4,7 +4,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.tools.azure_devops import AzureDevOpsTool, _find_similar
+from core.tools.azure_devops import AzureDevOpsTool, _find_similar, _load_ado_mappings
+
+
+@pytest.fixture(autouse=True)
+def clear_ado_cache() -> None:
+    """Clear the ADO mappings cache before each test."""
+    _load_ado_mappings.cache_clear()
 
 
 class TestLevenshteinDistance:
@@ -72,7 +78,7 @@ class TestTeamResolution:
     @pytest.fixture
     def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
         """Create tool instance with mocked mappings."""
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=mock_mappings):
             return AzureDevOpsTool()
 
     def test_get_available_teams(self, tool: AzureDevOpsTool) -> None:
@@ -133,7 +139,7 @@ class TestTeamValidation:
                 }
             }
         }
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=mappings):
             tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 0
@@ -148,7 +154,7 @@ class TestTeamValidation:
                 }
             }
         }
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=mappings):
             tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 1
@@ -164,7 +170,7 @@ class TestTeamValidation:
                 }
             }
         }
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=mappings):
             tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 1
@@ -183,7 +189,7 @@ class TestTeamValidation:
                 },
             }
         }
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=mappings):
             tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 3
@@ -191,7 +197,7 @@ class TestTeamValidation:
     def test_validate_empty_teams(self) -> None:
         """Empty teams dict should produce no warnings."""
         mappings: dict[str, dict[str, dict[str, str]]] = {"teams": {}}
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=mappings):
             tool = AzureDevOpsTool()
             warnings = tool._validate_mappings()
             assert len(warnings) == 0
@@ -220,7 +226,7 @@ class TestTeamAwareQuerying:
     @pytest.fixture
     def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
         """Create tool instance with mocked mappings."""
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=mock_mappings):
             tool = AzureDevOpsTool()
             # Mock credentials to return test values
             tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
@@ -331,7 +337,7 @@ class TestGetTeamsAction:
     @pytest.fixture
     def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
         """Create tool instance with mocked mappings."""
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=mock_mappings):
             tool = AzureDevOpsTool()
             # Mock credentials to return test values
             tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
@@ -385,7 +391,7 @@ class TestGetTeamsAction:
     async def test_get_teams_empty_config(self) -> None:
         """Empty teams config should return helpful message."""
         empty_mappings: dict[str, dict[str, dict[str, str]]] = {"teams": {}}
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=empty_mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=empty_mappings):
             tool = AzureDevOpsTool()
             # Mock credentials to return test values
             tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
@@ -419,7 +425,7 @@ class TestBackwardsCompatibility:
     @pytest.fixture
     def tool(self, mock_mappings: dict) -> AzureDevOpsTool:
         """Create tool instance with mocked mappings."""
-        with patch.object(AzureDevOpsTool, "_load_mappings", return_value=mock_mappings):
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=mock_mappings):
             tool = AzureDevOpsTool()
             # Mock credentials to return test values
             tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]

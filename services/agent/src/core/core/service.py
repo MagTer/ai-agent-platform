@@ -174,11 +174,11 @@ class AgentService:
         request_metadata["_db_session"] = session
 
         # 6.1. Inject Pinned Files
-        self._inject_pinned_files(history, db_context.pinned_files)
+        await self._inject_pinned_files(history, db_context.pinned_files)
 
         # 6.2. Inject Workspace Rules (if .agent/rules.md exists)
         if db_conversation.current_cwd:
-            self._inject_workspace_rules(history, db_conversation.current_cwd)
+            await self._inject_workspace_rules(history, db_conversation.current_cwd)
 
         planner = PlannerAgent(self._litellm, model_name=self._settings.model_planner)
 
@@ -1421,7 +1421,7 @@ class AgentService:
         except Exception:
             return False
 
-    def _inject_pinned_files(
+    async def _inject_pinned_files(
         self,
         history: list[AgentMessage],
         pinned_files: list[str] | None,
@@ -1445,22 +1445,38 @@ class AgentService:
             allowed_bases.append(workspace_path)
         # Also allow user's home directory as a reasonable default
         home = Path.home()
-        if home.exists():
+        if await asyncio.to_thread(home.exists):
             allowed_bases.append(str(home))
 
-        pinned_content = []
-        for pf in pinned_files:
+        async def _read_pinned_file(pf: str) -> str | None:
+            """Read a single pinned file asynchronously."""
             try:
                 # SECURITY: Validate path is within allowed directories
                 if allowed_bases and not self._is_path_safe(pf, allowed_bases):
                     LOGGER.warning(f"Blocked pinned file outside allowed paths: {pf}")
-                    continue
+                    return None
 
                 p = Path(pf)
-                if p.exists() and p.is_file():
-                    pinned_content.append(f"### FILE: {pf}\n{p.read_text(encoding='utf-8')}")
+                if await asyncio.to_thread(p.exists) and await asyncio.to_thread(p.is_file):
+                    file_content = await asyncio.to_thread(p.read_text, encoding="utf-8")
+                    return f"### FILE: {pf}\n{file_content}"
+                return None
             except Exception as e:
                 LOGGER.warning(f"Failed to read pinned file {pf}: {e}")
+                return None
+
+        # Read all pinned files in parallel
+        results = await asyncio.gather(
+            *[_read_pinned_file(pf) for pf in pinned_files],
+            return_exceptions=True,
+        )
+
+        pinned_content: list[str] = []
+        for result in results:
+            if isinstance(result, BaseException):
+                LOGGER.warning(f"Failed to read pinned file: {result}")
+            elif result is not None:
+                pinned_content.append(result)
 
         if pinned_content:
             combined_pinned = "\n\n".join(pinned_content)
@@ -1474,7 +1490,7 @@ class AgentService:
                 )
             )
 
-    def _inject_workspace_rules(
+    async def _inject_workspace_rules(
         self,
         history: list[AgentMessage],
         workspace_path: str,
@@ -1505,11 +1521,14 @@ class AgentService:
         except Exception:
             return
 
-        if not rules_path.exists() or not rules_path.is_file():
+        if not await asyncio.to_thread(rules_path.exists) or not await asyncio.to_thread(
+            rules_path.is_file
+        ):
             return
 
         try:
-            rules_content = rules_path.read_text(encoding="utf-8").strip()
+            rules_content = await asyncio.to_thread(rules_path.read_text, encoding="utf-8")
+            rules_content = rules_content.strip()
             if not rules_content:
                 return
 

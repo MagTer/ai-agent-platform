@@ -7,9 +7,11 @@ restricted environments without installing optional dependencies.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
+from collections import deque
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime
@@ -131,13 +133,20 @@ class _NoOpTraceAPI:
 
 
 class _FileSpanExporter(SpanExporter):
-    """Simple JSONL file exporter for spans."""
+    """JSONL file exporter for spans with async write batching.
+
+    Uses asyncio.to_thread() to offload file I/O when an event loop is available.
+    Falls back to synchronous writes when called outside an async context.
+    """
 
     def __init__(self, path: str) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._queue: deque[dict[str, Any]] = deque()
+        self._write_task: asyncio.Task[None] | None = None
 
     def export(self, spans: Sequence[Any]) -> Any:
+        """Export spans to file. Batches writes when async context is available."""
         records = []
         for span in spans:
             ctx = span.get_span_context()
@@ -182,16 +191,59 @@ class _FileSpanExporter(SpanExporter):
             }
             records.append(record)
 
-        with self._path.open("a", encoding="utf-8") as fp:
-            for record in records:
-                fp.write(json.dumps(record) + "\n")
+        # Queue records and ensure writer is running
+        self._queue.extend(records)
+        self._ensure_writer_running()
 
         if _OTEL_AVAILABLE:
             return _otel_trace.Status(_otel_trace.StatusCode.OK)
         return None
 
-    def shutdown(self) -> None:  # pragma: no cover - no-op
-        return None
+    def _ensure_writer_running(self) -> None:
+        """Start background writer if event loop is available, otherwise write sync."""
+        try:
+            loop = asyncio.get_running_loop()
+            if self._write_task is None or self._write_task.done():
+                self._write_task = loop.create_task(self._background_writer())
+        except RuntimeError:
+            # No event loop - fall back to synchronous write
+            self._write_sync()
+
+    async def _background_writer(self) -> None:
+        """Background task that batches and writes records asynchronously."""
+        while self._queue:
+            batch: list[dict[str, Any]] = []
+            # Collect up to 100 records for batching
+            while self._queue and len(batch) < 100:
+                batch.append(self._queue.popleft())
+
+            if batch:
+                # Offload file I/O to thread pool
+                await asyncio.to_thread(self._write_batch_sync, batch)
+
+            # Small delay to allow more records to accumulate
+            await asyncio.sleep(0.05)
+
+    def _write_batch_sync(self, records: list[dict[str, Any]]) -> None:
+        """Synchronous write of a batch of records."""
+        try:
+            with self._path.open("a", encoding="utf-8") as fp:
+                for record in records:
+                    fp.write(json.dumps(record) + "\n")
+        except Exception as e:
+            logger.warning(f"Failed to write span batch to {self._path}: {e}")
+
+    def _write_sync(self) -> None:
+        """Fallback synchronous write when no event loop is available."""
+        records = list(self._queue)
+        self._queue.clear()
+        if records:
+            self._write_batch_sync(records)
+
+    def shutdown(self) -> None:
+        """Flush any remaining queued records on shutdown."""
+        if self._queue:
+            self._write_sync()
 
 
 def configure_tracing(service_name: str, *, span_log_path: str | None = None) -> None:

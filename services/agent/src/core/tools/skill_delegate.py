@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -11,6 +10,7 @@ from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
+import orjson
 from shared.models import AgentMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -371,8 +371,8 @@ class SkillDelegateTool(Tool):
                     turn_activities: list[str] = []
                     for tc in tool_calls:
                         try:
-                            fargs = json.loads(tc["function"]["arguments"])
-                        except json.JSONDecodeError:
+                            fargs = orjson.loads(tc["function"]["arguments"])
+                        except orjson.JSONDecodeError:
                             fargs = {}
                         if "query" in fargs:
                             q = fargs["query"]
@@ -421,8 +421,8 @@ class SkillDelegateTool(Tool):
 
                         # Parse arguments early for activity message
                         try:
-                            fargs = json.loads(func["arguments"])
-                        except json.JSONDecodeError:
+                            fargs = orjson.loads(func["arguments"])
+                        except orjson.JSONDecodeError:
                             fargs = {}
 
                         # Build informative message using tool's activity_hint
@@ -431,7 +431,10 @@ class SkillDelegateTool(Tool):
 
                         # Pre-calculate duplication status to suppress UI for duplicates
                         # We still re-check inside the span for blocking logic
-                        call_key_check = (fname, json.dumps(fargs, sort_keys=True))
+                        call_key_check = (
+                            fname,
+                            orjson.dumps(fargs, option=orjson.OPT_SORT_KEYS).decode(),
+                        )
                         is_duplicate_ui = call_key_check in seen_calls
 
                         if is_duplicate_ui:
@@ -465,7 +468,7 @@ class SkillDelegateTool(Tool):
                             # Add detailed attributes for search queries
                             tool_attrs: dict[str, str | int] = {
                                 "tool.name": fname,
-                                "tool.args": json.dumps(fargs)[:500],  # Truncate
+                                "tool.args": orjson.dumps(fargs).decode()[:500],  # Truncate
                             }
                             # Extract common tool-specific attributes
                             # Search tools (web_search, search_code, tibp_wiki_search)
@@ -492,7 +495,10 @@ class SkillDelegateTool(Tool):
                             set_span_attributes(tool_attrs)
 
                             # Deduplication and rate limiting checks
-                            call_key = (fname, json.dumps(fargs, sort_keys=True))
+                            call_key = (
+                                fname,
+                                orjson.dumps(fargs, option=orjson.OPT_SORT_KEYS).decode(),
+                            )
                             current_tool_count = tool_call_counts.get(fname, 0)
 
                             output_str = ""

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,15 +31,58 @@ SECURITY_LOGGER = logging.getLogger("security")
 # System events file for events outside trace context
 SYSTEM_EVENTS_PATH = Path("data/system_events.jsonl")
 
+# Background write queue
+_event_queue: deque[dict[str, Any]] = deque()
+_write_task: asyncio.Task[None] | None = None
+_queue_lock = asyncio.Lock()
 
-def _write_system_event(event_data: dict[str, Any]) -> None:
-    """Write event to system_events.jsonl for events without trace context."""
+
+async def _background_event_writer() -> None:
+    """Background task that writes queued events to file."""
+    while True:
+        try:
+            if _event_queue:
+                async with _queue_lock:
+                    events_to_write = list(_event_queue)
+                    _event_queue.clear()
+
+                if events_to_write:
+                    # Use asyncio.to_thread for file I/O
+                    await asyncio.to_thread(_write_events_sync, events_to_write)
+
+            await asyncio.sleep(0.1)  # Batch writes every 100ms
+        except Exception as e:
+            SECURITY_LOGGER.warning(f"Background event writer error: {e}")
+            await asyncio.sleep(1)  # Back off on error
+
+
+def _write_events_sync(events: list[dict[str, Any]]) -> None:
+    """Synchronous write of multiple events (called in thread)."""
     try:
         SYSTEM_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
         with SYSTEM_EVENTS_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(event_data) + "\n")
+            for event_data in events:
+                f.write(json.dumps(event_data) + "\n")
     except Exception as e:
-        SECURITY_LOGGER.warning(f"Failed to write system event to file: {e}")
+        SECURITY_LOGGER.warning(f"Failed to write system events to file: {e}")
+
+
+def _ensure_writer_running() -> None:
+    """Ensure background writer task is running."""
+    global _write_task
+    try:
+        loop = asyncio.get_running_loop()
+        if _write_task is None or _write_task.done():
+            _write_task = loop.create_task(_background_event_writer())
+    except RuntimeError:
+        # No running loop - will be started when loop is available
+        pass
+
+
+def _write_system_event(event_data: dict[str, Any]) -> None:
+    """Queue event for background writing (non-blocking)."""
+    _event_queue.append(event_data)
+    _ensure_writer_running()
 
 
 def log_security_event(
@@ -166,10 +211,19 @@ def get_client_ip(request: Any) -> str | None:
     return None
 
 
+async def flush_security_events() -> None:
+    """Flush any pending security events (call on shutdown)."""
+    if _event_queue:
+        events = list(_event_queue)
+        _event_queue.clear()
+        await asyncio.to_thread(_write_events_sync, events)
+
+
 __all__ = [
     "SECURITY_LOGGER",
     "log_security_event",
     "get_client_ip",
+    "flush_security_events",
     # Event type constants
     "AUTH_SUCCESS",
     "AUTH_FAILURE",

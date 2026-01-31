@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -63,13 +64,16 @@ class ListDirectoryTool(Tool):
         except ValueError as exc:
             return f"Error: {exc}"
 
-        if not target.exists():
+        exists = await asyncio.to_thread(target.exists)
+        if not exists:
             return f"Error: Path '{path}' does not exist."
-        if not target.is_dir():
+
+        is_dir = await asyncio.to_thread(target.is_dir)
+        if not is_dir:
             return f"Error: Path '{path}' is not a directory."
 
         try:
-            items = sorted(os.listdir(target))
+            items = sorted(await asyncio.to_thread(os.listdir, target))
             if not items:
                 return "(empty directory)"
 
@@ -77,7 +81,8 @@ class ListDirectoryTool(Tool):
             output = [f"Contents of '{path}':"]
             for item in items:
                 full_item = target / item
-                suffix = "/" if full_item.is_dir() else ""
+                is_item_dir = await asyncio.to_thread(full_item.is_dir)
+                suffix = "/" if is_item_dir else ""
                 output.append(f"- {item}{suffix}")
             return "\n".join(output)
         except PermissionError:
@@ -107,14 +112,17 @@ class ReadFileTool(Tool):
         except ValueError as exc:
             return f"Error: {exc}"
 
-        if not target.exists():
+        exists = await asyncio.to_thread(target.exists)
+        if not exists:
             return f"Error: File '{path}' does not exist."
-        if not target.is_file():
+
+        is_file = await asyncio.to_thread(target.is_file)
+        if not is_file:
             return f"Error: Path '{path}' is not a file."
 
         try:
             # Enforce UTF-8 reading
-            text = target.read_text(encoding="utf-8")
+            text = await asyncio.to_thread(target.read_text, encoding="utf-8")
             if len(text) > self._max_length:
                 truncated = text[: self._max_length]
                 return f"{truncated}\n...[Content Truncated at {self._max_length} chars]"
@@ -159,13 +167,16 @@ class EditFileTool(Tool):
         except ValueError as exc:
             return f"Error: {exc}"
 
-        if not target_path.exists():
+        exists = await asyncio.to_thread(target_path.exists)
+        if not exists:
             return f"Error: File '{path}' does not exist."
-        if not target_path.is_file():
+
+        is_file = await asyncio.to_thread(target_path.is_file)
+        if not is_file:
             return f"Error: Path '{path}' is not a file."
 
         try:
-            content = target_path.read_text(encoding="utf-8")
+            content = await asyncio.to_thread(target_path.read_text, encoding="utf-8")
         except UnicodeDecodeError:
             return f"Error: File '{path}' is not valid UTF-8 text."
         except Exception as exc:
@@ -190,7 +201,7 @@ class EditFileTool(Tool):
         new_content = content.replace(target, replacement, 1)
 
         try:
-            target_path.write_text(new_content, encoding="utf-8")
+            await asyncio.to_thread(target_path.write_text, new_content, encoding="utf-8")
         except Exception as exc:
             return f"Error: Failed to write to file: {exc}"
 
