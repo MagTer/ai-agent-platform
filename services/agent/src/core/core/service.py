@@ -1213,6 +1213,14 @@ class AgentService:
                 # Debug logging
                 debug_logger = DebugLogger(session)
                 trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+
+                # Yield trace_id as first event for debugging/observability
+                yield {
+                    "type": "trace_info",
+                    "trace_id": trace_id,
+                    "conversation_id": conversation_id,
+                }
+
                 await debug_logger.log_request(
                     trace_id=trace_id,
                     prompt=request.prompt,
@@ -1377,6 +1385,11 @@ class AgentService:
             # Try DB fetch (might fail in mocks, so catch generic)
             with contextlib.suppress(Exception):
                 messages = await self.get_history(conversation_id, session)
+
+        # Add trace_id to metadata for debugging/observability
+        trace_ids = current_trace_ids()
+        if trace_ids.get("trace_id"):
+            response_metadata["trace_id"] = trace_ids["trace_id"]
 
         return AgentResponse(
             response=response_text,
