@@ -109,18 +109,43 @@ class LiteLLMClient:
                         if "model" in data and data["model"]:
                             set_span_attributes({"gen_ai.response.model": data["model"]})
 
+                        # Capture OpenRouter provider (e.g., "Groq", "DeepInfra")
+                        if "provider" in data and data["provider"]:
+                            provider = data["provider"]
+                            set_span_attributes({"gen_ai.provider": provider})
+                            LOGGER.info("LLM provider: %s (model: %s)", provider, data.get("model"))
+
+                        # Capture system fingerprint (model version/deployment)
+                        if "system_fingerprint" in data and data["system_fingerprint"]:
+                            set_span_attributes(
+                                {"gen_ai.system_fingerprint": data["system_fingerprint"]}
+                            )
+
                         if "usage" in data and data["usage"]:
                             usage = data["usage"]
-                            attrs = {}
+                            attrs: dict[str, Any] = {}
                             if "prompt_tokens" in usage:
                                 attrs["gen_ai.usage.prompt_tokens"] = usage["prompt_tokens"]
                             if "completion_tokens" in usage:
                                 attrs["gen_ai.usage.completion_tokens"] = usage["completion_tokens"]
                             if "total_tokens" in usage:
                                 attrs["gen_ai.usage.total_tokens"] = usage["total_tokens"]
-                            # OpenRouter sometimes sends cost
                             if "cost" in usage:
                                 attrs["gen_ai.usage.cost"] = usage["cost"]
+
+                            # Capture reasoning vs output tokens (important for reasoning models)
+                            completion_details = usage.get("completion_tokens_details", {})
+                            if completion_details.get("reasoning_tokens"):
+                                attrs["gen_ai.usage.reasoning_tokens"] = completion_details[
+                                    "reasoning_tokens"
+                                ]
+
+                            # Capture cache hits (cost optimization metric)
+                            prompt_details = usage.get("prompt_tokens_details", {})
+                            if prompt_details.get("cached_tokens"):
+                                attrs["gen_ai.usage.cached_tokens"] = prompt_details[
+                                    "cached_tokens"
+                                ]
 
                             if attrs:
                                 set_span_attributes(attrs)
@@ -129,6 +154,12 @@ class LiteLLMClient:
                         if "choices" in data and len(data["choices"]) > 0:
                             choice = data["choices"][0]
                             delta = choice.get("delta", {})
+
+                            # Capture finish reason (stop, length, tool_calls, etc.)
+                            if choice.get("finish_reason"):
+                                set_span_attributes(
+                                    {"gen_ai.finish_reason": choice["finish_reason"]}
+                                )
 
                             # Get model from payload
                             current_model = payload.get("model", "")
@@ -287,6 +318,47 @@ class LiteLLMClient:
             )
             response.raise_for_status()
             data = response.json()
+
+            # Capture tracing attributes
+            trace_attrs: dict[str, Any] = {}
+            if data.get("provider"):
+                trace_attrs["gen_ai.provider"] = data["provider"]
+                LOGGER.info("LLM provider: %s (model: %s)", data["provider"], data.get("model"))
+            if data.get("model"):
+                trace_attrs["gen_ai.response.model"] = data["model"]
+            if data.get("system_fingerprint"):
+                trace_attrs["gen_ai.system_fingerprint"] = data["system_fingerprint"]
+
+            # Capture usage metrics
+            usage = data.get("usage", {})
+            if usage.get("prompt_tokens"):
+                trace_attrs["gen_ai.usage.prompt_tokens"] = usage["prompt_tokens"]
+            if usage.get("completion_tokens"):
+                trace_attrs["gen_ai.usage.completion_tokens"] = usage["completion_tokens"]
+            if usage.get("total_tokens"):
+                trace_attrs["gen_ai.usage.total_tokens"] = usage["total_tokens"]
+            if usage.get("cost"):
+                trace_attrs["gen_ai.usage.cost"] = usage["cost"]
+
+            # Reasoning tokens (important for reasoning models)
+            completion_details = usage.get("completion_tokens_details", {})
+            if completion_details.get("reasoning_tokens"):
+                trace_attrs["gen_ai.usage.reasoning_tokens"] = completion_details[
+                    "reasoning_tokens"
+                ]
+
+            # Cache hits
+            prompt_details = usage.get("prompt_tokens_details", {})
+            if prompt_details.get("cached_tokens"):
+                trace_attrs["gen_ai.usage.cached_tokens"] = prompt_details["cached_tokens"]
+
+            # Finish reason
+            if data.get("choices") and data["choices"][0].get("finish_reason"):
+                trace_attrs["gen_ai.finish_reason"] = data["choices"][0]["finish_reason"]
+
+            if trace_attrs:
+                set_span_attributes(trace_attrs)
+
             message = data["choices"][0]["message"]
 
             # Handle reasoning models: if content is empty, use reasoning field
