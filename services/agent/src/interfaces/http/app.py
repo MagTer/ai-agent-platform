@@ -498,10 +498,12 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             return await svc.handle_request(request, session=session)
         except LiteLLMError as exc:  # pragma: no cover - upstream failure
             LOGGER.error("LiteLLM gateway error: %s", exc)
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=502, detail="Upstream service temporarily unavailable"
+            ) from exc
         except Exception as exc:  # pragma: no cover - defensive branch
             LOGGER.exception("Agent processing failed")
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     async def _handle_chat_completions(
         request: ChatCompletionRequest,
@@ -511,16 +513,18 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         try:
             agent_request = _build_agent_request_from_chat(request)
         except ValueError as exc:  # pragma: no cover - defensive validation
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail="Invalid request format") from exc
 
         try:
             response = await svc.handle_request(agent_request, session=session)
         except LiteLLMError as exc:
             LOGGER.error("LiteLLM gateway error: %s", exc)
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=502, detail="Upstream service temporarily unavailable"
+            ) from exc
         except Exception as exc:  # pragma: no cover - defensive branch
             LOGGER.exception("Agent processing failed")
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(status_code=500, detail="Internal server error") from exc
         message_metadata = dict(response.metadata or {})
         message_metadata["steps"] = response.steps
         choice = ChatCompletionChoice(
@@ -563,7 +567,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             return await svc.list_models()
         except LiteLLMError as exc:  # pragma: no cover - upstream failure
             LOGGER.error("LiteLLM gateway error: %s", exc)
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=502, detail="Upstream service temporarily unavailable"
+            ) from exc
 
     @app.get("/v1/models")
     async def list_models_v1(svc: AgentService = Depends(get_service)) -> Any:
@@ -579,7 +585,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             return await svc.get_history(conversation_id, session=session)
         except Exception as exc:
             LOGGER.exception(f"Failed to fetch history for {conversation_id}")
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=500, detail="Failed to retrieve conversation history"
+            ) from exc
 
     app.include_router(openwebui_router)
     app.include_router(oauth_router)

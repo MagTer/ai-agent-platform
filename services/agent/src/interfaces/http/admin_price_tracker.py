@@ -77,7 +77,7 @@ async def get_my_context(
         }
     except Exception as e:
         LOGGER.exception("Failed to get user context")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to retrieve user context") from e
 
 
 @router.get(
@@ -112,7 +112,7 @@ async def list_stores(
         ]
     except Exception as e:
         LOGGER.exception("Failed to list stores")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to list stores") from e
 
 
 @router.get("/products", response_model=list[ProductResponse])
@@ -271,7 +271,7 @@ async def list_products(
         raise
     except Exception as e:
         LOGGER.exception("Failed to list products")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to list products") from e
 
 
 @router.post("/products", status_code=201)
@@ -322,7 +322,7 @@ async def create_product(
         raise
     except Exception as e:
         LOGGER.exception("Failed to create product")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to create product") from e
 
 
 @router.get(
@@ -421,7 +421,7 @@ async def get_product(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to get product {product_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to retrieve product") from e
 
 
 @router.put("/products/{product_id}", dependencies=[Depends(verify_admin_user)])
@@ -480,7 +480,7 @@ async def update_product(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to update product {product_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to update product") from e
 
 
 @router.post(
@@ -531,7 +531,7 @@ async def link_product_to_store(
         }
     except Exception as e:
         LOGGER.exception(f"Failed to link product {product_id} to store {data.store_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to link product to store") from e
 
 
 @router.put(
@@ -636,7 +636,7 @@ async def update_check_frequency(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to update frequency for product {product_id}, store {store_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to update frequency") from e
 
 
 @router.delete(
@@ -684,7 +684,7 @@ async def unlink_product_from_store(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to unlink product {product_id} from store {store_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to unlink product from store") from e
 
 
 @router.get(
@@ -756,7 +756,7 @@ async def get_price_history(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to get price history for product {product_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to retrieve price history") from e
 
 
 @router.post("/check/{product_store_id}", dependencies=[Depends(verify_admin_user)])
@@ -871,7 +871,7 @@ async def trigger_price_check(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to trigger price check for {product_store_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to trigger price check") from e
 
 
 @router.get("/deals", response_model=list[DealResponse], dependencies=[Depends(verify_admin_user)])
@@ -953,7 +953,7 @@ async def get_current_deals(
         return deals
     except Exception as e:
         LOGGER.exception("Failed to get current deals")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to retrieve deals") from e
 
 
 @router.get("/watches")
@@ -1036,7 +1036,7 @@ async def list_watches(
         raise
     except Exception as e:
         LOGGER.exception("Failed to list watches")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to list watches") from e
 
 
 @router.post("/watches", status_code=201, dependencies=[Depends(verify_admin_user)])
@@ -1072,7 +1072,7 @@ async def create_watch(
         return {"watch_id": str(watch.id), "message": "Price watch created successfully"}
     except Exception as e:
         LOGGER.exception("Failed to create price watch")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to create price watch") from e
 
 
 @router.put("/watches/{watch_id}", dependencies=[Depends(verify_admin_user)])
@@ -1127,7 +1127,7 @@ async def update_watch(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to update watch {watch_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to update price watch") from e
 
 
 @router.delete("/watches/{watch_id}", dependencies=[Depends(verify_admin_user)])
@@ -1168,7 +1168,7 @@ async def delete_watch(
         raise
     except Exception as e:
         LOGGER.exception(f"Failed to delete watch {watch_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to delete price watch") from e
 
 
 @router.delete("/products/{product_id}", dependencies=[Depends(verify_admin_user)])
@@ -1197,10 +1197,10 @@ async def delete_product(
         await service.delete_product(product_id)
         return {"message": "Product deleted successfully"}
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(status_code=400, detail="Invalid product ID") from e
     except Exception as e:
         LOGGER.exception(f"Failed to delete product {product_id}")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to delete product") from e
 
 
 @router.get("/export")
@@ -1383,7 +1383,7 @@ async def export_data(
         raise
     except Exception as e:
         LOGGER.exception("Failed to export price tracker data")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to export data") from e
 
 
 @router.post("/import")
@@ -1614,7 +1614,7 @@ async def import_data(
     except Exception as e:
         await session.rollback()
         LOGGER.exception("Failed to import price tracker data")
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="Failed to import data") from e
 
 
 @router.get("/", response_class=UTF8HTMLResponse)

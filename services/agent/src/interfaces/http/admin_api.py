@@ -9,6 +9,7 @@ Authentication: X-API-Key header OR Entra ID admin session.
 from __future__ import annotations
 
 import logging
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -68,13 +69,17 @@ async def verify_api_key_or_admin(
     """
     settings = get_settings()
 
-    # Try API key first
+    # Try API key first (use constant-time comparison to prevent timing attacks)
     if x_api_key:
-        if settings.diagnostic_api_key and x_api_key == settings.diagnostic_api_key:
+        if settings.diagnostic_api_key and secrets.compare_digest(
+            x_api_key.encode(), settings.diagnostic_api_key.encode()
+        ):
             LOGGER.info("API key authentication successful")
             return APIKeyUser(key_type="diagnostic")
         # Also accept admin_api_key for backward compatibility
-        if settings.admin_api_key and x_api_key == settings.admin_api_key:
+        if settings.admin_api_key and secrets.compare_digest(
+            x_api_key.encode(), settings.admin_api_key.encode()
+        ):
             LOGGER.info("Admin API key authentication successful")
             return APIKeyUser(key_type="admin")
 
@@ -107,9 +112,11 @@ async def get_api_key_auth(
     """Authenticate via API key or fall back to admin session."""
     settings = get_settings()
 
-    # Check API key
+    # Check API key (use constant-time comparison to prevent timing attacks)
     if x_api_key:
-        if settings.diagnostic_api_key and x_api_key == settings.diagnostic_api_key:
+        if settings.diagnostic_api_key and secrets.compare_digest(
+            x_api_key.encode(), settings.diagnostic_api_key.encode()
+        ):
             log_security_event(
                 event_type=AUTH_SUCCESS,
                 ip_address=get_client_ip(request),
@@ -119,7 +126,9 @@ async def get_api_key_auth(
             )
             return APIKeyUser(key_type="diagnostic")
 
-        if settings.admin_api_key and x_api_key == settings.admin_api_key:
+        if settings.admin_api_key and secrets.compare_digest(
+            x_api_key.encode(), settings.admin_api_key.encode()
+        ):
             log_security_event(
                 event_type=AUTH_SUCCESS,
                 ip_address=get_client_ip(request),
