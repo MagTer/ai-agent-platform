@@ -12,9 +12,9 @@ graph TD
     subgraph Orchestrator
         B --> D[Agent Service]
         D -->|Plan| E[Planner Agent]
-        E -->|Delegate| F[Skill Delegate]
-        F -->|Load .md| G[Skill Loader]
-        F -->|Execute| H[Worker Agent]
+        E -->|Execute| F[Step Executor]
+        F -->|Load .md| G[Skill Registry]
+        F -->|Run| H[Skill Executor]
     end
 
     subgraph Core Engine
@@ -397,24 +397,6 @@ Skills can **ONLY** access tools explicitly listed in their frontmatter. This pr
 - **Security**: Tools aren't directly exposed to the LLM
 - **Clarity**: Clear capability boundaries per skill
 
-### Migration from consult_expert
-
-The `consult_expert` tool is **deprecated**. New plans use skills directly:
-
-**Old format (deprecated):**
-```json
-{"executor": "agent", "action": "tool", "tool": "consult_expert",
- "args": {"skill": "researcher", "goal": "..."}}
-```
-
-**New format:**
-```json
-{"executor": "skill", "action": "skill", "tool": "researcher",
- "args": {"goal": "..."}}
-```
-
-The `PlanSupervisorAgent` automatically migrates old plans to the new format.
-
 For detailed skill format, see [SKILLS_FORMAT.md](SKILLS_FORMAT.md).
 
 ---
@@ -433,7 +415,7 @@ For detailed skill format, see [SKILLS_FORMAT.md](SKILLS_FORMAT.md).
 
 | File | Coverage |
 |------|----------|
-| `test_skill_delegate.py` | Skill execution flow |
+| `test_skill_registry.py` | Skill registration and lookup |
 | `test_openwebui_adapter.py` | HTTP adapter formatting |
 | `test_error_codes.py` | Error classification |
 | `test_agent_scenarios.py` | End-to-end flows |

@@ -323,7 +323,7 @@ Skills are the **primary execution unit**. The Planner generates plans with `exe
 3. **Security** - Tools aren't directly exposed to the LLM
 4. **Self-Correction** - Steps can retry with feedback before replanning
 
-**Note:** `consult_expert` is deprecated. New plans use skills directly with `executor="skill"`.
+**Note:** Plans use skills directly with `executor="skill"` and the `SkillExecutor` handles execution with scoped tool access.
 
 ### Adding a New Integration
 

@@ -18,7 +18,7 @@ Use this index as the single entry point into the refactored Python-based stack.
   - [docs/architecture/06_rag.md](./architecture/06_rag.md) – Retrieval pipeline (ingest → embed → store → retrieve → re-rank → respond).
   - [docs/testing/01_ci.md](./testing/01_ci.md) – GitHub Actions pipeline that validates the documented architecture and tooling contracts.
 - [Operations](./OPERATIONS.md) – Typer-based stack commands, health checks, smoke tests, and maintenance procedures.
-- [Testing](./TESTING.md) – how to run linting and tests with Poetry and pytest, including coverage expectations.
+- [Testing](./testing/00_overview.md) - testing overview, test structure, and how to run tests.
 - [Open WebUI Integration](./OPENWEBUI_ACTIONS.md) – configuring the UI to call the FastAPI agent and expose tools.
 - [Style](./STYLE.md) – documentation formatting guardrails (ASCII punctuation, wrapping, tone).
 
