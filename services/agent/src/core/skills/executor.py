@@ -14,7 +14,6 @@ import re
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 from uuid import UUID
 
 from shared.models import (
@@ -27,6 +26,7 @@ from shared.models import (
 
 from core.observability.tracing import set_span_attributes, start_span
 from core.skills.registry import SkillRegistry
+from core.tools.activity_hints import build_activity_message
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,51 +38,6 @@ if TYPE_CHECKING:
 from sqlalchemy import select
 
 LOGGER = logging.getLogger(__name__)
-
-
-def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, Any]) -> str:
-    """Build an informative activity message from tool hints or arguments."""
-    # Try tool's activity_hint first
-    if tool_obj and hasattr(tool_obj, "activity_hint") and tool_obj.activity_hint:
-        for arg_name, pattern in tool_obj.activity_hint.items():
-            if arg_name in fargs:
-                value = fargs[arg_name]
-                domain = value
-
-                # Handle special {domain} placeholder
-                if "{domain}" in pattern and isinstance(value, str):
-                    try:
-                        domain = urlparse(value).netloc or value
-                    except Exception:
-                        domain = value
-
-                # Truncate long values
-                if isinstance(value, str) and len(value) > 50:
-                    value = value[:47] + "..."
-                if isinstance(domain, str) and len(domain) > 50:
-                    domain = domain[:47] + "..."
-
-                try:
-                    return pattern.format(**{arg_name: value, "domain": domain})
-                except (KeyError, ValueError):
-                    pass
-
-    # Fallback patterns
-    if "query" in fargs:
-        q = fargs["query"]
-        q = q if len(q) <= 50 else q[:47] + "..."
-        return f'Searching: "{q}"'
-    elif "url" in fargs:
-        try:
-            domain = urlparse(fargs["url"]).netloc
-            return f"Fetching: {domain}"
-        except Exception:
-            return "Fetching URL"
-    elif "path" in fargs or "file_path" in fargs:
-        path = fargs.get("path") or fargs.get("file_path")
-        return f"Reading: {path}"
-
-    return f"Using {fname}"
 
 
 class SkillExecutor:
@@ -537,7 +492,7 @@ class SkillExecutor:
 
                         # Build activity message
                         tool_obj = tool_lookup.get(fname)
-                        activity_msg = _build_activity_message(tool_obj, fname, fargs)
+                        activity_msg = build_activity_message(tool_obj, fname, fargs)
 
                         # Check for duplicates
                         call_key = (fname, json.dumps(fargs, sort_keys=True))

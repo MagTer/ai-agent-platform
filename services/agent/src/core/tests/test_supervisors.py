@@ -30,7 +30,7 @@ class TestPlanSupervisorAgent:
     def mock_registry(self) -> ToolRegistry:
         """Mock tool registry with sample tools."""
         mock_tool = MagicMock()
-        mock_tool.name = "consult_expert"
+        mock_tool.name = "web_search"
         return ToolRegistry([mock_tool])
 
     @pytest.mark.asyncio

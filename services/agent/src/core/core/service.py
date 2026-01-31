@@ -46,7 +46,7 @@ from core.observability.tracing import (
 )
 from core.skills import SkillExecutor, SkillRegistry
 from core.system_commands import handle_system_command
-from core.tools import SkillDelegateTool, ToolRegistry
+from core.tools import ToolRegistry
 from core.tools.base import ToolConfirmationError
 
 LOGGER = logging.getLogger(__name__)
@@ -89,11 +89,6 @@ class AgentService:
         self._memory = memory
         self._tool_registry = tool_registry or ToolRegistry([])
         self._skill_registry = skill_registry
-
-        # Register SkillDelegateTool for backward compatibility (deprecated)
-        # New plans should use executor="skill" directly
-        skill_delegate = SkillDelegateTool(self._litellm, self._tool_registry)
-        self._tool_registry.register(skill_delegate)
 
         self.context_manager = ContextManager(settings)
 
