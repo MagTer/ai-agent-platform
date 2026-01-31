@@ -368,10 +368,32 @@ class SkillExecutor:
                                             r"\[AWAITING_USER_INPUT:\w+\]", "", content
                                         ).strip()
 
+                                        # Map legacy/alternative category names
+                                        category_aliases = {
+                                            "type_selection": "selection",
+                                        }
+
+                                        # Apply alias mapping
+                                        if category_str in category_aliases:
+                                            mapped = category_aliases[category_str]
+                                            LOGGER.warning(
+                                                "HITL category '%s' mapped to '%s' "
+                                                "- consider updating skill",
+                                                category_str,
+                                                mapped,
+                                            )
+                                            category_str = mapped
+
                                         # Map category string to enum
                                         try:
                                             category = AwaitingInputCategory(category_str)
                                         except ValueError:
+                                            LOGGER.warning(
+                                                "Invalid HITL category '%s' in skill '%s', "
+                                                "falling back to CLARIFICATION",
+                                                category_str,
+                                                skill_name,
+                                            )
                                             category = AwaitingInputCategory.CLARIFICATION
 
                                         # Emit structured awaiting_input event
