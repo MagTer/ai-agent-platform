@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -20,6 +21,25 @@ from core.tools.base import Tool
 from core.tools.registry import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _make_call_key(fname: str, fargs: dict[str, Any]) -> tuple[str, str]:
+    """Create a deduplication key for a tool call.
+
+    Uses hash of sorted args for faster comparison than full JSON serialization.
+
+    Args:
+        fname: Tool/function name
+        fargs: Tool arguments dictionary
+
+    Returns:
+        Tuple of (tool_name, args_hash) for deduplication
+    """
+    # Create deterministic string representation by sorting items
+    # This ensures identical args produce identical hashes
+    args_str = str(sorted(fargs.items()))
+    args_hash = hashlib.md5(args_str.encode(), usedforsecurity=False).hexdigest()
+    return (fname, args_hash)
 
 
 def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, Any]) -> str:
@@ -249,7 +269,7 @@ class SkillDelegateTool(Tool):
         from core.observability.tracing import set_span_attributes, start_span
 
         source_count = 0  # Track number of tool calls (sources)
-        seen_calls: set[tuple[str, str]] = set()  # Track executed calls to prevent loops
+        seen_calls: set[tuple[str, str]] = set()  # Track executed calls (tool_name, args_hash)
         tool_call_counts: dict[str, int] = {}  # Track calls per tool type for rate limiting
         max_calls_per_tool = 3  # Maximum calls to any single tool
         blocked_this_turn = False  # Track if we blocked a call this turn
@@ -431,10 +451,7 @@ class SkillDelegateTool(Tool):
 
                         # Pre-calculate duplication status to suppress UI for duplicates
                         # We still re-check inside the span for blocking logic
-                        call_key_check = (
-                            fname,
-                            orjson.dumps(fargs, option=orjson.OPT_SORT_KEYS).decode(),
-                        )
+                        call_key_check = _make_call_key(fname, fargs)
                         is_duplicate_ui = call_key_check in seen_calls
 
                         if is_duplicate_ui:
@@ -495,10 +512,7 @@ class SkillDelegateTool(Tool):
                             set_span_attributes(tool_attrs)
 
                             # Deduplication and rate limiting checks
-                            call_key = (
-                                fname,
-                                orjson.dumps(fargs, option=orjson.OPT_SORT_KEYS).decode(),
-                            )
+                            call_key = _make_call_key(fname, fargs)
                             current_tool_count = tool_call_counts.get(fname, 0)
 
                             output_str = ""

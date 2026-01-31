@@ -287,9 +287,10 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
         # Load base tool registry for skill tool validation
         base_tool_registry = load_tool_registry(settings.tools_config_path)
-        skill_registry = SkillRegistry(tool_registry=base_tool_registry)
+        # Use async parallel loading for faster startup
+        skill_registry = await SkillRegistry.create_async(tool_registry=base_tool_registry)
         LOGGER.info(
-            "SkillRegistry initialized with %d skills",
+            "SkillRegistry initialized with %d skills (async parallel loading)",
             len(skill_registry.available()),
         )
 
