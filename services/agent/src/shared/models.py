@@ -31,6 +31,29 @@ class StepOutcome(str, Enum):
     ABORT = "abort"
 
 
+class AwaitingInputCategory(str, Enum):
+    """Categories of user input the system can await."""
+
+    CLARIFICATION = "clarification"
+    SELECTION = "selection"
+    CONFIRMATION = "confirmation"
+    TEAM_SELECTION = "team_selection"
+    APPROVAL = "approval"
+
+
+class AwaitingInputRequest(BaseModel):
+    """Structured request for user input during skill execution."""
+
+    category: AwaitingInputCategory
+    prompt: str = Field(description="Human-readable prompt for the user")
+    options: list[str] | None = Field(
+        default=None, description="List of options if category requires selection"
+    )
+    skill_name: str = Field(description="Skill requesting input for routing")
+    context: dict[str, Any] = Field(default_factory=dict, description="Context for skill to resume")
+    required: bool = Field(default=True, description="Whether input is required")
+
+
 class AgentMessage(BaseModel):
     """Representation of a chat message exchanged with the agent."""
 
@@ -153,4 +176,6 @@ __all__ = [
     "StepResult",
     "RoutingDecision",
     "StepOutcome",
+    "AwaitingInputCategory",
+    "AwaitingInputRequest",
 ]

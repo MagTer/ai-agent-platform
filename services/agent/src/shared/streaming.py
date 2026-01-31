@@ -30,6 +30,7 @@ class AgentChunk(TypedDict):
         "done",
         "history_snapshot",
         "skill_activity",
+        "awaiting_input",
     ]
     content: str | None
     tool_call: dict[str, Any] | None

@@ -10,13 +10,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 from uuid import UUID
 
-from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AwaitingInputCategory,
+    PlanStep,
+    StepResult,
+)
 
 from core.observability.tracing import set_span_attributes, start_span
 from core.skills.registry import SkillRegistry
@@ -350,6 +357,39 @@ class SkillExecutor:
                             if chunk["type"] == "content" and chunk["content"]:
                                 content = chunk["content"]
                                 full_content.append(content)
+
+                                # Check for HITL marker and emit structured event
+                                if "[AWAITING_USER_INPUT:" in content:
+                                    match = re.search(r"\[AWAITING_USER_INPUT:(\w+)\]", content)
+                                    if match:
+                                        category_str = match.group(1).lower()
+                                        # Clean content - remove the marker
+                                        clean_prompt = re.sub(
+                                            r"\[AWAITING_USER_INPUT:\w+\]", "", content
+                                        ).strip()
+
+                                        # Map category string to enum
+                                        try:
+                                            category = AwaitingInputCategory(category_str)
+                                        except ValueError:
+                                            category = AwaitingInputCategory.CLARIFICATION
+
+                                        # Emit structured awaiting_input event
+                                        yield {
+                                            "type": "awaiting_input",
+                                            "content": None,
+                                            "tool_call": None,
+                                            "metadata": {
+                                                "category": category.value,
+                                                "prompt": clean_prompt,
+                                                "skill_name": skill_name,
+                                                "context": {},
+                                                "required": True,
+                                            },
+                                        }
+                                        # Continue to next chunk (don't yield marker in content)
+                                        continue
+
                                 # Mark skill content for filtering in adapter
                                 yield {
                                     "type": "content",

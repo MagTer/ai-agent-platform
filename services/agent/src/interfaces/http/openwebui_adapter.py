@@ -906,6 +906,22 @@ async def stream_response_generator(
                         continue  # Skip if contains raw tokens
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
+            elif chunk_type == "awaiting_input":
+                # Handle structured human-in-the-loop signaling
+                meta = agent_chunk.get("metadata") or {}
+                prompt = meta.get("prompt", "Awaiting input...")
+                options = meta.get("options")
+                category = meta.get("category", "clarification")
+
+                formatted = f"\n\n⏸️ **Input needed ({category}):** {prompt}\n"
+                if options:
+                    formatted += "\n**Options:**\n"
+                    for i, opt in enumerate(options, 1):
+                        formatted += f"{i}. {opt}\n"
+                formatted += "\n"
+
+                yield _format_chunk(chunk_id, created, model_name, formatted)
+
             elif chunk_type == "error":
                 formatted = f"\n❌ **Error:** {_clean_content(content)}\n\n"
                 yield _format_chunk(chunk_id, created, model_name, formatted)

@@ -12,6 +12,8 @@ from shared.models import (
     AgentMessage,
     AgentRequest,
     AgentResponse,
+    AwaitingInputCategory,
+    AwaitingInputRequest,
     Plan,
     PlanStep,
     RoutingDecision,
@@ -48,6 +50,20 @@ from core.tools import SkillDelegateTool, ToolRegistry
 from core.tools.base import ToolConfirmationError
 
 LOGGER = logging.getLogger(__name__)
+
+
+async def _persist_memory_background(
+    memory: MemoryStore,
+    conversation_id: str,
+    text: str,
+    logger: logging.Logger,
+) -> None:
+    """Background task to persist memory without blocking response."""
+    try:
+        await memory.add_records([MemoryRecord(conversation_id=conversation_id, text=text)])
+        logger.debug("Background memory persistence complete for %s", conversation_id)
+    except Exception as e:
+        logger.warning("Background memory persistence failed: %s", e)
 
 
 class AgentService:
@@ -395,12 +411,12 @@ class AgentService:
                     needs_replan = False
                     abort_execution = False
                     # Track if a skill is awaiting user input (skip completion if so)
-                    awaiting_user_input = False
+                    awaiting_input_request: AwaitingInputRequest | None = None
 
                     for plan_step in plan.steps:
                         # Skip completion step if a skill is awaiting user input
                         # This prevents hallucinated responses when user needs to answer first
-                        if plan_step.action == "completion" and awaiting_user_input:
+                        if plan_step.action == "completion" and awaiting_input_request:
                             LOGGER.info("Skipping completion step - skill awaiting user input")
                             execution_complete = True
                             break
@@ -461,9 +477,53 @@ class AgentService:
                                             # Track skill content for smart completion skip
                                             if content and len(content) > 100:
                                                 skill_content_yielded = True
-                                            # Track if skill is awaiting user input
+                                            # Backward compatibility: detect text marker
                                             if content and "[AWAITING_USER_INPUT" in content:
-                                                awaiting_user_input = True
+                                                # Create structured request from text marker
+                                                import re
+
+                                                match = re.search(
+                                                    r"\[AWAITING_USER_INPUT:(\w+)\]", content
+                                                )
+                                                if match:
+                                                    category_str = match.group(1).lower()
+                                                    try:
+                                                        category = AwaitingInputCategory(
+                                                            category_str
+                                                        )
+                                                    except ValueError:
+                                                        category = (
+                                                            AwaitingInputCategory.CLARIFICATION
+                                                        )
+                                                    clean_prompt = re.sub(
+                                                        r"\[AWAITING_USER_INPUT:\w+\]",
+                                                        "",
+                                                        content,
+                                                    ).strip()
+                                                    awaiting_input_request = AwaitingInputRequest(
+                                                        category=category,
+                                                        prompt=clean_prompt,
+                                                        skill_name=plan_step.tool or "unknown",
+                                                        context={},
+                                                    )
+                                        elif event["type"] == "awaiting_input":
+                                            # Handle structured awaiting_input event
+                                            meta = event.get("metadata") or {}
+                                            category_str = meta.get("category", "clarification")
+                                            try:
+                                                category = AwaitingInputCategory(category_str)
+                                            except ValueError:
+                                                category = AwaitingInputCategory.CLARIFICATION
+                                            awaiting_input_request = AwaitingInputRequest(
+                                                category=category,
+                                                prompt=meta.get("prompt", ""),
+                                                skill_name=meta.get("skill_name", ""),
+                                                context=meta.get("context", {}),
+                                                options=meta.get("options"),
+                                                required=meta.get("required", True),
+                                            )
+                                            # Forward the event
+                                            yield event
                                         elif event["type"] == "thinking":
                                             meta = (event.get("metadata") or {}).copy()
                                             meta["id"] = plan_step.id
@@ -868,8 +928,14 @@ class AgentService:
                         trace_id=current_trace_ids().get("trace_id"),
                     )
                 )
-                await self._memory.add_records(
-                    [MemoryRecord(conversation_id=conversation_id, text=request.prompt)]
+                # Fire-and-forget memory persistence (non-blocking)
+                asyncio.create_task(
+                    _persist_memory_background(
+                        self._memory,
+                        conversation_id,
+                        request.prompt,
+                        LOGGER,
+                    )
                 )
                 await session.commit()
 
