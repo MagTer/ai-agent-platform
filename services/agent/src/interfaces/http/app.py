@@ -38,6 +38,7 @@ from core.db.models import Context, Conversation
 from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
 from core.observability.tracing import configure_tracing
 from core.tools.mcp_loader import set_mcp_client_pool, shutdown_all_mcp_clients
+from interfaces.http.admin_api import router as admin_api_router
 from interfaces.http.admin_auth import AuthRedirectError
 from interfaces.http.admin_auth_oauth import router as admin_auth_oauth_router
 from interfaces.http.admin_contexts import router as admin_contexts_router
@@ -50,7 +51,6 @@ from interfaces.http.admin_portal import router as admin_portal_router
 from interfaces.http.admin_price_tracker import router as admin_price_tracker_router
 from interfaces.http.admin_users import router as admin_users_router
 from interfaces.http.admin_workspaces import router as admin_workspaces_router
-from interfaces.http.diagnostics import router as diagnostics_router
 from interfaces.http.oauth import router as oauth_router
 from interfaces.http.oauth_webui import router as oauth_webui_router
 from interfaces.http.openwebui_adapter import router as openwebui_router
@@ -582,7 +582,6 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     app.include_router(openwebui_router)
-    app.include_router(diagnostics_router)
     app.include_router(oauth_router)
     app.include_router(oauth_webui_router)
 
@@ -598,6 +597,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     app.include_router(admin_debug_router)
     app.include_router(admin_price_tracker_router)
     app.include_router(admin_users_router)
+    app.include_router(admin_api_router)  # Diagnostic API (X-API-Key or Entra ID)
 
     return app
 

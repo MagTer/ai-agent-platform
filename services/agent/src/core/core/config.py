@@ -131,6 +131,12 @@ class Settings(BaseModel):
         description="API key for admin dashboard access (generate with: openssl rand -hex 32)",
     )
 
+    # Diagnostic API Key (for AI/programmatic access)
+    diagnostic_api_key: str | None = Field(
+        default=None,
+        description="API key for diagnostic API access by AI agents.",
+    )
+
     # Entra ID (Azure AD) Configuration for Admin Portal
     entra_client_id: str | None = Field(
         default=None,
