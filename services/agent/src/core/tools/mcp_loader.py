@@ -100,7 +100,7 @@ class McpToolWrapper(Tool):
                 provider_lower = self._server_name.lower()
 
                 return (
-                    f"🔐 **{self._server_name} Authentication Required**\n\n"
+                    f"[AUTH] **{self._server_name} Authentication Required**\n\n"
                     f"To use {self._server_name} tools, I need permission to access "
                     f"your account.\n\n"
                     f"**To authorize {self._server_name}:**\n"
