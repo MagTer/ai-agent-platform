@@ -182,23 +182,7 @@ class SkillRegistry:
             try:
                 skill = self._parse_skill_content(path, content)
                 if skill:
-                    # Register by name
-                    self._skills[skill.name] = skill
-
-                    # Also register by path-based name for compatibility
-                    relative_path = path.relative_to(self._skills_dir).with_suffix("")
-                    path_name = str(relative_path).replace("\\", "/")
-                    self._by_path[path_name] = skill
-                    self._by_path[path.stem] = skill  # Also by filename only
-
-                    # Validate tool references
-                    if self._tool_registry and skill.tools:
-                        for tool_name in skill.tools:
-                            if not self._tool_registry.get(tool_name):
-                                tool_warnings.append(
-                                    f"Skill '{skill.name}' references missing tool '{tool_name}'"
-                                )
-
+                    self._register_skill(skill, tool_warnings)
                     valid_count += 1
                 else:
                     invalid_count += 1
@@ -207,18 +191,7 @@ class SkillRegistry:
                 LOGGER.warning("Failed to parse skill %s: %s", path, e)
                 invalid_count += 1
 
-        # Log summary
-        LOGGER.info(
-            "SkillRegistry loaded: %d valid skills, %d invalid",
-            valid_count,
-            invalid_count,
-        )
-
-        if tool_warnings:
-            for warning in tool_warnings[:10]:  # Limit to first 10 warnings
-                LOGGER.warning(warning)
-            if len(tool_warnings) > 10:
-                LOGGER.warning("... and %d more tool warnings", len(tool_warnings) - 10)
+        self._log_load_summary(valid_count, invalid_count, tool_warnings)
 
     def _load_and_validate(self) -> None:
         """Load all skills from the skills directory and validate them."""
@@ -234,30 +207,25 @@ class SkillRegistry:
             try:
                 skill = self._load_skill(path)
                 if skill:
-                    # Register by name
-                    self._skills[skill.name] = skill
-
-                    # Also register by path-based name for compatibility
-                    relative_path = path.relative_to(self._skills_dir).with_suffix("")
-                    path_name = str(relative_path).replace("\\", "/")
-                    self._by_path[path_name] = skill
-                    self._by_path[path.stem] = skill  # Also by filename only
-
-                    # Validate tool references
-                    if self._tool_registry and skill.tools:
-                        for tool_name in skill.tools:
-                            if not self._tool_registry.get(tool_name):
-                                tool_warnings.append(
-                                    f"Skill '{skill.name}' references missing tool '{tool_name}'"
-                                )
-
+                    self._register_skill(skill, tool_warnings)
                     valid_count += 1
 
             except Exception as e:
                 LOGGER.warning("Failed to load skill %s: %s", path, e)
                 invalid_count += 1
 
-        # Log summary
+        self._log_load_summary(valid_count, invalid_count, tool_warnings)
+
+    def _log_load_summary(
+        self, valid_count: int, invalid_count: int, tool_warnings: list[str]
+    ) -> None:
+        """Log skill loading summary with tool warnings.
+
+        Args:
+            valid_count: Number of successfully loaded skills.
+            invalid_count: Number of failed skill loads.
+            tool_warnings: List of tool reference warnings.
+        """
         LOGGER.info(
             "SkillRegistry loaded: %d valid skills, %d invalid",
             valid_count,
@@ -265,10 +233,11 @@ class SkillRegistry:
         )
 
         if tool_warnings:
-            for warning in tool_warnings[:10]:  # Limit to first 10 warnings
+            max_warnings = 10
+            for warning in tool_warnings[:max_warnings]:
                 LOGGER.warning(warning)
-            if len(tool_warnings) > 10:
-                LOGGER.warning("... and %d more tool warnings", len(tool_warnings) - 10)
+            if len(tool_warnings) > max_warnings:
+                LOGGER.warning("... and %d more tool warnings", len(tool_warnings) - max_warnings)
 
     def _parse_skill_content(self, path: Path, content: str) -> Skill | None:
         """Parse skill content from markdown.
@@ -315,6 +284,30 @@ class SkillRegistry:
             raw_content=content,
             body_template=body_template,
         )
+
+    def _register_skill(self, skill: Skill, tool_warnings: list[str]) -> None:
+        """Register a skill in all lookup indexes and validate tool references.
+
+        Args:
+            skill: Validated Skill object to register.
+            tool_warnings: List to append tool validation warnings to.
+        """
+        # Register by name
+        self._skills[skill.name] = skill
+
+        # Also register by path-based name for compatibility
+        relative_path = skill.path.relative_to(self._skills_dir).with_suffix("")
+        path_name = str(relative_path).replace("\\", "/")
+        self._by_path[path_name] = skill
+        self._by_path[skill.path.stem] = skill  # Also by filename only
+
+        # Validate tool references
+        if self._tool_registry and skill.tools:
+            for tool_name in skill.tools:
+                if not self._tool_registry.get(tool_name):
+                    tool_warnings.append(
+                        f"Skill '{skill.name}' references missing tool '{tool_name}'"
+                    )
 
     def _load_skill(self, path: Path) -> Skill | None:
         """Load a single skill from a markdown file.

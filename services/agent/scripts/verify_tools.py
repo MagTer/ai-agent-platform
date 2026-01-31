@@ -22,8 +22,8 @@ def verify_tools():
 
         registry = load_tool_registry(config_path)
 
-        print(f"Loaded {len(registry.tools())} tools:")
-        for tool in registry.tools():
+        print(f"Loaded {len(registry.list_tools())} tools:")
+        for tool in registry.list_tools():
             print(f" - Name: {tool.name}")
             print(f"   Description: {tool.description[:60]}...")
             if hasattr(tool, "parameters"):

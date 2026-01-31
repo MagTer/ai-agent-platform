@@ -911,7 +911,7 @@ class AgentService:
         allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
         target_tools = allowlist or {
             t.name
-            for t in self._tool_registry.tools()
+            for t in self._tool_registry.list_tools()
             if getattr(t, "category", "domain") == "orchestration"
         }
         tool_descriptions = self._describe_tools(target_tools)
@@ -1571,7 +1571,7 @@ class AgentService:
 
         # 1. Registry Tools
         if self._tool_registry:
-            for tool in self._tool_registry.tools():
+            for tool in self._tool_registry.list_tools():
                 if allowlist is not None and tool.name not in allowlist:
                     continue
                 info = {
