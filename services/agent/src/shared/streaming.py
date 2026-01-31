@@ -31,6 +31,7 @@ class AgentChunk(TypedDict):
         "history_snapshot",
         "skill_activity",
         "awaiting_input",
+        "trace_info",
     ]
     content: str | None
     tool_call: dict[str, Any] | None

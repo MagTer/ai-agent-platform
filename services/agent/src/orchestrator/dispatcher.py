@@ -420,6 +420,16 @@ class Dispatcher:
                         "tool_call": None,
                         "metadata": chunk,
                     }
+                elif c_type == "trace_info":
+                    yield {
+                        "type": "trace_info",
+                        "content": None,
+                        "tool_call": None,
+                        "metadata": {
+                            "trace_id": chunk.get("trace_id"),
+                            "conversation_id": chunk.get("conversation_id"),
+                        },
+                    }
                 else:
                     # Fallback
                     yield {
