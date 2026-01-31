@@ -92,44 +92,59 @@ class AgentService:
 
         self.context_manager = ContextManager(settings)
 
-    async def execute_stream(
-        self, request: AgentRequest, session: AsyncSession
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute request and yield intermediate events."""
-        conversation_id = request.conversation_id or str(uuid.uuid4())
-        LOGGER.info("Processing prompt for conversation %s", conversation_id)
+    # ────────────────────────────────────────────────────────────────────────────
+    # Extracted methods from execute_stream for better testability
+    # ────────────────────────────────────────────────────────────────────────────
 
-        # 1. Ensure Conversation exists (Strict Hierarchy)
+    async def _setup_conversation_and_context(
+        self,
+        session: AsyncSession,
+        conversation_id: str,
+        request: AgentRequest,
+    ) -> tuple[Conversation, Context | None, Session]:
+        """Create or get conversation, context, and session hierarchy.
+
+        Args:
+            session: Database session
+            conversation_id: UUID for the conversation
+            request: The incoming agent request
+
+        Returns:
+            Tuple of (Conversation, Context, Session)
+        """
+        # Create/get conversation
         db_conversation = await self._ensure_conversation_exists(session, conversation_id, request)
 
-        # 2. System Command Interceptor
-        sys_output = await handle_system_command(request.prompt, self, session, conversation_id)
-        if sys_output:
-            await session.commit()
-            yield {
-                "type": "content",
-                "content": sys_output,
-                "metadata": {"system_command": True},
-            }
-            return
-
-        # 3. Resolve Active Context
+        # Resolve active context
         db_context = await session.get(Context, db_conversation.context_id)
-        if not db_context:
-            LOGGER.warning("Context missing for conversation %s", conversation_id)
-            yield {"type": "error", "content": "Error: Context missing."}
-            return
 
-        # 4. Get active session
+        # Create session for this request
         db_session = await self._get_or_create_session(session, conversation_id)
 
-        # 5. Load History
-        # OpenWebUI sends full history in request.messages - prefer that over DB
-        debug_logger = DebugLogger(session)
-        trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+        return db_conversation, db_context, db_session
 
+    async def _load_and_prepare_history(
+        self,
+        session: AsyncSession,
+        db_session: Session,
+        db_context: Context | None,
+        db_conversation: Conversation,
+        request: AgentRequest,
+    ) -> tuple[list[AgentMessage], str]:
+        """Load conversation history and prepare request metadata.
+
+        Args:
+            session: Database session
+            db_session: The active Session
+            db_context: The active Context (may be None)
+            db_conversation: The Conversation
+            request: The incoming agent request
+
+        Returns:
+            Tuple of (history, history_source)
+        """
+        # Load from request or database
         if request.messages:
-            # Use the history provided by the client (OpenWebUI sends full history)
             history = list(request.messages)
             history_source = "request"
             LOGGER.info(
@@ -138,61 +153,62 @@ class AgentService:
                 [(m.role, (m.content or "")[:50]) for m in history],
             )
         else:
-            # Fallback to loading from database
             history = await self._load_conversation_history(session, db_session)
             history_source = "database"
             LOGGER.info("Loaded %d messages from database", len(history))
 
-        # Debug: Log request and history
-        await debug_logger.log_request(
-            trace_id=trace_id,
-            prompt=request.prompt,
-            messages=request.messages,
-            metadata=request.metadata,
-            conversation_id=conversation_id,
-        )
-        await debug_logger.log_history(
-            trace_id=trace_id,
-            source=history_source,
-            messages=history,
-            conversation_id=conversation_id,
-        )
-
-        # 6. Request Prep - update request.metadata directly so executor can access it
+        # Inject context into request metadata
         if request.metadata is None:
             request.metadata = {}
-        request_metadata = request.metadata
         if db_conversation.current_cwd:
-            request_metadata["cwd"] = db_conversation.current_cwd
+            request.metadata["cwd"] = db_conversation.current_cwd
+        request.metadata["_db_session"] = session
 
-        # Add session reference for tools that need database access (e.g., credential lookup)
-        request_metadata["_db_session"] = session
+        # Inject pinned files
+        if db_context:
+            await self._inject_pinned_files(history, db_context.pinned_files)
 
-        # 6.1. Inject Pinned Files
-        await self._inject_pinned_files(history, db_context.pinned_files)
-
-        # 6.2. Inject Workspace Rules (if .agent/rules.md exists)
+        # Inject workspace rules
         if db_conversation.current_cwd:
             await self._inject_workspace_rules(history, db_conversation.current_cwd)
 
+        return history, history_source
+
+    def _setup_agents_and_executors(
+        self,
+    ) -> tuple[
+        PlannerAgent,
+        PlanSupervisorAgent,
+        StepExecutorAgent,
+        StepSupervisorAgent,
+        SkillExecutor | None,
+        list[str],
+    ]:
+        """Instantiate all agents and executors.
+
+        Returns:
+            Tuple of (planner, plan_supervisor, executor, step_supervisor,
+                      skill_executor, skill_names)
+        """
         planner = PlannerAgent(self._litellm, model_name=self._settings.model_planner)
 
-        # Use skill_registry for skill names if available, otherwise fall back to command_loader
-        skill_names = (
+        skill_names_result = (
             self._skill_registry.get_skill_names()
             if self._skill_registry
             else get_available_skill_names()
         )
+        skill_names = (
+            list(skill_names_result) if isinstance(skill_names_result, set) else skill_names_result
+        )
         plan_supervisor = PlanSupervisorAgent(
             tool_registry=self._tool_registry,
-            skill_names=skill_names,
+            skill_names=set(skill_names) if skill_names else None,
         )
         executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
         step_supervisor = StepSupervisorAgent(
             self._litellm, model_name=self._settings.model_supervisor
         )
 
-        # Create SkillExecutor for skills-native execution (if registry available)
         skill_executor: SkillExecutor | None = None
         if self._skill_registry:
             skill_executor = SkillExecutor(
@@ -201,25 +217,1034 @@ class AgentService:
                 litellm=self._litellm,
             )
 
-        # Adaptive execution settings
+        return planner, plan_supervisor, executor, step_supervisor, skill_executor, skill_names
+
+    async def _route_chat_request(
+        self,
+        request: AgentRequest,
+        history: list[AgentMessage],
+        session: AsyncSession,
+        db_session: Session,
+        conversation_id: str,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Handle direct chat routing (non-agentic path).
+
+        Args:
+            request: The agent request
+            history: Conversation history
+            session: Database session
+            db_session: The active Session
+            conversation_id: The conversation ID
+
+        Yields:
+            Event dictionaries for the chat response
+        """
+        # Direct LLM completion
+        completion_text = await self._litellm.generate(history)
+
+        # Record and persist
+        session.add(
+            Message(
+                session_id=db_session.id,
+                role="assistant",
+                content=completion_text,
+                trace_id=current_trace_ids().get("trace_id"),
+            )
+        )
+        await session.commit()
+
+        # Yield completion event
+        yield {
+            "type": "completion",
+            "provider": "litellm",
+            "model": self._settings.model_agentchat,
+            "status": "ok",
+            "trace": current_trace_ids(),
+        }
+        yield {"type": "content", "content": completion_text}
+
+    async def _execute_step(
+        self,
+        plan_step: PlanStep,
+        skill_executor: SkillExecutor | None,
+        executor: StepExecutorAgent,
+        request: AgentRequest,
+        prompt_history: list[AgentMessage],
+        retry_feedback: str | None = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute a single step, yielding events. Returns result as final yield.
+
+        Args:
+            plan_step: The step to execute
+            skill_executor: Optional skill executor
+            executor: The step executor agent
+            request: The agent request
+            prompt_history: Conversation history
+            retry_feedback: Optional retry feedback from supervisor
+
+        Yields:
+            Event dictionaries, with final event being step_result
+        """
+        is_skill_step = plan_step.executor == "skill" or plan_step.action == "skill"
+        step_result: StepResult | None = None
+        awaiting_input_request: AwaitingInputRequest | None = None
+
+        if is_skill_step and skill_executor:
+            async for event in skill_executor.execute_stream(
+                plan_step,
+                request=request,
+                retry_feedback=retry_feedback,
+            ):
+                if event["type"] == "content":
+                    content = event["content"]
+                    meta = event.get("metadata") or {}
+                    yield {"type": "content", "content": content, "metadata": meta}
+
+                    # Backward compatibility: detect text marker
+                    if content and "[AWAITING_USER_INPUT" in content:
+                        import re
+
+                        match = re.search(r"\[AWAITING_USER_INPUT:(\w+)\]", content)
+                        if match:
+                            category_str = match.group(1).lower()
+
+                            # Map legacy/alternative category names
+                            category_aliases = {
+                                "type_selection": "selection",
+                            }
+
+                            if category_str in category_aliases:
+                                mapped = category_aliases[category_str]
+                                LOGGER.warning(
+                                    "HITL category '%s' mapped to '%s' - consider updating skill",
+                                    category_str,
+                                    mapped,
+                                )
+                                category_str = mapped
+
+                            try:
+                                category = AwaitingInputCategory(category_str)
+                            except ValueError:
+                                LOGGER.warning(
+                                    "Invalid HITL category '%s' in skill '%s', "
+                                    "falling back to CLARIFICATION",
+                                    category_str,
+                                    plan_step.tool or "unknown",
+                                )
+                                category = AwaitingInputCategory.CLARIFICATION
+                            clean_prompt = re.sub(
+                                r"\[AWAITING_USER_INPUT:\w+\]",
+                                "",
+                                content,
+                            ).strip()
+                            awaiting_input_request = AwaitingInputRequest(
+                                category=category,
+                                prompt=clean_prompt,
+                                skill_name=plan_step.tool or "unknown",
+                                context={},
+                            )
+                elif event["type"] == "awaiting_input":
+                    meta = event.get("metadata") or {}
+                    category_str = meta.get("category", "clarification")
+                    try:
+                        category = AwaitingInputCategory(category_str)
+                    except ValueError:
+                        category = AwaitingInputCategory.CLARIFICATION
+                    awaiting_input_request = AwaitingInputRequest(
+                        category=category,
+                        prompt=meta.get("prompt", ""),
+                        skill_name=meta.get("skill_name", ""),
+                        context=meta.get("context", {}),
+                        options=meta.get("options"),
+                        required=meta.get("required", True),
+                    )
+                    yield event
+                elif event["type"] == "thinking":
+                    meta = (event.get("metadata") or {}).copy()
+                    meta["id"] = plan_step.id
+                    yield {"type": "thinking", "content": event["content"], "metadata": meta}
+                elif event["type"] == "skill_activity":
+                    yield event
+                elif event["type"] == "result":
+                    step_result = event["result"]
+
+                await asyncio.sleep(0)  # Force flush
+        else:
+            # Use legacy StepExecutorAgent
+            async for event in executor.run_stream(
+                plan_step,
+                request=request,
+                conversation_id=request.conversation_id or str(uuid.uuid4()),
+                prompt_history=prompt_history,
+            ):
+                if event["type"] == "content":
+                    yield {"type": "content", "content": event["content"]}
+                elif event["type"] == "thinking":
+                    meta = (event.get("metadata") or {}).copy()
+                    meta["id"] = plan_step.id
+                    yield {"type": "thinking", "content": event["content"], "metadata": meta}
+                elif event["type"] == "result":
+                    step_result = event["result"]
+
+                await asyncio.sleep(0)  # Force flush
+
+        # Yield result as final event
+        yield {
+            "type": "step_result",
+            "result": step_result,
+            "awaiting_input": awaiting_input_request,
+        }
+
+    async def _execute_step_with_retry(
+        self,
+        plan_step: PlanStep,
+        skill_executor: SkillExecutor | None,
+        executor: StepExecutorAgent,
+        step_supervisor: StepSupervisorAgent,
+        request: AgentRequest,
+        prompt_history: list[AgentMessage],
+        step_index: int,
+        session: AsyncSession,
+        db_session: Session,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute step with retry logic, yielding all events.
+
+        Args:
+            plan_step: The step to execute
+            skill_executor: Optional skill executor
+            executor: The step executor agent
+            step_supervisor: The step supervisor
+            request: The agent request
+            prompt_history: Conversation history
+            step_index: Index of the step in the plan
+            session: Database session
+            db_session: The active Session
+
+        Yields:
+            Event dictionaries including step outcome
+        """
+        retry_count = 0
+        retry_feedback: str | None = None
+        trace_id = current_trace_ids().get("trace_id", "unknown")
+        debug_logger = DebugLogger(session)
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+
+        while True:
+            # Yield step start
+            yield {
+                "type": "step_start",
+                "content": plan_step.label,
+                "metadata": {
+                    "role": "Executor",
+                    "id": plan_step.id,
+                    "action": plan_step.action,
+                    "tool": plan_step.tool,
+                    "executor": plan_step.executor,
+                    "args": plan_step.args,
+                    "retry_count": retry_count,
+                },
+            }
+
+            if plan_step.action == "tool" or plan_step.action == "skill":
+                yield {
+                    "type": "tool_start",
+                    "content": None,
+                    "tool_call": {
+                        "name": plan_step.tool,
+                        "arguments": plan_step.args,
+                    },
+                    "metadata": {"role": "Executor", "id": plan_step.id},
+                }
+
+            # Execute step
+            step_execution_result: StepResult | None = None
+            awaiting_input_request: AwaitingInputRequest | None = None
+
+            try:
+                async for event in self._execute_step(
+                    plan_step, skill_executor, executor, request, prompt_history, retry_feedback
+                ):
+                    if event["type"] == "step_result":
+                        step_execution_result = event["result"]
+                        awaiting_input_request = event.get("awaiting_input")
+                    else:
+                        # Track skill content for smart completion skip
+                        if event["type"] == "content":
+                            content = event.get("content", "")
+                            if content and len(content) > 100:
+                                yield {"type": "skill_content_yielded", "value": True}
+                        yield event
+
+                if not step_execution_result:
+                    LOGGER.error("Executor failed to yield result (Stream ended prematurely)")
+                    yield {"type": "error", "content": "Step execution ended without result."}
+                    return
+
+                # Debug: Log tool call result
+                if plan_step.action in ("tool", "skill"):
+                    await debug_logger.log_tool_call(
+                        trace_id=trace_id,
+                        tool_name=plan_step.tool or "unknown",
+                        args=plan_step.args or {},
+                        result=step_execution_result.result,
+                        conversation_id=conversation_id,
+                    )
+
+            except ToolConfirmationError as exc:
+                LOGGER.info(f"Step {plan_step.id} paused for confirmation")
+                msg_content = (
+                    f"Action paused. Tool '{exc.tool_name}' needs confirmation.\n"
+                    f"Arguments: {exc.tool_args}\nReply 'CONFIRM' to proceed."
+                )
+                session.add(
+                    Message(
+                        session_id=db_session.id,
+                        role="system",
+                        content=msg_content,
+                        trace_id=current_trace_ids().get("trace_id"),
+                    )
+                )
+                await session.commit()
+                yield {
+                    "type": "content",
+                    "content": msg_content,
+                    "metadata": {"status": "confirmation_required"},
+                }
+                return
+
+            # Skip supervision for completion steps
+            if plan_step.action == "completion":
+                outcome = StepOutcome.SUCCESS
+                reason = "Completion step (skipped review)"
+                suggested_fix = None
+            else:
+                outcome, reason, suggested_fix = await step_supervisor.review(
+                    plan_step, step_execution_result, retry_count=retry_count
+                )
+
+            # Debug: Log supervisor decision
+            await debug_logger.log_supervisor(
+                trace_id=trace_id,
+                step_label=plan_step.label,
+                outcome=outcome.value,
+                reason=reason,
+                conversation_id=conversation_id,
+            )
+
+            # Handle outcome
+            if outcome == StepOutcome.SUCCESS:
+                # Yield step result for history update
+                yield {
+                    "type": "step_outcome",
+                    "outcome": "success",
+                    "result": step_execution_result,
+                    "awaiting_input": awaiting_input_request,
+                }
+                return
+
+            elif outcome == StepOutcome.RETRY and retry_count < 1:
+                retry_count += 1
+                retry_feedback = (
+                    f"Previous attempt failed: {reason}. {suggested_fix or 'Please try again.'}"
+                )
+                yield {
+                    "type": "thinking",
+                    "content": f"Retrying step: {reason}",
+                    "metadata": {
+                        "role": "Supervisor",
+                        "outcome": "retry",
+                        "retry_count": retry_count,
+                    },
+                }
+                LOGGER.info("Step '%s' retry %d: %s", plan_step.label, retry_count, reason)
+                continue  # Retry the step
+
+            elif outcome == StepOutcome.ABORT:
+                LOGGER.error("Step '%s' ABORTED: %s", plan_step.label, reason)
+                yield {
+                    "type": "error",
+                    "content": f"Execution aborted: {reason}",
+                    "metadata": {"outcome": "abort"},
+                }
+                yield {"type": "step_outcome", "outcome": "abort", "reason": reason}
+                return
+
+            else:
+                # REPLAN or max retries reached
+                yield {
+                    "type": "step_outcome",
+                    "outcome": "replan",
+                    "reason": reason,
+                    "suggested_fix": suggested_fix,
+                }
+                return
+
+    async def _generate_plan(
+        self,
+        planner: PlannerAgent,
+        plan_supervisor: PlanSupervisorAgent,
+        request: AgentRequest,
+        history: list[AgentMessage],
+        tool_descriptions: list[dict[str, Any]],
+        available_skills_text: str,
+        replan_count: int,
+        max_replans: int,
+        retry_feedback: str | None = None,
+    ) -> AsyncGenerator[dict[str, Any] | Plan, None]:
+        """Generate and validate execution plan, yielding thinking events.
+
+        Args:
+            planner: The planner agent
+            plan_supervisor: The plan supervisor
+            request: The agent request
+            history: Conversation history
+            tool_descriptions: List of available tool descriptions
+            available_skills_text: Available skills registry index
+            replan_count: Current replan count
+            max_replans: Maximum replans allowed
+            retry_feedback: Optional feedback from previous plan failure
+
+        Yields:
+            Event dictionaries and final Plan object
+        """
+        # Check for injected plan
+        if request.metadata and request.metadata.get("plan") and replan_count == 0:
+            LOGGER.info("Using injected plan from metadata")
+            injected_plan = Plan(**request.metadata["plan"])
+            yield {"type": "plan", "status": "created", "description": injected_plan.description}
+            yield injected_plan
+            return
+
+        # Generate plan
+        trace_id = current_trace_ids().get("trace_id", "unknown")
+        if replan_count == 0:
+            yield {
+                "type": "thinking",
+                "content": f"Generating plan... [TraceID: {trace_id}]",
+                "metadata": {"role": "Planner"},
+            }
+        else:
+            yield {
+                "type": "thinking",
+                "content": f"Re-planning (attempt {replan_count}/{max_replans})...",
+                "metadata": {"role": "Planner", "replan": True, "attempt": replan_count},
+            }
+
+        plan: Plan | None = None
+        async for event in planner.generate_stream(
+            request,
+            history=history,
+            tool_descriptions=tool_descriptions,
+            available_skills_text=available_skills_text,
+        ):
+            if event["type"] == "token":
+                # Do not show raw JSON plan to user
+                pass
+            elif event["type"] == "plan":
+                plan = event["plan"]
+
+        if plan is None:
+            raise ValueError("Planner returned no plan")
+
+        reviewed_plan = await plan_supervisor.review(plan)
+        assert reviewed_plan is not None  # Mypy guard
+
+        if reviewed_plan is None:  # Runtime guard
+            raise ValueError("Plan became None after review")
+
+        plan = reviewed_plan
+
+        # Enrich trace with plan details
+        set_span_attributes(
+            {
+                "plan.description": plan.description,
+                "plan.steps_count": len(plan.steps) if plan.steps else 0,
+            }
+        )
+
+        # Bridge gap between plan and execution
+        yield {
+            "type": "thinking",
+            "content": "Plan approved. Starting execution...",
+            "metadata": {
+                "role": "Supervisor",
+                "step": "init",
+                "status": "planning_complete",
+                "stream": False,
+                "bold": True,
+            },
+        }
+        await asyncio.sleep(0)  # Force flush
+
+        yield {
+            "type": "plan",
+            "status": "created",
+            "description": plan.description,
+            "plan": plan.model_dump(),
+            "replan_count": replan_count,
+            **current_trace_ids(),
+        }
+
+        yield plan
+
+    async def _maybe_generate_completion(
+        self,
+        prompt_history: list[AgentMessage],
+        skill_content_yielded: bool,
+        has_completion_step: bool,
+        existing_completion: str,
+        session: AsyncSession,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Generate completion if needed, yielding content events.
+
+        Args:
+            prompt_history: Conversation history
+            skill_content_yielded: Whether skill already yielded substantial content
+            has_completion_step: Whether plan had explicit completion step
+            existing_completion: Existing completion text from completion step
+            session: Database session
+
+        Yields:
+            Event dictionaries with completion_ready as final event
+        """
+        if existing_completion:
+            yield {"type": "completion_ready", "text": existing_completion}
+            return
+
+        if skill_content_yielded and not has_completion_step:
+            # Get the last skill's output from prompt history for database storage
+            for msg in reversed(prompt_history):
+                if msg.role == "tool" and msg.content:
+                    completion_text = msg.content
+                    LOGGER.info("Using skill output as final response (no completion step)")
+                    yield {"type": "completion_ready", "text": completion_text}
+                    return
+            # Fallback to empty if no tool message found
+            yield {"type": "completion_ready", "text": ""}
+            return
+
+        # Detect work items for language preservation
+        work_item_detected = self._detect_work_items(prompt_history)
+
+        if work_item_detected:
+            LOGGER.info("Work item draft detected. Injecting language preservation instruction.")
+            prompt_history.append(
+                AgentMessage(
+                    role="system",
+                    content=(
+                        "IMPORTANT: The conversation contains Azure DevOps work item "
+                        "drafts that MUST remain in English. Do not translate work "
+                        "item titles, descriptions, or acceptance criteria. "
+                        "Only translate your commentary."
+                    ),
+                )
+            )
+
+        yield {
+            "type": "thinking",
+            "content": "Generating final answer...",
+            "metadata": {"role": "Executor"},
+        }
+
+        # Add completion instruction
+        prompt_history.append(
+            AgentMessage(
+                role="system",
+                content=(
+                    "Based on the tool outputs above, provide a brief, helpful "
+                    "response to the user. Report what actions were taken and "
+                    "their results. Be concise and direct."
+                ),
+            )
+        )
+
+        # Debug: Log the full prompt being sent to completion LLM
+        debug_logger = DebugLogger(session)
+        trace_id = current_trace_ids().get("trace_id", "unknown")
+        conversation_id = str(uuid.uuid4())  # Fallback, should be passed in
+        await debug_logger.log_completion_prompt(
+            trace_id=trace_id,
+            prompt_history=prompt_history,
+            conversation_id=conversation_id,
+        )
+
+        # Use composer model for generating final answers
+        completion_text = await self._litellm.generate(
+            prompt_history, model=self._settings.model_composer
+        )
+
+        # Debug: Log the completion response
+        await debug_logger.log_completion_response(
+            trace_id=trace_id,
+            response=completion_text,
+            model=self._settings.model_composer,
+            conversation_id=conversation_id,
+        )
+
+        # Yield content
+        yield {
+            "type": "content",
+            "content": completion_text,
+            "metadata": {
+                "provider": "litellm",
+                "model": self._settings.model_composer,
+            },
+        }
+
+        yield {"type": "completion_ready", "text": completion_text}
+
+    async def _finalize_and_persist(
+        self,
+        session: AsyncSession,
+        db_session: Session,
+        conversation_id: str,
+        completion_text: str,
+        prompt_history: list[AgentMessage],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Persist results and emit final events.
+
+        Args:
+            session: Database session
+            db_session: The active Session
+            conversation_id: The conversation ID
+            completion_text: Final completion text
+            prompt_history: Full conversation history
+
+        Yields:
+            Final events including history snapshot
+        """
+        # Record assistant message
+        if completion_text:
+            session.add(
+                Message(
+                    session_id=db_session.id,
+                    role="assistant",
+                    content=completion_text,
+                    trace_id=current_trace_ids().get("trace_id"),
+                )
+            )
+
+        # Background memory persistence (fire-and-forget)
+        if self._memory and completion_text:
+            asyncio.create_task(
+                _persist_memory_background(self._memory, conversation_id, completion_text, LOGGER)
+            )
+
+        # Commit transaction
+        await session.commit()
+
+        # Log event
+        LOGGER.info("Completed conversation %s", conversation_id)
+        log_event(
+            SupervisorDecision(
+                item_id=conversation_id,
+                decision="ok",
+                comments="Conversation complete",
+                trace=TraceContext(**current_trace_ids()),
+            )
+        )
+
+        # Yield history snapshot
+        final_history = list(prompt_history)
+        if completion_text:
+            final_history.append(AgentMessage(role="assistant", content=completion_text))
+
+        yield {"type": "history_snapshot", "messages": final_history}
+
+    async def _execute_agentic(
+        self,
+        request: AgentRequest,
+        history: list[AgentMessage],
+        session: AsyncSession,
+        db_session: Session,
+        db_conversation: Conversation,
+        planner: PlannerAgent,
+        plan_supervisor: PlanSupervisorAgent,
+        executor: StepExecutorAgent,
+        step_supervisor: StepSupervisorAgent,
+        skill_executor: SkillExecutor | None,
+        skill_names: list[str],
+        conversation_id: str,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute agentic workflow with planning and step execution.
+
+        Args:
+            request: The agent request
+            history: Conversation history
+            session: Database session
+            db_session: The active Session
+            db_conversation: The Conversation
+            planner: The planner agent
+            plan_supervisor: The plan supervisor
+            executor: The step executor agent
+            step_supervisor: The step supervisor
+            skill_executor: Optional skill executor
+            skill_names: List of available skill names
+            conversation_id: The conversation ID
+
+        Yields:
+            Event dictionaries for the agentic execution
+        """
+        debug_logger = DebugLogger(session)
+        trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+
+        # Execute metadata tools
+        request_metadata = request.metadata or {}
+        metadata_tool_results = await self._execute_tools(request_metadata)
+        for tool_res in metadata_tool_results:
+            yield {
+                "type": "tool_output",
+                "content": tool_res.get("output"),
+                "tool_call": {"name": tool_res.get("name")},
+                "metadata": tool_res,
+            }
+            await asyncio.sleep(0)  # Force flush
+
+        # Build history with tool results
+        history_with_tools = list(history)
+        for tool_res in metadata_tool_results:
+            if tool_res.get("status") == "ok" and tool_res.get("output"):
+                msg_content = f"Tool {tool_res['name']} output:\n{tool_res['output']}"
+                history_with_tools.append(AgentMessage(role="system", content=msg_content))
+
+        # Prepare tool descriptions for planning
+        allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
+        target_tools = allowlist or {
+            t.name
+            for t in self._tool_registry.tools()
+            if getattr(t, "category", "domain") == "orchestration"
+        }
+        tool_descriptions = self._describe_tools(target_tools)
+        available_skills_text = get_registry_index()
+
+        # Initialize adaptive execution state
         max_replans = 3
         replans_remaining = max_replans
+        prompt_history = list(history_with_tools)
+        completion_text = ""
+        completion_provider = "litellm"
+        completion_model = self._settings.model_composer
+        execution_complete = False
+        skill_content_yielded = False
+        awaiting_input_request: AwaitingInputRequest | None = None
 
-        # Extract routing decision
-        routing_decision = request_metadata.get("routing_decision", RoutingDecision.AGENTIC)
-        LOGGER.info(f"Handling request with routing decision: {routing_decision}")
+        # Adaptive execution loop
+        while replans_remaining >= 0 and not execution_complete:
+            replan_count = max_replans - replans_remaining
+            set_span_attributes({"replan_count": replan_count})
+
+            # Apply exponential backoff on re-plan attempts
+            if replan_count > 0:
+                backoff_delay = 0.5 * (2 ** (replan_count - 1))
+                LOGGER.info(
+                    "Re-plan backoff: waiting %ss before attempt %d",
+                    backoff_delay,
+                    replan_count,
+                )
+                await asyncio.sleep(backoff_delay)
+
+            # Generate plan
+            plan: Plan | None = None
+            async for event in self._generate_plan(
+                planner,
+                plan_supervisor,
+                request,
+                prompt_history,
+                tool_descriptions,
+                available_skills_text,
+                replan_count,
+                max_replans,
+            ):
+                if isinstance(event, Plan):
+                    plan = event
+                else:
+                    yield event
+
+            # Debug: Log the generated plan
+            if plan:
+                await debug_logger.log_plan(
+                    trace_id=trace_id,
+                    plan=plan,
+                    conversation_id=conversation_id,
+                )
+
+            if plan is None:
+                raise ValueError("Plan is None after generation")
+
+            if not plan.steps:
+                plan = self._fallback_plan(request.prompt)
+
+            # Execute steps
+            needs_replan = False
+            abort_execution = False
+
+            for step_index, plan_step in enumerate(plan.steps):
+                # Skip completion step if skill is awaiting user input
+                if plan_step.action == "completion" and awaiting_input_request:
+                    LOGGER.info("Skipping completion step - skill awaiting user input")
+                    execution_complete = True
+                    break
+
+                # Execute step with retry logic
+                step_outcome = None
+                step_result = None
+                replan_reason: str | None = None
+                replan_suggested_fix: str | None = None
+                async for event in self._execute_step_with_retry(
+                    plan_step,
+                    skill_executor,
+                    executor,
+                    step_supervisor,
+                    request,
+                    prompt_history,
+                    step_index,
+                    session,
+                    db_session,
+                ):
+                    if event["type"] == "step_outcome":
+                        step_outcome = event["outcome"]
+                        step_result = event.get("result")
+                        awaiting_input_request = event.get("awaiting_input")
+                        replan_reason = event.get("reason")
+                        replan_suggested_fix = event.get("suggested_fix")
+
+                        # Handle completion steps
+                        if plan_step.action == "completion" and step_outcome == "success":
+                            if step_result:
+                                completion_text = step_result.result.get("completion", "")
+                                completion_provider = plan_step.provider or completion_provider
+                                completion_model = step_result.result.get("model", completion_model)
+                            execution_complete = True
+                    elif event["type"] == "skill_content_yielded":
+                        skill_content_yielded = event["value"]
+                    else:
+                        yield event
+
+                if not step_outcome:
+                    LOGGER.error("Step execution ended without outcome")
+                    yield {"type": "error", "content": "Step execution ended without outcome."}
+                    return
+
+                # Emit step result for compatibility
+                if plan_step.action in ("tool", "skill") and step_result:
+                    chunk_type = "tool_output"
+                    tool_call = {"name": plan_step.tool}
+                    content_str = str(step_result.result.get("output") or step_result.status)
+
+                    # Check for trivial status content
+                    is_trivial = content_str.lower() in ("ok", "completed step")
+
+                    if not is_trivial:
+                        meta = {
+                            "status": step_result.status,
+                            "decision": "ok" if step_outcome == "success" else "adjust",
+                            "outcome": step_outcome,
+                            "id": plan_step.id,
+                            "action": plan_step.action,
+                            "tool": plan_step.tool,
+                            "name": plan_step.tool,
+                            "executor": plan_step.executor,
+                            "output": str(step_result.result.get("output") or ""),
+                            "source_count": step_result.result.get("source_count", 0),
+                        }
+                        if plan_step.executor == "skill" or plan_step.action == "skill":
+                            meta["skill"] = plan_step.tool
+
+                        yield {
+                            "type": chunk_type,
+                            "content": content_str,
+                            "tool_call": tool_call,
+                            "metadata": meta,
+                        }
+
+                # Update prompt history
+                if step_result:
+                    prompt_history.extend(step_result.messages)
+                    if plan_step.action in ("tool", "skill"):
+                        session.add(
+                            Message(
+                                session_id=db_session.id,
+                                role="tool",
+                                content=str(step_result.result.get("output", "")),
+                                trace_id=current_trace_ids().get("trace_id"),
+                            )
+                        )
+
+                # Handle replan outcome
+                if step_outcome == "replan":
+                    reason = replan_reason or "Step failed"
+                    suggested_fix = replan_suggested_fix
+
+                    LOGGER.warning(
+                        "Supervisor requested replan for step '%s': %s",
+                        plan_step.label,
+                        reason,
+                    )
+
+                    if replans_remaining > 0:
+                        # Inject feedback for re-planning
+                        feedback_msg = (
+                            f"Step '{plan_step.label}' failed validation. "
+                            f"Supervisor feedback: {reason}."
+                        )
+                        if suggested_fix:
+                            feedback_msg += f"\n\nSuggested approach: {suggested_fix}"
+                        feedback_msg += "\n\nPlease generate a new plan to address this issue."
+                        prompt_history.append(AgentMessage(role="system", content=feedback_msg))
+
+                        yield {
+                            "type": "thinking",
+                            "content": f"Step needs replan: {reason}",
+                            "metadata": {
+                                "role": "Supervisor",
+                                "outcome": "replan",
+                                "reason": reason,
+                                "suggested_fix": suggested_fix,
+                                "replans_remaining": replans_remaining - 1,
+                            },
+                        }
+
+                        needs_replan = True
+                        replans_remaining -= 1
+                        break  # Exit step loop to trigger re-plan
+                    else:
+                        # Max replans reached
+                        LOGGER.error(
+                            "Max replans (%d) reached. Continuing despite failure.", max_replans
+                        )
+                        yield {
+                            "type": "thinking",
+                            "content": (
+                                f"Step issue: {reason}. "
+                                f"Max re-plans ({max_replans}) reached. Continuing..."
+                            ),
+                            "metadata": {"role": "Supervisor", "max_replans_reached": True},
+                        }
+
+                elif step_outcome == "abort":
+                    abort_execution = True
+                    break  # Exit step loop
+
+            # If no replan needed and loop completed normally
+            if not needs_replan and not abort_execution:
+                execution_complete = True
+
+            # If abort was triggered, stop the entire adaptive loop
+            if abort_execution:
+                break
+
+        # Check if plan had an explicit completion step
+        has_completion_step = bool(
+            plan is not None
+            and plan.steps is not None
+            and any(s.action == "completion" for s in plan.steps)
+        )
+
+        # Generate completion if needed
+        async for event in self._maybe_generate_completion(
+            prompt_history,
+            skill_content_yielded,
+            has_completion_step,
+            completion_text,
+            session,
+        ):
+            if event["type"] == "completion_ready":
+                completion_text = event["text"]
+            else:
+                yield event
+
+        # Finalize and persist
+        async for event in self._finalize_and_persist(
+            session,
+            db_session,
+            conversation_id,
+            completion_text,
+            prompt_history,
+        ):
+            yield event
+
+    async def execute_stream(
+        self, request: AgentRequest, session: AsyncSession
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute request and yield intermediate events."""
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+        LOGGER.info("Processing prompt for conversation %s", conversation_id)
 
         with start_span(
             "agent.request",
             attributes={
                 "conversation_id": conversation_id,
                 "input_size": len(request.prompt),
-                "routing_decision": routing_decision,
                 "prompt": request.prompt[:500] if request.prompt else "",
             },
         ):
             try:
-                # Record USER message
+                # Phase 1: Setup conversation and context
+                (
+                    db_conversation,
+                    db_context,
+                    db_session,
+                ) = await self._setup_conversation_and_context(session, conversation_id, request)
+
+                # System Command Interceptor
+                sys_output = await handle_system_command(
+                    request.prompt, self, session, conversation_id
+                )
+                if sys_output:
+                    await session.commit()
+                    yield {
+                        "type": "content",
+                        "content": sys_output,
+                        "metadata": {"system_command": True},
+                    }
+                    return
+
+                # Validate context exists
+                if not db_context:
+                    LOGGER.warning("Context missing for conversation %s", conversation_id)
+                    yield {"type": "error", "content": "Error: Context missing."}
+                    return
+
+                # Phase 2: Load and prepare history
+                history, history_source = await self._load_and_prepare_history(
+                    session, db_session, db_context, db_conversation, request
+                )
+
+                # Debug logging
+                debug_logger = DebugLogger(session)
+                trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+                await debug_logger.log_request(
+                    trace_id=trace_id,
+                    prompt=request.prompt,
+                    messages=request.messages,
+                    metadata=request.metadata,
+                    conversation_id=conversation_id,
+                )
+                await debug_logger.log_history(
+                    trace_id=trace_id,
+                    source=history_source,
+                    messages=history,
+                    conversation_id=conversation_id,
+                )
+
+                # Phase 3: Setup agents and executors
+                (
+                    planner,
+                    plan_supervisor,
+                    executor,
+                    step_supervisor,
+                    skill_executor,
+                    skill_names,
+                ) = self._setup_agents_and_executors()
+
+                # Phase 4: Route request
+                routing_decision = (request.metadata or {}).get(
+                    "routing_decision", RoutingDecision.AGENTIC
+                )
+                LOGGER.info(f"Handling request with routing decision: {routing_decision}")
+                set_span_attributes({"routing_decision": routing_decision})
+
+                # Record user message
                 user_message = AgentMessage(role="user", content=request.prompt)
                 history.append(user_message)
                 session.add(
@@ -231,751 +1256,29 @@ class AgentService:
                     )
                 )
 
-                # If CHAT:
                 if routing_decision == RoutingDecision.CHAT:
-                    completion_text = await self._litellm.generate(history)
-                    session.add(
-                        Message(
-                            session_id=db_session.id,
-                            role="assistant",
-                            content=completion_text,
-                            trace_id=current_trace_ids().get("trace_id"),
-                        )
-                    )
-                    await session.commit()
-
-                    # Yield completion step
-                    yield {
-                        "type": "completion",
-                        "provider": "litellm",
-                        "model": self._settings.model_agentchat,
-                        "status": "ok",
-                        "trace": current_trace_ids(),
-                    }
-                    yield {"type": "content", "content": completion_text}
+                    async for event in self._route_chat_request(
+                        request, history, session, db_session, conversation_id
+                    ):
+                        yield event
                     return
 
-                # AGENTIC
-                request_metadata = request.metadata or {}
-                metadata_tool_results = await self._execute_tools(request_metadata)
-                for tool_res in metadata_tool_results:
-                    yield {
-                        "type": "tool_output",
-                        "content": tool_res.get("output"),
-                        "tool_call": {"name": tool_res.get("name")},
-                        "metadata": tool_res,
-                    }
-                    await asyncio.sleep(0)  # Force flush
-
-                history_with_tools = list(history)
-                for tool_res in metadata_tool_results:
-                    if tool_res.get("status") == "ok" and tool_res.get("output"):
-                        msg_content = f"Tool {tool_res['name']} output:\n{tool_res['output']}"
-                        history_with_tools.append(AgentMessage(role="system", content=msg_content))
-
-                # Prepare tool descriptions for planning
-                allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
-                target_tools = allowlist or {
-                    t.name
-                    for t in self._tool_registry.tools()
-                    if getattr(t, "category", "domain") == "orchestration"
-                }
-                tool_descriptions = self._describe_tools(target_tools)
-                available_skills_text = get_registry_index()
-
-                # Initialize variables for adaptive loop
-                prompt_history = list(history_with_tools)
-                completion_text = ""
-                completion_provider = "litellm"
-                completion_model = self._settings.model_composer
-                execution_complete = False
-                # Track if a skill already yielded content (for smart completion skip)
-                skill_content_yielded = False
-
-                # ═══════════════════════════════════════════════════════════════════
-                # ADAPTIVE EXECUTION LOOP
-                # This loop enables re-planning when the supervisor detects issues
-                # ═══════════════════════════════════════════════════════════════════
-                while replans_remaining >= 0 and not execution_complete:
-                    replan_count = max_replans - replans_remaining
-                    set_span_attributes({"replan_count": replan_count})
-
-                    # Apply exponential backoff on re-plan attempts
-                    # Delays: 0.5s, 1s, 2s for attempts 1, 2, 3
-                    if replan_count > 0:
-                        backoff_delay = 0.5 * (2 ** (replan_count - 1))
-                        LOGGER.info(
-                            "Re-plan backoff: waiting %ss before attempt %d",
-                            backoff_delay,
-                            replan_count,
-                        )
-                        await asyncio.sleep(backoff_delay)
-
-                    # ─────────────────────────────────────────────────────────────
-                    # PLANNING PHASE
-                    # ─────────────────────────────────────────────────────────────
-                    if request_metadata.get("plan") and replan_count == 0:
-                        LOGGER.info("Using injected plan from metadata")
-                        plan = Plan(**request_metadata["plan"])
-                    else:
-                        trace_id = current_trace_ids().get("trace_id", "unknown")
-                        if replan_count == 0:
-                            yield {
-                                "type": "thinking",
-                                "content": f"Generating plan... [TraceID: {trace_id}]",
-                                "metadata": {"role": "Planner"},
-                            }
-                        else:
-                            yield {
-                                "type": "thinking",
-                                "content": f"Re-planning (attempt {replan_count}/{max_replans})...",
-                                "metadata": {
-                                    "role": "Planner",
-                                    "replan": True,
-                                    "attempt": replan_count,
-                                },
-                            }
-
-                        plan = None
-                        async for event in planner.generate_stream(
-                            request,
-                            history=prompt_history,
-                            tool_descriptions=tool_descriptions,
-                            available_skills_text=available_skills_text,
-                        ):
-                            if event["type"] == "token":
-                                # Do not show raw JSON plan to user
-                                pass
-                            elif event["type"] == "plan":
-                                plan = event["plan"]
-
-                        if plan is None:
-                            raise ValueError("Planner returned no plan")
-                        plan = await plan_supervisor.review(plan)
-                        assert plan is not None  # Mypy guard
-                        if plan is None:  # Runtime guard
-                            raise ValueError("Plan became None after review")
-
-                        # Enrich Trace with Plan Details
-                        set_span_attributes(
-                            {
-                                "plan.description": plan.description,
-                                "plan.steps_count": len(plan.steps) if plan.steps else 0,
-                            }
-                        )
-
-                        # Debug: Log the generated plan
-                        await debug_logger.log_plan(
-                            trace_id=trace_id,
-                            plan=plan,
-                            conversation_id=conversation_id,
-                        )
-
-                        # Bridge gap between plan and execution
-                        yield {
-                            "type": "thinking",
-                            "content": "Plan approved. Starting execution...",
-                            "metadata": {
-                                "role": "Supervisor",
-                                "step": "init",
-                                "status": "planning_complete",
-                                "stream": False,
-                                "bold": True,
-                            },
-                        }
-                        await asyncio.sleep(0)  # Force flush
-
-                    if plan is None:
-                        # Should be unreachable due to previous checks
-                        raise ValueError("Plan is None before step check")
-                    if not plan.steps:
-                        plan = self._fallback_plan(request.prompt)
-
-                    yield {
-                        "type": "plan",
-                        "status": "created",
-                        "description": plan.description,
-                        "plan": plan.model_dump(),
-                        "replan_count": replan_count,
-                        **current_trace_ids(),
-                    }
-
-                    # ─────────────────────────────────────────────────────────────
-                    # EXECUTION PHASE (with self-correction via retry)
-                    # ─────────────────────────────────────────────────────────────
-                    needs_replan = False
-                    abort_execution = False
-                    # Track if a skill is awaiting user input (skip completion if so)
-                    awaiting_input_request: AwaitingInputRequest | None = None
-
-                    for plan_step in plan.steps:
-                        # Skip completion step if a skill is awaiting user input
-                        # This prevents hallucinated responses when user needs to answer first
-                        if plan_step.action == "completion" and awaiting_input_request:
-                            LOGGER.info("Skipping completion step - skill awaiting user input")
-                            execution_complete = True
-                            break
-
-                        # Per-step retry tracking for self-correction
-                        retry_count = 0
-                        retry_feedback: str | None = None
-                        # Self-correction loop: retry once before replan
-                        while True:
-                            yield {
-                                "type": "step_start",
-                                "content": plan_step.label,
-                                "metadata": {
-                                    "role": "Executor",
-                                    "id": plan_step.id,
-                                    "action": plan_step.action,
-                                    "tool": plan_step.tool,
-                                    "executor": plan_step.executor,
-                                    "args": plan_step.args,
-                                    "retry_count": retry_count,
-                                },
-                            }
-
-                            if plan_step.action == "tool" or plan_step.action == "skill":
-                                yield {
-                                    "type": "tool_start",
-                                    "content": None,
-                                    "tool_call": {
-                                        "name": plan_step.tool,
-                                        "arguments": plan_step.args,
-                                    },
-                                    "metadata": {"role": "Executor", "id": plan_step.id},
-                                }
-
-                            step_execution_result: StepResult | None = None
-                            try:
-                                # Determine if this is a skill step
-                                is_skill_step = (
-                                    plan_step.executor == "skill" or plan_step.action == "skill"
-                                )
-
-                                if is_skill_step and skill_executor:
-                                    # Use SkillExecutor for skills-native execution
-                                    async for event in skill_executor.execute_stream(
-                                        plan_step,
-                                        request=request,
-                                        retry_feedback=retry_feedback,
-                                    ):
-                                        if event["type"] == "content":
-                                            content = event["content"]
-                                            # Pass through metadata from skill (for filtering)
-                                            meta = event.get("metadata") or {}
-                                            yield {
-                                                "type": "content",
-                                                "content": content,
-                                                "metadata": meta,
-                                            }
-                                            # Track skill content for smart completion skip
-                                            if content and len(content) > 100:
-                                                skill_content_yielded = True
-                                            # Backward compatibility: detect text marker
-                                            if content and "[AWAITING_USER_INPUT" in content:
-                                                # Create structured request from text marker
-                                                import re
-
-                                                match = re.search(
-                                                    r"\[AWAITING_USER_INPUT:(\w+)\]", content
-                                                )
-                                                if match:
-                                                    category_str = match.group(1).lower()
-
-                                                    # Map legacy/alternative category names
-                                                    category_aliases = {
-                                                        "type_selection": "selection",
-                                                    }
-
-                                                    # Apply alias mapping
-                                                    if category_str in category_aliases:
-                                                        mapped = category_aliases[category_str]
-                                                        LOGGER.warning(
-                                                            "HITL category '%s' mapped to '%s' "
-                                                            "- consider updating skill",
-                                                            category_str,
-                                                            mapped,
-                                                        )
-                                                        category_str = mapped
-
-                                                    try:
-                                                        category = AwaitingInputCategory(
-                                                            category_str
-                                                        )
-                                                    except ValueError:
-                                                        LOGGER.warning(
-                                                            "Invalid HITL category '%s' in "
-                                                            "skill '%s', falling back to "
-                                                            "CLARIFICATION",
-                                                            category_str,
-                                                            plan_step.tool or "unknown",
-                                                        )
-                                                        category = (
-                                                            AwaitingInputCategory.CLARIFICATION
-                                                        )
-                                                    clean_prompt = re.sub(
-                                                        r"\[AWAITING_USER_INPUT:\w+\]",
-                                                        "",
-                                                        content,
-                                                    ).strip()
-                                                    awaiting_input_request = AwaitingInputRequest(
-                                                        category=category,
-                                                        prompt=clean_prompt,
-                                                        skill_name=plan_step.tool or "unknown",
-                                                        context={},
-                                                    )
-                                        elif event["type"] == "awaiting_input":
-                                            # Handle structured awaiting_input event
-                                            meta = event.get("metadata") or {}
-                                            category_str = meta.get("category", "clarification")
-                                            try:
-                                                category = AwaitingInputCategory(category_str)
-                                            except ValueError:
-                                                category = AwaitingInputCategory.CLARIFICATION
-                                            awaiting_input_request = AwaitingInputRequest(
-                                                category=category,
-                                                prompt=meta.get("prompt", ""),
-                                                skill_name=meta.get("skill_name", ""),
-                                                context=meta.get("context", {}),
-                                                options=meta.get("options"),
-                                                required=meta.get("required", True),
-                                            )
-                                            # Forward the event
-                                            yield event
-                                        elif event["type"] == "thinking":
-                                            meta = (event.get("metadata") or {}).copy()
-                                            meta["id"] = plan_step.id
-                                            yield {
-                                                "type": "thinking",
-                                                "content": event["content"],
-                                                "metadata": meta,
-                                            }
-                                        elif event["type"] == "skill_activity":
-                                            yield event
-                                        elif event["type"] == "result":
-                                            step_execution_result = event["result"]
-
-                                        await asyncio.sleep(0)  # Force flush loop
-                                else:
-                                    # Use legacy StepExecutorAgent
-                                    async for event in executor.run_stream(
-                                        plan_step,
-                                        request=request,
-                                        conversation_id=conversation_id,
-                                        prompt_history=prompt_history,
-                                    ):
-                                        if event["type"] == "content":
-                                            yield {"type": "content", "content": event["content"]}
-                                        elif event["type"] == "thinking":
-                                            meta = (event.get("metadata") or {}).copy()
-                                            meta["id"] = plan_step.id
-                                            yield {
-                                                "type": "thinking",
-                                                "content": event["content"],
-                                                "metadata": meta,
-                                            }
-                                        elif event["type"] == "result":
-                                            step_execution_result = event["result"]
-
-                                        await asyncio.sleep(0)  # Force flush loop
-
-                                if not step_execution_result:
-                                    LOGGER.error(
-                                        "Executor failed to yield result (Stream ended prematurely)"
-                                    )
-                                    yield {
-                                        "type": "error",
-                                        "content": "Step execution ended without result.",
-                                    }
-                                    return
-
-                                # Debug: Log tool call result
-                                if plan_step.action in ("tool", "skill"):
-                                    await debug_logger.log_tool_call(
-                                        trace_id=trace_id,
-                                        tool_name=plan_step.tool or "unknown",
-                                        args=plan_step.args or {},
-                                        result=step_execution_result.result,
-                                        conversation_id=conversation_id,
-                                    )
-
-                            except ToolConfirmationError as exc:
-                                LOGGER.info(f"Step {plan_step.id} paused for confirmation")
-                                msg_content = (
-                                    f"Action paused. Tool '{exc.tool_name}' needs confirmation.\n"
-                                    f"Arguments: {exc.tool_args}\nReply 'CONFIRM' to proceed."
-                                )
-                                session.add(
-                                    Message(
-                                        session_id=db_session.id,
-                                        role="system",
-                                        content=msg_content,
-                                        trace_id=current_trace_ids().get("trace_id"),
-                                    )
-                                )
-                                await session.commit()
-                                yield {
-                                    "type": "content",
-                                    "content": msg_content,
-                                    "metadata": {"status": "confirmation_required"},
-                                }
-                                return
-
-                            # ─────────────────────────────────────────────────────────
-                            # SUPERVISOR REVIEW (4-level StepOutcome)
-                            # Skip review for completion steps - they're the final answer
-                            # ─────────────────────────────────────────────────────────
-                            if plan_step.action == "completion":
-                                # Completion steps bypass supervision
-                                outcome = StepOutcome.SUCCESS
-                                reason = "Completion step (skipped review)"
-                                suggested_fix = None
-                            else:
-                                outcome, reason, suggested_fix = await step_supervisor.review(
-                                    plan_step, step_execution_result, retry_count=retry_count
-                                )
-
-                            # Debug: Log supervisor decision
-                            await debug_logger.log_supervisor(
-                                trace_id=trace_id,
-                                step_label=plan_step.label,
-                                outcome=outcome.value,
-                                reason=reason,
-                                conversation_id=conversation_id,
-                            )
-
-                            # Handle StepOutcome
-                            if outcome == StepOutcome.SUCCESS:
-                                break  # Exit retry loop, proceed to next step
-
-                            elif outcome == StepOutcome.RETRY and retry_count < 1:
-                                # Self-correction: retry with feedback
-                                retry_count += 1
-                                retry_feedback = (
-                                    f"Previous attempt failed: {reason}. "
-                                    f"{suggested_fix or 'Please try again.'}"
-                                )
-                                yield {
-                                    "type": "thinking",
-                                    "content": f"Retrying step: {reason}",
-                                    "metadata": {
-                                        "role": "Supervisor",
-                                        "outcome": "retry",
-                                        "retry_count": retry_count,
-                                    },
-                                }
-                                LOGGER.info(
-                                    "Step '%s' retry %d: %s",
-                                    plan_step.label,
-                                    retry_count,
-                                    reason,
-                                )
-                                continue  # Retry the step
-
-                            elif outcome == StepOutcome.ABORT:
-                                # Critical failure - stop execution
-                                LOGGER.error(
-                                    "Step '%s' ABORTED: %s",
-                                    plan_step.label,
-                                    reason,
-                                )
-                                yield {
-                                    "type": "error",
-                                    "content": f"Execution aborted: {reason}",
-                                    "metadata": {"outcome": "abort"},
-                                }
-                                abort_execution = True
-                                break  # Exit retry loop
-
-                            else:
-                                # RETRY (max reached) or REPLAN - trigger replanning
-                                break  # Exit retry loop, will be handled below
-
-                        # Handle abort_execution from ABORT outcome
-                        if abort_execution:
-                            break  # Exit step loop
-
-                        if plan_step.action == "tool" or plan_step.action == "skill":
-                            chunk_type = "tool_output"
-                            tool_call = {"name": plan_step.tool}
-                        else:
-                            chunk_type = "thinking"
-                            tool_call = None
-
-                        # Map StepOutcome to legacy decision for compatibility
-                        legacy_decision = "ok" if outcome == StepOutcome.SUCCESS else "adjust"
-
-                        # Enriched metadata for legacy compatibility
-                        meta = {
-                            "status": step_execution_result.status,
-                            "decision": legacy_decision,
-                            "outcome": outcome.value,
-                            "supervisor_reason": reason,
-                            "id": plan_step.id,
-                            "action": plan_step.action,
-                            "tool": plan_step.tool,
-                            "name": plan_step.tool,
-                            "executor": plan_step.executor,
-                            "output": str(step_execution_result.result.get("output") or ""),
-                            "source_count": step_execution_result.result.get("source_count", 0),
-                        }
-
-                        # Add skill name for skill steps
-                        if plan_step.executor == "skill" or plan_step.action == "skill":
-                            meta["skill"] = plan_step.tool
-
-                        content_str = str(
-                            step_execution_result.result.get("output")
-                            or step_execution_result.status
-                        )
-
-                        # Check for trivial status content
-                        is_trivial = False
-                        if chunk_type == "thinking" and content_str.lower() in (
-                            "ok",
-                            "completed step",
-                        ):
-                            is_trivial = True
-
-                        if not is_trivial:
-                            yield {
-                                "type": chunk_type,
-                                "content": content_str,
-                                "tool_call": tool_call,
-                                "metadata": meta,
-                            }
-
-                        prompt_history.extend(step_execution_result.messages)
-                        if plan_step.action in ("tool", "skill"):
-                            session.add(
-                                Message(
-                                    session_id=db_session.id,
-                                    role="tool",
-                                    content=str(step_execution_result.result.get("output", "")),
-                                    trace_id=current_trace_ids().get("trace_id"),
-                                )
-                            )
-
-                        # ─────────────────────────────────────────────────────────
-                        # HANDLE REPLAN OUTCOME (Trigger Re-plan)
-                        # ─────────────────────────────────────────────────────────
-                        if outcome in (StepOutcome.REPLAN, StepOutcome.RETRY):
-                            # RETRY that exceeded max retries becomes REPLAN
-                            LOGGER.warning(
-                                "Supervisor requested replan for step '%s': %s",
-                                plan_step.label,
-                                reason,
-                            )
-
-                            if replans_remaining > 0:
-                                # Inject feedback for re-planning
-                                feedback_msg = (
-                                    f"Step '{plan_step.label}' failed validation. "
-                                    f"Supervisor feedback: {reason}."
-                                )
-                                if suggested_fix:
-                                    feedback_msg += f"\n\nSuggested approach: {suggested_fix}"
-                                feedback_msg += (
-                                    "\n\nPlease generate a new plan to address this issue."
-                                )
-                                prompt_history.append(
-                                    AgentMessage(role="system", content=feedback_msg)
-                                )
-
-                                yield {
-                                    "type": "thinking",
-                                    "content": f"Step needs replan: {reason}",
-                                    "metadata": {
-                                        "role": "Supervisor",
-                                        "outcome": outcome.value,
-                                        "reason": reason,
-                                        "suggested_fix": suggested_fix,
-                                        "replans_remaining": replans_remaining - 1,
-                                    },
-                                }
-
-                                needs_replan = True
-                                replans_remaining -= 1
-                                break  # Exit step loop to trigger re-plan
-                            else:
-                                # Max replans reached, continue with warning
-                                LOGGER.error(
-                                    "Max replans (%d) reached. Continuing despite failure.",
-                                    max_replans,
-                                )
-                                yield {
-                                    "type": "thinking",
-                                    "content": (
-                                        f"Step issue: {reason}. "
-                                        f"Max re-plans ({max_replans}) reached. Continuing..."
-                                    ),
-                                    "metadata": {"role": "Supervisor", "max_replans_reached": True},
-                                }
-
-                        # Check for completion step
-                        if (
-                            plan_step.action == "completion"
-                            and step_execution_result.status == "ok"
-                        ):
-                            completion_text = step_execution_result.result.get("completion", "")
-                            completion_provider = plan_step.provider or completion_provider
-                            completion_model = step_execution_result.result.get(
-                                "model", completion_model
-                            )
-                            execution_complete = True
-                            break
-
-                    # If no replan needed and loop completed normally
-                    if not needs_replan and not abort_execution:
-                        execution_complete = True
-
-                    # If abort was triggered, stop the entire adaptive loop
-                    if abort_execution:
-                        break
-
-                # ═══════════════════════════════════════════════════════════════════
-                # END ADAPTIVE EXECUTION LOOP
-                # ═══════════════════════════════════════════════════════════════════
-
-                # Check if plan had an explicit completion step
-                has_completion_step = (
-                    plan is not None
-                    and plan.steps
-                    and any(s.action == "completion" for s in plan.steps)
-                )
-
-                # If skill yielded comprehensive content and no completion step exists,
-                # use the skill's output as the final response (skip extra LLM call)
-                if skill_content_yielded and not has_completion_step and not completion_text:
-                    # Get the last skill's output from the step result for database storage
-                    for msg in reversed(prompt_history):
-                        if msg.role == "tool" and msg.content:
-                            completion_text = msg.content
-                            LOGGER.info("Using skill output as final response (no completion step)")
-                            break
-
-                if not completion_text and not (skill_content_yielded and not has_completion_step):
-                    # Generate fallback completion only if:
-                    # 1. No completion text was set by a completion step, AND
-                    # 2. NOT (skill already yielded content AND plan had no completion step)
-                    # This allows research skills to be the final output without extra summarization
-
-                    # Check for work item drafts in recent history to prevent translation
-                    # Heuristic: Look for common work item markers in the last few messages
-                    work_item_detected = False
-                    for msg in reversed(prompt_history[-5:]):  # Check last 5 messages
-                        content = str(msg.content or "")
-                        if (
-                            "User Story" in content
-                            or "Feature" in content
-                            or "TYPE:" in content
-                            or "TITLE:" in content
-                        ) and ("Acceptance Criteria" in content or "Success Metrics" in content):
-                            work_item_detected = True
-                            break
-
-                    if work_item_detected:
-                        LOGGER.info(
-                            "Work item draft detected. Injecting language preservation instruction."
-                        )
-                        prompt_history.append(
-                            AgentMessage(
-                                role="system",
-                                content=(
-                                    "IMPORTANT: The conversation contains Azure DevOps work item "
-                                    "drafts that MUST remain in English. Do not translate work "
-                                    "item titles, descriptions, or acceptance criteria. "
-                                    "Only translate your commentary."
-                                ),
-                            )
-                        )
-
-                    yield {
-                        "type": "thinking",
-                        "content": "Generating final answer...",
-                        "metadata": {"role": "Executor"},
-                    }
-
-                    # Add completion instruction to guide the LLM
-                    prompt_history.append(
-                        AgentMessage(
-                            role="system",
-                            content=(
-                                "Based on the tool outputs above, provide a brief, helpful "
-                                "response to the user. Report what actions were taken and "
-                                "their results. Be concise and direct."
-                            ),
-                        )
-                    )
-
-                    # Debug: Log the full prompt being sent to completion LLM
-                    await debug_logger.log_completion_prompt(
-                        trace_id=trace_id,
-                        prompt_history=prompt_history,
-                        conversation_id=conversation_id,
-                    )
-
-                    # Use composer model for generating final answers
-                    completion_text = await self._litellm.generate(
-                        prompt_history, model=self._settings.model_composer
-                    )
-
-                    # Debug: Log the completion response
-                    await debug_logger.log_completion_response(
-                        trace_id=trace_id,
-                        response=completion_text,
-                        model=completion_model,
-                        conversation_id=conversation_id,
-                    )
-
-                    # Only yield content if we just generated it here
-                    yield {
-                        "type": "content",
-                        "content": completion_text,
-                        "metadata": {
-                            "provider": completion_provider,
-                            "model": completion_model,
-                        },
-                    }
-
-                session.add(
-                    Message(
-                        session_id=db_session.id,
-                        role="assistant",
-                        content=completion_text,
-                        trace_id=current_trace_ids().get("trace_id"),
-                    )
-                )
-                # Fire-and-forget memory persistence (non-blocking)
-                asyncio.create_task(
-                    _persist_memory_background(
-                        self._memory,
-                        conversation_id,
-                        request.prompt,
-                        LOGGER,
-                    )
-                )
-                await session.commit()
-
-                log_event(
-                    SupervisorDecision(
-                        item_id=conversation_id,
-                        decision="ok",
-                        comments="Conversation complete",
-                        trace=TraceContext(**current_trace_ids()),
-                    )
-                )
-
-                # Yield updated history for legacy compatibility
-                # Convert internal AgentMessage objects to dict or keep as is?
-                # get_history returns AgentMessage objects.
-                # We have 'prompt_history' + 'assistant_msg'.
-                # Reconstruct full history:
-                final_history = list(prompt_history)
-                final_history.append(AgentMessage(role="assistant", content=completion_text))
-                # Add records was done in DB.
-                yield {"type": "history_snapshot", "messages": final_history}
+                # Phase 5: Agentic execution
+                async for event in self._execute_agentic(
+                    request,
+                    history,
+                    session,
+                    db_session,
+                    db_conversation,
+                    planner,
+                    plan_supervisor,
+                    executor,
+                    step_supervisor,
+                    skill_executor,
+                    skill_names,
+                    conversation_id,
+                ):
+                    yield event
 
             except Exception as e:
                 set_span_status("ERROR", str(e))
@@ -1550,6 +1853,28 @@ class AgentService:
         if isinstance(raw, list | tuple | set):
             return {str(item) for item in raw if isinstance(item, str)}
         return None
+
+    def _detect_work_items(self, prompt_history: list[AgentMessage]) -> bool:
+        """Detect work item drafts in conversation history.
+
+        Heuristic: Look for common work item markers in the last few messages.
+
+        Args:
+            prompt_history: The conversation history
+
+        Returns:
+            True if work item detected, False otherwise
+        """
+        for msg in reversed(prompt_history[-5:]):  # Check last 5 messages
+            content = str(msg.content or "")
+            if (
+                "User Story" in content
+                or "Feature" in content
+                or "TYPE:" in content
+                or "TITLE:" in content
+            ) and ("Acceptance Criteria" in content or "Success Metrics" in content):
+                return True
+        return False
 
     @staticmethod
     def _coerce_tool_call_args(raw_args: dict[str, Any]) -> dict[str, Any]:
