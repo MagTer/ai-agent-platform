@@ -268,6 +268,12 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
         LOGGER.info("Dependency providers registered")
 
+        # Initialize model capability registry
+        from core.core.model_registry import ModelCapabilityRegistry
+
+        ModelCapabilityRegistry.get_instance()
+        LOGGER.info("Model capability registry initialized")
+
         # Initialize MCP client pool for context-aware MCP connections
         from core.mcp.client_pool import McpClientPool
 
