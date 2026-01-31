@@ -1,5 +1,6 @@
 import logging
 import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
@@ -15,6 +16,35 @@ from core.core.config import get_settings
 from core.tools.base import Tool
 
 LOGGER = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _load_ado_mappings() -> dict[str, Any]:
+    """Load and cache ADO mappings from config file.
+
+    Tries multiple locations for Docker and local development compatibility.
+
+    Returns:
+        Parsed YAML content as dict, empty dict if not found.
+    """
+    # Candidate paths in priority order
+    candidates = [
+        Path("/app/config/ado_mappings.yaml"),  # Docker mount
+        Path(__file__).resolve().parent.parent.parent.parent / "config" / "ado_mappings.yaml",
+    ]
+
+    for config_path in candidates:
+        try:
+            if config_path.exists():
+                LOGGER.debug("Loading ADO mappings from %s", config_path)
+                with open(config_path, encoding="utf-8") as f:
+                    return yaml.safe_load(f) or {}
+        except Exception as e:
+            LOGGER.warning("Failed to load ADO mappings from %s: %s", config_path, e)
+            continue
+
+    LOGGER.warning("ADO mappings not found in any of: %s", [str(p) for p in candidates])
+    return {}
 
 
 def _sanitize_wiql_value(value: str) -> str:
@@ -148,38 +178,13 @@ class AzureDevOpsTool(Tool):
         Configuration is loaded per-user from credentials in platformadmin.
         No environment variable fallbacks - all config must be in credentials.
         """
-        self.mappings = self._load_mappings()
+        # Use cached mappings loaded at module level
+        self.mappings = _load_ado_mappings()
 
         # Validate and warn
         warnings = self._validate_mappings()
         for warning in warnings:
             LOGGER.warning(f"ADO Mapping: {warning}")
-
-    def _load_mappings(self) -> dict[str, Any]:
-        """Load ADO mappings from default config path.
-
-        Tries multiple locations for Docker and local development compatibility.
-        """
-        # Candidate paths in priority order
-        candidates = [
-            Path("/app/config/ado_mappings.yaml"),  # Docker mount
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "config"
-            / "ado_mappings.yaml",  # Local development
-        ]
-
-        for config_path in candidates:
-            try:
-                if config_path.exists():
-                    LOGGER.debug(f"Loading ADO mappings from {config_path}")
-                    with open(config_path, encoding="utf-8") as f:
-                        return yaml.safe_load(f) or {}
-            except Exception as e:
-                LOGGER.warning(f"Failed to load ADO mappings from {config_path}: {e}")
-                continue
-
-        LOGGER.warning(f"ADO mappings not found in any of: {[str(p) for p in candidates]}")
-        return {}
 
     def _get_available_teams(self) -> list[str]:
         """Return list of configured team aliases."""

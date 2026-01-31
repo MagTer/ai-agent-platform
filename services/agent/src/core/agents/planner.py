@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
 from typing import Any
 
+import orjson
 from pydantic import ValidationError
 from shared.models import AgentMessage, AgentRequest, Plan, PlanStep
 
@@ -115,7 +115,7 @@ class PlannerAgent:
             if schema:
                 # If we have a schema/dict, format it nicely
                 try:
-                    schema_str = json.dumps(schema, indent=None)
+                    schema_str = orjson.dumps(schema).decode()
                 except (TypeError, ValueError):
                     schema_str = str(schema)
                 lines.append(f"- Tool: {name}\n  Desc: {desc}\n  Args: {schema_str}")
@@ -132,7 +132,9 @@ class PlannerAgent:
             "\n".join(f"{message.role}: {message.content}" for message in history) or "(no history)"
         )
         try:
-            metadata_text = json.dumps(request.metadata or {}, indent=2)
+            metadata_text = orjson.dumps(
+                request.metadata or {}, option=orjson.OPT_INDENT_2
+            ).decode()
         except (TypeError, ValueError):
             metadata_text = str(request.metadata)
 
@@ -415,16 +417,16 @@ class PlannerAgent:
     @staticmethod
     def _extract_json_fragment(raw: str) -> dict[str, Any] | None:
         try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
+            return orjson.loads(raw)
+        except orjson.JSONDecodeError:
             start = raw.find("{")
             end = raw.rfind("}")
             if start == -1 or end == -1:
                 return None
             fragment = raw[start : end + 1]
             try:
-                return json.loads(fragment)
-            except json.JSONDecodeError:
+                return orjson.loads(fragment)
+            except orjson.JSONDecodeError:
                 return None
 
 

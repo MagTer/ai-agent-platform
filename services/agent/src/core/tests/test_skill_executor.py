@@ -218,32 +218,33 @@ class TestActivityMessage:
 
     def test_build_activity_message_with_query(self) -> None:
         """Test activity message for search query."""
-        from core.skills.executor import _build_activity_message
+        from core.tools.activity_hints import build_activity_message
 
-        msg = _build_activity_message(None, "web_search", {"query": "Python 3.12"})
+        msg = build_activity_message(None, "web_search", {"query": "Python 3.12"})
         assert "Searching" in msg
         assert "Python 3.12" in msg
 
     def test_build_activity_message_with_url(self) -> None:
         """Test activity message for URL fetch."""
-        from core.skills.executor import _build_activity_message
+        from core.tools.activity_hints import build_activity_message
 
-        msg = _build_activity_message(None, "fetch_url", {"url": "https://example.com/page"})
+        msg = build_activity_message(None, "fetch_url", {"url": "https://example.com/page"})
         assert "Fetching" in msg
         assert "example.com" in msg
 
     def test_build_activity_message_truncates_long_query(self) -> None:
         """Test that long queries are truncated."""
-        from core.skills.executor import _build_activity_message
+        from core.tools.activity_hints import build_activity_message
 
         long_query = "a" * 100
-        msg = _build_activity_message(None, "web_search", {"query": long_query})
+        msg = build_activity_message(None, "web_search", {"query": long_query})
         assert "..." in msg
-        assert len(msg) < 100
+        # "Searching: " (11 chars) + 47 chars + "..." (3 chars) = 61 chars
+        assert len(msg) == 61
 
     def test_build_activity_message_fallback(self) -> None:
         """Test fallback message for unknown args."""
-        from core.skills.executor import _build_activity_message
+        from core.tools.activity_hints import build_activity_message
 
-        msg = _build_activity_message(None, "some_tool", {"custom_arg": "value"})
-        assert "Using some_tool" in msg
+        msg = build_activity_message(None, "some_tool", {"custom_arg": "value"})
+        assert "Running some_tool" in msg

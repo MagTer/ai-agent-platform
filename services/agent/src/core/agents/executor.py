@@ -633,7 +633,7 @@ class StepExecutorAgent:
         """Execute a tool step, wrapping the generator.
 
         Handles both traditional tools (yielding 'final' events) and streaming tools
-        like SkillDelegateTool (yielding 'content' and 'result' events).
+        (yielding 'content' and 'result' events).
         """
         content_chunks: list[str] = []
         result_outputs: list[str] = []
@@ -650,7 +650,7 @@ class StepExecutorAgent:
                 got_final = True
 
             elif tool_event["type"] == "content":
-                # Streaming tool content (e.g., SkillDelegateTool)
+                # Streaming tool content
                 # Collect but DON'T stream - skill output should inform the answer, not  # noqa: E501
                 # BE the answer
                 chunk = tool_event.get("content", "")
@@ -658,7 +658,7 @@ class StepExecutorAgent:
                     content_chunks.append(chunk)
 
             elif tool_event["type"] == "result":
-                # Streaming tool result event (e.g., SkillDelegateTool)
+                # Streaming tool result event
                 output = tool_event.get("output", "")
                 if output and output not in ("Worker finished.",):
                     result_outputs.append(output)

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from asyncio import Queue, QueueEmpty
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -29,15 +31,79 @@ SECURITY_LOGGER = logging.getLogger("security")
 # System events file for events outside trace context
 SYSTEM_EVENTS_PATH = Path("data/system_events.jsonl")
 
+# Thread-safe async queue (replaces deque)
+_event_queue: Queue[dict[str, Any]] | None = None
+_write_task: asyncio.Task[None] | None = None
+_task_lock = asyncio.Lock()
 
-def _write_system_event(event_data: dict[str, Any]) -> None:
-    """Write event to system_events.jsonl for events without trace context."""
+
+def _get_or_create_queue() -> Queue[dict[str, Any]]:
+    """Get or lazily create the event queue."""
+    global _event_queue
+    if _event_queue is None:
+        _event_queue = Queue()
+    return _event_queue
+
+
+async def _background_event_writer() -> None:
+    """Background task that writes queued events to file."""
+    queue = _get_or_create_queue()
+    while True:
+        try:
+            # Batch events with timeout
+            events_to_write: list[dict[str, Any]] = []
+            try:
+                while len(events_to_write) < 100:
+                    event = await asyncio.wait_for(queue.get(), timeout=0.1)
+                    events_to_write.append(event)
+            except TimeoutError:
+                pass
+
+            if events_to_write:
+                await asyncio.to_thread(_write_events_sync, events_to_write)
+        except Exception as e:
+            SECURITY_LOGGER.warning(f"Background event writer error: {e}")
+            await asyncio.sleep(1)
+
+
+def _write_events_sync(events: list[dict[str, Any]]) -> None:
+    """Synchronous write of multiple events (called in thread)."""
     try:
         SYSTEM_EVENTS_PATH.parent.mkdir(parents=True, exist_ok=True)
         with SYSTEM_EVENTS_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(event_data) + "\n")
+            for event_data in events:
+                f.write(json.dumps(event_data) + "\n")
     except Exception as e:
-        SECURITY_LOGGER.warning(f"Failed to write system event to file: {e}")
+        SECURITY_LOGGER.warning(f"Failed to write system events to file: {e}")
+
+
+async def _ensure_writer_running() -> None:
+    """Ensure background writer is running (thread-safe)."""
+    global _write_task
+    async with _task_lock:
+        try:
+            loop = asyncio.get_running_loop()
+            if _write_task is None or _write_task.done():
+                _write_task = loop.create_task(_background_event_writer())
+        except RuntimeError:
+            pass
+
+
+async def _write_system_event_async(event_data: dict[str, Any]) -> None:
+    """Queue event for background writing (thread-safe)."""
+    queue = _get_or_create_queue()
+    await queue.put(event_data)
+    await _ensure_writer_running()
+
+
+def _write_system_event(event_data: dict[str, Any]) -> None:
+    """Queue event - fire-and-forget from sync context."""
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(_write_system_event_async(event_data))
+    except RuntimeError:
+        # No event loop - log warning, skip persistence
+        SECURITY_LOGGER.warning("No event loop for security event persistence")
 
 
 def log_security_event(
@@ -166,10 +232,29 @@ def get_client_ip(request: Any) -> str | None:
     return None
 
 
+async def flush_security_events() -> None:
+    """Flush pending events on shutdown (thread-safe)."""
+    global _event_queue
+    if _event_queue is None or _event_queue.empty():
+        return
+
+    events_to_write: list[dict[str, Any]] = []
+    while not _event_queue.empty():
+        try:
+            event = _event_queue.get_nowait()
+            events_to_write.append(event)
+        except QueueEmpty:
+            break
+
+    if events_to_write:
+        await asyncio.to_thread(_write_events_sync, events_to_write)
+
+
 __all__ = [
     "SECURITY_LOGGER",
     "log_security_event",
     "get_client_ip",
+    "flush_security_events",
     # Event type constants
     "AUTH_SUCCESS",
     "AUTH_FAILURE",

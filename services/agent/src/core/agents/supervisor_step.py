@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Literal
 
+import orjson
 from shared.models import AgentMessage, PlanStep, StepOutcome, StepResult
 
 from core.core.litellm_client import LiteLLMClient
@@ -121,7 +121,7 @@ class StepSupervisorAgent:
                 f"## STEP DETAILS\n"
                 f"- **Label**: {step_label}\n"
                 f"- **Tool**: {step_tool or 'N/A'}\n"
-                f"- **Arguments**: {json.dumps(step_args, default=str)}\n\n"
+                f"- **Arguments**: {orjson.dumps(step_args, default=str).decode()}\n\n"
                 f"## EXECUTION RESULT\n"
                 f"- **Status**: {execution_status}\n"
                 f"- **Output**:\n```\n{output_preview}\n```\n\n"
@@ -208,15 +208,15 @@ class StepSupervisorAgent:
         """
         try:
             # Try direct JSON parse
-            data = json.loads(response)
-        except json.JSONDecodeError:
+            data = orjson.loads(response)
+        except orjson.JSONDecodeError:
             # Try to extract JSON from response
             start = response.find("{")
             end = response.rfind("}")
             if start != -1 and end != -1:
                 try:
-                    data = json.loads(response[start : end + 1])
-                except json.JSONDecodeError:
+                    data = orjson.loads(response[start : end + 1])
+                except orjson.JSONDecodeError:
                     LOGGER.warning("Failed to parse supervisor response: %s", response)
                     return StepOutcome.SUCCESS, "Could not parse supervisor response", None
             else:

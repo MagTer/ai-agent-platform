@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import time
 from collections.abc import AsyncGenerator, Iterable
 from typing import Any
 
 import httpx
+import orjson
 from shared.streaming import AgentChunk
 
 from core.core.config import Settings
+from core.core.model_registry import ModelCapabilityRegistry, ReasoningMode
 from core.core.models import AgentMessage
 from core.observability.tracing import add_span_event, set_span_attributes
 
@@ -33,6 +34,7 @@ class LiteLLMClient:
             base_url=str(settings.litellm_api_base),
             timeout=self._timeout,
         )
+        self._registry = ModelCapabilityRegistry.get_instance()
 
     async def aclose(self) -> None:
         """Close the underlying HTTP client."""
@@ -103,7 +105,7 @@ class LiteLLMClient:
                         break
 
                     try:
-                        data = json.loads(data_str)
+                        data = orjson.loads(data_str)
                         if "model" in data and data["model"]:
                             set_span_attributes({"gen_ai.response.model": data["model"]})
 
@@ -128,9 +130,60 @@ class LiteLLMClient:
                             choice = data["choices"][0]
                             delta = choice.get("delta", {})
 
-                            # Handle reasoning content (gpt-oss, Qwen3, etc.)
-                            # Stream as "thinking" type for UI display
-                            reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                            # Get model from payload
+                            current_model = payload.get("model", "")
+
+                            # Get model capability
+                            cap = self._registry.get_capability(current_model)
+
+                            # Extract reasoning based on model capability
+                            reasoning = None
+                            if (
+                                cap.reasoning_mode == ReasoningMode.SEPARATE_FIELD
+                                and cap.reasoning_field
+                            ):
+                                reasoning = delta.get(cap.reasoning_field)
+                                # Fallback to common field names if configured field not found
+                                if reasoning is None:
+                                    reasoning = delta.get("reasoning_content") or delta.get(
+                                        "reasoning"
+                                    )
+                            elif cap.reasoning_mode == ReasoningMode.INLINE_TAGS:
+                                content_text = delta.get("content", "")
+                                if content_text:
+                                    (
+                                        reasoning_part,
+                                        clean_content,
+                                    ) = self._registry.extract_inline_reasoning(
+                                        content_text, current_model
+                                    )
+                                    if reasoning_part:
+                                        yield {
+                                            "type": "thinking",
+                                            "content": reasoning_part,
+                                            "tool_call": None,
+                                            "metadata": {"source": "reasoning_model"},
+                                        }
+                                    if clean_content:
+                                        if not first_token_received:
+                                            ttft_ms = (time.perf_counter() - start_time) * 1000
+                                            set_span_attributes(
+                                                {"gen_ai.performance.ttft_ms": ttft_ms}
+                                            )
+                                            add_span_event(
+                                                "gen_ai.first_token", {"ttft_ms": ttft_ms}
+                                            )
+                                            first_token_received = True
+
+                                        yield {
+                                            "type": "content",
+                                            "content": clean_content,
+                                            "tool_call": None,
+                                            "metadata": None,
+                                        }
+                                    continue
+
+                            # Emit reasoning as thinking if found
                             if reasoning:
                                 yield {
                                     "type": "thinking",
@@ -165,7 +218,7 @@ class LiteLLMClient:
                                         "metadata": None,
                                     }
 
-                    except json.JSONDecodeError:
+                    except orjson.JSONDecodeError:
                         LOGGER.warning("Failed to decode JSON chunk: %s", data_str)
                         continue
 
@@ -185,6 +238,7 @@ class LiteLLMClient:
         """
         full_content: list[str] = []
         full_thinking: list[str] = []
+        current_model = model or self._settings.model_agentchat
 
         async for chunk in self.stream_chat(messages, model=model):
             if chunk["type"] == "content" and chunk["content"]:
@@ -194,11 +248,11 @@ class LiteLLMClient:
             elif chunk["type"] == "error":
                 raise LiteLLMError(chunk["content"])
 
-        # If no content but we have thinking, use thinking as content
-        # This handles reasoning models that only output to reasoning_content
+        # If no content but we have thinking, use thinking as content (for reasoning models)
         if not full_content and full_thinking:
-            LOGGER.debug("Using reasoning_content as fallback (no content received)")
-            return "".join(full_thinking)
+            if self._registry.should_fallback_to_reasoning(current_model):
+                LOGGER.debug("Using reasoning_content as fallback (no content received)")
+                return "".join(full_thinking)
 
         return "".join(full_content)
 
@@ -217,8 +271,9 @@ class LiteLLMClient:
 
         Handles reasoning models by falling back to reasoning_content if content is empty.
         """
+        current_model = model or self._settings.model_agentchat
         payload: dict[str, Any] = {
-            "model": model or self._settings.model_agentchat,
+            "model": current_model,
             "messages": [message.model_dump() for message in messages],
             "tools": tools,
             "tool_choice": "auto",
@@ -234,10 +289,13 @@ class LiteLLMClient:
             data = response.json()
             message = data["choices"][0]["message"]
 
-            # Handle reasoning models: if content is empty, use reasoning_content
-            if not message.get("content") and message.get("reasoning_content"):
-                LOGGER.debug("Using reasoning_content as content fallback")
-                message["content"] = message["reasoning_content"]
+            # Handle reasoning models: if content is empty, use reasoning field
+            if not message.get("content"):
+                cap = self._registry.get_capability(current_model)
+                if cap.reasoning_field and message.get(cap.reasoning_field):
+                    if self._registry.should_fallback_to_reasoning(current_model):
+                        LOGGER.debug("Using %s as content fallback", cap.reasoning_field)
+                        message["content"] = message[cap.reasoning_field]
 
             return message
         except httpx.HTTPError as exc:

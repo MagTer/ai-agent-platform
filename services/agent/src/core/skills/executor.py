@@ -10,16 +10,23 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
 from uuid import UUID
 
-from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AwaitingInputCategory,
+    PlanStep,
+    StepResult,
+)
 
 from core.observability.tracing import set_span_attributes, start_span
 from core.skills.registry import SkillRegistry
+from core.tools.activity_hints import build_activity_message
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,51 +38,6 @@ if TYPE_CHECKING:
 from sqlalchemy import select
 
 LOGGER = logging.getLogger(__name__)
-
-
-def _build_activity_message(tool_obj: Tool | None, fname: str, fargs: dict[str, Any]) -> str:
-    """Build an informative activity message from tool hints or arguments."""
-    # Try tool's activity_hint first
-    if tool_obj and hasattr(tool_obj, "activity_hint") and tool_obj.activity_hint:
-        for arg_name, pattern in tool_obj.activity_hint.items():
-            if arg_name in fargs:
-                value = fargs[arg_name]
-                domain = value
-
-                # Handle special {domain} placeholder
-                if "{domain}" in pattern and isinstance(value, str):
-                    try:
-                        domain = urlparse(value).netloc or value
-                    except Exception:
-                        domain = value
-
-                # Truncate long values
-                if isinstance(value, str) and len(value) > 50:
-                    value = value[:47] + "..."
-                if isinstance(domain, str) and len(domain) > 50:
-                    domain = domain[:47] + "..."
-
-                try:
-                    return pattern.format(**{arg_name: value, "domain": domain})
-                except (KeyError, ValueError):
-                    pass
-
-    # Fallback patterns
-    if "query" in fargs:
-        q = fargs["query"]
-        q = q if len(q) <= 50 else q[:47] + "..."
-        return f'Searching: "{q}"'
-    elif "url" in fargs:
-        try:
-            domain = urlparse(fargs["url"]).netloc
-            return f"Fetching: {domain}"
-        except Exception:
-            return "Fetching URL"
-    elif "path" in fargs or "file_path" in fargs:
-        path = fargs.get("path") or fargs.get("file_path")
-        return f"Reading: {path}"
-
-    return f"Using {fname}"
 
 
 class SkillExecutor:
@@ -350,6 +312,61 @@ class SkillExecutor:
                             if chunk["type"] == "content" and chunk["content"]:
                                 content = chunk["content"]
                                 full_content.append(content)
+
+                                # Check for HITL marker and emit structured event
+                                if "[AWAITING_USER_INPUT:" in content:
+                                    match = re.search(r"\[AWAITING_USER_INPUT:(\w+)\]", content)
+                                    if match:
+                                        category_str = match.group(1).lower()
+                                        # Clean content - remove the marker
+                                        clean_prompt = re.sub(
+                                            r"\[AWAITING_USER_INPUT:\w+\]", "", content
+                                        ).strip()
+
+                                        # Map legacy/alternative category names
+                                        category_aliases = {
+                                            "type_selection": "selection",
+                                        }
+
+                                        # Apply alias mapping
+                                        if category_str in category_aliases:
+                                            mapped = category_aliases[category_str]
+                                            LOGGER.warning(
+                                                "HITL category '%s' mapped to '%s' "
+                                                "- consider updating skill",
+                                                category_str,
+                                                mapped,
+                                            )
+                                            category_str = mapped
+
+                                        # Map category string to enum
+                                        try:
+                                            category = AwaitingInputCategory(category_str)
+                                        except ValueError:
+                                            LOGGER.warning(
+                                                "Invalid HITL category '%s' in skill '%s', "
+                                                "falling back to CLARIFICATION",
+                                                category_str,
+                                                skill_name,
+                                            )
+                                            category = AwaitingInputCategory.CLARIFICATION
+
+                                        # Emit structured awaiting_input event
+                                        yield {
+                                            "type": "awaiting_input",
+                                            "content": None,
+                                            "tool_call": None,
+                                            "metadata": {
+                                                "category": category.value,
+                                                "prompt": clean_prompt,
+                                                "skill_name": skill_name,
+                                                "context": {},
+                                                "required": True,
+                                            },
+                                        }
+                                        # Continue to next chunk (don't yield marker in content)
+                                        continue
+
                                 # Mark skill content for filtering in adapter
                                 yield {
                                     "type": "content",
@@ -475,7 +492,7 @@ class SkillExecutor:
 
                         # Build activity message
                         tool_obj = tool_lookup.get(fname)
-                        activity_msg = _build_activity_message(tool_obj, fname, fargs)
+                        activity_msg = build_activity_message(tool_obj, fname, fargs)
 
                         # Check for duplicates
                         call_key = (fname, json.dumps(fargs, sort_keys=True))

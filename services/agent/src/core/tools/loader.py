@@ -6,6 +6,7 @@ import importlib
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -16,6 +17,26 @@ from core.tools.base import Tool
 from core.tools.registry import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1)
+def _load_tools_config(config_path: Path) -> Any:
+    """Load and cache tools configuration.
+
+    Args:
+        config_path: Path to the tools.yaml file.
+
+    Returns:
+        Parsed YAML content.
+    """
+    if not config_path.exists():
+        return None
+
+    try:
+        return yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        LOGGER.error("Failed to read tool configuration: %s", exc)
+        return None
 
 
 @dataclass(slots=True)
@@ -76,10 +97,9 @@ def load_tool_registry(config_path: Path) -> ToolRegistry:
         LOGGER.info("No tool configuration found at %s", config_path)
         return registry
 
-    try:
-        raw_config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except Exception as exc:  # pragma: no cover - I/O errors depend on filesystem state
-        LOGGER.error("Failed to read tool configuration: %s", exc)
+    # Use cached config loading
+    raw_config = _load_tools_config(config_path)
+    if raw_config is None:
         return registry
 
     for spec in _coerce_specs(raw_config):

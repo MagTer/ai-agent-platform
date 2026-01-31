@@ -23,6 +23,39 @@ ATHOM_API_BASE = "https://api.athom.com"
 DEVICE_CACHE_TTL_HOURS = 36
 
 
+def _fuzzy_match_name(query: str, candidate: str) -> bool:
+    """Check if query matches candidate using fuzzy matching.
+
+    Tries three matching strategies in order:
+    1. Exact match (case-insensitive)
+    2. Query substring of candidate
+    3. Candidate substring of query (handles verbose queries)
+
+    Args:
+        query: Search string from user.
+        candidate: Name to match against.
+
+    Returns:
+        True if any matching strategy succeeds.
+    """
+    query_lower = query.lower()
+    candidate_lower = candidate.lower()
+
+    # Exact match
+    if query_lower == candidate_lower:
+        return True
+
+    # Query in candidate
+    if query_lower in candidate_lower:
+        return True
+
+    # Candidate in query (handles "lampan bakom skärmen" matching "Bakom Skärmen")
+    if candidate_lower in query_lower:
+        return True
+
+    return False
+
+
 class HomeyTool(Tool):
     """Control Homey smart home devices via Web API.
 

@@ -157,8 +157,8 @@ Your question here...
 
 Categories:
 - `team_selection` - When user needs to pick a team
-- `type_selection` - When user needs to pick work item type
 - `clarification` - When you need more details about the request
+- `selection` - When user needs to choose between options (e.g., work item type)
 
 **Example:**
 ```

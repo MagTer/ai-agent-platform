@@ -7,6 +7,7 @@ providing fast skill lookup during execution.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
@@ -87,6 +88,9 @@ class SkillRegistry:
     ) -> None:
         """Initialize the skill registry and validate all skills.
 
+        For synchronous initialization, loads skills sequentially.
+        For async initialization with parallel loading, use create_async() instead.
+
         Args:
             tool_registry: Optional ToolRegistry for validating tool references.
             skills_dir: Optional override for skills directory path.
@@ -97,6 +101,97 @@ class SkillRegistry:
         self._by_path: dict[str, Skill] = {}  # Path-based lookup for compatibility
 
         self._load_and_validate()
+
+    @classmethod
+    async def create_async(
+        cls,
+        tool_registry: ToolRegistry | None = None,
+        skills_dir: Path | None = None,
+    ) -> SkillRegistry:
+        """Create a SkillRegistry with async parallel loading.
+
+        This method should be used in async contexts (like FastAPI startup)
+        for faster initialization with parallel file loading.
+
+        Args:
+            tool_registry: Optional ToolRegistry for validating tool references.
+            skills_dir: Optional override for skills directory path.
+
+        Returns:
+            Initialized SkillRegistry instance.
+
+        Example:
+            registry = await SkillRegistry.create_async(tool_registry)
+        """
+        instance = cls.__new__(cls)
+        instance._tool_registry = tool_registry
+        instance._skills_dir = skills_dir or SKILLS_DIR
+        instance._skills = {}
+        instance._by_path = {}
+
+        await instance._load_and_validate_async()
+
+        return instance
+
+    async def _load_skill_file_async(self, path: Path) -> tuple[Path, str] | None:
+        """Load a single skill file asynchronously.
+
+        Args:
+            path: Path to the skill markdown file.
+
+        Returns:
+            Tuple of (path, content) if successful, None if failed.
+        """
+        try:
+            content = await asyncio.to_thread(path.read_text, encoding="utf-8")
+            return path, content
+        except Exception as e:
+            LOGGER.warning("Failed to read skill file %s: %s", path, e)
+            return None
+
+    async def _load_and_validate_async(self) -> None:
+        """Load all skills from the skills directory asynchronously and validate them."""
+        if not self._skills_dir.exists():
+            LOGGER.warning("Skills directory does not exist: %s", self._skills_dir)
+            return
+
+        # Find all skill files
+        skill_paths = list(self._skills_dir.rglob("*.md"))
+
+        # Load all files in parallel
+        tasks = [self._load_skill_file_async(p) for p in skill_paths]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        valid_count = 0
+        invalid_count = 0
+        tool_warnings: list[str] = []
+
+        # Parse loaded content
+        for result in results:
+            if isinstance(result, BaseException):
+                LOGGER.warning("Failed to load skill: %s", result)
+                invalid_count += 1
+                continue
+
+            if result is None:
+                invalid_count += 1
+                continue
+
+            path, content = result
+
+            try:
+                skill = self._parse_skill_content(path, content)
+                if skill:
+                    self._register_skill(skill, tool_warnings)
+                    valid_count += 1
+                else:
+                    invalid_count += 1
+
+            except Exception as e:
+                LOGGER.warning("Failed to parse skill %s: %s", path, e)
+                invalid_count += 1
+
+        self._log_load_summary(valid_count, invalid_count, tool_warnings)
 
     def _load_and_validate(self) -> None:
         """Load all skills from the skills directory and validate them."""
@@ -112,30 +207,25 @@ class SkillRegistry:
             try:
                 skill = self._load_skill(path)
                 if skill:
-                    # Register by name
-                    self._skills[skill.name] = skill
-
-                    # Also register by path-based name for compatibility
-                    relative_path = path.relative_to(self._skills_dir).with_suffix("")
-                    path_name = str(relative_path).replace("\\", "/")
-                    self._by_path[path_name] = skill
-                    self._by_path[path.stem] = skill  # Also by filename only
-
-                    # Validate tool references
-                    if self._tool_registry and skill.tools:
-                        for tool_name in skill.tools:
-                            if not self._tool_registry.get(tool_name):
-                                tool_warnings.append(
-                                    f"Skill '{skill.name}' references missing tool '{tool_name}'"
-                                )
-
+                    self._register_skill(skill, tool_warnings)
                     valid_count += 1
 
             except Exception as e:
                 LOGGER.warning("Failed to load skill %s: %s", path, e)
                 invalid_count += 1
 
-        # Log summary
+        self._log_load_summary(valid_count, invalid_count, tool_warnings)
+
+    def _log_load_summary(
+        self, valid_count: int, invalid_count: int, tool_warnings: list[str]
+    ) -> None:
+        """Log skill loading summary with tool warnings.
+
+        Args:
+            valid_count: Number of successfully loaded skills.
+            invalid_count: Number of failed skill loads.
+            tool_warnings: List of tool reference warnings.
+        """
         LOGGER.info(
             "SkillRegistry loaded: %d valid skills, %d invalid",
             valid_count,
@@ -143,22 +233,22 @@ class SkillRegistry:
         )
 
         if tool_warnings:
-            for warning in tool_warnings[:10]:  # Limit to first 10 warnings
+            max_warnings = 10
+            for warning in tool_warnings[:max_warnings]:
                 LOGGER.warning(warning)
-            if len(tool_warnings) > 10:
-                LOGGER.warning("... and %d more tool warnings", len(tool_warnings) - 10)
+            if len(tool_warnings) > max_warnings:
+                LOGGER.warning("... and %d more tool warnings", len(tool_warnings) - max_warnings)
 
-    def _load_skill(self, path: Path) -> Skill | None:
-        """Load a single skill from a markdown file.
+    def _parse_skill_content(self, path: Path, content: str) -> Skill | None:
+        """Parse skill content from markdown.
 
         Args:
-            path: Path to the skill markdown file.
+            path: Path to the skill file (for metadata).
+            content: File content to parse.
 
         Returns:
             Skill object if valid, None if invalid.
         """
-        content = path.read_text(encoding="utf-8")
-
         # Parse frontmatter
         if content.startswith("---"):
             parts = content.split("---", 2)
@@ -194,6 +284,42 @@ class SkillRegistry:
             raw_content=content,
             body_template=body_template,
         )
+
+    def _register_skill(self, skill: Skill, tool_warnings: list[str]) -> None:
+        """Register a skill in all lookup indexes and validate tool references.
+
+        Args:
+            skill: Validated Skill object to register.
+            tool_warnings: List to append tool validation warnings to.
+        """
+        # Register by name
+        self._skills[skill.name] = skill
+
+        # Also register by path-based name for compatibility
+        relative_path = skill.path.relative_to(self._skills_dir).with_suffix("")
+        path_name = str(relative_path).replace("\\", "/")
+        self._by_path[path_name] = skill
+        self._by_path[skill.path.stem] = skill  # Also by filename only
+
+        # Validate tool references
+        if self._tool_registry and skill.tools:
+            for tool_name in skill.tools:
+                if not self._tool_registry.get(tool_name):
+                    tool_warnings.append(
+                        f"Skill '{skill.name}' references missing tool '{tool_name}'"
+                    )
+
+    def _load_skill(self, path: Path) -> Skill | None:
+        """Load a single skill from a markdown file.
+
+        Args:
+            path: Path to the skill markdown file.
+
+        Returns:
+            Skill object if valid, None if invalid.
+        """
+        content = path.read_text(encoding="utf-8")
+        return self._parse_skill_content(path, content)
 
     def get(self, name: str) -> Skill | None:
         """Get a skill by name.

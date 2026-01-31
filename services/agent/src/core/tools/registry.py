@@ -25,13 +25,9 @@ class ToolRegistry:
     def available(self) -> list[str]:
         return sorted(self._tools)
 
-    def tools(self) -> list[Tool]:
+    def list_tools(self) -> list[Tool]:
         """Return the registered tool instances."""
         return list(self._tools.values())
-
-    def list_tools(self) -> list[Tool]:
-        """Return the registered tool instances (alias for tools())."""
-        return self.tools()
 
     def clone(self) -> ToolRegistry:
         """Create a shallow copy of this registry.

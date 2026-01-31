@@ -348,35 +348,9 @@ async def get_or_create_context_id(
     return context.id
 
 
-def get_service_factory() -> ServiceFactory:
-    """Get service factory from FastAPI app state."""
-
-    # Access via current request context (injected by FastAPI)
-    # Note: This is a workaround to access app state
-    # A cleaner approach would be to pass the factory explicitly,
-    # but this works for dependency injection
-    import inspect
-
-    for frame_info in inspect.stack():
-        frame_locals = frame_info.frame.f_locals
-        if "app" in frame_locals:
-            app = frame_locals["app"]
-            if hasattr(app, "state") and hasattr(app.state, "service_factory"):
-                return app.state.service_factory
-
-    # Fallback: create temporary factory (shouldn't happen in normal operation)
-    LOGGER.warning("Could not access service_factory from app state, creating temporary instance")
-    settings = get_settings()
-    litellm = LiteLLMClient(settings)
-
-    # Create skill registry for fallback path
-    from core.skills import SkillRegistry
-    from core.tools.loader import load_tool_registry
-
-    base_tool_registry = load_tool_registry(settings.tools_config_path)
-    skill_registry = SkillRegistry(tool_registry=base_tool_registry)
-
-    return ServiceFactory(settings, litellm, skill_registry=skill_registry)
+def get_service_factory(request: Request) -> ServiceFactory:
+    """Get service factory from FastAPI app state via Request."""
+    return request.app.state.service_factory
 
 
 async def get_agent_service(
@@ -904,6 +878,22 @@ async def stream_response_generator(
                         formatted = f"\n⚙️ *{cleaned}*\n"
                     else:
                         continue  # Skip if contains raw tokens
+                yield _format_chunk(chunk_id, created, model_name, formatted)
+
+            elif chunk_type == "awaiting_input":
+                # Handle structured human-in-the-loop signaling
+                meta = agent_chunk.get("metadata") or {}
+                prompt = meta.get("prompt", "Awaiting input...")
+                options = meta.get("options")
+                category = meta.get("category", "clarification")
+
+                formatted = f"\n\n⏸️ **Input needed ({category}):** {prompt}\n"
+                if options:
+                    formatted += "\n**Options:**\n"
+                    for i, opt in enumerate(options, 1):
+                        formatted += f"{i}. {opt}\n"
+                formatted += "\n"
+
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "error":

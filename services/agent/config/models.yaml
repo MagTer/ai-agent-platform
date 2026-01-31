@@ -1,0 +1,119 @@
+# Model Capability Registry
+# Defines how each model handles reasoning content
+
+defaults:
+  reasoning_mode: none
+  reasoning_field: null
+  fallback_to_reasoning: false
+  strip_inline_tags: true
+
+models:
+  # ============================================
+  # REASONING MODELS (separate field)
+  # ============================================
+
+  # DeepSeek R1 family
+  deepseek/deepseek-r1-0528:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  deepseek/deepseek-v3.1-terminus:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  # Qwen Thinking family
+  qwen/qwen3-235b-a22b-thinking-2507:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  qwen/qwen3-next-80b-a3b-thinking:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  qwen/qwen3-vl-235b-a22b-thinking:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  # Anthropic Claude (uses "thinking" field)
+  anthropic/claude-sonnet-4:
+    reasoning_mode: separate_field
+    reasoning_field: thinking
+    fallback_to_reasoning: false
+
+  anthropic/claude-opus-4.1:
+    reasoning_mode: separate_field
+    reasoning_field: thinking
+    fallback_to_reasoning: false
+
+  anthropic/claude-3.7-sonnet:
+    reasoning_mode: separate_field
+    reasoning_field: thinking
+    fallback_to_reasoning: false
+
+  # Google Gemini
+  google/gemini-2.5-pro-preview:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  google/gemini-3-pro-preview:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  # MiniMax
+  minimax/minimax-m1:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  minimax/minimax-m2:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  # Z.AI GLM
+  z-ai/glm-4.5:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  z-ai/glm-4.6:exacto:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  # OpenAI GPT-OSS (reasoning model)
+  openai/gpt-oss-120b:exacto:
+    reasoning_mode: separate_field
+    reasoning_field: reasoning_content
+    fallback_to_reasoning: true
+
+  # ============================================
+  # STANDARD MODELS (no reasoning)
+  # ============================================
+
+  meta-llama/llama-4-maverick:
+    reasoning_mode: none
+
+  meta-llama/llama-4-scout:
+    reasoning_mode: none
+
+  anthropic/claude-haiku-4.5:
+    reasoning_mode: none
+
+# Alias mapping for LiteLLM model names
+aliases:
+  planner: openai/gpt-oss-120b:exacto
+  supervisor: openai/gpt-oss-120b:exacto
+  composer: openai/gpt-oss-120b:exacto
+  skillsrunner: meta-llama/llama-4-maverick
+  software_engineer: meta-llama/llama-4-maverick
+  price_tracker: meta-llama/llama-4-scout
+  price_tracker_fallback: anthropic/claude-haiku-4.5
+  agentchat: openai/gpt-oss-120b:exacto
