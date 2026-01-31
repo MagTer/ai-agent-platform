@@ -731,6 +731,68 @@ NavItem("My Module", "/platformadmin/mymodule/", "&#128736;", "features"),
 
 ---
 
+## Diagnostic API (For AI/Programmatic Access)
+
+The Diagnostic API (`/platformadmin/api/`) provides machine-readable endpoints for AI agents and scripts to diagnose the platform without browser-based Entra ID authentication.
+
+### Authentication
+
+Two authentication methods are supported:
+
+1. **X-API-Key header** (preferred for AI/scripts):
+   ```bash
+   curl -H "X-API-Key: $AGENT_DIAGNOSTIC_API_KEY" \
+     https://your-domain/platformadmin/api/status
+   ```
+
+2. **Entra ID session** (for browser access - same as admin portal)
+
+**Environment variable:** `AGENT_DIAGNOSTIC_API_KEY`
+Generate with: `openssl rand -hex 32`
+
+### Available Endpoints
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /platformadmin/api/status` | System health status (HEALTHY/DEGRADED/CRITICAL) |
+| `GET /platformadmin/api/conversations` | List conversations with message counts |
+| `GET /platformadmin/api/conversations/{id}/messages` | Get messages for a conversation |
+| `GET /platformadmin/api/debug/stats` | Debug log statistics by event type |
+| `GET /platformadmin/api/traces/search` | Search OpenTelemetry traces |
+| `GET /platformadmin/api/config` | Get system configuration entries |
+| `GET /platformadmin/api/health` | Simple health check (no auth) |
+
+### Example: AI Self-Diagnosis
+
+```bash
+# Get system status
+curl -H "X-API-Key: $KEY" https://your-domain/platformadmin/api/status
+
+# Response:
+{
+  "status": "HEALTHY",
+  "timestamp": "2026-01-31T12:00:00Z",
+  "components": ["PostgreSQL", "Qdrant", "LiteLLM", ...],
+  "recent_errors": [],
+  "metrics": {"total_requests": 150, "error_rate": 0.02},
+  "recommended_actions": []
+}
+
+# Get recent debug logs
+curl -H "X-API-Key: $KEY" "https://your-domain/platformadmin/api/debug/stats?hours=24"
+
+# Search traces for errors
+curl -H "X-API-Key: $KEY" "https://your-domain/platformadmin/api/traces/search?status=ERR&limit=10"
+```
+
+### Implementation
+
+- **Router:** `services/agent/src/interfaces/http/admin_api.py`
+- **Config:** `AGENT_DIAGNOSTIC_API_KEY` in `.env`
+- Uses `DiagnosticsService` for health checks and trace analysis
+
+---
+
 ## Testing Guidelines
 
 ### Test Structure
