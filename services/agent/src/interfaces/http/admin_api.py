@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -105,7 +105,7 @@ async def verify_api_key_or_admin(
 
 # Simpler approach: separate dependency that checks API key only
 async def get_api_key_auth(
-    request: Any,  # FastAPI will inject Request
+    request: Request,
     x_api_key: str | None = Header(None, alias="X-API-Key"),
     session: AsyncSession = Depends(get_db),
 ) -> AdminUser | APIKeyUser:
@@ -167,15 +167,25 @@ async def get_api_key_auth(
 # =============================================================================
 
 
+class RecommendedAction(BaseModel):
+    """A recommended action from diagnostics."""
+
+    priority: int
+    action: str
+    component: str
+    error_code: str
+
+
 class SystemStatusResponse(BaseModel):
     """Aggregated system status for AI diagnosis."""
 
     status: str  # HEALTHY, DEGRADED, CRITICAL
     timestamp: str
-    components: dict[str, Any]
+    healthy_components: list[str]
+    failed_components: list[dict[str, Any]]
     recent_errors: list[dict[str, Any]]
     metrics: dict[str, Any]
-    recommended_actions: list[str]
+    recommended_actions: list[RecommendedAction]
 
 
 class ConversationSummary(BaseModel):
@@ -286,10 +296,13 @@ async def get_system_status(
     return SystemStatusResponse(
         status=summary.get("overall_status", "UNKNOWN"),
         timestamp=datetime.now(UTC).isoformat(),
-        components=summary.get("healthy_components", {}),
+        healthy_components=summary.get("healthy_components", []),
+        failed_components=summary.get("failed_components", []),
         recent_errors=recent_errors,
         metrics=summary.get("metrics", {}),
-        recommended_actions=summary.get("recommended_actions", []),
+        recommended_actions=[
+            RecommendedAction(**action) for action in summary.get("recommended_actions", [])
+        ],
     )
 
 
@@ -424,7 +437,8 @@ async def get_debug_stats(
 
     Provides counts by event type, hourly distribution, and recent errors.
     """
-    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    # Use timezone-naive datetime for database comparison
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
 
     # Total count
     total_stmt = select(func.count(DebugLog.id)).where(DebugLog.created_at >= cutoff)
@@ -443,7 +457,7 @@ async def get_debug_stats(
     # Hourly distribution (simplified - last 24 hours)
     by_hour: list[dict[str, Any]] = []
     for h in range(min(hours, 24)):
-        now = datetime.now(UTC)
+        now = datetime.now(UTC).replace(tzinfo=None)
         hour_start = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=h)
         hour_end = hour_start + timedelta(hours=1)
         hour_stmt = (
