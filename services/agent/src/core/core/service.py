@@ -2003,14 +2003,59 @@ class AgentService:
         skill_messages = pending_hitl.get("skill_messages", [])
         step_data = pending_hitl.get("step", {})
         tool_call_id = pending_hitl.get("tool_call_id", "")
+        category = pending_hitl.get("category", "")
         trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
 
         LOGGER.info(
-            "Resuming HITL for skill %s with user input: %s",
+            "Resuming HITL for skill %s (category=%s) with user input: %s",
             skill_name,
+            category,
             request.prompt[:100],
         )
 
+        # Record user message
+        session.add(
+            Message(
+                session_id=db_session.id,
+                role="user",
+                content=request.prompt,
+                trace_id=trace_id,
+            )
+        )
+
+        # Clear pending HITL now that we're resuming
+        await self._clear_pending_hitl(session, db_conversation)
+
+        # Check for handoff: requirements_drafter confirmation -> requirements_writer
+        user_response_lower = request.prompt.lower().strip()
+        is_approval = "approve" in user_response_lower or user_response_lower in ("yes", "ja", "ok")
+
+        if skill_name == "requirements_drafter" and category == "confirmation" and is_approval:
+            LOGGER.info("HITL handoff: requirements_drafter -> requirements_writer")
+            yield {
+                "type": "thinking",
+                "content": "Creating work item in Azure DevOps...",
+                "metadata": {"role": "Executor", "hitl_handoff": True},
+            }
+
+            # Extract draft data from skill messages
+            draft_data = self._extract_draft_from_messages(skill_messages)
+
+            if not draft_data:
+                yield {
+                    "type": "error",
+                    "content": "Could not extract draft data from conversation.",
+                }
+                return
+
+            # Execute requirements_writer with draft data
+            async for event in self._execute_requirements_writer(
+                draft_data, request, session, db_session, trace_id
+            ):
+                yield event
+            return
+
+        # Normal HITL resume - continue the original skill
         yield {
             "type": "thinking",
             "content": f"Resuming {skill_name} with your input...",
@@ -2029,19 +2074,6 @@ class AgentService:
                 content=f"User response: {request.prompt}",
             )
         )
-
-        # Record user message
-        session.add(
-            Message(
-                session_id=db_session.id,
-                role="user",
-                content=request.prompt,
-                trace_id=trace_id,
-            )
-        )
-
-        # Clear pending HITL now that we're resuming
-        await self._clear_pending_hitl(session, db_conversation)
 
         # Reconstruct the step
         step = PlanStep(**step_data)
@@ -2110,6 +2142,177 @@ class AgentService:
 
         await session.commit()
         LOGGER.info("HITL resume completed for skill %s", skill_name)
+
+    def _extract_draft_from_messages(
+        self, skill_messages: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """Extract draft data from requirements_drafter skill messages.
+
+        Parses the conversation to find the draft structure including:
+        - type (User Story, Feature, Bug)
+        - team
+        - title
+        - description
+        - acceptance_criteria
+        - tags
+
+        Args:
+            skill_messages: List of message dicts from the skill execution
+
+        Returns:
+            Dict with draft fields, or None if extraction fails
+        """
+        import re
+
+        # Look for assistant messages containing the draft
+        for msg in reversed(skill_messages):
+            content = msg.get("content", "")
+            if not content:
+                continue
+
+            # Look for draft markers
+            if "DRAFT READY" not in content and "Type:" not in content:
+                continue
+
+            draft: dict[str, Any] = {}
+
+            # Extract Type
+            type_match = re.search(r"Type:\s*(.+?)(?:\n|$)", content)
+            if type_match:
+                draft["type"] = type_match.group(1).strip()
+
+            # Extract Team
+            team_match = re.search(r"Team:\s*(.+?)(?:\n|$)", content)
+            if team_match:
+                draft["team_alias"] = team_match.group(1).strip()
+
+            # Extract Title
+            title_match = re.search(r"Title:\s*(.+?)(?:\n|$)", content)
+            if title_match:
+                draft["title"] = title_match.group(1).strip()
+
+            # Extract Description (multi-line)
+            desc_match = re.search(
+                r"Description:\s*\n(.*?)(?=\n(?:Acceptance Criteria|Tags|={3,})|$)",
+                content,
+                re.DOTALL,
+            )
+            if desc_match:
+                draft["description"] = desc_match.group(1).strip()
+
+            # Extract Acceptance Criteria (multi-line)
+            ac_match = re.search(
+                r"Acceptance Criteria:?\s*(?:\(if applicable\))?\s*\n(.*?)(?=\n(?:Tags|={3,})|$)",
+                content,
+                re.DOTALL,
+            )
+            if ac_match:
+                draft["acceptance_criteria"] = ac_match.group(1).strip()
+
+            # Extract Tags
+            tags_match = re.search(r"Tags:\s*(.+?)(?:\n|$)", content)
+            if tags_match:
+                tags_str = tags_match.group(1).strip()
+                # Parse comma or semicolon separated tags
+                draft["tags"] = [t.strip() for t in re.split(r"[,;]", tags_str) if t.strip()]
+
+            # Validate minimum required fields
+            if draft.get("title") and draft.get("team_alias"):
+                LOGGER.info("Extracted draft: %s", draft)
+                return draft
+
+        LOGGER.warning("Could not extract draft from skill messages")
+        return None
+
+    async def _execute_requirements_writer(
+        self,
+        draft_data: dict[str, Any],
+        request: AgentRequest,
+        session: AsyncSession,
+        db_session: Session,
+        trace_id: str,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute requirements_writer to create the work item.
+
+        Args:
+            draft_data: Extracted draft data from drafter
+            request: Original request
+            session: Database session
+            db_session: The active Session
+            trace_id: Current trace ID
+
+        Yields:
+            Event dictionaries for the execution
+        """
+        if not self._skill_registry:
+            yield {"type": "error", "content": "Skill registry not available"}
+            return
+
+        # Create a step for requirements_writer
+        writer_step = PlanStep(
+            id=str(uuid.uuid4()),
+            label="Create work item in Azure DevOps",
+            executor="skill",
+            action="skill",
+            tool="requirements_writer",
+            args={
+                "goal": (
+                    f"Create a {draft_data.get('type', 'work item')} " "with the following details"
+                ),
+                **draft_data,
+            },
+        )
+
+        skill_executor = SkillExecutor(
+            skill_registry=self._skill_registry,
+            tool_registry=self._tool_registry,
+            litellm=self._litellm,
+        )
+
+        # Build the writer request with draft data in metadata
+        writer_request = AgentRequest(
+            prompt=f"Create work item: {draft_data.get('title', '')}",
+            conversation_id=request.conversation_id,
+            metadata={
+                **(request.metadata or {}),
+                "draft_data": draft_data,
+            },
+        )
+
+        completion_text = ""
+        async for event in skill_executor.execute_stream(
+            writer_step,
+            request=writer_request,
+        ):
+            if event["type"] == "content":
+                content = event.get("content", "")
+                yield {"type": "content", "content": content, "metadata": event.get("metadata")}
+                completion_text += content
+            elif event["type"] == "thinking":
+                yield event
+            elif event["type"] == "skill_activity":
+                yield event
+            elif event["type"] == "result":
+                step_result = event.get("result")
+                if step_result and step_result.result:
+                    output = step_result.result.get("output", "")
+                    if output and not completion_text:
+                        completion_text = output
+                        yield {"type": "content", "content": output}
+
+        # Record assistant response
+        if completion_text:
+            session.add(
+                Message(
+                    session_id=db_session.id,
+                    role="assistant",
+                    content=completion_text,
+                    trace_id=trace_id,
+                )
+            )
+
+        await session.commit()
+        LOGGER.info("Requirements writer completed")
 
     @staticmethod
     def _coerce_tool_call_args(raw_args: dict[str, Any]) -> dict[str, Any]:
