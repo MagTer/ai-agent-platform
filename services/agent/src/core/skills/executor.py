@@ -191,6 +191,45 @@ class SkillExecutor:
                     tool_name,
                 )
 
+        # Always add request_user_input tool for HITL support
+        tool_schemas.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": "request_user_input",
+                    "description": (
+                        "Request input from the user when you need clarification, "
+                        "selection, or confirmation before proceeding."
+                    ),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "category": {
+                                "type": "string",
+                                "enum": [
+                                    "clarification",
+                                    "selection",
+                                    "confirmation",
+                                    "team_selection",
+                                ],
+                                "description": "Type of input needed",
+                            },
+                            "prompt": {
+                                "type": "string",
+                                "description": "The question or prompt to show the user",
+                            },
+                            "options": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "List of options for selection categories",
+                            },
+                        },
+                        "required": ["category", "prompt"],
+                    },
+                },
+            }
+        )
+
         # Extract goal from step args
         goal = (step.args or {}).get("goal", "")
         if not goal:
@@ -232,23 +271,29 @@ class SkillExecutor:
             }
             return
 
-        # Build initial messages
-        messages: list[AgentMessage] = [
-            AgentMessage(
-                role="system",
-                content=f"{system_context}\n{skill_prompt}",
-            ),
-            AgentMessage(role="user", content=goal),
-        ]
-
-        # Add retry feedback if provided
-        if retry_feedback:
-            messages.append(
+        # Check for HITL resume - use stored messages instead of building new ones
+        hitl_resume_messages = (request.metadata or {}).get("_hitl_resume_messages")
+        if hitl_resume_messages:
+            LOGGER.info("Resuming skill %s from HITL state", skill_name)
+            messages = [AgentMessage(**msg) for msg in hitl_resume_messages]
+        else:
+            # Build initial messages
+            messages = [
                 AgentMessage(
                     role="system",
-                    content=f"RETRY FEEDBACK: Previous attempt failed. {retry_feedback}",
+                    content=f"{system_context}\n{skill_prompt}",
+                ),
+                AgentMessage(role="user", content=goal),
+            ]
+
+            # Add retry feedback if provided
+            if retry_feedback:
+                messages.append(
+                    AgentMessage(
+                        role="system",
+                        content=f"RETRY FEEDBACK: Previous attempt failed. {retry_feedback}",
+                    )
                 )
-            )
 
         logger_prefix = f"[SkillExecutor:{skill_name}]"
         LOGGER.info("%s Starting goal: %s", logger_prefix, goal[:100])
@@ -523,6 +568,40 @@ class SkillExecutor:
                                 f"BLOCKED: Max calls ({max_calls_per_tool}) to '{fname}' reached."
                             )
                             blocked_this_turn = True
+
+                        elif fname == "request_user_input":
+                            # HITL: User input requested via structured tool call
+                            LOGGER.info("%s HITL: User input requested", logger_prefix)
+
+                            # Map category string to enum for validation
+                            category_str = fargs.get("category", "clarification")
+                            try:
+                                category = AwaitingInputCategory(category_str)
+                            except ValueError:
+                                LOGGER.warning(
+                                    "%s Invalid HITL category '%s', using CLARIFICATION",
+                                    logger_prefix,
+                                    category_str,
+                                )
+                                category = AwaitingInputCategory.CLARIFICATION
+
+                            # Yield awaiting_input event with skill state for resume
+                            yield {
+                                "type": "awaiting_input",
+                                "content": fargs.get("prompt", ""),
+                                "tool_call": None,
+                                "metadata": {
+                                    "category": category.value,
+                                    "prompt": fargs.get("prompt", ""),
+                                    "options": fargs.get("options"),
+                                    "skill_name": skill_name,
+                                    "skill_messages": [m.model_dump() for m in messages],
+                                    "step": step.model_dump(),
+                                    "tool_call_id": call_id,
+                                },
+                            }
+                            # Stop execution - service.py will store state and resume later
+                            return
 
                         elif fname not in tool_lookup:
                             # Tool not in scoped set - SECURITY: reject

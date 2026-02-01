@@ -104,6 +104,7 @@ async def test_run_tool_flow(
     mock_conversation = MagicMock()
     mock_conversation.context_id = mock_context.id
     mock_conversation.current_cwd = str(tmp_path)
+    mock_conversation.conversation_metadata = {}  # No pending HITL
 
     # session.get(Conversation, ...) -> None first time? Or let's imply it exists.
     # session.get(Context, ...) -> mock_context

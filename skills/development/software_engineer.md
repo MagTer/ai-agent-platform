@@ -131,6 +131,26 @@ Summarize the outcome:
 - **Clear commit messages** - Use conventional commits (fix:, feat:, etc.)
 - **Link to work item** - Always reference the Azure DevOps bug ID
 
+# User Confirmation (Optional)
+
+For high-risk changes, you can request user confirmation before creating a PR:
+
+```json
+{
+  "name": "request_user_input",
+  "arguments": {
+    "category": "confirmation",
+    "prompt": "Found a fix affecting 5 files. Ready to create PR?",
+    "options": ["Yes, create PR", "No, report findings only"]
+  }
+}
+```
+
+Use this for:
+- Changes affecting 5+ files
+- Changes to core/critical components
+- Changes where tests are ambiguous
+
 # Error Handling
 
 | Error | Action |

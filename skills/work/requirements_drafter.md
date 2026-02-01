@@ -145,32 +145,54 @@ When user doesn't specify team, use these heuristics:
 
 ---
 
-## AWAITING USER INPUT FORMAT
+## AWAITING USER INPUT
 
-When you need information from the user before you can proceed, use this EXACT format:
+When you need information from the user before proceeding, use the `request_user_input` tool:
 
+```json
+{
+  "name": "request_user_input",
+  "arguments": {
+    "category": "team_selection",
+    "prompt": "Which team should own this work item?",
+    "options": ["security", "infra", "platform"]
+  }
+}
 ```
-[AWAITING_USER_INPUT:category]
 
-Your question here...
+### Categories
+| Category | When to use |
+|----------|-------------|
+| `team_selection` | User needs to pick a team |
+| `clarification` | You need more details about the request |
+| `selection` | User needs to choose between options (e.g., work item type) |
+| `confirmation` | User needs to confirm an action |
+
+### Example: Team Selection
+```json
+{
+  "name": "request_user_input",
+  "arguments": {
+    "category": "team_selection",
+    "prompt": "I found these available teams. Which team should own this work item?",
+    "options": ["security - Security and compliance work", "infra - Infrastructure and DevOps", "platform - Core platform development"]
+  }
+}
 ```
 
-Categories:
-- `team_selection` - When user needs to pick a team
-- `clarification` - When you need more details about the request
-- `selection` - When user needs to choose between options (e.g., work item type)
-
-**Example:**
+### Example: Work Item Type Selection
+```json
+{
+  "name": "request_user_input",
+  "arguments": {
+    "category": "selection",
+    "prompt": "What type of work item should I create?",
+    "options": ["Feature", "User Story", "Bug", "Security Incident"]
+  }
+}
 ```
-[AWAITING_USER_INPUT:team_selection]
 
-I found these available teams:
-- security - Security and compliance work
-- infra - Infrastructure and DevOps
-- platform - Core platform development
-
-Which team should own this work item?
-```
+**IMPORTANT**: After calling `request_user_input`, STOP and wait. The user's response will continue the conversation.
 
 ---
 

@@ -53,3 +53,18 @@ Use `device_name` parameter - the tool will find the correct device automaticall
 Swedish, brief:
 - Success: **Klart!** Släckte "Bakom Skärmen".
 - Error: **Fel:** [error message]
+
+## USER CONFIRMATION (Optional)
+
+For potentially disruptive actions (e.g., "turn off all lights", "trigger flow affecting multiple rooms"), you can request confirmation:
+
+```json
+{
+  "name": "request_user_input",
+  "arguments": {
+    "category": "confirmation",
+    "prompt": "This will turn off all 12 lights. Continue?",
+    "options": ["Yes", "No"]
+  }
+}
+```

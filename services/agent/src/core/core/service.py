@@ -1030,6 +1030,18 @@ class AgentService:
                             execution_complete = True
                     elif event["type"] == "skill_content_yielded":
                         skill_content_yielded = event["value"]
+                    elif event["type"] == "awaiting_input":
+                        # HITL: Store state for resume and mark execution complete
+                        meta = event.get("metadata") or {}
+                        await self._store_pending_hitl(session, db_conversation, meta)
+                        awaiting_input_request = AwaitingInputRequest(
+                            category=AwaitingInputCategory(meta.get("category", "clarification")),
+                            prompt=meta.get("prompt", ""),
+                            skill_name=meta.get("skill_name", ""),
+                            options=meta.get("options"),
+                        )
+                        execution_complete = True
+                        yield event
                     else:
                         yield event
 
@@ -1199,6 +1211,28 @@ class AgentService:
                     db_context,
                     db_session,
                 ) = await self._setup_conversation_and_context(session, conversation_id, request)
+
+                # Phase 1.5: Check for pending HITL and resume if present
+                pending_hitl = (db_conversation.conversation_metadata or {}).get("pending_hitl")
+                if pending_hitl:
+                    LOGGER.info("Found pending HITL for conversation %s", conversation_id)
+                    # Yield trace_id first
+                    trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+                    yield {
+                        "type": "trace_info",
+                        "trace_id": trace_id,
+                        "conversation_id": conversation_id,
+                    }
+
+                    async for event in self._resume_hitl(
+                        request,
+                        session,
+                        db_session,
+                        db_conversation,
+                        pending_hitl,
+                    ):
+                        yield event
+                    return
 
                 # System Command Interceptor
                 sys_output = await handle_system_command(
@@ -1902,6 +1936,180 @@ class AgentService:
             ) and ("Acceptance Criteria" in content or "Success Metrics" in content):
                 return True
         return False
+
+    async def _store_pending_hitl(
+        self,
+        session: AsyncSession,
+        db_conversation: Conversation,
+        hitl_metadata: dict[str, Any],
+    ) -> None:
+        """Store HITL state in conversation metadata for resume.
+
+        Args:
+            session: Database session
+            db_conversation: The conversation to update
+            hitl_metadata: HITL metadata including skill_messages, step, etc.
+        """
+        # Update conversation_metadata with pending_hitl
+        current_meta = dict(db_conversation.conversation_metadata or {})
+        current_meta["pending_hitl"] = hitl_metadata
+        db_conversation.conversation_metadata = current_meta
+        await session.flush()
+        LOGGER.info(
+            "Stored pending HITL for conversation %s: %s",
+            db_conversation.id,
+            hitl_metadata.get("skill_name"),
+        )
+
+    async def _clear_pending_hitl(
+        self,
+        session: AsyncSession,
+        db_conversation: Conversation,
+    ) -> None:
+        """Clear pending HITL state after resume.
+
+        Args:
+            session: Database session
+            db_conversation: The conversation to update
+        """
+        current_meta = dict(db_conversation.conversation_metadata or {})
+        if "pending_hitl" in current_meta:
+            del current_meta["pending_hitl"]
+            db_conversation.conversation_metadata = current_meta
+            await session.flush()
+            LOGGER.info("Cleared pending HITL for conversation %s", db_conversation.id)
+
+    async def _resume_hitl(
+        self,
+        request: AgentRequest,
+        session: AsyncSession,
+        db_session: Session,
+        db_conversation: Conversation,
+        pending_hitl: dict[str, Any],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Resume a skill execution after user provides HITL input.
+
+        Args:
+            request: The new request containing user's input
+            session: Database session
+            db_session: The active Session
+            db_conversation: The conversation with pending HITL
+            pending_hitl: The stored HITL state
+
+        Yields:
+            Event dictionaries for the resumed execution
+        """
+        skill_name = pending_hitl.get("skill_name", "unknown")
+        skill_messages = pending_hitl.get("skill_messages", [])
+        step_data = pending_hitl.get("step", {})
+        tool_call_id = pending_hitl.get("tool_call_id", "")
+        trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+
+        LOGGER.info(
+            "Resuming HITL for skill %s with user input: %s",
+            skill_name,
+            request.prompt[:100],
+        )
+
+        yield {
+            "type": "thinking",
+            "content": f"Resuming {skill_name} with your input...",
+            "metadata": {"role": "Executor", "hitl_resume": True},
+        }
+
+        # Reconstruct skill messages and add user response as tool result
+        messages: list[AgentMessage] = [AgentMessage(**msg) for msg in skill_messages]
+
+        # Add user's response as tool result for request_user_input
+        messages.append(
+            AgentMessage(
+                role="tool",
+                tool_call_id=tool_call_id,
+                name="request_user_input",
+                content=f"User response: {request.prompt}",
+            )
+        )
+
+        # Record user message
+        session.add(
+            Message(
+                session_id=db_session.id,
+                role="user",
+                content=request.prompt,
+                trace_id=trace_id,
+            )
+        )
+
+        # Clear pending HITL now that we're resuming
+        await self._clear_pending_hitl(session, db_conversation)
+
+        # Reconstruct the step
+        step = PlanStep(**step_data)
+
+        # Get skill executor
+        if not self._skill_registry:
+            yield {"type": "error", "content": "Skill registry not available"}
+            return
+
+        skill_executor = SkillExecutor(
+            skill_registry=self._skill_registry,
+            tool_registry=self._tool_registry,
+            litellm=self._litellm,
+        )
+
+        # Continue skill execution by calling LLM with updated messages
+        # We need to pass the messages to the skill executor via request metadata
+        resume_request = AgentRequest(
+            prompt=request.prompt,
+            conversation_id=request.conversation_id,
+            metadata={
+                **(request.metadata or {}),
+                "_hitl_resume_messages": [m.model_dump() for m in messages],
+            },
+        )
+
+        # Execute the skill continuation
+        completion_text = ""
+        async for event in skill_executor.execute_stream(
+            step,
+            request=resume_request,
+        ):
+            if event["type"] == "content":
+                content = event.get("content", "")
+                yield {"type": "content", "content": content, "metadata": event.get("metadata")}
+                completion_text += content
+            elif event["type"] == "awaiting_input":
+                # Another HITL request - store and yield
+                meta = event.get("metadata") or {}
+                await self._store_pending_hitl(session, db_conversation, meta)
+                yield event
+                return
+            elif event["type"] == "thinking":
+                yield event
+            elif event["type"] == "skill_activity":
+                yield event
+            elif event["type"] == "result":
+                # Skill completed
+                step_result = event.get("result")
+                if step_result and step_result.result:
+                    output = step_result.result.get("output", "")
+                    if output and not completion_text:
+                        completion_text = output
+                        yield {"type": "content", "content": output}
+
+        # Record assistant response
+        if completion_text:
+            session.add(
+                Message(
+                    session_id=db_session.id,
+                    role="assistant",
+                    content=completion_text,
+                    trace_id=trace_id,
+                )
+            )
+
+        await session.commit()
+        LOGGER.info("HITL resume completed for skill %s", skill_name)
 
     @staticmethod
     def _coerce_tool_call_args(raw_args: dict[str, Any]) -> dict[str, Any]:
