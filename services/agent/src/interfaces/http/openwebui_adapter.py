@@ -501,8 +501,8 @@ def _should_show_chunk_default(
     Returns:
         True if the chunk should be shown, False otherwise.
     """
-    # Always show: content (final answer), error
-    if chunk_type in ("content", "error"):
+    # Always show: content (final answer), error, trace_info, awaiting_input
+    if chunk_type in ("content", "error", "trace_info", "awaiting_input"):
         return True
 
     # Show thinking chunks from Planner and Supervisor (important status updates)
@@ -895,6 +895,14 @@ async def stream_response_generator(
                 formatted += "\n"
 
                 yield _format_chunk(chunk_id, created, model_name, formatted)
+
+            elif chunk_type == "trace_info":
+                # Show trace_id at start of response for debugging
+                meta = agent_chunk.get("metadata") or {}
+                trace_id = meta.get("trace_id", "")
+                if trace_id:
+                    formatted = f"\n🔍 **TraceID:** `{trace_id}`\n\n"
+                    yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "error":
                 formatted = f"\n❌ **Error:** {_clean_content(content)}\n\n"

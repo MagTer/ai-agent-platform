@@ -694,6 +694,7 @@ class AgentService:
         has_completion_step: bool,
         existing_completion: str,
         session: AsyncSession,
+        awaiting_input_request: AwaitingInputRequest | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Generate completion if needed, yielding content events.
 
@@ -703,10 +704,22 @@ class AgentService:
             has_completion_step: Whether plan had explicit completion step
             existing_completion: Existing completion text from completion step
             session: Database session
+            awaiting_input_request: If set, skill is awaiting user input - skip completion
 
         Yields:
             Event dictionaries with completion_ready as final event
         """
+        # Skip completion if skill is awaiting user input
+        if awaiting_input_request:
+            LOGGER.info("Skipping completion generation - skill awaiting user input")
+            # Use skill output as completion text for database storage
+            for msg in reversed(prompt_history):
+                if msg.role == "tool" and msg.content:
+                    yield {"type": "completion_ready", "text": msg.content}
+                    return
+            yield {"type": "completion_ready", "text": ""}
+            return
+
         if existing_completion:
             yield {"type": "completion_ready", "text": existing_completion}
             return
@@ -1147,6 +1160,7 @@ class AgentService:
             has_completion_step,
             completion_text,
             session,
+            awaiting_input_request,
         ):
             if event["type"] == "completion_ready":
                 completion_text = event["text"]
@@ -1213,6 +1227,14 @@ class AgentService:
                 # Debug logging
                 debug_logger = DebugLogger(session)
                 trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+
+                # Yield trace_id as first event for debugging/observability
+                yield {
+                    "type": "trace_info",
+                    "trace_id": trace_id,
+                    "conversation_id": conversation_id,
+                }
+
                 await debug_logger.log_request(
                     trace_id=trace_id,
                     prompt=request.prompt,
@@ -1377,6 +1399,11 @@ class AgentService:
             # Try DB fetch (might fail in mocks, so catch generic)
             with contextlib.suppress(Exception):
                 messages = await self.get_history(conversation_id, session)
+
+        # Add trace_id to metadata for debugging/observability
+        trace_ids = current_trace_ids()
+        if trace_ids.get("trace_id"):
+            response_metadata["trace_id"] = trace_ids["trace_id"]
 
         return AgentResponse(
             response=response_text,
