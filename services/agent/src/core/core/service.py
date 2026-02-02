@@ -201,6 +201,8 @@ class AgentService:
             list(skill_names_result) if isinstance(skill_names_result, set) else skill_names_result
         )
         plan_supervisor = PlanSupervisorAgent(
+            litellm=self._litellm,
+            model_name=self._settings.model_supervisor,
             tool_registry=self._tool_registry,
             skill_names=set(skill_names) if skill_names else None,
         )
@@ -695,6 +697,7 @@ class AgentService:
         existing_completion: str,
         session: AsyncSession,
         awaiting_input_request: AwaitingInputRequest | None = None,
+        has_skill_steps: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Generate completion if needed, yielding content events.
 
@@ -705,6 +708,7 @@ class AgentService:
             existing_completion: Existing completion text from completion step
             session: Database session
             awaiting_input_request: If set, skill is awaiting user input - skip completion
+            has_skill_steps: If True, plan had skill steps - skill output IS the answer
 
         Yields:
             Event dictionaries with completion_ready as final event
@@ -713,6 +717,16 @@ class AgentService:
         if awaiting_input_request:
             LOGGER.info("Skipping completion generation - skill awaiting user input")
             # Use skill output as completion text for database storage
+            for msg in reversed(prompt_history):
+                if msg.role == "tool" and msg.content:
+                    yield {"type": "completion_ready", "text": msg.content}
+                    return
+            yield {"type": "completion_ready", "text": ""}
+            return
+
+        # Skip completion if plan had skill steps - skill output IS the answer
+        if has_skill_steps:
+            LOGGER.info("Skipping completion - plan had skill steps")
             for msg in reversed(prompt_history):
                 if msg.role == "tool" and msg.content:
                     yield {"type": "completion_ready", "text": msg.content}
@@ -1165,6 +1179,13 @@ class AgentService:
             and any(s.action == "completion" for s in plan.steps)
         )
 
+        # Check if plan had skill steps - if so, skill output IS the answer
+        has_skill_steps = bool(
+            plan is not None
+            and plan.steps is not None
+            and any(s.executor == "skill" or s.action == "skill" for s in plan.steps)
+        )
+
         # Generate completion if needed
         async for event in self._maybe_generate_completion(
             prompt_history,
@@ -1173,6 +1194,7 @@ class AgentService:
             completion_text,
             session,
             awaiting_input_request,
+            has_skill_steps=has_skill_steps,
         ):
             if event["type"] == "completion_ready":
                 completion_text = event["text"]
