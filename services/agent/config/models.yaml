@@ -107,13 +107,19 @@ models:
   anthropic/claude-haiku-4.5:
     reasoning_mode: none
 
+  # Gemini 2.5 Flash - no separate reasoning field
+  google/gemini-2.5-flash:
+    reasoning_mode: none
+
 # Alias mapping for LiteLLM model names
 aliases:
   planner: openai/gpt-oss-120b:exacto
   supervisor: openai/gpt-oss-120b:exacto
   composer: openai/gpt-oss-120b:exacto
-  skillsrunner: meta-llama/llama-4-maverick
-  software_engineer: meta-llama/llama-4-maverick
+  # Skill execution models (two-tier system)
+  skillsrunner: openai/gpt-oss-120b:exacto      # Default: tools + reasoning + 131K
+  skillsrunner_deep: google/gemini-2.5-flash    # Deep: tools + 1M context
+  software_engineer: google/gemini-2.5-flash    # Large context for code
   price_tracker: meta-llama/llama-4-scout
   price_tracker_fallback: anthropic/claude-haiku-4.5
   agentchat: openai/gpt-oss-120b:exacto

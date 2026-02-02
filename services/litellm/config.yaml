@@ -65,11 +65,12 @@ model_list:
   # SKILL EXECUTION MODELS
   # ============================================
 
-  # Skillsrunner: For skills that need tool calling
-  # Needs: Reliable tool calling, fast
+  # Skillsrunner: Default for skills requiring tool calling
+  # Needs: Reliable tool calling, reasoning, good quality
+  # Using gpt-oss-120b:exacto - supports tools + reasoning + 131K context
   - model_name: skillsrunner
     litellm_params:
-      model: openrouter/meta-llama/llama-4-maverick
+      model: openrouter/openai/gpt-oss-120b:exacto
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.2
       max_tokens: 8192
@@ -77,13 +78,29 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Groq", "SambaNova"]
+          order: ["Groq", "DeepInfra", "Novita"]
+
+  # Skillsrunner Deep: For skills requiring large context (research, code)
+  # Needs: Large context (1M), tool calling, fast throughput
+  # Using Gemini 2.5 Flash - 1M context, tools, very fast
+  - model_name: skillsrunner_deep
+    litellm_params:
+      model: openrouter/google/gemini-2.5-flash
+      api_key: os.environ/OPENROUTER_API_KEY
+      temperature: 0.2
+      max_tokens: 8192
+      rpm: 60
+      extra_body:
+        provider:
+          zdr: true
+          order: ["Google Vertex"]
 
   # Software Engineer: Code generation and debugging
-  # Needs: Strong coding ability, precise output
+  # Needs: Large context for code, strong reasoning
+  # Using skillsrunner_deep (Gemini 2.5 Flash) for 1M context
   - model_name: software_engineer
     litellm_params:
-      model: openrouter/meta-llama/llama-4-maverick
+      model: openrouter/google/gemini-2.5-flash
       api_key: os.environ/OPENROUTER_API_KEY
       temperature: 0.0
       max_tokens: 8192
@@ -91,7 +108,7 @@ model_list:
       extra_body:
         provider:
           zdr: true
-          order: ["Groq", "SambaNova"]
+          order: ["Google Vertex"]
 
   # ============================================
   # SPECIALIZED MODELS

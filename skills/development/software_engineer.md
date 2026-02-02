@@ -1,7 +1,7 @@
 ---
 name: software_engineer
 description: Investigate bugs and create fixes by cloning repos and delegating to Claude Code. Creates PRs for fixes or reports findings for complex issues.
-model: skillsrunner
+model: skillsrunner_deep
 max_turns: 8
 tools:
   - git_clone
