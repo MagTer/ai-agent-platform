@@ -16,9 +16,8 @@ from core.core.litellm_client import LiteLLMClient
 from core.core.routing import registry
 from core.core.service import AgentService
 from core.db.models import Context, Conversation, Message, Session
-from core.routing import IntentClassifier
 from core.routing.unified_orchestrator import UnifiedOrchestrator
-from orchestrator.skill_loader import SkillLoader
+from core.skills.registry import SkillRegistry
 
 LOGGER = logging.getLogger(__name__)
 
@@ -39,13 +38,10 @@ class DispatchResult:
 
 
 class Dispatcher:
-    def __init__(self, skill_loader: SkillLoader, litellm: LiteLLMClient):
-        self.skill_loader = skill_loader
+    def __init__(self, skill_registry: SkillRegistry, litellm: LiteLLMClient):
+        self._skill_registry = skill_registry
         self.litellm = litellm
-        self._intent_classifier = IntentClassifier(litellm)  # Keep for fallback
         self._unified_orchestrator = UnifiedOrchestrator(litellm)
-        if not self.skill_loader.skills:
-            self.skill_loader.load_skills()
 
     async def stream_message(
         self,
@@ -75,12 +71,12 @@ class Dispatcher:
                 command = parts[0][1:]  # Remove '/'
                 args = parts[1:]
 
-                skill = self.skill_loader.skills.get(command)
+                skill = self._skill_registry.get(command)
                 if skill:
                     LOGGER.info(f"Routing to skill: {skill.name} with args {args}")
 
                     # Variable Substitution
-                    rendered_prompt = substitute_variables(skill.prompt_template, args)
+                    rendered_prompt = substitute_variables(skill.body_template, args)
 
                     # Yield detection event
                     yield {
@@ -89,13 +85,6 @@ class Dispatcher:
                         "tool_call": None,
                         "metadata": {"skill": skill.name, "args": args},
                     }
-
-                    # Execute as AGENTIC but with specific plan/prompt
-                    # We treat the rendered instruction as the prompt for the agent
-                    # or if the skill is a plan, we inject the plan.
-                    # Current SkillLoader assumes skills are just text instructions (or templates).
-                    # If it's a plan-based skill, we might need more logic.
-                    # For now, assume it's a prompt wrapper.
 
                     # Merge metadata
                     agent_metadata: dict[str, Any] = {"skill": skill.name, "tools": skill.tools}
@@ -454,8 +443,3 @@ class Dispatcher:
                 "tool_call": None,
                 "metadata": None,
             }
-
-    # Keep route_message for backward compatibility if needed, or remove if we are sure.
-    # The instructions imply "Upgrade", so we can replace.
-    # I'll leave a stub or remove it.
-    # I will remove it to force usage of stream_message in the adapter.

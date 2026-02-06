@@ -43,7 +43,7 @@ The platform supports a modular skill system. To add a new capability:
 
 3.  **Write the Prompt Template** below the frontmatter. You can use Jinja2-style placeholders (e.g., `{{ input_variable }}`).
 
-The `SkillLoader` will automatically discover this file on startup. The `Planner Agent` will automatically use it if appropriate for the user's request.
+The `SkillRegistry` will automatically discover this file on startup. The `Planner Agent` will automatically use it if appropriate for the user's request.
 
 ## Automation Utilities
 

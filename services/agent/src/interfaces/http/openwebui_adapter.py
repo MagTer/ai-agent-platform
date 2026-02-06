@@ -25,7 +25,6 @@ from core.db.engine import get_db
 from core.db.models import Context, Conversation
 from interfaces.base import PlatformAdapter
 from orchestrator.dispatcher import Dispatcher
-from orchestrator.skill_loader import SkillLoader
 
 LOGGER = logging.getLogger(__name__)
 
@@ -117,13 +116,10 @@ def get_settings_dep() -> Settings:
     return get_settings()
 
 
-def get_dispatcher(settings: Settings = Depends(get_settings_dep)) -> Dispatcher:
-    loader = SkillLoader()
-    # We need a LiteLLMClient.
-    # Optimization: reuse the one from AgentService if possible, but simpler to create one here.
-    # Or better: create a get_litellm dependency.
+def get_dispatcher(request: Request, settings: Settings = Depends(get_settings_dep)) -> Dispatcher:
+    skill_registry = request.app.state.service_factory._skill_registry
     litellm = LiteLLMClient(settings)
-    return Dispatcher(loader, litellm)
+    return Dispatcher(skill_registry, litellm)
 
 
 async def get_or_create_context_id(
