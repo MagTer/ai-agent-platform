@@ -10,7 +10,7 @@ class IEmbedder(Protocol):
     """Abstract interface for text embedding services.
 
     This protocol defines the contract that embedding implementations must follow.
-    Implementations can use local models (SentenceTransformers) or remote APIs.
+    Implementations use remote APIs (e.g. OpenRouter embeddings).
     """
 
     async def embed(self, texts: list[str]) -> list[list[float]]:

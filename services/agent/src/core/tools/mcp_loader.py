@@ -49,6 +49,13 @@ class McpToolWrapper(Tool):
         self.parameters = mcp_tool.input_schema
         self.category = "mcp"  # Mark as MCP tool for filtering
 
+        # Surface MCP tool annotations (spec 2025-03-26+)
+        if mcp_tool.annotations:
+            self.mcp_annotations = mcp_tool.annotations.model_dump(by_alias=True)
+            # Destructive tools require user confirmation
+            if mcp_tool.annotations.destructive_hint is True:
+                self.requires_confirmation = True
+
     async def run(self, **kwargs: Any) -> Any:
         """Execute the remote MCP tool."""
         LOGGER.info(
@@ -62,9 +69,26 @@ class McpToolWrapper(Tool):
             # Use original tool name for the actual call
             result = await self._mcp_client.call_tool(self._original_name, kwargs)
 
-            # Handle MCP result format - extract content if available
+            # Handle MCP result format
+            if isinstance(result, dict):
+                # Prefer structured content (spec 2025-11-25+) when available
+                structured = result.get("structuredContent")
+                if structured is not None:
+                    return structured
+
+                # Fall back to text extraction from content list
+                contents = result.get("content", [])
+                if contents:
+                    first = contents[0]
+                    if isinstance(first, dict):
+                        text = first.get("text")
+                        if text is not None:
+                            return text
+                    return str(first)
+                return str(result)
+
+            # Legacy: handle object-style result
             if hasattr(result, "content"):
-                # MCP returns a CallToolResult with content list
                 contents = result.content
                 if contents and len(contents) > 0:
                     first_content = contents[0]
@@ -72,6 +96,7 @@ class McpToolWrapper(Tool):
                         return first_content.text
                     return str(first_content)
                 return str(result)
+
             return result
 
         except Exception as e:

@@ -12,6 +12,7 @@ from uuid import UUID
 
 from mcp.client.session import ClientSession
 from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.shared.exceptions import McpError
 from pydantic import AnyUrl
 
@@ -29,6 +30,14 @@ class McpConnectionState(Enum):
     CONNECTED = auto()
     RECONNECTING = auto()
     FAILED = auto()
+
+
+class McpTransport(Enum):
+    """Transport protocol for MCP connections."""
+
+    AUTO = "auto"  # Try Streamable HTTP first, fall back to SSE
+    SSE = "sse"  # Legacy SSE transport (deprecated in spec 2025-03-26)
+    STREAMABLE_HTTP = "streamable_http"  # Streamable HTTP (spec 2025-03-26+)
 
 
 class McpClient:
@@ -51,9 +60,11 @@ class McpClient:
         cache_ttl_seconds: int = 300,  # 5 minutes
         context_id: UUID | None = None,
         oauth_provider: str | None = None,
+        transport: McpTransport = McpTransport.AUTO,
     ) -> None:
         self._url = url
         self._name = name
+        self._transport = transport
         self._mcp_session: ClientSession | None = None
         self._exit_stack = AsyncExitStack()
         self._headers: dict[str, str] = {}
@@ -186,11 +197,15 @@ class McpClient:
                     await asyncio.sleep(2 ** (attempt - 1))
 
     async def _establish_connection(self) -> None:
-        """Internal connection establishment."""
-        LOGGER.info("Connecting to MCP server %s at %s", self._name, self._url)
+        """Internal connection establishment -- dispatches to transport-specific methods."""
+        LOGGER.info(
+            "Connecting to MCP server %s at %s (transport=%s)",
+            self._name,
+            self._url,
+            self._transport.value,
+        )
 
         try:
-            # Get current authentication token (from DB or static)
             auth_token = await self._get_auth_token()
             headers = self._headers.copy()
 
@@ -204,23 +219,61 @@ class McpClient:
             else:
                 LOGGER.warning("No authentication token available for MCP %s", self._name)
 
-            streams = await self._exit_stack.enter_async_context(
-                sse_client(str(self._url), headers=headers)
-            )
-            read_stream, write_stream = streams
-
-            self._mcp_session = ClientSession(read_stream, write_stream)
-            await asyncio.wait_for(self._mcp_session.initialize(), timeout=60.0)
+            if self._transport == McpTransport.SSE:
+                await self._connect_sse(headers)
+            elif self._transport == McpTransport.STREAMABLE_HTTP:
+                await self._connect_streamable_http(headers)
+            else:
+                # AUTO: try Streamable HTTP first, fall back to SSE
+                try:
+                    await self._connect_streamable_http(headers)
+                    LOGGER.info("MCP %s: Connected via Streamable HTTP", self._name)
+                except Exception as streamable_err:
+                    LOGGER.info(
+                        "MCP %s: Streamable HTTP failed (%s), falling back to SSE",
+                        self._name,
+                        streamable_err,
+                    )
+                    await self._cleanup_connection()
+                    await self._connect_sse(headers)
 
             LOGGER.info("Connected to MCP server %s at %s", self._name, self._url)
 
-            # Refresh all caches
+            # Log negotiated protocol version if available
+            if self._mcp_session:
+                LOGGER.debug(
+                    "MCP %s: Session initialized (server info: %s)",
+                    self._name,
+                    getattr(self._mcp_session, "server_info", "N/A"),
+                )
+
             await self.refresh_cache()
 
         except Exception as e:
             LOGGER.error("Failed to connect to MCP %s: %s", self._name, e, exc_info=True)
             await self._cleanup_connection()
             raise
+
+    async def _connect_sse(self, headers: dict[str, str]) -> None:
+        """Connect using the legacy SSE transport."""
+        streams = await self._exit_stack.enter_async_context(
+            sse_client(str(self._url), headers=headers)
+        )
+        read_stream, write_stream = streams
+
+        self._mcp_session = ClientSession(read_stream, write_stream)
+        await asyncio.wait_for(self._mcp_session.initialize(), timeout=60.0)
+
+    async def _connect_streamable_http(self, headers: dict[str, str]) -> None:
+        """Connect using the Streamable HTTP transport (spec 2025-03-26+)."""
+        streams = await self._exit_stack.enter_async_context(
+            streamablehttp_client(str(self._url), headers=headers)
+        )
+        # streamablehttp_client returns (read, write, get_session_id)
+        read_stream, write_stream = streams[0], streams[1]
+
+        self._mcp_session = ClientSession(read_stream, write_stream)
+        await asyncio.wait_for(self._mcp_session.initialize(), timeout=60.0)
 
     async def _cleanup_connection(self) -> None:
         """Clean up connection resources."""
@@ -380,9 +433,34 @@ class McpClient:
             # list_tools is a lightweight call to verify connection
             await asyncio.wait_for(self._mcp_session.list_tools(), timeout=5.0)
             return True
-        except (TimeoutError, ConnectionError, OSError):
+        except Exception:
             self._state = McpConnectionState.DISCONNECTED
             return False
 
+    async def discover_server_auth(self) -> None:
+        """Discover OAuth metadata for this server (RFC 9728, informational).
 
-__all__ = ["McpClient", "McpConnectionState"]
+        Logs a warning if the server requires OAuth but no token is configured.
+        Non-blocking -- failures are silently ignored.
+        """
+        from core.mcp.oauth_discovery import discover_protected_resource_metadata
+
+        metadata = await discover_protected_resource_metadata(self._url)
+        if metadata and metadata.authorization_servers:
+            has_token = self._static_token or (self._context_id and self._oauth_provider)
+            if not has_token:
+                LOGGER.warning(
+                    "MCP server %s requires OAuth (auth servers: %s) "
+                    "but no token is configured. Some tools may fail.",
+                    self._name,
+                    metadata.authorization_servers,
+                )
+            else:
+                LOGGER.debug(
+                    "MCP server %s supports OAuth (scopes: %s)",
+                    self._name,
+                    metadata.scopes_supported,
+                )
+
+
+__all__ = ["McpClient", "McpConnectionState", "McpTransport"]
