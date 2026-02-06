@@ -1,7 +1,7 @@
 ---
 name: software_engineer
 description: Investigate bugs and create fixes by cloning repos and delegating to Claude Code. Creates PRs for fixes or reports findings for complex issues.
-model: skillsrunner
+model: skillsrunner_deep
 max_turns: 8
 tools:
   - git_clone
@@ -130,6 +130,26 @@ Summarize the outcome:
 - **Conservative fixes only** - If unsure, report findings instead of risky changes
 - **Clear commit messages** - Use conventional commits (fix:, feat:, etc.)
 - **Link to work item** - Always reference the Azure DevOps bug ID
+
+# User Confirmation (Optional)
+
+For high-risk changes, you can request user confirmation before creating a PR:
+
+```json
+{
+  "name": "request_user_input",
+  "arguments": {
+    "category": "confirmation",
+    "prompt": "Found a fix affecting 5 files. Ready to create PR?",
+    "options": ["Yes, create PR", "No, report findings only"]
+  }
+}
+```
+
+Use this for:
+- Changes affecting 5+ files
+- Changes to core/critical components
+- Changes where tests are ambiguous
 
 # Error Handling
 

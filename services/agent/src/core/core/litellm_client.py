@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 import orjson
+from shared.content_classifier import contains_raw_model_tokens, strip_raw_tokens
 from shared.streaming import AgentChunk
 
 from core.core.config import Settings
@@ -189,12 +190,16 @@ class LiteLLMClient:
                                         content_text, current_model
                                     )
                                     if reasoning_part:
+                                        reasoning_part = strip_raw_tokens(reasoning_part)
+                                    if reasoning_part:
                                         yield {
                                             "type": "thinking",
                                             "content": reasoning_part,
                                             "tool_call": None,
                                             "metadata": {"source": "reasoning_model"},
                                         }
+                                    if clean_content:
+                                        clean_content = strip_raw_tokens(clean_content)
                                     if clean_content:
                                         if not first_token_received:
                                             ttft_ms = (time.perf_counter() - start_time) * 1000
@@ -216,6 +221,8 @@ class LiteLLMClient:
 
                             # Emit reasoning as thinking if found
                             if reasoning:
+                                reasoning = strip_raw_tokens(reasoning)
+                            if reasoning:
                                 yield {
                                     "type": "thinking",
                                     "content": reasoning,
@@ -224,6 +231,12 @@ class LiteLLMClient:
                                 }
 
                             if "content" in delta and delta["content"] is not None:
+                                content_val = delta["content"]
+                                if contains_raw_model_tokens(content_val):
+                                    content_val = strip_raw_tokens(content_val)
+                                if not content_val:
+                                    continue
+
                                 if not first_token_received:
                                     ttft_ms = (time.perf_counter() - start_time) * 1000
                                     set_span_attributes({"gen_ai.performance.ttft_ms": ttft_ms})
@@ -232,7 +245,7 @@ class LiteLLMClient:
 
                                 yield {
                                     "type": "content",
-                                    "content": delta["content"],
+                                    "content": content_val,
                                     "tool_call": None,
                                     "metadata": None,
                                 }

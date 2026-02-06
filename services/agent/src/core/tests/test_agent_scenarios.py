@@ -62,12 +62,14 @@ async def test_run_tool_flow(
     # so we need to queue supervisor responses for each step.
 
     supervisor_ok = json.dumps({"decision": "ok", "reason": "Step executed successfully"})
+    plan_supervisor_ok = json.dumps({"decision": "ok", "issues": [], "suggestions": []})
 
     responses: list[str | dict[str, Any]] = [
         json.dumps(plan_json),  # 1. Planner
-        supervisor_ok,  # 2. Supervisor review for step 1 (read_file)
-        final_answer,  # 3. Step 2 Execution (Completion)
-        supervisor_ok,  # 4. Supervisor review for step 2 (completion)
+        plan_supervisor_ok,  # 2. PlanSupervisor LLM review
+        supervisor_ok,  # 3. StepSupervisor review for step 1 (read_file)
+        final_answer,  # 4. Step 2 Execution (Completion)
+        supervisor_ok,  # 5. StepSupervisor review for step 2 (completion) - optional, often skipped
     ]
 
     # Override the mock_litellm responses
@@ -104,6 +106,7 @@ async def test_run_tool_flow(
     mock_conversation = MagicMock()
     mock_conversation.context_id = mock_context.id
     mock_conversation.current_cwd = str(tmp_path)
+    mock_conversation.conversation_metadata = {}  # No pending HITL
 
     # session.get(Conversation, ...) -> None first time? Or let's imply it exists.
     # session.get(Context, ...) -> mock_context

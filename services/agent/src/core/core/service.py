@@ -201,6 +201,8 @@ class AgentService:
             list(skill_names_result) if isinstance(skill_names_result, set) else skill_names_result
         )
         plan_supervisor = PlanSupervisorAgent(
+            litellm=self._litellm,
+            model_name=self._settings.model_supervisor,
             tool_registry=self._tool_registry,
             skill_names=set(skill_names) if skill_names else None,
         )
@@ -695,6 +697,7 @@ class AgentService:
         existing_completion: str,
         session: AsyncSession,
         awaiting_input_request: AwaitingInputRequest | None = None,
+        has_skill_steps: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Generate completion if needed, yielding content events.
 
@@ -705,6 +708,7 @@ class AgentService:
             existing_completion: Existing completion text from completion step
             session: Database session
             awaiting_input_request: If set, skill is awaiting user input - skip completion
+            has_skill_steps: If True, plan had skill steps - skill output IS the answer
 
         Yields:
             Event dictionaries with completion_ready as final event
@@ -713,6 +717,16 @@ class AgentService:
         if awaiting_input_request:
             LOGGER.info("Skipping completion generation - skill awaiting user input")
             # Use skill output as completion text for database storage
+            for msg in reversed(prompt_history):
+                if msg.role == "tool" and msg.content:
+                    yield {"type": "completion_ready", "text": msg.content}
+                    return
+            yield {"type": "completion_ready", "text": ""}
+            return
+
+        # Skip completion if plan had skill steps - skill output IS the answer
+        if has_skill_steps:
+            LOGGER.info("Skipping completion - plan had skill steps")
             for msg in reversed(prompt_history):
                 if msg.role == "tool" and msg.content:
                     yield {"type": "completion_ready", "text": msg.content}
@@ -1030,6 +1044,18 @@ class AgentService:
                             execution_complete = True
                     elif event["type"] == "skill_content_yielded":
                         skill_content_yielded = event["value"]
+                    elif event["type"] == "awaiting_input":
+                        # HITL: Store state for resume and mark execution complete
+                        meta = event.get("metadata") or {}
+                        await self._store_pending_hitl(session, db_conversation, meta)
+                        awaiting_input_request = AwaitingInputRequest(
+                            category=AwaitingInputCategory(meta.get("category", "clarification")),
+                            prompt=meta.get("prompt", ""),
+                            skill_name=meta.get("skill_name", ""),
+                            options=meta.get("options"),
+                        )
+                        execution_complete = True
+                        yield event
                     else:
                         yield event
 
@@ -1153,6 +1179,13 @@ class AgentService:
             and any(s.action == "completion" for s in plan.steps)
         )
 
+        # Check if plan had skill steps - if so, skill output IS the answer
+        has_skill_steps = bool(
+            plan is not None
+            and plan.steps is not None
+            and any(s.executor == "skill" or s.action == "skill" for s in plan.steps)
+        )
+
         # Generate completion if needed
         async for event in self._maybe_generate_completion(
             prompt_history,
@@ -1161,6 +1194,7 @@ class AgentService:
             completion_text,
             session,
             awaiting_input_request,
+            has_skill_steps=has_skill_steps,
         ):
             if event["type"] == "completion_ready":
                 completion_text = event["text"]
@@ -1199,6 +1233,28 @@ class AgentService:
                     db_context,
                     db_session,
                 ) = await self._setup_conversation_and_context(session, conversation_id, request)
+
+                # Phase 1.5: Check for pending HITL and resume if present
+                pending_hitl = (db_conversation.conversation_metadata or {}).get("pending_hitl")
+                if pending_hitl:
+                    LOGGER.info("Found pending HITL for conversation %s", conversation_id)
+                    # Yield trace_id first
+                    trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+                    yield {
+                        "type": "trace_info",
+                        "trace_id": trace_id,
+                        "conversation_id": conversation_id,
+                    }
+
+                    async for event in self._resume_hitl(
+                        request,
+                        session,
+                        db_session,
+                        db_conversation,
+                        pending_hitl,
+                    ):
+                        yield event
+                    return
 
                 # System Command Interceptor
                 sys_output = await handle_system_command(
@@ -1902,6 +1958,383 @@ class AgentService:
             ) and ("Acceptance Criteria" in content or "Success Metrics" in content):
                 return True
         return False
+
+    async def _store_pending_hitl(
+        self,
+        session: AsyncSession,
+        db_conversation: Conversation,
+        hitl_metadata: dict[str, Any],
+    ) -> None:
+        """Store HITL state in conversation metadata for resume.
+
+        Args:
+            session: Database session
+            db_conversation: The conversation to update
+            hitl_metadata: HITL metadata including skill_messages, step, etc.
+        """
+        # Update conversation_metadata with pending_hitl
+        current_meta = dict(db_conversation.conversation_metadata or {})
+        current_meta["pending_hitl"] = hitl_metadata
+        db_conversation.conversation_metadata = current_meta
+        await session.flush()
+        LOGGER.info(
+            "Stored pending HITL for conversation %s: %s",
+            db_conversation.id,
+            hitl_metadata.get("skill_name"),
+        )
+
+    async def _clear_pending_hitl(
+        self,
+        session: AsyncSession,
+        db_conversation: Conversation,
+    ) -> None:
+        """Clear pending HITL state after resume.
+
+        Args:
+            session: Database session
+            db_conversation: The conversation to update
+        """
+        current_meta = dict(db_conversation.conversation_metadata or {})
+        if "pending_hitl" in current_meta:
+            del current_meta["pending_hitl"]
+            db_conversation.conversation_metadata = current_meta
+            await session.flush()
+            LOGGER.info("Cleared pending HITL for conversation %s", db_conversation.id)
+
+    async def _resume_hitl(
+        self,
+        request: AgentRequest,
+        session: AsyncSession,
+        db_session: Session,
+        db_conversation: Conversation,
+        pending_hitl: dict[str, Any],
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Resume a skill execution after user provides HITL input.
+
+        Args:
+            request: The new request containing user's input
+            session: Database session
+            db_session: The active Session
+            db_conversation: The conversation with pending HITL
+            pending_hitl: The stored HITL state
+
+        Yields:
+            Event dictionaries for the resumed execution
+        """
+        skill_name = pending_hitl.get("skill_name", "unknown")
+        skill_messages = pending_hitl.get("skill_messages", [])
+        step_data = pending_hitl.get("step", {})
+        tool_call_id = pending_hitl.get("tool_call_id", "")
+        category = pending_hitl.get("category", "")
+        trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+
+        LOGGER.info(
+            "Resuming HITL for skill %s (category=%s) with user input: %s",
+            skill_name,
+            category,
+            request.prompt[:100],
+        )
+
+        # Record user message
+        session.add(
+            Message(
+                session_id=db_session.id,
+                role="user",
+                content=request.prompt,
+                trace_id=trace_id,
+            )
+        )
+
+        # Clear pending HITL now that we're resuming
+        await self._clear_pending_hitl(session, db_conversation)
+
+        # Check for handoff: requirements_drafter confirmation -> requirements_writer
+        user_response_lower = request.prompt.lower().strip()
+        is_approval = "approve" in user_response_lower or user_response_lower in ("yes", "ja", "ok")
+
+        if skill_name == "requirements_drafter" and category == "confirmation" and is_approval:
+            LOGGER.info("HITL handoff: requirements_drafter -> requirements_writer")
+            yield {
+                "type": "thinking",
+                "content": "Creating work item in Azure DevOps...",
+                "metadata": {"role": "Executor", "hitl_handoff": True},
+            }
+
+            # Extract draft data from skill messages
+            draft_data = self._extract_draft_from_messages(skill_messages)
+
+            if not draft_data:
+                yield {
+                    "type": "error",
+                    "content": "Could not extract draft data from conversation.",
+                }
+                return
+
+            # Execute requirements_writer with draft data
+            async for event in self._execute_requirements_writer(
+                draft_data, request, session, db_session, trace_id
+            ):
+                yield event
+            return
+
+        # Normal HITL resume - continue the original skill
+        yield {
+            "type": "thinking",
+            "content": f"Resuming {skill_name} with your input...",
+            "metadata": {"role": "Executor", "hitl_resume": True},
+        }
+
+        # Reconstruct skill messages and add user response as tool result
+        messages: list[AgentMessage] = [AgentMessage(**msg) for msg in skill_messages]
+
+        # Add user's response as tool result for request_user_input
+        messages.append(
+            AgentMessage(
+                role="tool",
+                tool_call_id=tool_call_id,
+                name="request_user_input",
+                content=f"User response: {request.prompt}",
+            )
+        )
+
+        # Reconstruct the step
+        step = PlanStep(**step_data)
+
+        # Get skill executor
+        if not self._skill_registry:
+            yield {"type": "error", "content": "Skill registry not available"}
+            return
+
+        skill_executor = SkillExecutor(
+            skill_registry=self._skill_registry,
+            tool_registry=self._tool_registry,
+            litellm=self._litellm,
+        )
+
+        # Continue skill execution by calling LLM with updated messages
+        # We need to pass the messages to the skill executor via request metadata
+        resume_request = AgentRequest(
+            prompt=request.prompt,
+            conversation_id=request.conversation_id,
+            metadata={
+                **(request.metadata or {}),
+                "_hitl_resume_messages": [m.model_dump() for m in messages],
+            },
+        )
+
+        # Execute the skill continuation
+        completion_text = ""
+        async for event in skill_executor.execute_stream(
+            step,
+            request=resume_request,
+        ):
+            if event["type"] == "content":
+                content = event.get("content", "")
+                yield {"type": "content", "content": content, "metadata": event.get("metadata")}
+                completion_text += content
+            elif event["type"] == "awaiting_input":
+                # Another HITL request - store and yield
+                meta = event.get("metadata") or {}
+                await self._store_pending_hitl(session, db_conversation, meta)
+                yield event
+                return
+            elif event["type"] == "thinking":
+                yield event
+            elif event["type"] == "skill_activity":
+                yield event
+            elif event["type"] == "result":
+                # Skill completed
+                step_result = event.get("result")
+                if step_result and step_result.result:
+                    output = step_result.result.get("output", "")
+                    if output and not completion_text:
+                        completion_text = output
+                        yield {"type": "content", "content": output}
+
+        # Record assistant response
+        if completion_text:
+            session.add(
+                Message(
+                    session_id=db_session.id,
+                    role="assistant",
+                    content=completion_text,
+                    trace_id=trace_id,
+                )
+            )
+
+        await session.commit()
+        LOGGER.info("HITL resume completed for skill %s", skill_name)
+
+    def _extract_draft_from_messages(
+        self, skill_messages: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """Extract draft data from requirements_drafter skill messages.
+
+        Parses the conversation to find the draft structure including:
+        - type (User Story, Feature, Bug)
+        - team
+        - title
+        - description
+        - acceptance_criteria
+        - tags
+
+        Args:
+            skill_messages: List of message dicts from the skill execution
+
+        Returns:
+            Dict with draft fields, or None if extraction fails
+        """
+        import re
+
+        # Look for assistant messages containing the draft
+        for msg in reversed(skill_messages):
+            content = msg.get("content", "")
+            if not content:
+                continue
+
+            # Look for draft markers
+            if "DRAFT READY" not in content and "Type:" not in content:
+                continue
+
+            draft: dict[str, Any] = {}
+
+            # Extract Type
+            type_match = re.search(r"Type:\s*(.+?)(?:\n|$)", content)
+            if type_match:
+                draft["type"] = type_match.group(1).strip()
+
+            # Extract Team
+            team_match = re.search(r"Team:\s*(.+?)(?:\n|$)", content)
+            if team_match:
+                draft["team_alias"] = team_match.group(1).strip()
+
+            # Extract Title
+            title_match = re.search(r"Title:\s*(.+?)(?:\n|$)", content)
+            if title_match:
+                draft["title"] = title_match.group(1).strip()
+
+            # Extract Description (multi-line)
+            desc_match = re.search(
+                r"Description:\s*\n(.*?)(?=\n(?:Acceptance Criteria|Tags|={3,})|$)",
+                content,
+                re.DOTALL,
+            )
+            if desc_match:
+                draft["description"] = desc_match.group(1).strip()
+
+            # Extract Acceptance Criteria (multi-line)
+            ac_match = re.search(
+                r"Acceptance Criteria:?\s*(?:\(if applicable\))?\s*\n(.*?)(?=\n(?:Tags|={3,})|$)",
+                content,
+                re.DOTALL,
+            )
+            if ac_match:
+                draft["acceptance_criteria"] = ac_match.group(1).strip()
+
+            # Extract Tags
+            tags_match = re.search(r"Tags:\s*(.+?)(?:\n|$)", content)
+            if tags_match:
+                tags_str = tags_match.group(1).strip()
+                # Parse comma or semicolon separated tags
+                draft["tags"] = [t.strip() for t in re.split(r"[,;]", tags_str) if t.strip()]
+
+            # Validate minimum required fields
+            if draft.get("title") and draft.get("team_alias"):
+                LOGGER.info("Extracted draft: %s", draft)
+                return draft
+
+        LOGGER.warning("Could not extract draft from skill messages")
+        return None
+
+    async def _execute_requirements_writer(
+        self,
+        draft_data: dict[str, Any],
+        request: AgentRequest,
+        session: AsyncSession,
+        db_session: Session,
+        trace_id: str,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute requirements_writer to create the work item.
+
+        Args:
+            draft_data: Extracted draft data from drafter
+            request: Original request
+            session: Database session
+            db_session: The active Session
+            trace_id: Current trace ID
+
+        Yields:
+            Event dictionaries for the execution
+        """
+        if not self._skill_registry:
+            yield {"type": "error", "content": "Skill registry not available"}
+            return
+
+        # Create a step for requirements_writer
+        writer_step = PlanStep(
+            id=str(uuid.uuid4()),
+            label="Create work item in Azure DevOps",
+            executor="skill",
+            action="skill",
+            tool="requirements_writer",
+            args={
+                "goal": (
+                    f"Create a {draft_data.get('type', 'work item')} " "with the following details"
+                ),
+                **draft_data,
+            },
+        )
+
+        skill_executor = SkillExecutor(
+            skill_registry=self._skill_registry,
+            tool_registry=self._tool_registry,
+            litellm=self._litellm,
+        )
+
+        # Build the writer request with draft data in metadata
+        writer_request = AgentRequest(
+            prompt=f"Create work item: {draft_data.get('title', '')}",
+            conversation_id=request.conversation_id,
+            metadata={
+                **(request.metadata or {}),
+                "draft_data": draft_data,
+            },
+        )
+
+        completion_text = ""
+        async for event in skill_executor.execute_stream(
+            writer_step,
+            request=writer_request,
+        ):
+            if event["type"] == "content":
+                content = event.get("content", "")
+                yield {"type": "content", "content": content, "metadata": event.get("metadata")}
+                completion_text += content
+            elif event["type"] == "thinking":
+                yield event
+            elif event["type"] == "skill_activity":
+                yield event
+            elif event["type"] == "result":
+                step_result = event.get("result")
+                if step_result and step_result.result:
+                    output = step_result.result.get("output", "")
+                    if output and not completion_text:
+                        completion_text = output
+                        yield {"type": "content", "content": output}
+
+        # Record assistant response
+        if completion_text:
+            session.add(
+                Message(
+                    session_id=db_session.id,
+                    role="assistant",
+                    content=completion_text,
+                    trace_id=trace_id,
+                )
+            )
+
+        await session.commit()
+        LOGGER.info("Requirements writer completed")
 
     @staticmethod
     def _coerce_tool_call_args(raw_args: dict[str, Any]) -> dict[str, Any]:
