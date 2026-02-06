@@ -462,7 +462,7 @@ def dev_status() -> None:
 
 @dev_app.command("restart")
 def dev_restart(
-    build: bool = typer.Option(False, help="Build images before restarting."),
+    build: bool = typer.Option(True, help="Build images before restarting."),
 ) -> None:
     """Restart the development environment."""
     tooling.ensure_docker()
