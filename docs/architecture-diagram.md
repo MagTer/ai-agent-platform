@@ -37,7 +37,6 @@ flowchart TB
     subgraph Orchestrator ["Orchestrator Layer"]
         Dispatcher["Dispatcher"]
         IntentClassifier["Intent Classifier"]
-        SkillLoader["Skill Loader"]
     end
 
     subgraph Core ["Core Layer"]
@@ -101,10 +100,10 @@ flowchart TB
     Registry -->|"Get tool"| MCPTools
     Executor -->|"Skill steps"| SkillExec
 
-    SkillExec -->|"Load skill"| SkillLoader
-    SkillLoader -->|"Parse .md"| Researcher
-    SkillLoader -->|"Parse .md"| BacklogManager
-    SkillLoader -->|"Parse .md"| OtherSkills
+    SkillExec -->|"Load skill"| Registry
+    Registry -->|"Parse .md"| Researcher
+    Registry -->|"Parse .md"| BacklogManager
+    Registry -->|"Parse .md"| OtherSkills
 
     SkillExec -->|"Worker loop"| LiteLLM
     SkillExec -->|"Scoped tools"| NativeTools
@@ -259,7 +258,7 @@ graph TB
 
     subgraph Architecture
         Interfaces["interfaces/<br/>(HTTP, CLI)"]
-        Orchestrator["orchestrator/<br/>(Dispatcher, SkillLoader)"]
+        Orchestrator["orchestrator/<br/>(Dispatcher)"]
         Modules["modules/<br/>(RAG, Indexer, Embedder)"]
         Core["core/<br/>(DB, Models, Config)"]
     end
@@ -389,7 +388,6 @@ The system uses typed events for streaming responses:
 | SkillRegistry | `services/agent/src/core/skills/registry.py` |
 | SkillExecutor | `services/agent/src/core/skills/executor.py` |
 | ToolRegistry | `services/agent/src/core/tools/registry.py` |
-| SkillLoader | `services/agent/src/orchestrator/skill_loader.py` |
 | LiteLLMClient | `services/agent/src/core/core/litellm_client.py` |
 | MemoryStore | `services/agent/src/core/core/memory.py` |
 
