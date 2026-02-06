@@ -8,7 +8,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
-from core.mcp.client import McpClient, McpConnectionState
+from core.mcp.client import McpClient, McpConnectionState, McpTransport
 from core.models.mcp import McpPrompt, McpResource, McpTool
 
 LOGGER = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ class McpServerConfig:
     health_check_interval: float = 60.0  # seconds
     max_retries: int = 3
     cache_ttl_seconds: int = 300
+    transport: McpTransport = McpTransport.AUTO
 
 
 class McpManager:
@@ -75,6 +76,7 @@ class McpManager:
             auto_reconnect=config.auto_reconnect,
             max_retries=config.max_retries,
             cache_ttl_seconds=config.cache_ttl_seconds,
+            transport=config.transport,
         )
         self._clients[config.name] = client
         self._configs[config.name] = config

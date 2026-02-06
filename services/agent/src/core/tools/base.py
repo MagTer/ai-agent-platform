@@ -27,6 +27,9 @@ class Tool(ABC):
     category: str = "domain"
     requires_confirmation: bool = False
 
+    # MCP tool annotations (readOnlyHint, destructiveHint, etc.)
+    mcp_annotations: dict[str, bool | None] | None = None
+
     # Optional hint for displaying tool activity in the UI
     # Maps argument names to display patterns, e.g. {"query": "Searching: \"{query}\""}
     # Special placeholder {domain} extracts netloc from URL values
