@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -11,6 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from shared.content_classifier import contains_raw_model_tokens, is_noise_fragment
 from shared.streaming import VerbosityLevel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,108 +30,6 @@ from orchestrator.skill_loader import SkillLoader
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# Raw model tokens that should never be shown to users
-# These indicate internal chain-of-thought or model formatting
-RAW_MODEL_TOKENS = frozenset(
-    [
-        "<|header_start|>",
-        "<|header_end|>",
-        "<|im_start|>",
-        "<|im_end|>",
-        "<|endoftext|>",
-        "<|assistant|>",
-        "<|user|>",
-        "<|system|>",
-        "<|ipython|>",
-        "<think>",
-        "</think>",
-        "<|eot_id|>",
-        "<|start_header_id|>",
-        "<|end_header_id|>",
-    ]
-)
-
-# Patterns that indicate model reasoning/planning output (not final content)
-# These are used for more aggressive filtering in DEFAULT mode
-_REASONING_PATTERNS = [
-    # Tool call patterns from reasoning models
-    re.compile(r"^\s*\[?\s*web_search\s*\(", re.IGNORECASE),
-    re.compile(r"^\s*\[?\s*web_fetch\s*\(", re.IGNORECASE),
-    re.compile(r"^\s*\[?\s*\w+_\w+\s*\(.*\)\s*[,\]]", re.IGNORECASE),  # tool_name(...)
-    # Planning/reasoning phrases at start of content
-    re.compile(r"^(Let's|Let me|I'll|I will|I need to|First,|Step \d)", re.IGNORECASE),
-    re.compile(r"^(Now I|Now let|Proceeding|Starting|Begin)", re.IGNORECASE),
-    re.compile(r"^(Turn \d|Round \d|Attempt \d)", re.IGNORECASE),
-    re.compile(r"^(Next,|Then,|After that|Finally,|Additionally)", re.IGNORECASE),
-    # Partial reasoning phrases (may appear mid-stream)
-    re.compile(r"start by searching", re.IGNORECASE),
-    re.compile(r"let's fetch", re.IGNORECASE),
-    re.compile(r"fetch (some|the|another|more)", re.IGNORECASE),
-    re.compile(r"searching for (the|Tesla|more)", re.IGNORECASE),
-    re.compile(r"get (the latest|more info)", re.IGNORECASE),
-    # JSON-like tool calls
-    re.compile(r'^\s*\{\s*"tool"\s*:', re.IGNORECASE),
-    re.compile(r'^\s*\{\s*"action"\s*:', re.IGNORECASE),
-]
-
-
-def _contains_raw_model_tokens(content: str) -> bool:
-    """Check if content contains raw model tokens that should be filtered.
-
-    These tokens indicate internal chain-of-thought or model formatting
-    that shouldn't be displayed to end users.
-    """
-    if not content:
-        return False
-    for token in RAW_MODEL_TOKENS:
-        if token in content:
-            return True
-    return False
-
-
-def _is_reasoning_content(content: str) -> bool:
-    """Check if content looks like model reasoning/planning output.
-
-    This catches natural language reasoning that reasoning models output
-    as content instead of in reasoning_content field.
-
-    NOTE: This function is NOT used for streaming content filtering because
-    streaming sends partial chunks that may match patterns incorrectly.
-    It's kept for potential use in buffered content filtering.
-    """
-    if not content:
-        return False
-
-    # Check for reasoning patterns
-    for pattern in _REASONING_PATTERNS:
-        if pattern.search(content):
-            return True
-
-    return False
-
-
-def _is_noise_fragment(content: str) -> bool:
-    """Check if content is a noise fragment from reasoning model streaming.
-
-    Reasoning models often stream their chain-of-thought character by character,
-    resulting in fragments like '[', '[]', '{', etc. that should be filtered.
-    """
-    if not content:
-        return False
-
-    stripped = content.strip()
-
-    # Very short fragments that are likely noise
-    if len(stripped) <= 3:
-        # Single brackets, braces, or short combos
-        if stripped in ("[", "]", "[]", "{", "}", "{}", "(", ")", "()", "[{", "}]"):
-            return True
-        # Single punctuation or whitespace
-        if stripped in (",", ":", ";", ".", "\n", "\t"):
-            return True
-
-    return False
 
 
 def _get_debug_category(chunk_type: str, metadata: dict[str, Any] | None) -> tuple[str, str]:
@@ -609,13 +507,13 @@ async def stream_response_generator(
             last_flush_time = time.time()
 
             # Filter out content with raw model tokens
-            if _contains_raw_model_tokens(batched_content):
+            if contains_raw_model_tokens(batched_content):
                 LOGGER.debug("Filtered content with raw model tokens: %s", batched_content[:100])
                 return
 
             # In DEFAULT mode, filter noise fragments
             if verbosity == VerbosityLevel.DEFAULT:
-                if _is_noise_fragment(batched_content):
+                if is_noise_fragment(batched_content):
                     LOGGER.debug("Filtered noise fragment: %r", batched_content)
                     return
 
@@ -685,7 +583,7 @@ async def stream_response_generator(
             # Process chunks normally (formatted output for DEFAULT/VERBOSE, or content for DEBUG)
             if chunk_type == "content" and content:
                 # Filter out content with raw model tokens early
-                if _contains_raw_model_tokens(content):
+                if contains_raw_model_tokens(content):
                     LOGGER.debug("Skipping content with raw tokens: %s", content[:80])
                     continue
 
@@ -695,11 +593,11 @@ async def stream_response_generator(
                     if "[AWAITING_USER_INPUT" in content:
                         pass  # Don't filter this
                     # Filter out noise fragments from reasoning model streaming
-                    elif _is_noise_fragment(content):
+                    elif is_noise_fragment(content):
                         LOGGER.debug("Skipping noise fragment: %r", content)
                         continue
                     # Filter raw model tokens
-                    elif _contains_raw_model_tokens(content):
+                    elif contains_raw_model_tokens(content):
                         LOGGER.debug("Skipping raw tokens: %s", content[:80])
                         continue
 
@@ -728,7 +626,7 @@ async def stream_response_generator(
                     continue
 
                 # Filter out thinking with raw model tokens
-                if _contains_raw_model_tokens(content):
+                if contains_raw_model_tokens(content):
                     LOGGER.debug("Skipping thinking with raw tokens: %s", content[:80])
                     continue
 
@@ -874,7 +772,7 @@ async def stream_response_generator(
                 else:
                     # Fallback with content
                     cleaned = _clean_content(content) if content else "Processing"
-                    if not _contains_raw_model_tokens(cleaned):
+                    if not contains_raw_model_tokens(cleaned):
                         formatted = f"\n⚙️ *{cleaned}*\n"
                     else:
                         continue  # Skip if contains raw tokens
@@ -942,7 +840,7 @@ async def stream_response_generator(
 
                 if output and isinstance(output, str):
                     # Filter raw tokens from result output too
-                    if not _contains_raw_model_tokens(output):
+                    if not contains_raw_model_tokens(output):
                         yield _format_chunk(chunk_id, created, model_name, output)
 
             else:

@@ -88,7 +88,9 @@ models:
     reasoning_field: reasoning_content
     fallback_to_reasoning: true
 
-  # OpenAI GPT-OSS (reasoning model)
+  # OpenAI GPT-OSS (reasoning model, Harmony multi-channel format)
+  # Harmony channels: analysis -> reasoning_content, functions -> tool_calls, commentary -> content
+  # OpenRouter handles Harmony translation; leaked control tokens are stripped by content_classifier
   openai/gpt-oss-120b:exacto:
     reasoning_mode: separate_field
     reasoning_field: reasoning_content
@@ -107,7 +109,8 @@ models:
   anthropic/claude-haiku-4.5:
     reasoning_mode: none
 
-  # Gemini 2.5 Flash - no separate reasoning field
+  # Gemini 2.5 Flash - has thinking capability but OpenRouter does not reliably
+  # pass it through as reasoning_content. Keep as none until confirmed via testing.
   google/gemini-2.5-flash:
     reasoning_mode: none
 
