@@ -24,7 +24,7 @@ from qdrant_client.models import (
 )
 
 from core.core.config import Settings
-from core.core.embedder import EmbedderClient, EmbedderError
+from core.providers import get_embedder
 
 LOGGER = logging.getLogger(__name__)
 
@@ -58,8 +58,6 @@ class MemoryStore:
         """
         self._settings = settings
         self._context_id = context_id
-        self._vector_size = settings.qdrant_vector_size
-        self._embedder = EmbedderClient(str(settings.embedder_url))
         self._client: AsyncQdrantClient | None = None
 
         # SECURITY: Warn if context_id is None - this disables tenant isolation
@@ -91,7 +89,9 @@ class MemoryStore:
             except UnexpectedResponse:
                 await self._client.create_collection(
                     collection_name=self._settings.qdrant_collection,
-                    vectors_config=VectorParams(size=self._vector_size, distance=Distance.COSINE),
+                    vectors_config=VectorParams(
+                        size=get_embedder().dimension, distance=Distance.COSINE
+                    ),
                 )
         except Exception as exc:  # pragma: no cover - depends on infra
             LOGGER.warning("Unable to initialise Qdrant client: %s", exc)
@@ -222,15 +222,14 @@ class MemoryStore:
         return records
 
     async def _async_embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """Embed a batch of strings via the embedder with a local fallback."""
+        """Embed a batch of strings via the registered embedder."""
 
         if not texts:
             return []
         try:
-            # Use await for async embedder methods
-            vectors = await self._embedder.embed(texts)
+            vectors = await get_embedder().embed(texts)
             return vectors
-        except EmbedderError as exc:
+        except Exception as exc:
             LOGGER.warning("Embedder request failed: %s", exc)
         return []
 

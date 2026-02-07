@@ -238,14 +238,14 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             set_rag_manager,
             set_token_manager,
         )
-        from modules.embedder import OpenRouterEmbedder
+        from modules.embedder import LiteLLMEmbedder
         from modules.fetcher import WebFetcher
         from modules.indexer import CodeIndexer
         from modules.rag import RAGManager
 
         # Register providers (dependency injection order matters)
-        # 1. Create embedder (OpenRouter API, 4096-dim qwen3-embedding-8b)
-        embedder = OpenRouterEmbedder()
+        # 1. Create embedder (LiteLLM proxy -> OpenRouter, 4096-dim qwen3-embedding-8b)
+        embedder = LiteLLMEmbedder(litellm_client)
         set_embedder(embedder)
 
         # 2. Create RAG manager with embedder
@@ -384,7 +384,6 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         await shutdown_all_mcp_clients()
         await litellm_client.aclose()
         await token_manager.shutdown()
-        await embedder.close()
 
     # Assign lifespan to app
     app.router.lifespan_context = lifespan

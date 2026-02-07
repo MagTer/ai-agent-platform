@@ -59,7 +59,10 @@ async def memory_store(
 
     # Needs to be async
     async def _fake_async_embed_texts(self: MemoryStore, texts: Iterable[str]) -> list[list[float]]:
-        return [[0.0] * self._vector_size for _ in texts]
+        # Return mock embeddings with a standard vector size
+        # (1536 is typical for OpenAI embeddings)
+        vector_size = 1536
+        return [[0.0] * vector_size for _ in texts]
 
     monkeypatch.setattr(
         MemoryStore, "_async_embed_texts", _fake_async_embed_texts
