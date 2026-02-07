@@ -40,19 +40,25 @@ The `team_alias` parameter resolves area paths automatically.
 **RULE 5**: You have LIMITED turns. Every unnecessary tool call risks truncation.
           Ideal flow: 1-2 tool calls, then format and respond.
 
-CORRECT (2 calls max):
+CORRECT PATTERN:
 ```
-1. azure_devops(action="list", team_alias="infra", state="Active") → get data
-2. Format as table → DONE
+1. Receive user question
+2. If team mentioned → use team_alias parameter (or call get_teams first if unsure)
+3. Call azure_devops to get data
+4. Tool returns work items
+5. Format work items as table/list → DONE
 ```
 
-WRONG (wastes turns, gets truncated):
+WRONG PATTERN (DO NOT DO THIS):
 ```
-1. azure_devops(action="list", area_path="Infrastructure") → ERROR
-2. azure_devops(action="get_teams") → discover teams
-3. azure_devops(action="list", team_alias="infra") → get data
-4. azure_devops(action="list", team_alias="infra", state="Active") → refine ← UNNECESSARY
-5. [TRUNCATED — never formatted response]
+azure_devops(action="search", query="AreaPath UNDER 'Infrastructure'")  ← WRONG: guessing area paths
+azure_devops(action="list", area_path="Infrastructure")                 ← WRONG: hardcoding area paths
+```
+
+RIGHT PATTERN:
+```
+azure_devops(action="list", team_alias="infra", state="Active")         ← RIGHT: use team_alias
+azure_devops(action="get_teams")                                        ← RIGHT: discover teams first
 ```
 
 ## CAPABILITIES
