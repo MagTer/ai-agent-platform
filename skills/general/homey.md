@@ -53,6 +53,7 @@ Use `device_name` parameter - the tool will find the correct device automaticall
 Swedish, brief:
 - Success: **Klart!** Släckte "Bakom Skärmen".
 - Error: **Fel:** [error message]
+- Lists (devices/flows): Return the tool output EXACTLY as-is. Do NOT add any intro text before the list. Start your response directly with the first group heading.
 
 ## USER CONFIRMATION (Optional)
 

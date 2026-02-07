@@ -237,6 +237,30 @@ class TraceSearchResult(BaseModel):
     span_count: int
 
 
+class SpanDetail(BaseModel):
+    """Detail of a single span within a trace."""
+
+    span_id: str
+    parent_id: str | None
+    name: str
+    start_time: str | None
+    duration_ms: float
+    status: str
+    attributes: dict[str, Any]
+
+
+class TraceDetail(BaseModel):
+    """Full trace with all span details."""
+
+    trace_id: str
+    start_time: str
+    duration_ms: float
+    status: str
+    root_name: str
+    span_count: int
+    spans: list[SpanDetail]
+
+
 class SystemConfigResponse(BaseModel):
     """System configuration entry."""
 
@@ -546,6 +570,63 @@ async def search_traces(
             break
 
     return results
+
+
+@router.get("/traces/{trace_id}", response_model=TraceDetail)
+async def get_trace_detail(
+    trace_id: str,
+    auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
+) -> TraceDetail:
+    """Get full detail for a specific trace, including all spans.
+
+    Args:
+        trace_id: The full trace ID string.
+    """
+    settings = get_settings()
+    diagnostics = DiagnosticsService(settings)
+
+    trace_groups = diagnostics.get_recent_traces(
+        limit=100,
+        show_all=True,
+        trace_id=trace_id,
+    )
+
+    # Find exact match (get_recent_traces does partial matching)
+    match = None
+    for group in trace_groups:
+        if group.trace_id == trace_id:
+            match = group
+            break
+
+    if not match:
+        raise HTTPException(status_code=404, detail="Trace not found")
+
+    # Sort spans by start_time
+    sorted_spans = sorted(
+        match.spans,
+        key=lambda s: s.start_time if s.start_time else datetime.min,
+    )
+
+    return TraceDetail(
+        trace_id=match.trace_id,
+        start_time=match.start_time.isoformat(),
+        duration_ms=match.total_duration_ms,
+        status=match.status,
+        root_name=match.root.name,
+        span_count=len(match.spans),
+        spans=[
+            SpanDetail(
+                span_id=span.span_id,
+                parent_id=span.parent_id,
+                name=span.name,
+                start_time=span.start_time.isoformat() if span.start_time else None,
+                duration_ms=span.duration_ms,
+                status=span.status,
+                attributes=span.attributes,
+            )
+            for span in sorted_spans
+        ],
+    )
 
 
 @router.get("/config", response_model=list[SystemConfigResponse])
