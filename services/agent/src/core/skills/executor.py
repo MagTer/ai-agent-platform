@@ -467,10 +467,12 @@ class SkillExecutor:
                     tool_calls = list(tool_calls_buffer.values())
 
                     # Add assistant message to history
+                    # Use None for empty content when tool_calls are present
+                    # (OpenAI spec requires content=null, not "")
                     assistant_msg = AgentMessage(
                         role="assistant",
-                        content=content,
-                        tool_calls=tool_calls,
+                        content=content or None,
+                        tool_calls=tool_calls or None,
                     )
                     messages.append(assistant_msg)
 
