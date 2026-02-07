@@ -59,6 +59,7 @@ types-PyYAML = "^6.0.12"
 coverage = "7.11.3"
 colorama = "^0.4.6"
 aiosqlite = "^0.22.1"
+pytest-xdist = "^3.8.0"
 
 [tool.poetry.scripts]
 stack = "stack.cli:app"
