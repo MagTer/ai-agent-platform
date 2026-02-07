@@ -653,6 +653,251 @@ async def get_system_config(
     ]
 
 
+@router.get("/tools/stats")
+async def get_tool_stats(
+    hours: int = Query(24, ge=1, le=168),
+    auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Get tool execution statistics from debug logs.
+
+    Returns aggregated metrics for each tool including:
+    - Total call count
+    - Execution timing (avg, min, max, total)
+    - Calls with timing data vs total calls
+
+    Args:
+        hours: Number of hours to analyze (1-168).
+    """
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
+
+    # Get all tool_call events
+    stmt = (
+        select(DebugLog)
+        .where(DebugLog.event_type == "tool_call")
+        .where(DebugLog.created_at >= cutoff)
+    )
+    result = await session.execute(stmt)
+    logs = result.scalars().all()
+
+    # Aggregate by tool name
+    tool_stats: dict[str, dict[str, Any]] = {}
+    for log in logs:
+        data = log.event_data or {}
+        tool_name = data.get("tool", "unknown")
+        duration = data.get("duration_ms")
+
+        if tool_name not in tool_stats:
+            tool_stats[tool_name] = {
+                "count": 0,
+                "total_duration_ms": 0.0,
+                "avg_duration_ms": 0.0,
+                "max_duration_ms": 0.0,
+                "min_duration_ms": float("inf"),
+                "timed_count": 0,
+            }
+
+        stats = tool_stats[tool_name]
+        stats["count"] += 1
+        if duration is not None:
+            stats["timed_count"] += 1
+            stats["total_duration_ms"] += duration
+            stats["max_duration_ms"] = max(stats["max_duration_ms"], duration)
+            stats["min_duration_ms"] = min(stats["min_duration_ms"], duration)
+
+    # Calculate averages and fix min for tools with no timing
+    for stats in tool_stats.values():
+        if stats["timed_count"] > 0:
+            stats["avg_duration_ms"] = round(stats["total_duration_ms"] / stats["timed_count"], 1)
+        if stats["min_duration_ms"] == float("inf"):
+            stats["min_duration_ms"] = 0.0
+        stats["total_duration_ms"] = round(stats["total_duration_ms"], 1)
+
+    return {
+        "period_hours": hours,
+        "tools": tool_stats,
+        "total_tool_calls": sum(s["count"] for s in tool_stats.values()),
+    }
+
+
+@router.get("/skills/stats")
+async def get_skill_stats(
+    hours: int = Query(24, ge=1, le=168),
+    auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Get skill step execution statistics from debug logs.
+
+    Returns aggregated metrics for each skill including:
+    - Total step count
+    - Execution timing (avg, min, max, total)
+    - Outcome breakdown (success, retry, replan, abort)
+
+    Args:
+        hours: Number of hours to analyze (1-168).
+    """
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
+
+    # Get all skill_step events
+    stmt = (
+        select(DebugLog)
+        .where(DebugLog.event_type == "skill_step")
+        .where(DebugLog.created_at >= cutoff)
+    )
+    result = await session.execute(stmt)
+    logs = result.scalars().all()
+
+    # Aggregate by skill name
+    skill_stats: dict[str, dict[str, Any]] = {}
+    for log in logs:
+        data = log.event_data or {}
+        skill_name = data.get("skill", "unknown")
+        duration = data.get("duration_ms")
+        outcome = data.get("outcome", "unknown")
+
+        if skill_name not in skill_stats:
+            skill_stats[skill_name] = {
+                "count": 0,
+                "total_duration_ms": 0.0,
+                "avg_duration_ms": 0.0,
+                "max_duration_ms": 0.0,
+                "min_duration_ms": float("inf"),
+                "timed_count": 0,
+                "outcomes": {
+                    "SUCCESS": 0,
+                    "RETRY": 0,
+                    "REPLAN": 0,
+                    "ABORT": 0,
+                    "unknown": 0,
+                },
+            }
+
+        stats = skill_stats[skill_name]
+        stats["count"] += 1
+
+        # Track outcome
+        if outcome in stats["outcomes"]:
+            stats["outcomes"][outcome] += 1
+        else:
+            stats["outcomes"]["unknown"] += 1
+
+        # Track timing
+        if duration is not None:
+            stats["timed_count"] += 1
+            stats["total_duration_ms"] += duration
+            stats["max_duration_ms"] = max(stats["max_duration_ms"], duration)
+            stats["min_duration_ms"] = min(stats["min_duration_ms"], duration)
+
+    # Calculate averages and fix min for skills with no timing
+    for stats in skill_stats.values():
+        if stats["timed_count"] > 0:
+            stats["avg_duration_ms"] = round(stats["total_duration_ms"] / stats["timed_count"], 1)
+        if stats["min_duration_ms"] == float("inf"):
+            stats["min_duration_ms"] = 0.0
+        stats["total_duration_ms"] = round(stats["total_duration_ms"], 1)
+
+    return {
+        "period_hours": hours,
+        "skills": skill_stats,
+        "total_skill_steps": sum(s["count"] for s in skill_stats.values()),
+    }
+
+
+@router.get("/requests/stats")
+async def get_request_stats(
+    hours: int = Query(24, ge=1, le=168),
+    auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
+) -> dict[str, Any]:
+    """Get HTTP request timing statistics from OpenTelemetry spans.
+
+    Returns aggregated metrics for each endpoint including:
+    - Total request count
+    - Execution timing (avg, max, total)
+
+    Args:
+        hours: Number of hours to analyze (1-168).
+
+    Note:
+        This reads from the spans.jsonl file. If the file doesn't exist
+        or is empty, returns empty stats.
+    """
+    import json
+    from pathlib import Path
+
+    spans_file = Path("data/spans.jsonl")
+    if not spans_file.exists():
+        return {"period_hours": hours, "endpoints": {}, "total_requests": 0}
+
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    endpoint_stats: dict[str, dict[str, Any]] = {}
+
+    try:
+        for line in spans_file.read_text().splitlines():
+            if not line.strip():
+                continue
+
+            try:
+                span = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            # Parse timestamp
+            start_time_str = span.get("start_time")
+            if not start_time_str:
+                continue
+
+            try:
+                start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                continue
+
+            # Filter by time range
+            if start_time < cutoff:
+                continue
+
+            attrs = span.get("attributes", {})
+            route = attrs.get("http.route") or attrs.get("http.target", "")
+            duration = span.get("duration_ms", 0)
+
+            if not route or not route.startswith("/"):
+                continue
+
+            # Initialize stats for this endpoint
+            if route not in endpoint_stats:
+                endpoint_stats[route] = {
+                    "count": 0,
+                    "avg_duration_ms": 0.0,
+                    "max_duration_ms": 0.0,
+                    "total_duration_ms": 0.0,
+                }
+
+            stats = endpoint_stats[route]
+            stats["count"] += 1
+            stats["total_duration_ms"] += duration
+            stats["max_duration_ms"] = max(stats["max_duration_ms"], duration)
+
+    except Exception:
+        LOGGER.exception("Error reading spans file")
+        return {
+            "period_hours": hours,
+            "endpoints": {},
+            "total_requests": 0,
+            "error": "Failed to read spans data",
+        }
+
+    # Calculate averages
+    for stats in endpoint_stats.values():
+        if stats["count"] > 0:
+            stats["avg_duration_ms"] = round(stats["total_duration_ms"] / stats["count"], 1)
+        stats["total_duration_ms"] = round(stats["total_duration_ms"], 1)
+
+    return {
+        "period_hours": hours,
+        "endpoints": endpoint_stats,
+        "total_requests": sum(s["count"] for s in endpoint_stats.values()),
+    }
+
+
 @router.get("/health")
 async def health_check() -> dict[str, str]:
     """Simple health check endpoint (no auth required for this one)."""

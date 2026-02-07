@@ -38,7 +38,7 @@ from core.db.engine import get_db
 from core.db.models import Context, Conversation
 from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
 from core.observability.tracing import configure_tracing
-from core.tools.mcp_loader import set_mcp_client_pool, shutdown_all_mcp_clients
+from core.tools.mcp_loader import set_mcp_client_pool
 from interfaces.http.admin_api import router as admin_api_router
 from interfaces.http.admin_auth import AuthRedirectError
 from interfaces.http.admin_auth_oauth import router as admin_auth_oauth_router
@@ -369,7 +369,8 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
         mcp_pool = McpClientPool(settings)
         set_mcp_client_pool(mcp_pool)
-        LOGGER.info("MCP client pool initialized")
+        mcp_pool.start_eviction()
+        LOGGER.info("MCP client pool initialized with background eviction")
 
         # Initialize SkillRegistry for skills-native execution
         from core.skills import SkillRegistry
@@ -471,7 +472,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         # Clean up email service
         if email_service is not None:
             await email_service.close()
-        await shutdown_all_mcp_clients()
+        await mcp_pool.stop()
         await litellm_client.aclose()
         await token_manager.shutdown()
 

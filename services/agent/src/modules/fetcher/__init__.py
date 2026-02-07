@@ -46,7 +46,13 @@ class WebFetcher:
         self.cache_ttl = int(os.getenv("CACHE_TTL", "86400"))
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.http_client = httpx.AsyncClient(follow_redirects=True)
+        self.http_client = httpx.AsyncClient(
+            follow_redirects=True,
+            limits=httpx.Limits(
+                max_connections=50,
+                max_keepalive_connections=20,
+            ),
+        )
         self.rag_manager = rag_manager
 
         # Simple Rate Limiting

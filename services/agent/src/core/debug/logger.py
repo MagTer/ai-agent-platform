@@ -230,17 +230,47 @@ class DebugLogger:
         args: dict[str, Any],
         result: Any,
         conversation_id: str | None = None,
+        duration_ms: float | None = None,
     ) -> None:
         """Log tool execution."""
         result_str = str(result)
+        event_data: dict[str, Any] = {
+            "tool": tool_name,
+            "args": _sanitize_args(args),
+            "result": result_str[:2000],
+            "result_length": len(result_str),
+        }
+        if duration_ms is not None:
+            event_data["duration_ms"] = round(duration_ms, 1)
         await self.log_event(
             trace_id=trace_id,
             event_type="tool_call",
+            event_data=event_data,
+            conversation_id=conversation_id,
+        )
+
+    async def log_skill_step(
+        self,
+        trace_id: str,
+        skill_name: str,
+        step_label: str,
+        tool_name: str,
+        outcome: str,
+        duration_ms: float,
+        tool_output_preview: str = "",
+        conversation_id: str | None = None,
+    ) -> None:
+        """Log skill step execution with timing."""
+        await self.log_event(
+            trace_id=trace_id,
+            event_type="skill_step",
             event_data={
+                "skill": skill_name,
+                "step": step_label,
                 "tool": tool_name,
-                "args": _sanitize_args(args),
-                "result": result_str[:2000],
-                "result_length": len(result_str),
+                "outcome": outcome,
+                "duration_ms": round(duration_ms, 1),
+                "output_preview": tool_output_preview[:500],
             },
             conversation_id=conversation_id,
         )

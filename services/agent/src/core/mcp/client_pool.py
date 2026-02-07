@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import defaultdict
 from typing import Any
 from uuid import UUID
@@ -44,6 +45,9 @@ class McpClientPool:
         self._settings = settings
         self._pools: dict[UUID, list[McpClient]] = defaultdict(list)
         self._locks: dict[UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._timestamps: dict[UUID, float] = {}
+        self._cache_ttl = 300  # 5 minutes
+        self._eviction_task: asyncio.Task[None] | None = None
 
     async def get_clients(
         self,
@@ -280,8 +284,9 @@ class McpClientPool:
                 disconnect_errors.append((client.name, e))
                 LOGGER.warning(f"Error disconnecting {client.name}: {e}")
 
-        # Remove from pool
+        # Remove from pool and timestamps
         del self._pools[context_id]
+        self._timestamps.pop(context_id, None)
 
         if disconnect_errors:
             LOGGER.warning(
@@ -292,6 +297,41 @@ class McpClientPool:
             LOGGER.info(
                 f"Successfully disconnected {len(clients)} clients for context {context_id}"
             )
+
+    async def _eviction_loop(self) -> None:
+        """Periodically remove stale MCP clients."""
+        while True:
+            await asyncio.sleep(self._cache_ttl)
+            await self._evict_stale_clients()
+
+    async def _evict_stale_clients(self) -> None:
+        """Disconnect and remove clients that have exceeded TTL."""
+        now = time.monotonic()
+        stale_contexts: list[UUID] = []
+
+        for context_id, timestamp in list(self._timestamps.items()):
+            if now - timestamp > self._cache_ttl:
+                stale_contexts.append(context_id)
+
+        for context_id in stale_contexts:
+            LOGGER.info("Evicting stale MCP clients for context %s", context_id)
+            await self.disconnect_context(context_id)
+
+    def start_eviction(self) -> None:
+        """Start background eviction loop."""
+        if self._eviction_task is None:
+            self._eviction_task = asyncio.create_task(self._eviction_loop())
+
+    async def stop(self) -> None:
+        """Stop eviction and disconnect all clients."""
+        if self._eviction_task is not None:
+            self._eviction_task.cancel()
+            try:
+                await self._eviction_task
+            except asyncio.CancelledError:
+                pass
+            self._eviction_task = None
+        await self.shutdown()
 
     async def shutdown(self) -> None:
         """Disconnect all clients across all contexts.
