@@ -77,3 +77,20 @@ jobs:
       - name: Validate docker compose configuration
         run: docker compose -f docker-compose.yml config
 
+  # Gate job - single required check for branch protection
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test, compose]
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.typecheck.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.compose.result }}" != "success" ]; then
+            echo "One or more checks failed"
+            exit 1
+          fi
+          echo "All checks passed"
