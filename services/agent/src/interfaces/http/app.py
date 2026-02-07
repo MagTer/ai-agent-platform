@@ -138,6 +138,40 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         )
 
     @app.middleware("http")
+    async def csrf_middleware(request: Request, call_next: Any) -> Any:
+        """CSRF protection middleware for admin portal endpoints."""
+        # Only apply to /platformadmin/ endpoints
+        if not request.url.path.startswith("/platformadmin/"):
+            return await call_next(request)
+
+        # Skip for GET, HEAD, OPTIONS (safe methods)
+        if request.method in ("GET", "HEAD", "OPTIONS"):
+            # Set CSRF cookie on GET requests
+            response = await call_next(request)
+
+            # Only set cookie if admin_jwt_secret is configured
+            if settings.admin_jwt_secret and settings.environment != "test":
+                from interfaces.http.csrf import (
+                    CSRF_COOKIE_NAME,
+                    generate_csrf_token,
+                    set_csrf_cookie,
+                )
+
+                # Check if cookie already exists
+                existing_cookie = request.cookies.get(CSRF_COOKIE_NAME)
+                if not existing_cookie:
+                    # Generate new token and set cookie
+                    token = generate_csrf_token(settings.admin_jwt_secret)
+                    set_csrf_cookie(response, token, secure=(settings.environment == "production"))
+                    LOGGER.debug("CSRF cookie set for new session")
+
+            return response
+
+        # POST, DELETE, PUT, PATCH require CSRF validation
+        # (The validation is handled by the require_csrf dependency in endpoints)
+        return await call_next(request)
+
+    @app.middleware("http")
     async def capture_request_response_middleware(request: Request, call_next: Any) -> Any:
         span = trace.get_current_span()
         if not span.is_recording():
@@ -184,23 +218,27 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         if skip_body:
             return response
 
-        # Capture response body
-        # Note: This reads streaming responses which might have performance impact
+        # Capture response body (only first 2000 bytes to avoid memory bloat)
         try:
             if hasattr(response, "body_iterator"):
                 original_iterator = response.body_iterator
-                chunks = []
+                preview_chunks: list[bytes] = []
+                preview_bytes_collected = 0
+                preview_limit = 2000
 
                 async def response_stream_wrapper() -> Any:
+                    nonlocal preview_bytes_collected
                     async for chunk in original_iterator:
-                        if isinstance(chunk, bytes):
-                            chunks.append(chunk)
+                        if isinstance(chunk, bytes) and preview_bytes_collected < preview_limit:
+                            remaining = preview_limit - preview_bytes_collected
+                            preview_chunks.append(chunk[:remaining])
+                            preview_bytes_collected += min(len(chunk), remaining)
                         yield chunk
 
-                    # After stream is consumed
-                    if chunks:
-                        full_body = b"".join(chunks).decode("utf-8", errors="replace")
-                        span.set_attribute("http.response.body", full_body[:2000])
+                    # After stream is consumed - only preview bytes in memory
+                    if preview_chunks:
+                        preview = b"".join(preview_chunks).decode("utf-8", errors="replace")
+                        span.set_attribute("http.response.body", preview[:2000])
 
                 response.body_iterator = response_stream_wrapper()
             elif hasattr(response, "body"):

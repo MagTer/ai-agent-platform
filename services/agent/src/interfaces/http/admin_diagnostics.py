@@ -14,6 +14,7 @@ from core.core.config import Settings, get_settings
 from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
@@ -72,7 +73,11 @@ async def get_metrics(
     return service.get_system_health_metrics(window=window)
 
 
-@router.post("/run", response_model=list[TestResult], dependencies=[Depends(verify_admin_user)])
+@router.post(
+    "/run",
+    response_model=list[TestResult],
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
 async def run_diagnostics(
     service: DiagnosticsService = Depends(get_diagnostics_service),
 ) -> list[TestResult]:
@@ -140,7 +145,7 @@ async def get_crash_log() -> dict[str, Any]:
         return {"exists": False, "content": None, "message": f"Read error: {e}"}
 
 
-@router.post("/retention", dependencies=[Depends(verify_admin_user)])
+@router.post("/retention", dependencies=[Depends(verify_admin_user), Depends(require_csrf)])
 async def run_retention(
     message_days: int = 30,
     inactive_days: int = 90,

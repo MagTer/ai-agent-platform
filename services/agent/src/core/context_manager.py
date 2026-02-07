@@ -67,23 +67,23 @@ class ContextManager:
                 LOGGER.info(f"Context path {context_path} already exists. Skipping clone.")
             else:
                 LOGGER.info(f"Cloning {repo_url} to {context_path}")
-                # Ideally use async process. For MVP synchronous is safer to ensure it's ready.
-                # We use os.system or subprocess.
-                # Security note: Validate URL or use shlex?
-                # For this internal tool, simple subprocess is okay but risky if args are untrusted.
-                # 'args' come from user commands.
-                import subprocess
+                import asyncio
 
-                # Check git installed? Assumed.
                 try:
-                    subprocess.run(  # noqa: S603
-                        ["git", "clone", repo_url, str(context_path)],  # noqa: S607
-                        check=True,
-                        capture_output=True,
-                        text=True,
+                    proc = await asyncio.create_subprocess_exec(
+                        "git",  # noqa: S607
+                        "clone",
+                        repo_url,
+                        str(context_path),
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
                     )
-                except subprocess.CalledProcessError as e:
-                    raise RuntimeError(f"Failed to clone repo: {e.stderr}") from e
+                    _, stderr_bytes = await proc.communicate()
+                    if proc.returncode != 0:
+                        stderr_text = (stderr_bytes or b"").decode("utf-8", errors="replace")
+                        raise RuntimeError(f"Failed to clone repo: {stderr_text}")
+                except OSError as e:
+                    raise RuntimeError(f"Failed to clone repo: {e}") from e
 
         elif type == "local":
             # EXISTING local path

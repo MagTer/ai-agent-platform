@@ -18,6 +18,7 @@ from core.db.models import Context, Conversation, ToolPermission
 from core.db.oauth_models import OAuthToken
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
@@ -321,7 +322,11 @@ async def get_context_details(
     )
 
 
-@router.post("", response_model=CreateContextResponse, dependencies=[Depends(verify_admin_user)])
+@router.post(
+    "",
+    response_model=CreateContextResponse,
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
 async def create_context(
     request: CreateContextRequest,
     session: AsyncSession = Depends(get_db),
@@ -375,7 +380,9 @@ async def create_context(
 
 
 @router.delete(
-    "/{context_id}", response_model=DeleteContextResponse, dependencies=[Depends(verify_admin_user)]
+    "/{context_id}",
+    response_model=DeleteContextResponse,
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
 )
 async def delete_context(
     context_id: UUID,

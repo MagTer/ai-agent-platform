@@ -19,6 +19,7 @@ from core.db.oauth_models import OAuthToken
 from core.tools.mcp_loader import get_mcp_client_pool, get_mcp_health, get_mcp_stats
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
@@ -337,7 +338,7 @@ async def get_mcp_client_stats() -> MCPStatsResponse:
 @router.post(
     "/disconnect/{context_id}",
     response_model=DisconnectResponse,
-    dependencies=[Depends(verify_admin_user)],
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
 )
 async def disconnect_mcp_clients(context_id: UUID) -> DisconnectResponse:
     """Force disconnect all MCP clients for a context.

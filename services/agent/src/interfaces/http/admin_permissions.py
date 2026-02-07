@@ -17,6 +17,7 @@ from core.db.engine import get_db
 from core.db.models import Context, ToolPermission, User, UserContext
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
@@ -575,7 +576,7 @@ class TogglePermissionRequest(BaseModel):
     allowed: bool
 
 
-@router.put("/contexts/{context_id}/tools/{tool_name}")
+@router.put("/contexts/{context_id}/tools/{tool_name}", dependencies=[Depends(require_csrf)])
 async def set_tool_permission(
     context_id: UUID,
     tool_name: str,
@@ -678,7 +679,7 @@ class BulkActionRequest(BaseModel):
     action: str  # "allow_all", "deny_all", "reset"
 
 
-@router.post("/contexts/{context_id}/bulk")
+@router.post("/contexts/{context_id}/bulk", dependencies=[Depends(require_csrf)])
 async def bulk_permission_action(
     context_id: UUID,
     request: BulkActionRequest,
