@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.core.config import Settings, get_settings
 from core.db.engine import get_db
-from core.db.models import Context, ToolPermission
+from core.db.models import Context, ToolPermission, User, UserContext
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 
@@ -61,12 +61,21 @@ def _load_available_tools(settings: Settings) -> list[dict[str, str]]:
 # --- Pydantic Models ---
 
 
+class ContextUserInfo(BaseModel):
+    """User linked to a context."""
+
+    display_name: str
+    email: str
+    role: str  # UserContext role: "owner", "member", "viewer"
+
+
 class ContextPermissionSummary(BaseModel):
     """Summary of a context's permission state."""
 
     context_id: str
     context_name: str
     context_type: str
+    users: list[ContextUserInfo]
     permission_count: int
     allowed_count: int
     denied_count: int
@@ -141,8 +150,8 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             <table>
                 <thead>
                     <tr>
+                        <th>User</th>
                         <th>Context</th>
-                        <th>Type</th>
                         <th>State</th>
                         <th>Permissions</th>
                         <th>Actions</th>
@@ -281,24 +290,20 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             tbody.innerHTML = contexts.map(c => {
                 const stateBadge = c.state === 'default'
                     ? '<span class="badge badge-muted">Default (All Allowed)</span>'
-                    : `<span class="badge badge-info">Customized</span>`;
+                    : '<span class="badge badge-info">Customized</span>';
                 const permInfo = c.state === 'default'
                     ? '-'
-                    : `<span class="badge badge-success">${c.allowed_count} allowed</span> <span class="badge badge-error">${c.denied_count} denied</span>`;
-                return `
-                    <tr>
-                        <td>
-                            <div style="font-weight: 500;">${escapeHtml(c.context_name)}</div>
-                            <div style="font-size: 11px; color: var(--text-muted); font-family: monospace;">${c.context_id}</div>
-                        </td>
-                        <td><span class="badge badge-muted">${escapeHtml(c.context_type)}</span></td>
-                        <td>${stateBadge}</td>
-                        <td>${permInfo}</td>
-                        <td>
-                            <button class="btn btn-sm btn-primary" onclick="openDetail('${c.context_id}')">Manage</button>
-                        </td>
-                    </tr>
-                `;
+                    : '<span class="badge badge-success">' + c.allowed_count + ' allowed</span> <span class="badge badge-error">' + c.denied_count + ' denied</span>';
+                const usersHtml = (c.users || []).length > 0
+                    ? c.users.map(u => '<div style="font-weight: 500;">' + escapeHtml(u.display_name) + '</div><div style="font-size: 11px; color: var(--text-muted);">' + escapeHtml(u.email) + ' <span class="badge badge-muted">' + u.role + '</span></div>').join('')
+                    : '<span style="color: var(--text-muted); font-style: italic;">No users</span>';
+                return '<tr>' +
+                    '<td>' + usersHtml + '</td>' +
+                    '<td><div style="font-weight: 500;">' + escapeHtml(c.context_name) + '</div><div style="font-size: 11px; color: var(--text-muted);">' + escapeHtml(c.context_type) + '</div></td>' +
+                    '<td>' + stateBadge + '</td>' +
+                    '<td>' + permInfo + '</td>' +
+                    '<td><button class="btn btn-sm btn-primary" onclick="openDetail(\'' + c.context_id + '\')">Manage</button></td>' +
+                    '</tr>';
             }).join('');
         }
 
@@ -323,7 +328,7 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
         }
 
         function renderToolList(data) {
-            document.getElementById('detailTitle').textContent = `Permissions: ${data.context_name}`;
+            document.getElementById('detailTitle').textContent = 'Permissions: ' + data.context_name;
 
             const stateText = data.state === 'default'
                 ? 'No explicit permissions defined. All tools are allowed by default. Toggle any tool to create explicit permissions.'
@@ -479,6 +484,23 @@ async def list_context_permissions(
         )
         allowed_count = await session.scalar(allowed_count_stmt) or 0
 
+        # Get users linked to this context
+        user_stmt = (
+            select(User.display_name, User.email, UserContext.role)
+            .join(UserContext, User.id == UserContext.user_id)
+            .where(UserContext.context_id == ctx.id)
+            .order_by(UserContext.role, User.display_name)
+        )
+        user_result = await session.execute(user_stmt)
+        ctx_users = [
+            ContextUserInfo(
+                display_name=display_name or email.split("@")[0],
+                email=email,
+                role=role,
+            )
+            for display_name, email, role in user_result.all()
+        ]
+
         state = "default" if perm_count == 0 else "customized"
         if state == "customized":
             customized_count += 1
@@ -488,6 +510,7 @@ async def list_context_permissions(
                 context_id=str(ctx.id),
                 context_name=ctx.name,
                 context_type=ctx.type,
+                users=ctx_users,
                 permission_count=perm_count,
                 allowed_count=allowed_count,
                 denied_count=perm_count - allowed_count,
