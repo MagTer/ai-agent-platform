@@ -876,13 +876,13 @@ async def get_request_stats(
             stats["total_duration_ms"] += duration
             stats["max_duration_ms"] = max(stats["max_duration_ms"], duration)
 
-    except Exception as e:
-        LOGGER.error("Error reading spans file: %s", e)
+    except Exception:
+        LOGGER.exception("Error reading spans file")
         return {
             "period_hours": hours,
             "endpoints": {},
             "total_requests": 0,
-            "error": str(e),
+            "error": "Failed to read spans data",
         }
 
     # Calculate averages
