@@ -759,6 +759,7 @@ Generate with: `openssl rand -hex 32`
 | `GET /platformadmin/api/conversations/{id}/messages` | Get messages for a conversation |
 | `GET /platformadmin/api/debug/stats` | Debug log statistics by event type |
 | `GET /platformadmin/api/traces/search` | Search OpenTelemetry traces |
+| `GET /platformadmin/api/traces/{trace_id}` | Get full trace detail with all spans |
 | `GET /platformadmin/api/config` | Get system configuration entries |
 | `GET /platformadmin/api/health` | Simple health check (no auth) |
 

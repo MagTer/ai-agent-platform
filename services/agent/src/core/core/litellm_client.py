@@ -57,7 +57,7 @@ class LiteLLMClient:
         """Stream chat completions from LiteLLM."""
         payload: dict[str, Any] = {
             "model": model or self._settings.model_agentchat,
-            "messages": [message.model_dump() for message in messages],
+            "messages": [message.model_dump(exclude_none=True) for message in messages],
             "stream": True,
         }
 
@@ -318,7 +318,7 @@ class LiteLLMClient:
         current_model = model or self._settings.model_agentchat
         payload: dict[str, Any] = {
             "model": current_model,
-            "messages": [message.model_dump() for message in messages],
+            "messages": [message.model_dump(exclude_none=True) for message in messages],
             "tools": tools,
             "tool_choice": "auto",
         }

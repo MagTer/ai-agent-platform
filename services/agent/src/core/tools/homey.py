@@ -350,12 +350,39 @@ class HomeyTool(Tool):
         LOGGER.debug(f"Cache miss for device '{device_name}'")
         return None
 
+    async def _fetch_zone_names(
+        self,
+        homey_url: str,
+        session_token: str,
+    ) -> dict[str, str]:
+        """Fetch zone ID to name mapping from Homey API.
+
+        Args:
+            homey_url: Homey base URL.
+            session_token: Homey session token.
+
+        Returns:
+            Dict mapping zone ID to zone name.
+        """
+        try:
+            zones = await self._homey_request(
+                "GET",
+                homey_url,
+                "/api/manager/zones/zone",
+                session_token,
+            )
+            return {zid: z.get("name", zid) for zid, z in zones.items()}
+        except Exception:
+            LOGGER.warning("Failed to fetch zones from Homey")
+            return {}
+
     async def _populate_cache(
         self,
         context_id: UUID,
         homey_id: str,
         devices: dict[str, dict[str, Any]],
         db_session: AsyncSession,
+        zone_names: dict[str, str] | None = None,
     ) -> None:
         """Populate device cache from API response.
 
@@ -364,6 +391,7 @@ class HomeyTool(Tool):
             homey_id: Homey device ID.
             devices: Device dict from Homey API.
             db_session: Database session.
+            zone_names: Optional zone ID to name mapping.
         """
         from core.db.models import HomeyDeviceCache
 
@@ -378,7 +406,10 @@ class HomeyTool(Tool):
         )
 
         # Insert new cache entries
+        zone_map = zone_names or {}
         for device_id, device in devices.items():
+            zone_id = device.get("zone", "")
+            zone_name = zone_map.get(zone_id) if zone_map else device.get("zoneName")
             cache_entry = HomeyDeviceCache(
                 context_id=context_id,
                 homey_id=homey_id,
@@ -386,7 +417,7 @@ class HomeyTool(Tool):
                 name=device.get("name", "Unknown"),
                 device_class=device.get("class", "other"),
                 capabilities=device.get("capabilities", []),
-                zone=device.get("zoneName"),
+                zone=zone_name,
                 cached_at=now,
             )
             db_session.add(cache_entry)
@@ -561,7 +592,10 @@ class HomeyTool(Tool):
 
         # Populate cache if we have context info
         if context_id and homey_id and db_session:
-            await self._populate_cache(context_id, homey_id, devices, db_session)
+            zone_names = await self._fetch_zone_names(homey_url, session_token)
+            await self._populate_cache(
+                context_id, homey_id, devices, db_session, zone_names=zone_names
+            )
 
         query_lower = name_query.lower()
 
@@ -621,24 +655,24 @@ class HomeyTool(Tool):
         if not devices:
             return "No devices found on this Homey."
 
-        # Group by class
-        by_class: dict[str, list[dict[str, Any]]] = {}
-        for device_id, device in devices.items():
-            device_class = device.get("class", "other")
-            if device_class not in by_class:
-                by_class[device_class] = []
-            by_class[device_class].append({"id": device_id, **device})
+        # Fetch zones to resolve zone IDs to names
+        zone_names = await self._fetch_zone_names(homey_url, session_token)
 
-        lines = [f"### Devices ({len(devices)} total)\n"]
-        for device_class, class_devices in sorted(by_class.items()):
-            lines.append(f"**{device_class.title()}** ({len(class_devices)})")
-            for d in class_devices:
+        # Group by zone (room)
+        by_zone: dict[str, list[dict[str, Any]]] = {}
+        for device_id, device in devices.items():
+            zone_id = device.get("zone", "")
+            zone = zone_names.get(zone_id, "Unknown")
+            if zone not in by_zone:
+                by_zone[zone] = []
+            by_zone[zone].append({"id": device_id, **device})
+
+        lines: list[str] = []
+        for zone, zone_devices in sorted(by_zone.items()):
+            lines.append(f"**{zone}**")
+            for d in sorted(zone_devices, key=lambda x: x.get("name", "")):
                 name = d.get("name", "Unknown")
-                device_id = d.get("id")
-                caps = ", ".join(d.get("capabilities", [])[:3])
-                if len(d.get("capabilities", [])) > 3:
-                    caps += "..."
-                lines.append(f"  - {name} (`{device_id}`) - Capabilities: {caps}")
+                lines.append(f"  - {name}")
             lines.append("")
 
         return "\n".join(lines)
@@ -721,37 +755,80 @@ class HomeyTool(Tool):
         homey_url: str,
         session_token: str,
     ) -> str:
-        """List all flows on a Homey."""
-        flows = await self._homey_request(
-            "GET",
-            homey_url,
-            "/api/manager/flow/flow",
-            session_token,
-        )
+        """List all flows (basic + advanced) on a Homey."""
+        all_flows = await self._fetch_all_flows(homey_url, session_token)
 
-        if not flows:
+        if not all_flows:
             return "No flows found on this Homey."
 
-        # Sort by folder
-        by_folder: dict[str, list[dict[str, Any]]] = {"(No Folder)": []}
-        for flow_id, flow in flows.items():
-            folder = flow.get("folder") or "(No Folder)"
+        # Fetch flow folders to resolve folder IDs to names
+        folder_names: dict[str, str] = {}
+        try:
+            folders = await self._homey_request(
+                "GET", homey_url, "/api/manager/flow/flowfolder", session_token
+            )
+            if folders:
+                for folder_id, folder_data in folders.items():
+                    folder_names[folder_id] = folder_data.get("name", folder_id)
+        except Exception:
+            LOGGER.warning("Failed to fetch flow folders")
+
+        # Group by folder name
+        no_folder = "(No Folder)"
+        by_folder: dict[str, list[dict[str, Any]]] = {}
+        for flow_id, flow in all_flows.items():
+            folder_id = flow.get("folder")
+            folder = folder_names.get(folder_id, no_folder) if folder_id else no_folder
             if folder not in by_folder:
                 by_folder[folder] = []
             by_folder[folder].append({"id": flow_id, **flow})
 
-        lines = [f"### Flows ({len(flows)} total)\n"]
+        lines: list[str] = []
         for folder, folder_flows in sorted(by_folder.items()):
-            if folder_flows:
-                lines.append(f"**{folder}**")
-                for f in folder_flows:
-                    name = f.get("name", "Unnamed")
-                    flow_id = f.get("id")
-                    enabled = "Enabled" if f.get("enabled", True) else "Disabled"
-                    lines.append(f"  - {name} (`{flow_id}`) - {enabled}")
-                lines.append("")
+            lines.append(f"**{folder}**")
+            for f in sorted(folder_flows, key=lambda x: x.get("name", "")):
+                name = f.get("name", "Unnamed")
+                enabled = "Enabled" if f.get("enabled", True) else "Disabled"
+                lines.append(f"  - {name} - {enabled}")
+            lines.append("")
 
         return "\n".join(lines)
+
+    async def _fetch_all_flows(
+        self,
+        homey_url: str,
+        session_token: str,
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch all flows (basic + advanced) from Homey.
+
+        Returns:
+            Dict mapping flow_id to flow data, with _type set to 'basic' or 'advanced'.
+        """
+        all_flows: dict[str, dict[str, Any]] = {}
+
+        try:
+            basic = await self._homey_request(
+                "GET", homey_url, "/api/manager/flow/flow", session_token
+            )
+            if basic:
+                for fid, flow in basic.items():
+                    flow["_type"] = "basic"
+                    all_flows[fid] = flow
+        except Exception:
+            LOGGER.warning("Failed to fetch basic flows")
+
+        try:
+            advanced = await self._homey_request(
+                "GET", homey_url, "/api/manager/flow/advancedflow", session_token
+            )
+            if advanced:
+                for fid, flow in advanced.items():
+                    flow["_type"] = "advanced"
+                    all_flows[fid] = flow
+        except Exception:
+            LOGGER.warning("Failed to fetch advanced flows")
+
+        return all_flows
 
     async def _action_trigger_flow(
         self,
@@ -759,14 +836,26 @@ class HomeyTool(Tool):
         session_token: str,
         flow_id: str,
     ) -> str:
-        """Trigger a flow."""
+        """Trigger a flow (basic or advanced)."""
+        # Try basic flow first
+        try:
+            await self._homey_request(
+                "POST",
+                homey_url,
+                f"/api/manager/flow/flow/{flow_id}/trigger",
+                session_token,
+            )
+            return f"Flow `{flow_id}` triggered successfully."
+        except Exception as e:
+            LOGGER.debug(f"Basic flow trigger failed for {flow_id}, trying advanced flow: {e}")
+
+        # Try advanced flow
         await self._homey_request(
             "POST",
             homey_url,
-            f"/api/manager/flow/flow/{flow_id}/trigger",
+            f"/api/manager/flow/advancedflow/{flow_id}/trigger",
             session_token,
         )
-
         return f"Flow `{flow_id}` triggered successfully."
 
     async def _find_flow_by_name(
@@ -777,6 +866,8 @@ class HomeyTool(Tool):
     ) -> str | None:
         """Find a flow by name (case-insensitive partial match).
 
+        Searches both basic and advanced flows.
+
         Args:
             homey_url: Homey base URL.
             session_token: Homey session token.
@@ -785,12 +876,7 @@ class HomeyTool(Tool):
         Returns:
             Flow ID if found, None otherwise.
         """
-        flows = await self._homey_request(
-            "GET",
-            homey_url,
-            "/api/manager/flow/flow",
-            session_token,
-        )
+        flows = await self._fetch_all_flows(homey_url, session_token)
 
         if not flows:
             return None
@@ -847,7 +933,8 @@ class HomeyTool(Tool):
         if not devices:
             return "No devices found on this Homey."
 
-        await self._populate_cache(context_id, homey_id, devices, db_session)
+        zone_names = await self._fetch_zone_names(homey_url, session_token)
+        await self._populate_cache(context_id, homey_id, devices, db_session, zone_names=zone_names)
         await db_session.commit()
 
         return f"Synced {len(devices)} devices to cache."
