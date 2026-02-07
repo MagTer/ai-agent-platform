@@ -33,7 +33,7 @@ ADMIN_NAV_ITEMS: list[NavItem] = [
     NavItem("Users", "/platformadmin/users/", "&#128100;", "users"),
     NavItem("Credentials", "/platformadmin/credentials/", "&#128273;", "users"),
     NavItem("Price Tracker", "/platformadmin/price-tracker/", "&#128181;", "features"),
-    NavItem("MCP Servers", "/platformadmin/mcp/", "&#128268;", "features"),
+    NavItem("MCP Integrations", "/platformadmin/mcp/", "&#128268;", "features"),
     NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "features"),
     NavItem("Workspaces", "/platformadmin/workspaces/", "&#128193;", "features"),
     NavItem("OAuth Settings", "/platformadmin/oauth/", "&#128274;", "features"),

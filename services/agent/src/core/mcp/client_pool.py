@@ -19,7 +19,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.auth.credential_service import CredentialService
 from core.core.config import Settings
+from core.db.models import DebugLog, UserContext
 from core.db.oauth_models import OAuthToken
 from core.mcp.client import McpClient
 
@@ -141,12 +143,106 @@ class McpClientPool:
                             f"Connected Context7 MCP for context {context_id} "
                             f"(discovered {len(client.tools)} tools)"
                         )
+                        session.add(
+                            DebugLog(
+                                trace_id=str(context_id),
+                                event_type="mcp_connect",
+                                event_data={
+                                    "provider": "Context7",
+                                    "tools_count": len(client.tools),
+                                    "transport": "streamable_http",
+                                },
+                            )
+                        )
                     except Exception as e:
                         LOGGER.error(
                             f"Failed to connect Context7 MCP for context {context_id}: {e}"
                         )
+                        session.add(
+                            DebugLog(
+                                trace_id=str(context_id),
+                                event_type="mcp_error",
+                                event_data={
+                                    "provider": "Context7",
+                                    "error": str(e),
+                                },
+                            )
+                        )
 
                 # Add more providers here as they're configured
+
+            # Zapier MCP - credential-based (URL contains API key)
+            if self._settings.credential_encryption_key:
+                try:
+                    # Find user IDs linked to this context
+                    uc_stmt = select(UserContext.user_id).where(
+                        UserContext.context_id == context_id
+                    )
+                    uc_result = await session.execute(uc_stmt)
+                    user_ids = [row[0] for row in uc_result.all()]
+
+                    if user_ids:
+                        cred_service = CredentialService(self._settings.credential_encryption_key)
+                        for uid in user_ids:
+                            zapier_url = await cred_service.get_credential(
+                                uid, "zapier_mcp_url", session
+                            )
+                            if zapier_url:
+                                try:
+                                    client = McpClient(
+                                        url=zapier_url,
+                                        context_id=context_id,
+                                        auth_token=None,
+                                        name="Zapier",
+                                        auto_reconnect=True,
+                                        max_retries=3,
+                                        cache_ttl_seconds=300,
+                                    )
+                                    await client.connect()
+                                    clients.append(client)
+                                    LOGGER.info(
+                                        f"Connected Zapier MCP for context {context_id} "
+                                        f"(discovered {len(client.tools)} tools)"
+                                    )
+                                    session.add(
+                                        DebugLog(
+                                            trace_id=str(context_id),
+                                            event_type="mcp_connect",
+                                            event_data={
+                                                "provider": "Zapier",
+                                                "tools_count": len(client.tools),
+                                                "transport": "streamable_http",
+                                            },
+                                        )
+                                    )
+                                except Exception as e:
+                                    LOGGER.error(
+                                        f"Failed to connect Zapier MCP for context "
+                                        f"{context_id}: {e}"
+                                    )
+                                    session.add(
+                                        DebugLog(
+                                            trace_id=str(context_id),
+                                            event_type="mcp_error",
+                                            event_data={
+                                                "provider": "Zapier",
+                                                "error": str(e),
+                                            },
+                                        )
+                                    )
+                                break  # One Zapier connection per context
+                except Exception as e:
+                    LOGGER.error(f"Error loading Zapier credentials for context {context_id}: {e}")
+                    session.add(
+                        DebugLog(
+                            trace_id=str(context_id),
+                            event_type="mcp_error",
+                            event_data={
+                                "provider": "Zapier",
+                                "error": f"Credential lookup failed: {e}",
+                            },
+                        )
+                    )
 
             # Store in cache
             self._pools[context_id] = clients
