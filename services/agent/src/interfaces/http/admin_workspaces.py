@@ -19,6 +19,7 @@ from core.db.engine import get_db
 from core.db.models import Context, Workspace
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
@@ -332,7 +333,11 @@ async def list_workspaces(
     return WorkspaceList(workspaces=workspaces, total=len(workspaces))
 
 
-@router.post("", response_model=CreateWorkspaceResponse, dependencies=[Depends(verify_admin_user)])
+@router.post(
+    "",
+    response_model=CreateWorkspaceResponse,
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
 async def create_workspace(
     request: CreateWorkspaceRequest,
     session: AsyncSession = Depends(get_db),
@@ -446,7 +451,7 @@ async def create_workspace(
 @router.post(
     "/{workspace_id}/sync",
     response_model=SyncWorkspaceResponse,
-    dependencies=[Depends(verify_admin_user)],
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
 )
 async def sync_workspace(
     workspace_id: UUID,
@@ -529,7 +534,7 @@ async def sync_workspace(
 @router.delete(
     "/{workspace_id}",
     response_model=DeleteWorkspaceResponse,
-    dependencies=[Depends(verify_admin_user)],
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
 )
 async def delete_workspace(
     workspace_id: UUID,

@@ -25,6 +25,7 @@ from core.observability.security_logger import (
 )
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
@@ -591,7 +592,9 @@ async def list_credential_types(
     return {"types": CREDENTIAL_TYPES}
 
 
-@router.post("/create", response_model=CredentialCreateResponse)
+@router.post(
+    "/create", response_model=CredentialCreateResponse, dependencies=[Depends(require_csrf)]
+)
 async def create_credential(
     request: CredentialCreateRequest,
     http_request: Request,
@@ -668,7 +671,11 @@ async def create_credential(
     )
 
 
-@router.delete("/{credential_id}", response_model=CredentialDeleteResponse)
+@router.delete(
+    "/{credential_id}",
+    response_model=CredentialDeleteResponse,
+    dependencies=[Depends(require_csrf)],
+)
 async def delete_credential(
     credential_id: UUID,
     http_request: Request,

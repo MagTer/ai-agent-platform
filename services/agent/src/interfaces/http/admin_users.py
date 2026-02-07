@@ -15,6 +15,7 @@ from core.db.engine import get_db
 from core.db.models import User, UserContext
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_api_key
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
@@ -265,7 +266,9 @@ async def get_user(
 
 
 @router.patch(
-    "/{user_id}", dependencies=[Depends(verify_admin_api_key)], response_model=UserResponse
+    "/{user_id}",
+    dependencies=[Depends(verify_admin_api_key), Depends(require_csrf)],
+    response_model=UserResponse,
 )
 async def update_user(
     user_id: UUID,
@@ -327,7 +330,7 @@ async def update_user(
     )
 
 
-@router.delete("/{user_id}", dependencies=[Depends(verify_admin_api_key)])
+@router.delete("/{user_id}", dependencies=[Depends(verify_admin_api_key), Depends(require_csrf)])
 async def delete_user(
     user_id: UUID,
     session: AsyncSession = Depends(get_db),

@@ -21,6 +21,7 @@ from core.providers import get_token_manager
 from core.tools.mcp_loader import get_mcp_client_pool
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
@@ -225,7 +226,9 @@ async def list_oauth_tokens(
 
 
 @router.delete(
-    "/tokens/{token_id}", response_model=RevokeResponse, dependencies=[Depends(verify_admin_user)]
+    "/tokens/{token_id}",
+    response_model=RevokeResponse,
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
 )
 async def revoke_oauth_token(
     token_id: UUID,

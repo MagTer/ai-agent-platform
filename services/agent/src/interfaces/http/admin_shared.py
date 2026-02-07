@@ -558,6 +558,46 @@ def render_admin_page(
     header = get_admin_header_html(breadcrumbs, user_name, user_email)
     base_css = get_admin_nav_css()
 
+    # CSRF protection JavaScript utilities
+    csrf_js = """
+        // CSRF token utilities
+        function getCsrfToken() {
+            const cookies = document.cookie.split(';');
+            for (let cookie of cookies) {
+                const [name, value] = cookie.trim().split('=');
+                if (name === 'csrf_token') {
+                    return decodeURIComponent(value);
+                }
+            }
+            return null;
+        }
+
+        // Override fetch to automatically include CSRF token
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options = {}) {
+            // Only add CSRF token for POST/DELETE/PUT/PATCH to /platformadmin/
+            const method = (options.method || 'GET').toUpperCase();
+            const needsCsrf = ['POST', 'DELETE', 'PUT', 'PATCH'].includes(method);
+            const isPlatformAdmin = typeof url === 'string' && url.startsWith('/platformadmin/');
+
+            if (needsCsrf && isPlatformAdmin) {
+                const csrfToken = getCsrfToken();
+                if (csrfToken) {
+                    options.headers = options.headers || {};
+                    if (options.headers instanceof Headers) {
+                        options.headers.set('X-CSRF-Token', csrfToken);
+                    } else {
+                        options.headers['X-CSRF-Token'] = csrfToken;
+                    }
+                } else {
+                    console.warn('CSRF token not found in cookie');
+                }
+            }
+
+            return originalFetch(url, options);
+        };
+    """
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -580,6 +620,7 @@ def render_admin_page(
         </main>
     </div>
     <script>
+        {csrf_js}
         {extra_js}
     </script>
 </body>

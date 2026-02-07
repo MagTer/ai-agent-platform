@@ -21,6 +21,7 @@ from core.db.engine import AsyncSessionLocal, get_db
 from core.providers import get_fetcher
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 from interfaces.http.schemas.price_tracker import (
     DealResponse,
     PricePointResponse,
@@ -274,7 +275,7 @@ async def list_products(
         raise HTTPException(status_code=500, detail="Failed to list products") from e
 
 
-@router.post("/products", status_code=201)
+@router.post("/products", status_code=201, dependencies=[Depends(require_csrf)])
 async def create_product(
     data: ProductCreate,
     admin: AdminUser = Depends(verify_admin_user),
@@ -424,7 +425,9 @@ async def get_product(
         raise HTTPException(status_code=500, detail="Failed to retrieve product") from e
 
 
-@router.put("/products/{product_id}", dependencies=[Depends(verify_admin_user)])
+@router.put(
+    "/products/{product_id}", dependencies=[Depends(verify_admin_user), Depends(require_csrf)]
+)
 async def update_product(
     product_id: str,
     data: ProductUpdate,
@@ -484,7 +487,9 @@ async def update_product(
 
 
 @router.post(
-    "/products/{product_id}/stores", status_code=201, dependencies=[Depends(verify_admin_user)]
+    "/products/{product_id}/stores",
+    status_code=201,
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
 )
 async def link_product_to_store(
     product_id: str,
@@ -536,7 +541,7 @@ async def link_product_to_store(
 
 @router.put(
     "/products/{product_id}/stores/{store_id}/frequency",
-    dependencies=[Depends(verify_admin_user)],
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
 )
 async def update_check_frequency(
     product_id: str,
@@ -640,7 +645,8 @@ async def update_check_frequency(
 
 
 @router.delete(
-    "/products/{product_id}/stores/{store_id}", dependencies=[Depends(verify_admin_user)]
+    "/products/{product_id}/stores/{store_id}",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
 )
 async def unlink_product_from_store(
     product_id: str,
@@ -759,7 +765,9 @@ async def get_price_history(
         raise HTTPException(status_code=500, detail="Failed to retrieve price history") from e
 
 
-@router.post("/check/{product_store_id}", dependencies=[Depends(verify_admin_user)])
+@router.post(
+    "/check/{product_store_id}", dependencies=[Depends(verify_admin_user), Depends(require_csrf)]
+)
 async def trigger_price_check(
     product_store_id: str,
     session: AsyncSession = Depends(get_db),
@@ -1039,7 +1047,9 @@ async def list_watches(
         raise HTTPException(status_code=500, detail="Failed to list watches") from e
 
 
-@router.post("/watches", status_code=201, dependencies=[Depends(verify_admin_user)])
+@router.post(
+    "/watches", status_code=201, dependencies=[Depends(verify_admin_user), Depends(require_csrf)]
+)
 async def create_watch(
     data: PriceWatchCreate,
     context_id: str,
@@ -1075,7 +1085,7 @@ async def create_watch(
         raise HTTPException(status_code=500, detail="Failed to create price watch") from e
 
 
-@router.put("/watches/{watch_id}", dependencies=[Depends(verify_admin_user)])
+@router.put("/watches/{watch_id}", dependencies=[Depends(verify_admin_user), Depends(require_csrf)])
 async def update_watch(
     watch_id: str,
     data: PriceWatchUpdate,
@@ -1130,7 +1140,9 @@ async def update_watch(
         raise HTTPException(status_code=500, detail="Failed to update price watch") from e
 
 
-@router.delete("/watches/{watch_id}", dependencies=[Depends(verify_admin_user)])
+@router.delete(
+    "/watches/{watch_id}", dependencies=[Depends(verify_admin_user), Depends(require_csrf)]
+)
 async def delete_watch(
     watch_id: str,
     session: AsyncSession = Depends(get_db),
@@ -1171,7 +1183,9 @@ async def delete_watch(
         raise HTTPException(status_code=500, detail="Failed to delete price watch") from e
 
 
-@router.delete("/products/{product_id}", dependencies=[Depends(verify_admin_user)])
+@router.delete(
+    "/products/{product_id}", dependencies=[Depends(verify_admin_user), Depends(require_csrf)]
+)
 async def delete_product(
     product_id: str,
     service: PriceTrackerService = Depends(get_price_tracker_service),
@@ -1386,7 +1400,7 @@ async def export_data(
         raise HTTPException(status_code=500, detail="Failed to export data") from e
 
 
-@router.post("/import")
+@router.post("/import", dependencies=[Depends(require_csrf)])
 async def import_data(
     file: UploadFile,
     mode: str = "merge",

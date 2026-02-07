@@ -15,6 +15,7 @@ from core.db.models import DebugLog
 from core.debug import DebugLogger
 from interfaces.http.admin_auth import AdminUser, get_admin_user_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.csrf import require_csrf
 
 router = APIRouter(prefix="/platformadmin/debug", tags=["admin-debug"])
 
@@ -405,7 +406,7 @@ async def debug_dashboard(
     )
 
 
-@router.post("/toggle", dependencies=[Depends(verify_admin_user)])
+@router.post("/toggle", dependencies=[Depends(verify_admin_user), Depends(require_csrf)])
 async def toggle_debug(
     data: dict[str, bool],
     session: AsyncSession = Depends(get_db),
@@ -417,7 +418,7 @@ async def toggle_debug(
     return {"enabled": enabled}
 
 
-@router.post("/cleanup", dependencies=[Depends(verify_admin_user)])
+@router.post("/cleanup", dependencies=[Depends(verify_admin_user), Depends(require_csrf)])
 async def cleanup_logs(
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, int]:
