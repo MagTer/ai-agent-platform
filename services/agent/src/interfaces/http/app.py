@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import traceback
 import uuid
 from collections.abc import AsyncGenerator, Iterable
@@ -138,6 +139,29 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         )
 
     @app.middleware("http")
+    async def security_headers_middleware(request: Request, call_next: Any) -> Any:
+        """Add security headers to all responses."""
+        response = await call_next(request)
+
+        # Standard security headers for all responses
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-XSS-Protection"] = "0"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+
+        # X-Frame-Options: SAMEORIGIN for admin portal, DENY for everything else
+        if request.url.path.startswith("/platformadmin/"):
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        else:
+            response.headers["X-Frame-Options"] = "DENY"
+
+        # HSTS only in production
+        if settings.environment == "production":
+            response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+
+        return response
+
+    @app.middleware("http")
     async def csrf_middleware(request: Request, call_next: Any) -> Any:
         """CSRF protection middleware for admin portal endpoints."""
         # Only apply to /platformadmin/ endpoints
@@ -249,6 +273,33 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                 )
         except Exception:
             LOGGER.warning("Failed to capture response body", exc_info=True)
+
+        return response
+
+    @app.middleware("http")
+    async def request_metrics_middleware(request: Request, call_next: Any) -> Any:
+        """Track request timing and log slow requests."""
+        start_time = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start_time) * 1000
+
+        # Add timing to response headers
+        response.headers["X-Response-Time"] = f"{duration_ms:.1f}ms"
+
+        # Record in OpenTelemetry span
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attribute("http.request.duration_ms", round(duration_ms, 1))
+            span.set_attribute("http.route", request.url.path)
+
+        # Log slow requests (> 5 seconds)
+        if duration_ms > 5000:
+            LOGGER.warning(
+                "Slow request: %s %s took %.1fms",
+                request.method,
+                request.url.path,
+                duration_ms,
+            )
 
         return response
 

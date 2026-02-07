@@ -4,6 +4,7 @@ import json
 import shutil
 import subprocess
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypedDict
 
@@ -20,10 +21,12 @@ dev_app = typer.Typer(help="Development environment commands (isolated from prod
 repo_app = typer.Typer(help="Repository snapshot utilities.")
 n8n_app = typer.Typer(help="Import or export n8n workflows.")
 openwebui_app = typer.Typer(help="Manage Open WebUI database exports and restores.")
+db_app = typer.Typer(help="Database migration commands.")
 app.add_typer(dev_app, name="dev")
 app.add_typer(repo_app, name="repo")
 app.add_typer(n8n_app, name="n8n")
 app.add_typer(openwebui_app, name="openwebui")
+app.add_typer(db_app, name="db")
 app.add_typer(qdrant.app, name="qdrant")
 app.add_typer(auth.app, name="login")
 
@@ -139,6 +142,87 @@ HEALTH_TARGETS: list[HealthTarget] = [
 
 def _repo_root() -> Path:
     return tooling.resolve_repo_root()
+
+
+def _stack_dir() -> Path:
+    """Get or create the .stack directory for deployment metadata."""
+    stack_dir = _repo_root() / ".stack"
+    stack_dir.mkdir(exist_ok=True)
+    return stack_dir
+
+
+def _deployments_file() -> Path:
+    """Get the path to the deployments history file."""
+    return _stack_dir() / "deployments.json"
+
+
+def _record_deployment(branch: str, services: list[str]) -> None:
+    """Record a deployment in the deployment history.
+
+    Keeps the last 10 deployments.
+    """
+    deployments_file = _deployments_file()
+    deployments: list[dict[str, object]] = []
+
+    if deployments_file.exists():
+        try:
+            deployments = json.loads(deployments_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            deployments = []
+
+    deployment: dict[str, object] = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "branch": branch,
+        "services": services,
+        "image_tag": "previous",
+    }
+    deployments.append(deployment)
+
+    # Keep last 10 deployments
+    deployments = deployments[-10:]
+
+    deployments_file.write_text(json.dumps(deployments, indent=2), encoding="utf-8")
+
+
+def _tag_current_image() -> None:
+    """Tag the current agent image as 'previous' for rollback capability."""
+    docker_bin = shutil.which("docker")
+    if not docker_bin:
+        console.print("[yellow]Docker not found, skipping image tagging.[/yellow]")
+        return
+
+    # Get current image ID
+    get_image_id = subprocess.run(  # noqa: S603
+        [docker_bin, "images", "ai-agent-platform-agent:latest", "-q"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if get_image_id.returncode != 0 or not get_image_id.stdout.strip():
+        console.print("[dim]No existing agent image found, skipping tagging.[/dim]")
+        return
+
+    image_id = get_image_id.stdout.strip()
+    console.print(f"[dim]Tagging current image ({image_id[:12]}) as 'previous'...[/dim]")
+
+    # Tag the current image as previous
+    tag_result = subprocess.run(  # noqa: S603
+        [
+            docker_bin,
+            "tag",
+            "ai-agent-platform-agent:latest",
+            "ai-agent-platform-agent:previous",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if tag_result.returncode != 0:
+        console.print(f"[yellow]Warning: Failed to tag image: {tag_result.stderr.strip()}[/yellow]")
+    else:
+        console.print("[dim]Image tagged successfully.[/dim]")
 
 
 def _compose_overrides(bind_mounts: bool) -> list[Path]:
@@ -743,6 +827,10 @@ def deploy(
     # Step 2: Determine services to rebuild
     services_to_build = list(service) if service else ["agent"]
 
+    # Step 2.5: Tag current image for rollback capability
+    if "agent" in services_to_build:
+        _tag_current_image()
+
     # Step 3: Build
     console.print(f"[bold cyan]Building: {', '.join(services_to_build)}…[/bold cyan]")
     build_args = ["build"] + services_to_build
@@ -753,10 +841,89 @@ def deploy(
     up_args = ["up", "-d", "--no-deps"] + services_to_build
     compose.run_compose(up_args, prod=True, capture_output=False)
 
-    # Step 5: Show status
+    # Step 5: Record deployment
+    # current_branch is guaranteed to be not None here due to early exit check
+    assert current_branch is not None
+    _record_deployment(current_branch, services_to_build)
+
+    # Step 6: Show status
     console.print("[bold green]✓ Deployment complete![/bold green]")
     result = compose.run_compose(["ps"], prod=True)
     console.print(_ensure_text(result.stdout))
+
+
+@app.command()
+def rollback(
+    prod: bool = typer.Option(
+        True,
+        "--prod/--no-prod",
+        help="Rollback production deployment (default: yes).",
+    ),
+) -> None:
+    """Rollback to the previous Docker image.
+
+    This command restores the agent container to the previously deployed image.
+    The previous image is tagged during deployment via `stack deploy`.
+
+    WARNING: This only rolls back the Docker image, not database migrations.
+    Use `stack db rollback` separately if needed.
+
+    Typical workflow:
+        stack rollback          # Rollback production
+    """
+    tooling.ensure_docker()
+
+    if not prod:
+        console.print("[red]Rollback is only supported for production deployments.[/red]")
+        console.print("[yellow]Use --prod flag or deploy from a different branch.[/yellow]")
+        raise typer.Exit(code=1)
+
+    docker_bin = shutil.which("docker")
+    if not docker_bin:
+        console.print("[red]Docker not found.[/red]")
+        raise typer.Exit(code=1)
+
+    # Check if previous image exists
+    check_image = subprocess.run(  # noqa: S603
+        [docker_bin, "images", "ai-agent-platform-agent:previous", "-q"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if check_image.returncode != 0 or not check_image.stdout.strip():
+        console.print("[red]No previous image found to rollback to.[/red]")
+        console.print("[yellow]Deploy at least once to enable rollback functionality.[/yellow]")
+        raise typer.Exit(code=1)
+
+    image_id = check_image.stdout.strip()
+    console.print(f"[cyan]Found previous image: {image_id[:12]}[/cyan]")
+    console.print("[bold yellow]Rolling back production deployment...[/bold yellow]")
+
+    # Tag previous as latest
+    tag_result = subprocess.run(  # noqa: S603
+        [docker_bin, "tag", "ai-agent-platform-agent:previous", "ai-agent-platform-agent:latest"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if tag_result.returncode != 0:
+        console.print(f"[red]Failed to tag image: {tag_result.stderr.strip()}[/red]")
+        raise typer.Exit(code=1)
+
+    # Restart agent service
+    console.print("[cyan]Restarting agent service...[/cyan]")
+    compose.run_compose(["up", "-d", "--no-deps", "agent"], prod=True, capture_output=False)
+
+    # Show status
+    console.print("[bold green]✓ Rollback complete![/bold green]")
+    result = compose.run_compose(["ps", "agent"], prod=True)
+    console.print(_ensure_text(result.stdout))
+
+    console.print("")
+    console.print("[yellow]Note: This only rolled back the Docker image.[/yellow]")
+    console.print("[yellow]If database migrations were applied, use `stack db rollback`.[/yellow]")
 
 
 @app.command()
@@ -1255,6 +1422,163 @@ os.remove(tmp_path)
     ]
     compose.run_compose(exec_args, files_override=[compose_path])
     console.print(f"[green]Imported Open WebUI database from {resolved_dump}[/green]")
+
+
+# =============================================================================
+# DATABASE COMMANDS
+# =============================================================================
+
+
+@db_app.command("migrate")
+def db_migrate(
+    prod: bool = typer.Option(
+        False,
+        "--prod",
+        help="Run migration in production stack.",
+    ),
+    dev: bool = typer.Option(
+        False,
+        "--dev",
+        help="Run migration in development stack.",
+    ),
+) -> None:
+    """Run Alembic migrations to upgrade the database to the latest version.
+
+    This executes `alembic upgrade head` inside the running agent container.
+    Database migrations are applied automatically on container startup.
+    """
+    tooling.ensure_docker()
+    if prod:
+        env_label = "[bold magenta]PRODUCTION[/bold magenta]"
+    elif dev:
+        env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
+    else:
+        env_label = "[bold]BASE[/bold]"
+
+    console.print(f"[cyan]Running database migrations ({env_label})...[/cyan]")
+    compose.run_compose(
+        ["exec", "-T", "agent", "alembic", "upgrade", "head"],
+        prod=prod,
+        dev=dev,
+        capture_output=False,
+    )
+    console.print("[bold green]Database migration complete.[/bold green]")
+
+
+@db_app.command("status")
+def db_status(
+    prod: bool = typer.Option(
+        False,
+        "--prod",
+        help="Check status in production stack.",
+    ),
+    dev: bool = typer.Option(
+        False,
+        "--dev",
+        help="Check status in development stack.",
+    ),
+) -> None:
+    """Show the current database migration revision.
+
+    This executes `alembic current` inside the running agent container.
+    """
+    tooling.ensure_docker()
+    if prod:
+        env_label = "[bold magenta]PRODUCTION[/bold magenta]"
+    elif dev:
+        env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
+    else:
+        env_label = "[bold]BASE[/bold]"
+
+    console.print(f"[cyan]Checking database status ({env_label})...[/cyan]")
+    compose.run_compose(
+        ["exec", "-T", "agent", "alembic", "current"],
+        prod=prod,
+        dev=dev,
+        capture_output=False,
+    )
+
+
+@db_app.command("rollback")
+def db_rollback(
+    prod: bool = typer.Option(
+        False,
+        "--prod",
+        help="Rollback in production stack.",
+    ),
+    dev: bool = typer.Option(
+        False,
+        "--dev",
+        help="Rollback in development stack.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip confirmation prompt.",
+    ),
+) -> None:
+    """Rollback the last database migration.
+
+    This executes `alembic downgrade -1` inside the running agent container.
+    WARNING: This can result in data loss if the migration modified schema.
+    """
+    tooling.ensure_docker()
+    if prod:
+        env_label = "[bold magenta]PRODUCTION[/bold magenta]"
+    elif dev:
+        env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
+    else:
+        env_label = "[bold]BASE[/bold]"
+
+    if not yes:
+        response = input(f"This will rollback the last migration in {env_label}. Continue? [y/N]: ")
+        if response.strip().lower() != "y":
+            console.print("[yellow]Rollback cancelled.[/yellow]")
+            return
+
+    console.print(f"[cyan]Rolling back database migration ({env_label})...[/cyan]")
+    compose.run_compose(
+        ["exec", "-T", "agent", "alembic", "downgrade", "-1"],
+        prod=prod,
+        dev=dev,
+        capture_output=False,
+    )
+    console.print("[bold green]Database rollback complete.[/bold green]")
+
+
+@db_app.command("history")
+def db_history(
+    prod: bool = typer.Option(
+        False,
+        "--prod",
+        help="Show history from production stack.",
+    ),
+    dev: bool = typer.Option(
+        False,
+        "--dev",
+        help="Show history from development stack.",
+    ),
+) -> None:
+    """Show the migration history.
+
+    This executes `alembic history --verbose` inside the running agent container.
+    """
+    tooling.ensure_docker()
+    if prod:
+        env_label = "[bold magenta]PRODUCTION[/bold magenta]"
+    elif dev:
+        env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
+    else:
+        env_label = "[bold]BASE[/bold]"
+
+    console.print(f"[cyan]Showing migration history ({env_label})...[/cyan]")
+    compose.run_compose(
+        ["exec", "-T", "agent", "alembic", "history", "--verbose"],
+        prod=prod,
+        dev=dev,
+        capture_output=False,
+    )
 
 
 __all__ = ["app"]
