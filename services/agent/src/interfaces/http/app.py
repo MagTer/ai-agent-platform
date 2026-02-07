@@ -47,6 +47,7 @@ from interfaces.http.admin_debug import router as admin_debug_router
 from interfaces.http.admin_diagnostics import router as admin_diagnostics_router
 from interfaces.http.admin_mcp import router as admin_mcp_router
 from interfaces.http.admin_oauth import router as admin_oauth_router
+from interfaces.http.admin_permissions import router as admin_permissions_router
 from interfaces.http.admin_portal import router as admin_portal_router
 from interfaces.http.admin_price_tracker import router as admin_price_tracker_router
 from interfaces.http.admin_users import router as admin_users_router
@@ -603,6 +604,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     app.include_router(admin_diagnostics_router)
     app.include_router(admin_debug_router)
     app.include_router(admin_price_tracker_router)
+    app.include_router(admin_permissions_router)
     app.include_router(admin_users_router)
     app.include_router(admin_api_router)  # Diagnostic API (X-API-Key or Entra ID)
 
