@@ -1,0 +1,53 @@
+name: Trivy Container Scan
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/agent/Dockerfile'
+      - 'services/agent/pyproject.toml'
+      - 'services/agent/poetry.lock'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/agent/Dockerfile'
+      - 'services/agent/pyproject.toml'
+      - 'services/agent/poetry.lock'
+
+jobs:
+  scan:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t agent:${{ github.sha }} \
+            -f services/agent/Dockerfile \
+            services/agent
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'agent:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
