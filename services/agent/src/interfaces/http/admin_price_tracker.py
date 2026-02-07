@@ -1659,6 +1659,8 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 </p>
             </div>
         </div>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
     """
 
     extra_css = """
@@ -2064,51 +2066,161 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
         }
 
         // Price History Chart
-        async function showPriceHistory(productId, productName) {
+        let priceChartInstance = null;
+        let priceHistoryState = { productId: null, productName: null };
+
+        const storeColors = {
+            'willys': { border: '#2d6a30', bg: 'rgba(45,106,48,0.1)' },
+            'ica': { border: '#e13205', bg: 'rgba(225,50,5,0.1)' },
+            'apotea': { border: '#0066cc', bg: 'rgba(0,102,204,0.1)' },
+            'coop': { border: '#00843d', bg: 'rgba(0,132,61,0.1)' },
+            'hemkop': { border: '#e4002b', bg: 'rgba(228,0,43,0.1)' },
+            'mathem': { border: '#ff6600', bg: 'rgba(255,102,0,0.1)' },
+        };
+        const fallbackColors = [
+            { border: '#3b82f6', bg: 'rgba(59,130,246,0.1)' },
+            { border: '#10b981', bg: 'rgba(16,185,129,0.1)' },
+            { border: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
+            { border: '#ef4444', bg: 'rgba(239,68,68,0.1)' },
+            { border: '#8b5cf6', bg: 'rgba(139,92,246,0.1)' },
+            { border: '#ec4899', bg: 'rgba(236,72,153,0.1)' },
+        ];
+
+        function getStoreColor(storeSlug, index) {
+            const slug = (storeSlug || '').toLowerCase();
+            return storeColors[slug] || fallbackColors[index % fallbackColors.length];
+        }
+
+        async function showPriceHistory(productId, productName, days) {
+            days = days || 90;
+            priceHistoryState = { productId, productName };
             const contentEl = document.getElementById('main-content');
             contentEl.innerHTML = '<div class="loading">Loading price history...</div>';
 
-            const res = await fetch(`/platformadmin/price-tracker/products/${productId}/prices?days=90`);
+            const res = await fetch(`/platformadmin/price-tracker/products/${productId}/prices?days=${days}`);
             const prices = await res.json();
 
             if (prices.length === 0) {
-                contentEl.innerHTML = '<div class="card"><p>No price history available</p><button class="btn btn-sm" onclick="showProductsView()">Back</button></div>';
+                contentEl.innerHTML = `<div class="card"><p>No price history available for the last ${days} days.</p><button class="btn btn-sm" onclick="showProductsView()">Back</button></div>`;
                 return;
             }
 
+            // Group by store, separate regular and offer prices
             const byStore = {};
             prices.forEach(p => {
-                if (!byStore[p.store_name]) byStore[p.store_name] = [];
-                byStore[p.store_name].push({
-                    x: new Date(p.checked_at),
-                    y: p.offer_price_sek || p.price_sek
-                });
+                const key = p.store_slug || p.store_name;
+                if (!byStore[key]) byStore[key] = { name: p.store_name, slug: p.store_slug, regular: [], offer: [] };
+                const ts = new Date(p.checked_at);
+                if (p.price_sek != null) byStore[key].regular.push({ x: ts, y: p.price_sek });
+                if (p.offer_price_sek != null) byStore[key].offer.push({ x: ts, y: p.offer_price_sek });
             });
 
             contentEl.innerHTML = `
                 <div class="card">
                     <div class="card-header">
                         <span class="card-title">Price History: ${escapeHtml(productName)}</span>
-                        <button class="btn btn-sm" onclick="showProductsView()">Back</button>
+                        <div style="display: flex; gap: 6px; align-items: center;">
+                            <button class="btn btn-sm${days === 30 ? ' btn-primary' : ''}" onclick="showPriceHistory('${productId}', '${escapeHtml(productName)}', 30)">30d</button>
+                            <button class="btn btn-sm${days === 90 ? ' btn-primary' : ''}" onclick="showPriceHistory('${productId}', '${escapeHtml(productName)}', 90)">90d</button>
+                            <button class="btn btn-sm${days === 180 ? ' btn-primary' : ''}" onclick="showPriceHistory('${productId}', '${escapeHtml(productName)}', 180)">180d</button>
+                            <span style="border-left: 1px solid var(--border); height: 20px; margin: 0 4px;"></span>
+                            <button class="btn btn-sm" onclick="showProductsView()">Back</button>
+                        </div>
                     </div>
-                    <canvas id="price-chart" height="300"></canvas>
+                    <div style="position: relative; height: 350px;">
+                        <canvas id="price-chart"></canvas>
+                    </div>
                 </div>
             `;
 
-            const datasets = Object.entries(byStore).map(([store, data], i) => ({
-                label: store,
-                data: data.sort((a, b) => a.x - b.x),
-                borderColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'][i % 4],
-                fill: false
-            }));
+            const datasets = [];
+            let colorIdx = 0;
+            Object.entries(byStore).forEach(([key, store]) => {
+                const color = getStoreColor(store.slug, colorIdx);
+                // Regular price (dashed line)
+                if (store.regular.length > 0) {
+                    datasets.push({
+                        label: store.name + ' (regular)',
+                        data: store.regular.sort((a, b) => a.x - b.x),
+                        borderColor: color.border,
+                        backgroundColor: color.bg,
+                        borderDash: [5, 3],
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 3,
+                        pointHoverRadius: 6,
+                        pointBorderColor: color.border,
+                        pointBackgroundColor: '#fff',
+                        pointBorderWidth: 2,
+                    });
+                }
+                // Offer price (solid line)
+                if (store.offer.length > 0) {
+                    datasets.push({
+                        label: store.name + ' (offer)',
+                        data: store.offer.sort((a, b) => a.x - b.x),
+                        borderColor: color.border,
+                        backgroundColor: color.bg,
+                        borderDash: [],
+                        borderWidth: 2.5,
+                        fill: false,
+                        tension: 0.3,
+                        pointRadius: 4,
+                        pointHoverRadius: 7,
+                        pointBorderColor: color.border,
+                        pointBackgroundColor: color.border,
+                        pointBorderWidth: 2,
+                    });
+                }
+                // If only regular prices exist (no offers), show as solid
+                if (store.regular.length > 0 && store.offer.length === 0) {
+                    datasets[datasets.length - 1].borderDash = [];
+                    datasets[datasets.length - 1].borderWidth = 2;
+                    datasets[datasets.length - 1].label = store.name;
+                }
+                colorIdx++;
+            });
 
-            new Chart(document.getElementById('price-chart'), {
+            if (priceChartInstance) {
+                priceChartInstance.destroy();
+                priceChartInstance = null;
+            }
+
+            priceChartInstance = new Chart(document.getElementById('price-chart'), {
                 type: 'line',
-                data: {datasets},
+                data: { datasets },
                 options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(2) + ' kr';
+                                }
+                            }
+                        },
+                        legend: {
+                            position: 'bottom',
+                        }
+                    },
                     scales: {
-                        x: {type: 'time', time: {unit: 'day'}},
-                        y: {beginAtZero: false, title: {display: true, text: 'SEK'}}
+                        x: {
+                            type: 'time',
+                            time: { unit: days <= 30 ? 'day' : 'week', tooltipFormat: 'yyyy-MM-dd' },
+                            title: { display: false },
+                        },
+                        y: {
+                            beginAtZero: false,
+                            title: { display: true, text: 'SEK' },
+                            ticks: {
+                                callback: function(value) { return value + ' kr'; }
+                            }
+                        }
                     }
                 }
             });

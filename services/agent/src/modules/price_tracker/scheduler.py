@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import random
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -11,7 +11,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import joinedload
 
 from core.protocols import IEmailService, IFetcher
-from modules.price_tracker.models import PricePoint, PriceWatch, ProductStore
+from modules.price_tracker.models import (
+    PricePoint,
+    PriceWatch,
+    Product,
+    ProductStore,
+    Store,
+)
 from modules.price_tracker.notifier import PriceNotifier
 from modules.price_tracker.parser import PriceExtractionResult, PriceParser
 
@@ -40,6 +46,7 @@ class PriceCheckScheduler:
             self.notifier = PriceNotifier(email_service)
         self._running = False
         self._task: asyncio.Task[None] | None = None
+        self._last_summary_date: date | None = None
 
     async def start(self) -> None:
         """Start the background scheduler."""
@@ -69,6 +76,11 @@ class PriceCheckScheduler:
                 await self._check_due_products()
             except Exception as e:
                 logger.error(f"Scheduler error: {e}", exc_info=True)
+
+            try:
+                await self._check_weekly_summary()
+            except Exception as e:
+                logger.error(f"Weekly summary error: {e}", exc_info=True)
 
             await asyncio.sleep(self.CHECK_INTERVAL_SECONDS)
 
@@ -305,3 +317,121 @@ class PriceCheckScheduler:
 
                 if success:
                     watch.last_alerted_at = now
+
+    async def _check_weekly_summary(self) -> None:
+        """Send weekly summary emails on Mondays at 14:00+."""
+        if not self.notifier:
+            return
+
+        now = datetime.now(UTC).replace(tzinfo=None)
+
+        # Only on Mondays, after 14:00
+        if now.weekday() != 0 or now.hour < 14:
+            return
+
+        # Don't re-send if already sent today
+        today = now.date()
+        if self._last_summary_date == today:
+            return
+
+        logger.info("Sending weekly summary emails")
+
+        async with self.session_factory() as session:
+            cutoff = now - timedelta(days=7)
+
+            # Get deals from last 7 days (price points with offers)
+            deals_stmt = (
+                select(PricePoint, ProductStore, Product, Store)
+                .join(ProductStore, PricePoint.product_store_id == ProductStore.id)
+                .join(Product, ProductStore.product_id == Product.id)
+                .join(Store, ProductStore.store_id == Store.id)
+                .where(
+                    ProductStore.is_active.is_(True),
+                    PricePoint.offer_price_sek.isnot(None),
+                    PricePoint.checked_at >= cutoff,
+                )
+                .order_by(PricePoint.checked_at.desc())
+            )
+            deals_result = await session.execute(deals_stmt)
+            deals_rows = deals_result.all()
+
+            deals: list[dict[str, str | Decimal | None]] = []
+            for price_point, _ps, product, store in deals_rows:
+                deals.append(
+                    {
+                        "product_name": product.name,
+                        "store_name": store.name,
+                        "offer_price_sek": (
+                            Decimal(str(price_point.offer_price_sek))
+                            if price_point.offer_price_sek
+                            else None
+                        ),
+                        "offer_type": price_point.offer_type,
+                    }
+                )
+
+            # Get active watches with latest price per product
+            watches_stmt = (
+                select(PriceWatch)
+                .where(PriceWatch.is_active.is_(True))
+                .options(joinedload(PriceWatch.product))
+            )
+            watches_result = await session.execute(watches_stmt)
+            watches = watches_result.unique().scalars().all()
+
+            if not watches and not deals:
+                logger.debug("No watches or deals - skipping weekly summary")
+                self._last_summary_date = today
+                return
+
+            # Build watched products with latest prices
+            watched_products: list[dict[str, str | Decimal | None]] = []
+            product_ids_seen: set[str] = set()
+            for watch in watches:
+                pid = str(watch.product_id)
+                if pid in product_ids_seen:
+                    continue
+                product_ids_seen.add(pid)
+
+                # Get latest price for this product
+                latest_stmt = (
+                    select(PricePoint, Store)
+                    .join(ProductStore, PricePoint.product_store_id == ProductStore.id)
+                    .join(Store, ProductStore.store_id == Store.id)
+                    .where(ProductStore.product_id == watch.product_id)
+                    .order_by(PricePoint.checked_at.desc())
+                    .limit(1)
+                )
+                latest_result = await session.execute(latest_stmt)
+                latest_row = latest_result.first()
+
+                lowest_price: Decimal | None = None
+                store_name = ""
+                if latest_row:
+                    pp, st = latest_row
+                    price_val = pp.offer_price_sek or pp.price_sek
+                    lowest_price = Decimal(str(price_val)) if price_val else None
+                    store_name = st.name
+
+                watched_products.append(
+                    {
+                        "name": watch.product.name,
+                        "lowest_price": lowest_price,
+                        "store_name": store_name,
+                    }
+                )
+
+            # Group by email and send
+            emails: set[str] = {w.email_address for w in watches}
+            for email in emails:
+                try:
+                    await self.notifier.send_weekly_summary(
+                        to_email=email,
+                        deals=deals,
+                        watched_products=watched_products,
+                    )
+                    logger.info(f"Sent weekly summary to {email}")
+                except Exception as e:
+                    logger.error(f"Failed to send weekly summary to {email}: {e}")
+
+        self._last_summary_date = today
