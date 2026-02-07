@@ -10,7 +10,7 @@ class IEmbedder(Protocol):
     """Abstract interface for text embedding services.
 
     This protocol defines the contract that embedding implementations must follow.
-    Implementations use remote APIs (e.g. OpenRouter embeddings).
+    Implementations use the LiteLLM proxy for embedding requests.
     """
 
     async def embed(self, texts: list[str]) -> list[list[float]]:

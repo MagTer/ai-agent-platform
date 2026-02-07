@@ -13,7 +13,9 @@ sys.path.append(str(project_root / "services" / "agent" / "src"))
 from colorama import Fore, Style, init  # noqa: E402
 from qdrant_client.http import models  # noqa: E402
 
-from modules.embedder import OpenRouterEmbedder  # noqa: E402
+from core.core.config import Settings  # noqa: E402
+from core.core.litellm_client import LiteLLMClient  # noqa: E402
+from modules.embedder import LiteLLMEmbedder  # noqa: E402
 from modules.rag import RAGManager  # noqa: E402
 
 init(autoreset=True)
@@ -25,8 +27,10 @@ COLLECTION_NAME = "tibp-wiki"
 async def main(force: bool = False):
     print(f"{Style.BRIGHT}🚀 Starting TIBP Wiki Ingestion...")
 
-    # 1. Initialize OpenRouter embedder and RAG
-    embedder = OpenRouterEmbedder()  # Uses OPENROUTER_API_KEY from env
+    # 1. Initialize LiteLLM embedder and RAG
+    settings = Settings()
+    client = LiteLLMClient(settings)
+    embedder = LiteLLMEmbedder(client)
 
     os.environ["QDRANT_COLLECTION"] = COLLECTION_NAME
     rag = RAGManager(embedder=embedder)
@@ -109,7 +113,7 @@ async def main(force: bool = False):
     finally:
         print(f"\n{Style.DIM}Cleaning up connections...")
         await rag.close()
-        await embedder.close()
+        await client.aclose()
 
 
 if __name__ == "__main__":

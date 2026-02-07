@@ -4,6 +4,7 @@ general_settings:
 
 litellm_settings:
   budget_limit: 5.00
+  drop_params: true
 
 logging:
   level: INFO
@@ -127,6 +128,27 @@ model_list:
         provider:
           zdr: true
           order: ["Groq", "SambaNova"]
+
+  # ============================================
+  # EMBEDDING MODELS
+  # ============================================
+
+  # Embedder: Text embeddings for memory, RAG, and code indexing
+  # Needs: Multilingual (Swedish + English), high quality
+  # Using qwen3-embedding-8b - 4096 dimensions, multilingual
+  - model_name: embedder
+    litellm_params:
+      model: openai/qwen/qwen3-embedding-8b
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      encoding_format: float
+      rpm: 300
+    model_info:
+      mode: embedding
+
+  # ============================================
+  # FALLBACK / SPECIALIZED MODELS
+  # ============================================
 
   # Price Tracker Fallback: When primary extraction has low confidence
   # Needs: Higher quality, accepts any confidence
