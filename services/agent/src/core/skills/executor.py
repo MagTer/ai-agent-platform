@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -647,11 +648,14 @@ class SkillExecutor:
 
                             try:
                                 with start_span(f"skill.tool.{fname}"):
+                                    tool_start = time.perf_counter()
                                     output_str = str(await tool_obj.run(**tool_args))
+                                    tool_duration_ms = (time.perf_counter() - tool_start) * 1000
                                     set_span_attributes(
                                         {
                                             "tool.output_preview": output_str[:500],
                                             "tool.status": "success",
+                                            "tool.duration_ms": round(tool_duration_ms, 1),
                                         }
                                     )
                             except Exception as e:

@@ -34,6 +34,10 @@ class LiteLLMClient:
         self._client = httpx.AsyncClient(
             base_url=str(settings.litellm_api_base),
             timeout=self._timeout,
+            limits=httpx.Limits(
+                max_connections=200,
+                max_keepalive_connections=50,
+            ),
         )
         self._registry = ModelCapabilityRegistry.get_instance()
 

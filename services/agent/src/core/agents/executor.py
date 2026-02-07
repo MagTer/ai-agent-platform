@@ -16,7 +16,12 @@ from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryStore
 from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
-from core.observability.tracing import current_trace_ids, set_span_status, start_span
+from core.observability.tracing import (
+    current_trace_ids,
+    set_span_attributes,
+    set_span_status,
+    start_span,
+)
 from core.tools import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
@@ -385,6 +390,9 @@ class StepExecutorAgent:
                     content_chunks = []  # Collect content stream
                     tool_source_count = 0  # Track source count from streaming tools
 
+                    # Start timing tool execution
+                    tool_start = time.perf_counter()
+
                     # Wrap tool execution with timeout
                     async with asyncio.timeout(TOOL_TIMEOUT_SECONDS):
                         if inspect.isasyncgenfunction(tool.run):
@@ -428,6 +436,14 @@ class StepExecutorAgent:
                                 output = "No valid output from streaming tool."
                         else:
                             output = await tool.run(**run_args)
+
+                    # Calculate tool execution duration
+                    tool_duration_ms = (time.perf_counter() - tool_start) * 1000
+                    set_span_attributes(
+                        {
+                            "tool.duration_ms": round(tool_duration_ms, 1),
+                        }
+                    )
 
                     output_text = str(output)
 
@@ -488,6 +504,7 @@ class StepExecutorAgent:
                     status=trace_status,
                     output_preview=output_text[:200],
                     trace=trace_ctx,
+                    duration_ms=round(tool_duration_ms, 1),
                 )
             )
             yield {

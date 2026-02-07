@@ -43,6 +43,7 @@ class ToolCallEvent(BaseModel):
     status: str
     output_preview: str | None = None
     trace: TraceContext | None = None
+    duration_ms: float | None = None
 
 
 class UserFacingEvent(BaseModel):

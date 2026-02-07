@@ -53,6 +53,10 @@ class ResendEmailService:
                     "Authorization": f"Bearer {self._config.api_key}",
                     "Content-Type": "application/json",
                 },
+                limits=httpx.Limits(
+                    max_connections=10,
+                    max_keepalive_connections=5,
+                ),
             )
         return self._client
 
