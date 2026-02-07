@@ -4,6 +4,7 @@ This module provides modular quality check functions that can be composed
 into different workflows for QA agents, Engineers, and CI pipelines.
 
 Functions:
+    run_architecture: Run architecture validator
     run_ruff: Run Ruff linter with optional auto-fix
     run_black: Run Black formatter with optional auto-fix
     run_mypy: Run Mypy type checker
@@ -19,6 +20,8 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from core.validators.architecture import validate_architecture
 
 # --- Configuration ---
 
@@ -98,6 +101,36 @@ def _run_cmd(
         env=run_env,
         capture_output=False,
     )
+
+
+def run_architecture(*, repo_root: Path | None = None) -> CheckResult:
+    """Run architecture validator.
+
+    Args:
+        repo_root: Repository root path. Defaults to auto-detected.
+
+    Returns:
+        CheckResult indicating success or failure.
+    """
+    root = repo_root or REPO_ROOT
+    src_dir = root / "services" / "agent" / "src"
+
+    _print_step("Running Architecture Validator")
+
+    passed, violations = validate_architecture(src_dir)
+
+    if passed:
+        _print_success("Architecture validation passed")
+        return CheckResult(success=True, name="architecture")
+    else:
+        # Warn-only mode: report violations but don't fail the build.
+        # Pre-existing violations are documented in .architecture-violations.md.
+        # TODO: Switch to strict mode once all violations are resolved.
+        print(f"\n{YELLOW}[WARN] Found {len(violations)} architecture violation(s):{RESET}\n")
+        for violation in violations:
+            print(f"{YELLOW}{violation}{RESET}\n")
+        _print_info(f"Architecture check: {len(violations)} violation(s) found (warn-only mode)")
+        return CheckResult(success=True, name="architecture")
 
 
 def run_ruff(*, fix: bool = True, repo_root: Path | None = None) -> CheckResult:
@@ -290,6 +323,7 @@ def run_all_checks(
     fix: bool = True,
     include_semantic: bool = False,
     semantic_category: str | None = None,
+    skip_architecture: bool = False,
     repo_root: Path | None = None,
 ) -> list[CheckResult]:
     """Run all quality checks in sequence.
@@ -300,6 +334,7 @@ def run_all_checks(
         fix: If True, auto-fix linting issues. If False, check only.
         include_semantic: If True, include semantic e2e tests.
         semantic_category: Optional category filter for semantic tests.
+        skip_architecture: If True, skip architecture validation.
         repo_root: Repository root path. Defaults to auto-detected.
 
     Returns:
@@ -312,6 +347,13 @@ def run_all_checks(
     print(f"   Mode: {'Check only' if not fix else 'Auto-fix enabled'}")
 
     results: list[CheckResult] = []
+
+    # Architecture validation (FIRST - catches structural issues)
+    if not skip_architecture:
+        arch_result = run_architecture(repo_root=root)
+        results.append(arch_result)
+    else:
+        _print_info("Skipping architecture validation")
 
     # Linting (Ruff + Black)
     ruff_result = run_ruff(fix=fix, repo_root=root)
@@ -378,6 +420,7 @@ def ensure_dependencies() -> None:
 
 __all__ = [
     "CheckResult",
+    "run_architecture",
     "run_ruff",
     "run_black",
     "run_mypy",

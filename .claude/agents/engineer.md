@@ -143,6 +143,39 @@ embedder = get_embedder()  # Gets injected implementation
 
 ---
 
+## Pre-Implementation Verification
+
+Before writing any code, verify these constraints:
+
+**Layer Architecture Check:**
+- Identify target file's layer (core, modules, orchestrator, interfaces)
+- Check all planned imports comply with dependency rules
+- Modules can ONLY import core (never other modules)
+- Core NEVER imports from higher layers
+
+**New Components Checklist:**
+- Adding a new tool? Register in `config/tools.yaml`
+- Adding a skill? Create `.md` file in `skills/` directory
+- New skill references tools? Verify tools are registered
+- Modifying database models? Create Alembic migration
+
+**Async I/O Rules:**
+- Never use `subprocess.run()` - use `asyncio.create_subprocess_exec()`
+- Never use `open()` for large files - use `aiofiles` or `asyncio.to_thread()`
+- All database operations must use async session
+- All HTTP requests must use `httpx.AsyncClient()`
+
+**Import Rules:**
+- Use absolute imports only (no relative imports like `from ..core`)
+- Example: `from core.db import get_session` (correct)
+- Example: `from ..core.db import get_session` (WRONG)
+
+**After Writing Code:**
+- Run `stack check` for validation (includes architecture checks)
+- Fix any violations before proceeding to next step
+
+---
+
 ## Quality Gate (MANDATORY)
 
 **Before completing ANY task:**

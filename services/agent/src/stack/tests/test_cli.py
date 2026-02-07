@@ -219,6 +219,7 @@ def test_check_command_success(monkeypatch: MonkeyPatch) -> None:
         fix: bool,
         include_semantic: bool,
         semantic_category: str | None = None,
+        skip_architecture: bool = False,
         repo_root: Path | None,
     ) -> list[checks.CheckResult]:
         called["fix"] = fix
@@ -251,6 +252,7 @@ def test_check_command_no_fix(monkeypatch: MonkeyPatch) -> None:
         fix: bool,
         include_semantic: bool,
         semantic_category: str | None = None,
+        skip_architecture: bool = False,
         repo_root: Path | None,
     ) -> list[checks.CheckResult]:
         called["fix"] = fix
@@ -272,6 +274,7 @@ def test_check_command_failure(monkeypatch: MonkeyPatch) -> None:
         fix: bool,
         include_semantic: bool,
         semantic_category: str | None = None,
+        skip_architecture: bool = False,
         repo_root: Path | None,
     ) -> list[checks.CheckResult]:
         return [

@@ -198,6 +198,36 @@ git pull origin main
 
 ---
 
+## Pre-PR Architecture Audit
+
+Before creating a PR, verify these requirements:
+
+**Quality Gate:**
+- [ ] `stack check` passes (includes architecture validation)
+- [ ] All tests pass (unit and integration)
+- [ ] No new linting errors introduced
+
+**Architecture Compliance:**
+- [ ] No new files violate layer dependency rules
+- [ ] No cross-module imports added (modules/ importing other modules/)
+- [ ] No core/ imports from upper layers
+
+**Commit Quality:**
+- [ ] Commit messages follow conventional commits format
+- [ ] Format: `type: description` (feat, fix, refactor, test, docs)
+
+**File Changes:**
+- [ ] All new files registered in appropriate config (tools.yaml, etc.)
+- [ ] Database migrations created for schema changes
+- [ ] No temporary or debug files committed
+
+**If any checks fail:**
+- Simple auto-fixable errors (ruff, black): Fix and re-run
+- Complex type errors (mypy): Escalate to Engineer
+- Test failures requiring code changes: Escalate to Engineer
+
+---
+
 ## Escalation
 
 **Escalate to Engineer if:**

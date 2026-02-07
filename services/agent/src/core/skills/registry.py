@@ -108,10 +108,10 @@ class SkillRegistry:
         tool_registry: ToolRegistry | None = None,
         skills_dir: Path | None = None,
     ) -> SkillRegistry:
-        """Create a SkillRegistry with async parallel loading.
+        """Create SkillRegistry with async parallel loading (recommended).
 
-        This method should be used in async contexts (like FastAPI startup)
-        for faster initialization with parallel file loading.
+        Loads all skill files in parallel for faster initialization.
+        Preferred over synchronous __init__ for production use.
 
         Args:
             tool_registry: Optional ToolRegistry for validating tool references.
@@ -322,9 +322,9 @@ class SkillRegistry:
         return self._parse_skill_content(path, content)
 
     def get(self, name: str) -> Skill | None:
-        """Get a skill by name.
+        """Look up skill by name with fallback matching.
 
-        Looks up by:
+        Tries multiple lookup strategies in order:
         1. Exact skill name (from frontmatter)
         2. Path-based name (e.g., "general/researcher")
         3. Filename only (e.g., "researcher")
@@ -346,18 +346,18 @@ class SkillRegistry:
         return None
 
     def available(self) -> list[str]:
-        """Get list of all available skill names.
+        """List all registered skill names.
 
         Returns:
-            List of skill names.
+            List of skill names from frontmatter.
         """
         return list(self._skills.keys())
 
     def get_index(self) -> str:
-        """Get a formatted index of all available skills for prompts.
+        """Get formatted skill index for LLM prompts.
 
         Returns:
-            Bulleted list of skills with descriptions.
+            Bulleted markdown list of skills with descriptions.
         """
         if not self._skills:
             return "(No skills loaded)"
@@ -370,10 +370,12 @@ class SkillRegistry:
         return "\n".join(lines)
 
     def get_skill_names(self) -> set[str]:
-        """Get set of all available skill names for validation.
+        """Get all valid skill lookup names.
 
-        Returns all names that can be used to look up skills,
-        including frontmatter names, path-based names, and filenames.
+        Includes frontmatter names, path-based names, and filenames.
+
+        Returns:
+            Set of all valid skill name aliases.
         """
         names: set[str] = set()
         names.update(self._skills.keys())

@@ -133,7 +133,9 @@ class ClaudeCodeTool(Tool):
         self.workspace_base = workspace_base or Path("/tmp/agent-workspaces")  # noqa: S108
 
     def _sanitize_task(self, task: str) -> tuple[str, list[str]]:
-        """Remove potentially dangerous patterns from task description.
+        """Remove dangerous command patterns from task description.
+
+        Blocks patterns like rm -rf, curl | sh, sudo, path traversal, etc.
 
         Args:
             task: The task description to sanitize.
@@ -279,7 +281,17 @@ class ClaudeCodeTool(Tool):
         context: str | None,
         files_hint: list[str] | None,
     ) -> str:
-        """Build the prompt for Claude Code."""
+        """Build mode-specific prompt for Claude Code.
+
+        Args:
+            task: Task description.
+            mode: investigate or fix.
+            context: Stack traces, error messages, etc.
+            files_hint: Files likely related to the issue.
+
+        Returns:
+            Formatted prompt string.
+        """
         parts = []
 
         # Mode-specific instructions
@@ -319,13 +331,24 @@ class ClaudeCodeTool(Tool):
         return "\n".join(parts)
 
     async def _run_claude(self, prompt: str, cwd: Path, mode: str) -> str:
-        """Execute claude CLI with security constraints.
+        """Execute Claude Code CLI with strict security constraints.
 
-        SECURITY CHANGES from original:
-        - REMOVED --dangerously-skip-permissions entirely
-        - Investigate mode uses --allowlist for read-only tools only
-        - Fix mode uses Claude Code's normal permission system (prompts user)
-        - Environment explicitly unsets dangerous flags
+        SECURITY FEATURES:
+        - NO --dangerously-skip-permissions flag (removed entirely)
+        - Investigate mode: --allowlist for read-only tools only
+        - Fix mode: Uses normal permission prompts
+        - Environment explicitly unsets bypass flags
+
+        Args:
+            prompt: Task description.
+            cwd: Working directory (validated repository path).
+            mode: investigate or fix.
+
+        Returns:
+            Claude Code output.
+
+        Raises:
+            TimeoutError: If execution exceeds timeout.
         """
         cmd = ["claude", "--print", "-p", prompt]
 

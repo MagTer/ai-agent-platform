@@ -15,6 +15,10 @@ services:
     build:
       context: ./services/agent
       dockerfile: Dockerfile
+      # Optional: Enable Node.js and Gemini CLI (adds ~350MB to image)
+      # Uncomment the following lines to enable:
+      # args:
+      #   INCLUDE_NODEJS: "true"
     image: ai-agent-platform-agent:latest
     env_file:
       - .env

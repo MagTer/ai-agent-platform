@@ -560,7 +560,10 @@ class HomeyTool(Tool):
         homey_id: str | None = None,
         db_session: AsyncSession | None = None,
     ) -> str | None:
-        """Find a device by name, checking cache first.
+        """Find device by name using cache-first lookup with fuzzy matching.
+
+        Checks cache first, falls back to API if needed. Supports exact,
+        partial, and bidirectional substring matching.
 
         Args:
             homey_url: Homey base URL.
@@ -644,7 +647,15 @@ class HomeyTool(Tool):
         homey_url: str,
         session_token: str,
     ) -> str:
-        """List all devices on a Homey."""
+        """List all devices grouped by zone/room.
+
+        Args:
+            homey_url: Homey base URL.
+            session_token: Homey session token.
+
+        Returns:
+            Formatted markdown list of devices by zone.
+        """
         devices = await self._homey_request(
             "GET",
             homey_url,
@@ -726,7 +737,19 @@ class HomeyTool(Tool):
         value: bool | float | str,
         device_name: str | None = None,
     ) -> str:
-        """Set a device capability value."""
+        """Set device capability value (on/off, dim, temperature, etc.).
+
+        Args:
+            homey_url: Homey base URL.
+            session_token: Homey session token.
+            device_id: Device UUID.
+            capability: Capability name (onoff, dim, target_temperature).
+            value: Value to set (bool, float, or str).
+            device_name: Optional display name for response.
+
+        Returns:
+            Confirmation message for user.
+        """
         response = await self._homey_request(
             "PUT",
             homey_url,

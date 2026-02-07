@@ -155,6 +155,27 @@ When auditing code, verify:
 
 ---
 
+## Architecture Validation Checklist
+
+Before completing any plan, verify all items:
+
+- [ ] No core/ imports from upper layers
+- [ ] No cross-module imports (modules/X does not import modules/Y)
+- [ ] All new tools registered in config/tools.yaml
+- [ ] All new skills reference only registered tools
+- [ ] Database changes have Alembic migration
+- [ ] New endpoints have authentication
+- [ ] No blocking I/O in async contexts (subprocess.run, open() for large files)
+- [ ] Shared code goes in shared/, not duplicated across layers
+
+**Integration checklist:**
+- [ ] Protocol-based DI used for cross-layer communication
+- [ ] New protocols defined in core/protocols/ (if needed)
+- [ ] Provider registration in core/providers.py (if needed)
+- [ ] Dependency injection configured in interfaces/app.py
+
+---
+
 ## Planning Workflow
 
 ### Phase 1: Exploration (Turns 1-3)

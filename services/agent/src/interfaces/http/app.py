@@ -525,6 +525,164 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     async def health() -> HealthStatus:  # pragma: no cover - trivial endpoint
         return HealthStatus(status="ok")
 
+    @app.get("/readyz")
+    async def readiness(
+        request: Request,
+        session: AsyncSession = Depends(get_db),
+    ) -> JSONResponse:
+        """Readiness probe that checks all dependencies.
+
+        Returns HTTP 200 if all checks pass, HTTP 503 if any fail.
+        """
+        import asyncio
+
+        import httpx
+
+        checks: dict[str, dict[str, Any]] = {}
+        all_ready = True
+
+        # Database check
+        async def check_database() -> dict[str, Any]:
+            try:
+                start = time.perf_counter()
+                from sqlalchemy import text
+
+                await session.execute(text("SELECT 1"))
+                latency = (time.perf_counter() - start) * 1000
+                return {"status": "ok", "latency_ms": round(latency, 1)}
+            except Exception as e:
+                return {"status": "error", "error": str(e)[:200]}
+
+        # Qdrant check
+        async def check_qdrant() -> dict[str, Any]:
+            try:
+                start = time.perf_counter()
+                from qdrant_client import AsyncQdrantClient
+
+                qdrant_url = settings.qdrant_url
+                client = AsyncQdrantClient(url=str(qdrant_url))
+                try:
+                    # List collections to verify connection
+                    await asyncio.wait_for(client.get_collections(), timeout=2.0)
+                    latency = (time.perf_counter() - start) * 1000
+                    return {"status": "ok", "latency_ms": round(latency, 1)}
+                finally:
+                    await client.close()
+            except TimeoutError:
+                return {"status": "error", "error": "timeout"}
+            except ImportError:
+                return {"status": "unavailable", "error": "qdrant-client not installed"}
+            except Exception as e:
+                return {"status": "error", "error": str(e)[:200]}
+
+        # Skill registry check
+        async def check_skills() -> dict[str, Any]:
+            try:
+                if hasattr(request.app.state, "service_factory"):
+                    factory: ServiceFactory = request.app.state.service_factory
+                    if hasattr(factory, "_skill_registry"):
+                        registry = factory._skill_registry
+                        if registry is not None:
+                            count = len(registry.available())
+                            return {"status": "ok", "count": count}
+                return {"status": "unavailable", "error": "skill registry not initialized"}
+            except Exception as e:
+                return {"status": "error", "error": str(e)[:200]}
+
+        # LiteLLM check
+        async def check_litellm() -> dict[str, Any]:
+            try:
+                start = time.perf_counter()
+                async with httpx.AsyncClient(timeout=2.0) as client:
+                    litellm_url = str(settings.litellm_api_base).rstrip("/")
+                    response = await client.get(f"{litellm_url}/health")
+                    latency = (time.perf_counter() - start) * 1000
+                    if response.status_code == 200:
+                        return {"status": "ok", "latency_ms": round(latency, 1)}
+                    return {
+                        "status": "error",
+                        "error": f"HTTP {response.status_code}",
+                    }
+            except TimeoutError:
+                return {"status": "error", "error": "timeout"}
+            except Exception as e:
+                return {"status": "error", "error": str(e)[:200]}
+
+        # Run all checks in parallel with timeout
+        try:
+            results = await asyncio.gather(
+                check_database(),
+                check_qdrant(),
+                check_skills(),
+                check_litellm(),
+                return_exceptions=True,
+            )
+
+            # Cast results to proper types
+            db_result = results[0]
+            qdrant_result = results[1]
+            skills_result = results[2]
+            litellm_result = results[3]
+
+            checks["database"] = (
+                db_result
+                if isinstance(db_result, dict)
+                else {
+                    "status": "error",
+                    "error": str(db_result)[:200],
+                }
+            )
+            checks["qdrant"] = (
+                qdrant_result
+                if isinstance(qdrant_result, dict)
+                else {
+                    "status": "error",
+                    "error": str(qdrant_result)[:200],
+                }
+            )
+            checks["skills"] = (
+                skills_result
+                if isinstance(skills_result, dict)
+                else {
+                    "status": "error",
+                    "error": str(skills_result)[:200],
+                }
+            )
+            checks["litellm"] = (
+                litellm_result
+                if isinstance(litellm_result, dict)
+                else {
+                    "status": "error",
+                    "error": str(litellm_result)[:200],
+                }
+            )
+
+            # Determine overall readiness
+            for check_result in checks.values():
+                if check_result.get("status") not in ("ok", "unavailable"):
+                    all_ready = False
+                    break
+
+        except Exception:
+            LOGGER.exception("Readiness check failed")
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "status": "not_ready",
+                    "error": "Readiness check execution failed",
+                    "checks": checks,
+                },
+            )
+
+        status_code = 200 if all_ready else 503
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "status": "ready" if all_ready else "not_ready",
+                "checks": checks,
+            },
+        )
+
     @app.post("/v1/agent", response_model=AgentResponse)
     async def run_agent(
         request: AgentRequest,

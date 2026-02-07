@@ -31,7 +31,13 @@ TOOL_TIMEOUT_SECONDS = 120
 
 
 class StepExecutorAgent:
-    """Execute individual steps with observability hooks."""
+    """Execute individual plan steps with observability and streaming support.
+
+    Handles different execution modes:
+    - Memory search steps
+    - Tool execution steps (native tools and skills)
+    - LLM completion steps
+    """
 
     def __init__(
         self,
@@ -39,6 +45,13 @@ class StepExecutorAgent:
         litellm: LiteLLMClient,
         tool_registry: ToolRegistry | None,
     ) -> None:
+        """Initialize the executor with required dependencies.
+
+        Args:
+            memory: Vector store for memory operations.
+            litellm: LiteLLM client for model calls.
+            tool_registry: Registry of available tools.
+        """
         self._memory = memory
         self._litellm = litellm
         self._tool_registry = tool_registry
@@ -51,7 +64,17 @@ class StepExecutorAgent:
         conversation_id: str,
         prompt_history: list[AgentMessage],
     ) -> StepResult:
-        """Run a step and return the final result (compatibility wrapper)."""
+        """Run a step and return final result (non-streaming wrapper).
+
+        Args:
+            step: The plan step to execute.
+            request: The agent request.
+            conversation_id: UUID of the conversation.
+            prompt_history: Conversation history for context.
+
+        Returns:
+            The step execution result.
+        """
         async for event in self.run_stream(
             step,
             request=request,
@@ -74,7 +97,22 @@ class StepExecutorAgent:
         conversation_id: str,
         prompt_history: list[AgentMessage],
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute a step and yield incremental updates (content tokens, etc)."""
+        """Execute step and stream incremental events.
+
+        Dispatches to appropriate handler based on executor/action:
+        - agent/memory: Memory search
+        - agent/tool: Tool execution (native or skill)
+        - litellm/completion: LLM text generation
+
+        Args:
+            step: The plan step to execute.
+            request: The agent request.
+            conversation_id: UUID of the conversation.
+            prompt_history: Conversation history for LLM context.
+
+        Yields:
+            Event dictionaries (content, thinking, result).
+        """
         start_time = time.perf_counter()
 
         span_name = f"Step: {step.label}" if step.label else f"Step: {step.id}"
