@@ -3,46 +3,77 @@ name: CI
 on:
   pull_request:
 
+env:
+  PYTHON_VERSION: '3.11'
+  POETRY_VERSION: '1.8.2'
+
 jobs:
-  quality-gate:
-    name: Quality Gate
+  lint:
+    name: Lint (Ruff + Black)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Free Disk Space
-        run: |
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf "/usr/local/share/boost"
-          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
-
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/agent/poetry.lock
       - uses: abatilo/actions-poetry@v3
         with:
-          poetry-version: 1.8.2
-      - name: Cache Poetry dependencies
-        uses: actions/cache@v4
+          poetry-version: ${{ env.POETRY_VERSION }}
+      - run: poetry config virtualenvs.create false
+      - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - name: Ruff
+        run: python -m ruff check . --config services/agent/pyproject.toml
+      - name: Black
+        run: python -m black . --config services/agent/pyproject.toml --extend-exclude '/(data|services/openwebui/data)|.*\.venv' --check
+
+  typecheck:
+    name: Typecheck (Mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          path: ~/.cache/pypoetry
-          key: poetry-${{ runner.os }}-${{ hashFiles('services/agent/poetry.lock') }}
-          restore-keys: |
-            poetry-${{ runner.os }}-
-      - name: Configure Poetry
-        run: poetry config virtualenvs.create false
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-root --directory services/agent
-      - name: Run Quality Checks
-        run: ./stack check --no-fix
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/agent/poetry.lock
+      - uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: ${{ env.POETRY_VERSION }}
+      - run: poetry config virtualenvs.create false
+      - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - name: Mypy
+        run: python -m mypy
+        working-directory: services/agent
+
+  test:
+    name: Tests (Pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/agent/poetry.lock
+      - uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: ${{ env.POETRY_VERSION }}
+      - run: poetry config virtualenvs.create false
+      - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - name: Pytest
+        run: python -m pytest -x -n auto
+        working-directory: services/agent
 
   compose:
     name: Compose config
     runs-on: ubuntu-latest
-    needs: quality-gate
+    needs: [lint, typecheck, test]
     steps:
       - uses: actions/checkout@v4
       - name: Prepare compose environment
         run: cp .env.template .env
       - name: Validate docker compose configuration
         run: docker compose -f docker-compose.yml config
+
