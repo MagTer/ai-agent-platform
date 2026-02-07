@@ -58,11 +58,40 @@ git pull --rebase origin main
 
 ---
 
+## Remote State Awareness
+
+BEFORE creating branches or PRs, ALWAYS sync with remote:
+
+### Before creating a new branch:
+```bash
+git fetch origin
+git checkout main
+git pull origin main        # Ensure main is current
+git checkout -b feat/name   # Branch from up-to-date main
+```
+
+### After a PR is merged (squash merge):
+```bash
+# Squash merge creates a NEW commit on main - local branch is stale
+git checkout main
+git pull origin main
+git branch -d old-branch    # Clean up stale local branch
+```
+
+### Before pushing commits to an existing PR branch:
+```bash
+git fetch origin
+git log HEAD..origin/$(git branch --show-current) --oneline 2>/dev/null
+# If remote has new commits, pull first
+```
+
+---
+
 ## Responsibilities
 
 1. **Git Operations** - commit, push, sync, PR creation
 2. **Quality Checks** - stack check, individual tools
-3. **Deployment** - stack dev restart, stack deploy
+3. **Deployment** - stack dev deploy, stack deploy
 4. **PR Workflow** - create PRs, summarize changes
 
 ---
@@ -155,7 +184,8 @@ git pull origin main
 
 ### Dev Environment
 ```bash
-./stack dev restart    # Restart dev
+./stack dev deploy     # Build, deploy, verify health (USE THIS)
+./stack dev restart    # Quick restart only (no build, no health check)
 ./stack dev logs       # View logs
 ./stack dev status     # Check status
 ```
@@ -191,7 +221,7 @@ Reason: [Why it's complex]
 | Check status | `git status` |
 | Sync branch | `git pull origin main` |
 | Quality check | `stack check` |
-| Deploy dev | `./stack dev restart` |
+| Deploy dev | `./stack dev deploy` |
 | Create PR | `gh pr create ...` |
 | Merge PR | `gh pr merge N --squash` |
 

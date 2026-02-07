@@ -1,8 +1,8 @@
 # Claude Code - AI Agent Platform
 
-**Purpose:** Entry point for Claude Code sessions. Defines the tri-agent workflow.
+**Purpose:** Entry point for Claude Code sessions. Defines the multi-agent workflow.
 
-**Last Updated:** 2026-01-25
+**Last Updated:** 2026-02-07
 
 ---
 
@@ -18,7 +18,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 
 ### 1. Architect (Opus - High Reasoning)
 
-**Model:** `claude-4-5-opus`
+**Model:** Opus
 
 **Use for:**
 - Complex feature planning (3+ files)
@@ -42,7 +42,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 
 ### 2. Engineer (Sonnet - Implementation)
 
-**Model:** `claude-4-5-sonnet`
+**Model:** Sonnet
 
 **Use for:**
 - Implementing features from plans
@@ -55,7 +55,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 **What it does:**
 - Executes implementation plans step-by-step
 - Writes production-quality code
-- Delegates quality checks to QA agent
+- Delegates quality checks to Ops agent
 - Follows strict coding standards
 
 **Example:**
@@ -67,7 +67,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 
 ### 3. Ops (Haiku - Git, Test, Deploy)
 
-**Model:** `claude-3-5-haiku` (cost-efficient)
+**Model:** Haiku (cost-efficient)
 
 **Use for:**
 - ALL git operations (commit, push, sync, PR)
@@ -81,7 +81,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 - Handles git safely (NEVER uses destructive commands)
 - Runs `stack check` for quality verification
 - Creates PRs with proper descriptions
-- Deploys via `stack dev restart` / `stack deploy`
+- Deploys via `stack dev deploy` / `stack deploy`
 
 **Example:**
 ```
@@ -96,7 +96,7 @@ This project uses **native Claude Code sub-agents** defined in `.claude/agents/*
 
 ### 4. Simple Tasks (Haiku - Cost Saver)
 
-**Model:** `claude-3-5-haiku` (cheapest)
+**Model:** Haiku (cheapest)
 
 **Use for:**
 - Text translations/fixes (e.g., Swedish -> English)
@@ -550,7 +550,7 @@ Edit(...) Edit(...) Edit(...) Edit(...)  # Expensive!
 - Writing new code
 - Debugging errors
 - Refactoring with clear scope
-- **Engineer will auto-delegate to QA when implementation complete**
+- **Engineer will auto-delegate to Ops when implementation complete**
 
 ### ✅ Use /ops (Ops - Haiku) when:
 - ANY git operation (commit, push, sync, PR)
@@ -598,7 +598,8 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 # Development environment
 ./stack dev up             # Start dev environment
 ./stack dev down           # Stop dev environment
-./stack dev restart        # Restart dev environment
+./stack dev deploy         # Build, deploy, verify health (USE THIS)
+./stack dev restart        # Quick restart (no build, no health check)
 ./stack dev logs           # View dev logs
 ./stack dev status         # Show dev container status
 
@@ -621,8 +622,8 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 ### Deployment Workflow
 
 ```bash
-# Dev deployment (restart with latest code)
-./stack dev restart
+# Dev deployment (build + health verification)
+./stack dev deploy
 
 # Production deployment (full workflow)
 ./stack deploy
@@ -640,6 +641,7 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 **Project Configuration:**
 - `.clinerules` - Project-wide standards (auto-loaded)
 - `.claude/agents/*.md` - Agent configurations with embedded instructions
+- `.claude/commands/*.md` - Slash commands (`/plan`, `/build`, `/ops`) that delegate to agents
 - `.claude/plans/*.md` - Implementation plans created by Architect
 - `CLAUDE.md` - This file (entry point for Claude Code sessions)
 

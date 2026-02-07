@@ -232,21 +232,19 @@ def process(items: list[str]) -> dict[str, int]:  # ✅
 
 4. **Update user on progress**
 
-### Phase N+1: Delegate to QA (MANDATORY)
+### Phase N+1: Delegate to Ops (MANDATORY)
 
-**After all implementation phases complete, delegate final quality checks to QA agent:**
+**After all implementation phases complete, delegate final quality checks to Ops agent:**
 
-Use the Task tool to spawn QA agent:
+Use the Task tool to spawn Ops agent:
 ```python
 Task(
-    subagent_type="qa",
-    model="haiku",
-    description="Final quality check and docs",
-    prompt="""Run final quality checks and update documentation:
+    subagent_type="ops",
+    description="Final quality check",
+    prompt="""Run final quality checks:
 
 1. Run stack check
-2. If all checks pass, update relevant documentation
-3. Report results concisely
+2. Report results concisely
 
 Files modified in this implementation:
 {list_modified_files_here}
@@ -256,17 +254,16 @@ Feature implemented: {brief_feature_description}
 )
 ```
 
-**Why delegate to QA?**
-- QA agent (Haiku) is 10x cheaper for running tests
-- QA starts with fresh context (no bloat)
-- QA will automatically spawn Engineer sub-agent if complex Mypy errors found
-- Ensures docs stay synchronized
+**Why delegate to Ops?**
+- Ops agent (Haiku) is 10x cheaper for running tests
+- Ops starts with fresh context (no bloat)
+- Ops will escalate to Engineer if complex errors found
 
-**After QA reports back:**
-- If QA reports success → Proceed to final report
-- If QA reports failures → Review error details, fix, and ask QA to re-run
-- QA handles simple Mypy errors itself
-- QA delegates complex Mypy errors back to Engineer sub-agent
+**After Ops reports back:**
+- If Ops reports success → Proceed to final report
+- If Ops reports failures → Review error details, fix, and ask Ops to re-run
+- Ops handles simple lint errors itself
+- Ops escalates complex Mypy errors back to Engineer
 
 ### Phase N+2: Final Report
 
@@ -651,9 +648,10 @@ stack check --no-fix  # Check only (CI mode)
 ```bash
 stack dev up          # Start isolated dev environment (port 3001)
 stack dev down        # Stop dev environment
+stack dev deploy      # Build, deploy, verify health (USE THIS)
+stack dev restart     # Quick restart (no build, no health check)
 stack dev logs -f     # Tail dev logs
 stack dev status      # Show dev container status
-stack dev restart     # Restart dev environment
 ```
 
 **Production:**
