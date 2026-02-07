@@ -720,23 +720,31 @@ def check(
         "-sc",
         help="Run only semantic tests in this category.",
     ),
+    skip_architecture: bool = typer.Option(
+        False,
+        "--skip-architecture",
+        help="Skip architecture validation (not recommended).",
+    ),
 ) -> None:
-    """Run all quality checks (ruff, black, mypy, pytest).
+    """Run all quality checks (architecture, ruff, black, mypy, pytest).
 
     This is the full quality gate that runs:
-    1. Ruff - Linting with optional auto-fix
-    2. Black - Code formatting with optional auto-fix
-    3. Mypy - Type checking
-    4. Pytest - Unit and integration tests
+    1. Architecture - Validate 4-layer architecture rules
+    2. Ruff - Linting with optional auto-fix
+    3. Black - Code formatting with optional auto-fix
+    4. Mypy - Type checking
+    5. Pytest - Unit and integration tests
 
     Use --no-fix for CI-style check-only mode.
     Use --semantic to include end-to-end tests (requires running agent).
+    Use --skip-architecture to bypass architecture validation (not recommended).
 
     Example:
         stack check                              # Full check with auto-fix
         stack check --no-fix                     # CI mode (no auto-fix)
         stack check --semantic                   # Include all e2e tests
         stack check --semantic-category routing  # Only routing e2e tests
+        stack check --skip-architecture          # Skip architecture check (temporary)
     """
     checks.ensure_dependencies()
 
@@ -747,6 +755,7 @@ def check(
         fix=fix,
         include_semantic=include_semantic,
         semantic_category=semantic_category,
+        skip_architecture=skip_architecture,
         repo_root=_repo_root(),
     )
 
@@ -817,7 +826,9 @@ def deploy(
     if not skip_checks:
         console.print("[bold cyan]Running quality checks…[/bold cyan]")
         try:
-            _run_quality_checks(repo_root)
+            # Skip architecture check for now due to existing violations
+            # TODO: Fix architecture violations and remove skip_architecture=True
+            _run_quality_checks(repo_root, skip_architecture=True)
             console.print("[bold green]✓ All checks passed[/bold green]")
         except Exception as exc:
             console.print(f"[bold red]✗ Quality checks failed: {exc}[/bold red]")
@@ -1167,17 +1178,22 @@ def repo_publish(
 
     repo_root = _repo_root()
     if not skip_checks:
-        _run_quality_checks(repo_root)
+        # Skip architecture check for now due to existing violations
+        # TODO: Fix architecture violations and remove skip_architecture=True
+        _run_quality_checks(repo_root, skip_architecture=True)
 
     repo_save(message=message, branch=branch)
     repo_push(remote=remote, set_upstream=set_upstream)
     repo_pr(base=pr_base, draft=pr_draft, title=pr_title, body=pr_body)
 
 
-def _run_quality_checks(repo_root: Path) -> None:
-    console.print("[cyan]Running local quality checks (ruff, black, mypy, pytest)...[/cyan]")
+def _run_quality_checks(repo_root: Path, *, skip_architecture: bool = False) -> None:
+    msg = "Running local quality checks (architecture, ruff, black, mypy, pytest)..."
+    console.print(f"[cyan]{msg}[/cyan]")
     checks.ensure_dependencies()
-    results = checks.run_all_checks(fix=True, include_semantic=False, repo_root=repo_root)
+    results = checks.run_all_checks(
+        fix=True, include_semantic=False, skip_architecture=skip_architecture, repo_root=repo_root
+    )
     if not all(r.success for r in results):
         failed = [r for r in results if not r.success]
         raise tooling.CommandError(f"Quality check failed: {failed[0].name}")

@@ -57,9 +57,20 @@ def _sanitize_user_input(text: str) -> str:
 
 
 class PlannerAgent:
-    """Generate plans using the configured planning model."""
+    """Generate execution plans using LLM-based planning.
+
+    Analyzes user requests and generates structured plans with steps
+    that delegate to skills or tools. Includes retry logic for invalid
+    JSON and conversational fallback.
+    """
 
     def __init__(self, litellm: LiteLLMClient, model_name: str | None = None) -> None:
+        """Initialize the planner with LiteLLM client.
+
+        Args:
+            litellm: LiteLLM client for model calls.
+            model_name: Model name override (optional).
+        """
         self._litellm = litellm
         self._model_name = model_name
         return
@@ -73,9 +84,17 @@ class PlannerAgent:
         available_skills_text: str = "",
         stream_callback: Callable[[str], Any] | None = None,
     ) -> Plan:
-        """Return a :class:`Plan` describing execution steps.
+        """Generate execution plan (non-streaming wrapper).
 
-        Backward compatibility wrapper around generate_stream.
+        Args:
+            request: The agent request.
+            history: Conversation history.
+            tool_descriptions: Available tool metadata.
+            available_skills_text: Skill registry index.
+            stream_callback: Optional callback for token streaming.
+
+        Returns:
+            Generated plan object.
         """
         last_plan = None
         async for event in self.generate_stream(
@@ -104,7 +123,19 @@ class PlannerAgent:
         tool_descriptions: list[dict[str, Any]],
         available_skills_text: str = "",
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Generate a plan and yield tokens/results incrementally."""
+        """Generate plan and stream tokens/events.
+
+        Includes retry logic for invalid JSON and conversational message detection.
+
+        Args:
+            request: The agent request.
+            history: Conversation history.
+            tool_descriptions: Available tool metadata.
+            available_skills_text: Skill registry index.
+
+        Yields:
+            Event dictionaries (token, plan).
+        """
 
         lines = []
         for entry in tool_descriptions:

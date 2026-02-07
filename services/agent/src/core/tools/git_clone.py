@@ -60,7 +60,11 @@ class GitCloneTool(Tool):
     }
 
     def __init__(self, workspace_base: Path | None = None) -> None:
-        """Initialize the tool with optional workspace base path."""
+        """Initialize git clone tool.
+
+        Args:
+            workspace_base: Base directory for workspaces (default: /tmp/agent-workspaces).
+        """
         self.workspace_base = workspace_base or DEFAULT_WORKSPACE_BASE
         self.workspace_base.mkdir(parents=True, exist_ok=True)
 
@@ -149,7 +153,18 @@ class GitCloneTool(Tool):
         return result
 
     def _derive_workspace_name(self, repo_url: str) -> str:
-        """Extract workspace name from repository URL."""
+        """Extract workspace name from repository URL.
+
+        Examples:
+            https://github.com/org/repo.git -> repo
+            https://dev.azure.com/org/project/_git/repo -> repo
+
+        Args:
+            repo_url: Git repository URL.
+
+        Returns:
+            Derived workspace name.
+        """
         # https://github.com/org/repo.git -> repo
         # https://dev.azure.com/org/project/_git/repo -> repo
         name = repo_url.rstrip("/").split("/")[-1]
@@ -244,7 +259,16 @@ class GitCloneTool(Tool):
         workspace_path: Path,
         branch: str | None,
     ) -> str:
-        """Execute git clone command."""
+        """Execute git clone with shallow depth for performance.
+
+        Args:
+            repo_url: Git repository URL.
+            workspace_path: Local path for cloning.
+            branch: Optional branch to checkout.
+
+        Returns:
+            Success message or error.
+        """
         cmd = ["git", "clone", "--depth", "100"]
         if branch:
             cmd.extend(["--branch", branch])
@@ -274,7 +298,15 @@ class GitCloneTool(Tool):
             return f"Error: Failed to clone repository: {e}"
 
     async def _git_pull(self, workspace_path: Path, branch: str | None) -> str:
-        """Pull latest changes in an existing workspace."""
+        """Pull latest changes with automatic reset on divergence.
+
+        Args:
+            workspace_path: Path to git repository.
+            branch: Optional branch to checkout first.
+
+        Returns:
+            Success message or warning.
+        """
         try:
             # Checkout branch if specified
             if branch:

@@ -67,7 +67,12 @@ async def _persist_memory_background(
 
 
 class AgentService:
-    """Coordinate the memory, LLM and metadata layers."""
+    """Coordinate the memory, LLM and metadata layers for agent execution.
+
+    Handles the full lifecycle of agent requests including planning, skill execution,
+    and self-correction via the supervisor loop. This is the main orchestration layer
+    that coordinates all agents, tools, and skills.
+    """
 
     _settings: Settings
     _litellm: LiteLLMClient
@@ -84,6 +89,15 @@ class AgentService:
         tool_registry: ToolRegistry | None = None,
         skill_registry: SkillRegistry | None = None,
     ):
+        """Initialize the agent service with required dependencies.
+
+        Args:
+            settings: Application configuration settings.
+            litellm: LiteLLM client for LLM calls.
+            memory: Vector store for conversation memory.
+            tool_registry: Registry of available tools (optional).
+            skill_registry: Registry of validated skills (optional).
+        """
         self._settings = settings
         self._litellm = litellm
         self._memory = memory
@@ -1275,7 +1289,22 @@ class AgentService:
     async def execute_stream(
         self, request: AgentRequest, session: AsyncSession
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute request and yield intermediate events."""
+        """Execute agent request and yield streaming events for real-time updates.
+
+        This is the main entry point for agent execution. It handles:
+        - Conversation and context setup
+        - HITL (human-in-the-loop) resume if pending
+        - System command interception
+        - Router-based execution path (chat vs agentic)
+        - Streaming events for UI updates
+
+        Args:
+            request: The agent request containing prompt and metadata.
+            session: Database session for persistence.
+
+        Yields:
+            Event dictionaries with type, content, and metadata.
+        """
         conversation_id = request.conversation_id or str(uuid.uuid4())
         LOGGER.info("Processing prompt for conversation %s", conversation_id)
 
@@ -1424,7 +1453,18 @@ class AgentService:
                 raise e
 
     async def handle_request(self, request: AgentRequest, session: AsyncSession) -> AgentResponse:
-        """Process an :class:`AgentRequest` and return an :class:`AgentResponse`."""
+        """Process agent request and return complete response (non-streaming).
+
+        Backward compatibility wrapper around execute_stream that collects
+        all streaming events into a single AgentResponse object.
+
+        Args:
+            request: The agent request to process.
+            session: Database session for persistence.
+
+        Returns:
+            Complete agent response with final text and metadata.
+        """
         # Backward compatibility wrapper
         steps = []
         response_text = ""
@@ -1531,8 +1571,11 @@ class AgentService:
         )
 
     async def list_models(self) -> dict[str, Any]:
-        """Proxy LiteLLM's `/v1/models` response."""
+        """List available models compatible with OpenAI API format.
 
+        Returns:
+            Dict with 'data' list containing model metadata.
+        """
         return {
             "data": [
                 {
@@ -1546,7 +1589,15 @@ class AgentService:
         }
 
     async def get_history(self, conversation_id: str, session: AsyncSession) -> list[AgentMessage]:
-        """Retrieve the conversation history from the database."""
+        """Retrieve conversation history from database.
+
+        Args:
+            conversation_id: UUID of the conversation.
+            session: Database session.
+
+        Returns:
+            List of messages in chronological order.
+        """
         stmt = (
             select(Message)
             .join(Session)

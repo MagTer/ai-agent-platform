@@ -20,6 +20,20 @@ class Base(DeclarativeBase):
 
 
 class Context(Base):
+    """Multi-tenant context representing a user workspace.
+
+    Each context isolates conversations, OAuth tokens, and tool permissions.
+    Contexts enable multi-user support and workspace separation.
+
+    Attributes:
+        id: Unique context identifier.
+        name: Human-readable name (unique).
+        type: Context type (git_repo, devops, etc.).
+        config: JSON configuration specific to context type.
+        pinned_files: List of file paths to inject into prompts.
+        default_cwd: Default working directory for tool execution.
+    """
+
     __tablename__ = "contexts"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -37,6 +51,22 @@ class Context(Base):
 
 
 class Conversation(Base):
+    """Chat conversation thread linked to a platform and context.
+
+    Tracks conversation metadata, working directory state, and links
+    to the parent context for multi-tenancy.
+
+    Attributes:
+        id: Unique conversation identifier.
+        platform: Platform identifier (openwebui, api, etc.).
+        platform_id: Platform-specific conversation ID.
+        context_id: Parent context for isolation.
+        current_cwd: Current working directory for tool execution.
+        conversation_metadata: JSON metadata (pending HITL state, etc.).
+        created_at: Conversation creation timestamp.
+        updated_at: Last update timestamp.
+    """
+
     __tablename__ = "conversations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -53,6 +83,18 @@ class Conversation(Base):
 
 
 class Session(Base):
+    """Agent execution session within a conversation.
+
+    Groups messages for a single agent request/response cycle.
+    Sessions enable request-level isolation and metadata tracking.
+
+    Attributes:
+        id: Unique session identifier.
+        conversation_id: Parent conversation.
+        active: Whether session is currently active.
+        session_metadata: JSON metadata for session state.
+    """
+
     __tablename__ = "sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -67,6 +109,19 @@ class Session(Base):
 
 
 class Message(Base):
+    """Individual chat message in a session.
+
+    Stores message content, role, and observability metadata.
+
+    Attributes:
+        id: Unique message identifier.
+        session_id: Parent session.
+        role: Message role (user, assistant, system, tool).
+        content: Message text content.
+        created_at: Message timestamp (indexed for sorting).
+        trace_id: OpenTelemetry trace ID for debugging.
+    """
+
     __tablename__ = "messages"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
