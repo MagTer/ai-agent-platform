@@ -16,7 +16,6 @@ load_dotenv()
 DEFAULT_LITELLM_API_BASE: HttpUrl = cast(HttpUrl, "http://litellm:4000")
 DEFAULT_QDRANT_URL: HttpUrl = cast(HttpUrl, "http://qdrant:6333")
 DEFAULT_WEBFETCH_URL: HttpUrl = cast(HttpUrl, "http://webfetch:8081")
-DEFAULT_EMBEDDER_URL: HttpUrl = cast(HttpUrl, "http://embedder:8082")
 DEFAULT_CONTEXT7_MCP_URL: HttpUrl = cast(HttpUrl, "http://context7:8080/sse")
 
 
@@ -70,11 +69,6 @@ class Settings(BaseModel):
         default="agent-memories",
         description="Vector collection used to persist semantic memories.",
     )
-    qdrant_vector_size: int = Field(
-        default=384,
-        description="Vector dimensionality used when creating the Qdrant collection.",
-    )
-
     searxng_url: HttpUrl = Field(
         default=cast(HttpUrl, "http://searxng:8080"),
         description="Base URL for the SearXNG search engine.",
@@ -94,11 +88,6 @@ class Settings(BaseModel):
         default=DEFAULT_WEBFETCH_URL,
         description="Internal URL for the fetcher microservice used by tools.",
     )
-    embedder_url: HttpUrl = Field(
-        default=DEFAULT_EMBEDDER_URL,
-        description="Internal URL for the embedder service used by memory.",
-    )
-
     # OAuth 2.0 Configuration (Homey)
     homey_oauth_enabled: bool = Field(
         default=True,

@@ -18,8 +18,8 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from core.core.config import Settings
-from core.core.embedder import EmbedderClient
 from core.db.engine import engine
+from core.providers import get_embedder
 
 LOGGER = logging.getLogger(__name__)
 
@@ -448,13 +448,9 @@ class DiagnosticsService:
             )
 
     async def _check_embedder(self, client: httpx.AsyncClient) -> TestResult:
-        # Use EmbedderClient to handle internal vs external logic transparently
-        embedder = EmbedderClient(str(self._settings.embedder_url))
         start = time.perf_counter()
         try:
-            # We don't use 'client' passed in because EmbedderClient
-            # manages its own HTTP/Local switching
-            await embedder.embed_one("ping")
+            await get_embedder().embed(["ping"])
             latency = (time.perf_counter() - start) * 1000
             return TestResult(component="Embedder", status="ok", latency_ms=latency)
         except Exception as e:
