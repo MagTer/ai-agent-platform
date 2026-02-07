@@ -219,3 +219,90 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
     assert response.metadata["plan"]["description"] == "Test plan flow"
     assert any(step.get("tool") == "dummy_tool" for step in response.steps)
     assert any(result["name"] == "dummy_tool" for result in response.metadata["tool_results"])
+
+
+@pytest.mark.asyncio
+async def test_should_auto_replan_patterns(tmp_path: Path) -> None:
+    """Test the auto-replan detection logic for various failure patterns."""
+    from shared.models import PlanStep, StepResult
+
+    settings = Settings(sqlite_state_path=tmp_path / "state.sqlite")
+    service = AgentService(
+        settings=settings,
+        litellm=cast(LiteLLMClient, MockLiteLLMClient()),
+        memory=cast(MemoryStore, DummyMemory()),
+    )
+
+    # Create a sample plan step
+    plan_step = PlanStep(
+        id="test-step",
+        label="Test step",
+        executor="agent",
+        action="tool",
+        tool="test_tool",
+        args={},
+    )
+
+    # Test Pattern 1: Explicit error status
+    step_result = StepResult(
+        step=plan_step,
+        status="completed",
+        result={"status": "error", "output": "Something went wrong"},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is True
+    assert "error status" in reason.lower()
+
+    # Test Pattern 2: Authentication failures
+    auth_patterns = [
+        "401 Unauthorized",
+        "403 Forbidden",
+        "Authentication failed",
+        "Invalid credentials",
+        "Token expired",
+        "Access denied",
+    ]
+    for pattern in auth_patterns:
+        step_result = StepResult(
+            step=plan_step,
+            status="completed",
+            result={"output": f"Error: {pattern}"},
+            messages=[],
+        )
+        should_replan, reason = service._should_auto_replan(step_result, plan_step)
+        assert should_replan is True
+        assert "authentication" in reason.lower() or "authorization" in reason.lower()
+
+    # Test Pattern 3: Resource not found
+    step_result = StepResult(
+        step=plan_step,
+        status="completed",
+        result={"output": "404 Not Found: Resource doesn't exist"},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is True
+    assert "not found" in reason.lower()
+
+    # Test Pattern 4: Timeout
+    step_result = StepResult(
+        step=plan_step,
+        status="completed",
+        result={"output": "Request timed out after 30 seconds"},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is True
+    assert "timed" in reason.lower()
+
+    # Test success case - no replan needed
+    step_result = StepResult(
+        step=plan_step,
+        status="completed",
+        result={"output": "Operation completed successfully"},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is False
+    assert reason == ""

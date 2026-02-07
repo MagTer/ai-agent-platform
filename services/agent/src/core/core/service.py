@@ -397,6 +397,52 @@ class AgentService:
             "awaiting_input": awaiting_input_request,
         }
 
+    def _should_auto_replan(self, step_result: StepResult, plan_step: PlanStep) -> tuple[bool, str]:
+        """Check if step result indicates obvious failure requiring replan.
+
+        This method detects common failure patterns that should trigger an automatic
+        replan without requiring supervisor LLM evaluation. This saves latency and cost
+        for obvious failures like authentication errors, timeouts, or resource not found.
+
+        Args:
+            step_result: The result from step execution
+            plan_step: The plan step that was executed
+
+        Returns:
+            Tuple of (should_replan, reason). If should_replan is True,
+            the step should trigger a replan immediately.
+        """
+        output = str(step_result.result.get("output", ""))
+        status = step_result.result.get("status", "")
+
+        # Pattern 1: Tool explicitly returned error status
+        if status == "error":
+            return True, f"Tool returned error status: {output[:200]}"
+
+        # Pattern 2: Authentication/authorization failures
+        auth_patterns = [
+            "401 Unauthorized",
+            "403 Forbidden",
+            "authentication failed",
+            "invalid credentials",
+            "token expired",
+            "access denied",
+        ]
+        output_lower = output.lower()
+        for pattern in auth_patterns:
+            if pattern.lower() in output_lower:
+                return True, f"Authentication/authorization error detected: {pattern}"
+
+        # Pattern 3: Resource not found (tool target doesn't exist)
+        if "404 Not Found" in output or "resource not found" in output_lower:
+            return True, f"Resource not found: {output[:200]}"
+
+        # Pattern 4: Timeout
+        if "timed out" in output_lower or "timeout" in output_lower:
+            return True, f"Step timed out: {output[:200]}"
+
+        return False, ""
+
     async def _execute_step_with_retry(
         self,
         plan_step: PlanStep,
@@ -520,9 +566,24 @@ class AgentService:
                 reason = "Completion step (skipped review)"
                 suggested_fix = None
             else:
-                outcome, reason, suggested_fix = await step_supervisor.review(
-                    plan_step, step_execution_result, retry_count=retry_count
+                # Check for auto-detectable failures BEFORE calling supervisor
+                should_auto_replan, auto_reason = self._should_auto_replan(
+                    step_execution_result, plan_step
                 )
+                if should_auto_replan:
+                    LOGGER.info(
+                        "Auto-replan triggered for step '%s': %s",
+                        plan_step.label,
+                        auto_reason,
+                    )
+                    outcome = StepOutcome.REPLAN
+                    reason = auto_reason
+                    suggested_fix = None
+                else:
+                    # Normal supervisor evaluation
+                    outcome, reason, suggested_fix = await step_supervisor.review(
+                        plan_step, step_execution_result, retry_count=retry_count
+                    )
 
             # Debug: Log supervisor decision
             await debug_logger.log_supervisor(
