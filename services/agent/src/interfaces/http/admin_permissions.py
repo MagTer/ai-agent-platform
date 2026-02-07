@@ -264,12 +264,13 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
         async function loadContexts() {
             try {
                 const res = await fetch('/platformadmin/permissions/contexts');
-                if (!res.ok) throw new Error('Failed to load');
+                if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + res.statusText);
                 const data = await res.json();
                 renderContextList(data);
             } catch (e) {
+                console.error('loadContexts failed:', e);
                 document.getElementById('contextListBody').innerHTML =
-                    '<tr><td colspan="5" style="color: var(--error); text-align: center;">Failed to load contexts</td></tr>';
+                    '<tr><td colspan="5" style="color: var(--error); text-align: center;">Failed to load contexts: ' + e.message + '</td></tr>';
             }
         }
 
@@ -297,13 +298,11 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                 const usersHtml = (c.users || []).length > 0
                     ? c.users.map(u => '<div style="font-weight: 500;">' + escapeHtml(u.display_name) + '</div><div style="font-size: 11px; color: var(--text-muted);">' + escapeHtml(u.email) + ' <span class="badge badge-muted">' + u.role + '</span></div>').join('')
                     : '<span style="color: var(--text-muted); font-style: italic;">No users</span>';
-                return '<tr>' +
-                    '<td>' + usersHtml + '</td>' +
+                return '<tr><td>' + usersHtml + '</td>' +
                     '<td><div style="font-weight: 500;">' + escapeHtml(c.context_name) + '</div><div style="font-size: 11px; color: var(--text-muted);">' + escapeHtml(c.context_type) + '</div></td>' +
                     '<td>' + stateBadge + '</td>' +
                     '<td>' + permInfo + '</td>' +
-                    '<td><button class="btn btn-sm btn-primary" onclick="openDetail(\'' + c.context_id + '\')">Manage</button></td>' +
-                    '</tr>';
+                    "<td><button class=\\"btn btn-sm btn-primary\\" onclick=\\"openDetail('" + c.context_id + "')\\">Manage</button></td></tr>";
             }).join('');
         }
 
@@ -314,13 +313,14 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                 '<tr><td colspan="4" class="loading">Loading...</td></tr>';
 
             try {
-                const res = await fetch(`/platformadmin/permissions/contexts/${contextId}`);
-                if (!res.ok) throw new Error('Failed to load');
+                const res = await fetch('/platformadmin/permissions/contexts/' + contextId);
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 renderToolList(data);
             } catch (e) {
+                console.error('openDetail failed:', e);
                 document.getElementById('toolListBody').innerHTML =
-                    '<tr><td colspan="4" style="color: var(--error); text-align: center;">Failed to load permissions</td></tr>';
+                    '<tr><td colspan="4" style="color: var(--error); text-align: center;">Failed to load permissions: ' + e.message + '</td></tr>';
             }
 
             // Scroll to detail panel
@@ -347,28 +347,19 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                         ? '<span class="badge badge-success">Allowed</span>'
                         : '<span class="badge badge-error">Denied</span>');
 
-                return `
-                    <tr>
-                        <td style="font-weight: 500; font-family: monospace; font-size: 13px;">${escapeHtml(t.tool_name)}</td>
-                        <td style="font-size: 13px; color: var(--text-muted);">${escapeHtml(t.tool_description)}</td>
-                        <td>${statusHtml}</td>
-                        <td>
-                            <label class="toggle-switch">
-                                <input type="checkbox"
-                                    ${isAllowed ? 'checked' : ''}
-                                    onchange="toggleTool('${escapeHtml(t.tool_name)}', this.checked)">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </td>
-                    </tr>
-                `;
+                return '<tr>' +
+                    '<td style="font-weight: 500; font-family: monospace; font-size: 13px;">' + escapeHtml(t.tool_name) + '</td>' +
+                    '<td style="font-size: 13px; color: var(--text-muted);">' + escapeHtml(t.tool_description) + '</td>' +
+                    '<td>' + statusHtml + '</td>' +
+                    "<td><label class=\\"toggle-switch\\"><input type=\\"checkbox\\" " + (isAllowed ? "checked" : "") + " onchange=\\"toggleTool('" + escapeHtml(t.tool_name) + "', this.checked)\\"><span class=\\"toggle-slider\\"></span></label></td>" +
+                    '</tr>';
             }).join('');
         }
 
         async function toggleTool(toolName, allowed) {
             if (!currentContextId) return;
             try {
-                const res = await fetch(`/platformadmin/permissions/contexts/${currentContextId}/tools/${encodeURIComponent(toolName)}`, {
+                const res = await fetch('/platformadmin/permissions/contexts/' + currentContextId + '/tools/' + encodeURIComponent(toolName), {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ allowed: allowed })
@@ -397,7 +388,7 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             if (!confirm(confirmMsg)) return;
 
             try {
-                const res = await fetch(`/platformadmin/permissions/contexts/${currentContextId}/bulk`, {
+                const res = await fetch('/platformadmin/permissions/contexts/' + currentContextId + '/bulk', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: action })
