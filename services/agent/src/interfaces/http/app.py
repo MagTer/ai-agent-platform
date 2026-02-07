@@ -663,13 +663,13 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                     all_ready = False
                     break
 
-        except Exception as e:
+        except Exception:
             LOGGER.exception("Readiness check failed")
             return JSONResponse(
                 status_code=503,
                 content={
                     "status": "not_ready",
-                    "error": f"Check execution failed: {str(e)[:200]}",
+                    "error": "Readiness check execution failed",
                     "checks": checks,
                 },
             )
