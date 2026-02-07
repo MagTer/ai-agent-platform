@@ -197,24 +197,24 @@ Every plan MUST include a section specifying what each agent handles:
 - Debug complex issues
 - Fix complex Mypy errors
 
-### QA (Haiku - 12x cheaper) - Quality Assurance
+### Ops (Haiku - 10x cheaper) - Quality & Deployment
 - Run quality gate: `stack check`
 - Fix simple lint errors (auto-fixable)
-- Update documentation
+- Git operations (commit, push, PR)
 - Report test results
 - Escalate complex issues to Engineer
 
 ### Cost Optimization
 Each implementation step should:
 1. Engineer writes/modifies code
-2. Engineer delegates to QA for quality check
-3. QA reports back (or escalates if complex errors)
+2. Engineer delegates to Ops for quality check
+3. Ops reports back (or escalates if complex errors)
 4. Repeat for next step
 ```
 
 **Why this matters:**
-- Haiku is 12x cheaper than Sonnet
-- Running tests, linting, and docs don't need Sonnet's reasoning power
+- Haiku is 10x cheaper than Sonnet
+- Running tests, linting, and git don't need Sonnet's reasoning power
 - Plans that don't specify this lead to Engineer doing everything (wasteful)
 
 **Implementation Step Format:**
@@ -227,9 +227,9 @@ Each step in the roadmap should follow this pattern:
 - Create file X
 - Modify file Y
 
-**QA tasks (after Engineer completes):**
+**Ops tasks (after Engineer completes):**
 - Run quality gate
-- Update docs if needed
+- Commit and push if needed
 
 **Files affected:**
 - path/to/file1.py (create)
@@ -295,8 +295,8 @@ Task(
 ```
 
 **After Engineer completes:**
-- Engineer will auto-delegate to QA for final quality checks
-- QA will run tests and update docs
+- Engineer will auto-delegate to Ops for final quality checks
+- Ops will run tests and handle git operations
 - You'll receive completion report from Engineer
 - Summarize results for user
 
@@ -363,15 +363,14 @@ async def run_agent(
 
 A successful plan enables:
 - Engineer to implement without asking clarifying questions
-- **QA to handle all quality checks (not Engineer)**
+- **Ops to handle all quality checks (not Engineer)**
 - Follow architectural patterns correctly
 - Write tests that match project style
-- Pass quality checks on first try (via QA delegation)
-- Update documentation appropriately (via QA)
+- Pass quality checks on first try (via Ops delegation)
 
 **If Engineer asks many questions during implementation, the plan was insufficient.**
 
-**Cost metric:** If Engineer runs `stack check` directly instead of delegating to QA, the plan failed to specify delegation properly.
+**Cost metric:** If Engineer runs `stack check` directly instead of delegating to Ops, the plan failed to specify delegation properly.
 
 ---
 

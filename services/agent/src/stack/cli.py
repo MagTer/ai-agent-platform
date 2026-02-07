@@ -462,7 +462,7 @@ def dev_status() -> None:
 
 @dev_app.command("restart")
 def dev_restart(
-    build: bool = typer.Option(True, help="Build images before restarting."),
+    build: bool = typer.Option(False, help="Build images before restarting."),
 ) -> None:
     """Restart the development environment."""
     tooling.ensure_docker()
@@ -474,6 +474,51 @@ def dev_restart(
     _connect_traefik_to_dev_network()
 
     console.print("[bold green]Development stack restarted.[/bold green]")
+
+
+@dev_app.command("deploy")
+def dev_deploy(
+    service: list[str] | None = typer.Argument(
+        None,
+        help="Services to deploy (default: agent).",
+    ),
+    timeout: float = typer.Option(60.0, help="Health check timeout in seconds."),
+) -> None:
+    """Build and deploy to dev environment with health verification.
+
+    Rebuilds the specified services (default: agent only) and waits for
+    health checks to pass before reporting success.  This is the recommended
+    command for deploying code changes to the dev environment.
+    """
+    tooling.ensure_docker()
+    services = list(service) if service else ["agent"]
+
+    console.print(f"[bold cyan]Building and deploying: {', '.join(services)}...[/bold cyan]")
+    args = ["up", "-d", "--no-deps", "--build"] + services
+    compose.run_compose(args, dev=True, capture_output=False)
+    _connect_traefik_to_dev_network()
+
+    # Health checks - use full dev container names for port mapping
+    dev_project = "ai-agent-platform-dev"
+    console.print("[cyan]Waiting for services to become healthy...[/cyan]")
+    _wait_for_service(
+        name="agent",
+        container=f"{dev_project}-agent-1",
+        port=8000,
+        path="/healthz",
+        timeout=timeout,
+        mode="http",
+    )
+    _wait_for_service(
+        name="openwebui",
+        container=f"{dev_project}-open-webui-1",
+        port=8080,
+        path="/",
+        timeout=timeout,
+        mode="http",
+    )
+
+    console.print("[bold green]Dev deploy complete - all services healthy.[/bold green]")
 
 
 # =============================================================================
