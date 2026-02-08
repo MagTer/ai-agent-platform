@@ -65,8 +65,33 @@ jobs:
       - run: poetry config virtualenvs.create false
       - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
       - name: Pytest
-        run: python -m pytest -x -n auto --cov=src --cov-report=xml --cov-report=term-missing
+        run: python -m pytest -x -n auto --dist=worksteal
         working-directory: services/agent
+
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/agent/poetry.lock
+      - uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: ${{ env.POETRY_VERSION }}
+      - run: poetry config virtualenvs.create false
+      - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - name: Pytest with coverage
+        run: python -m pytest --cov=src --cov-report=xml --cov-report=term-missing
+        working-directory: services/agent
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: services/agent/coverage.xml
 
   compose:
     name: Compose config

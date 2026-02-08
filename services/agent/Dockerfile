@@ -37,6 +37,9 @@ COPY pyproject.toml poetry.lock ./
 COPY alembic.ini ./
 COPY alembic ./alembic
 
+# Upgrade wheel to fix CVE-2026-24049 (comes vulnerable from base image)
+RUN pip install --no-cache-dir --upgrade wheel>=0.46.2
+
 # Use --no-cache to reduce image size
 # Remove Poetry after install - it's only needed as a build tool, not at runtime.
 # This also eliminates HIGH CVEs in Poetry's vendored deps (jaraco.context, wheel).
