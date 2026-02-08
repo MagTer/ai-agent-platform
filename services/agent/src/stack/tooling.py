@@ -57,6 +57,7 @@ def run_command(  # noqa: S603
     capture_output: bool = True,
     text: bool = True,
     env: dict[str, str] | None = None,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str | bytes]:
     """Run a subprocess and optionally capture output."""
 
@@ -67,6 +68,7 @@ def run_command(  # noqa: S603
         capture_output=capture_output,
         text=text,
         env=env,
+        timeout=timeout,
     )
     if check and result.returncode != 0:
         quoted = " ".join(map(shlex.quote, args))

@@ -28,6 +28,9 @@ from core.providers import get_embedder
 
 LOGGER = logging.getLogger(__name__)
 
+# Cache for verified Qdrant collections to avoid redundant get_collection() calls
+_verified_collections: set[str] = set()
+
 
 @dataclass(slots=True)
 class MemoryRecord:
@@ -87,8 +90,13 @@ class MemoryStore:
     async def _async_ensure_client(self) -> None:
         # If client was provided externally, just ensure collection exists
         if self._client is not None:
+            # Skip verification if collection already verified
+            if self._settings.qdrant_collection in _verified_collections:
+                return
+
             try:
                 await self._client.get_collection(self._settings.qdrant_collection)
+                _verified_collections.add(self._settings.qdrant_collection)
             except UnexpectedResponse:
                 await self._client.create_collection(
                     collection_name=self._settings.qdrant_collection,
@@ -96,6 +104,7 @@ class MemoryStore:
                         size=get_embedder().dimension, distance=Distance.COSINE
                     ),
                 )
+                _verified_collections.add(self._settings.qdrant_collection)
             return
 
         # Create a new client if we own it
@@ -105,16 +114,20 @@ class MemoryStore:
                 api_key=self._settings.qdrant_api_key,
                 timeout=30,  # SECURITY: Prevent hanging under load
             )
-            try:
-                # Use await for async client methods
-                await self._client.get_collection(self._settings.qdrant_collection)
-            except UnexpectedResponse:
-                await self._client.create_collection(
-                    collection_name=self._settings.qdrant_collection,
-                    vectors_config=VectorParams(
-                        size=get_embedder().dimension, distance=Distance.COSINE
-                    ),
-                )
+            # Skip verification if collection already verified
+            if self._settings.qdrant_collection not in _verified_collections:
+                try:
+                    # Use await for async client methods
+                    await self._client.get_collection(self._settings.qdrant_collection)
+                    _verified_collections.add(self._settings.qdrant_collection)
+                except UnexpectedResponse:
+                    await self._client.create_collection(
+                        collection_name=self._settings.qdrant_collection,
+                        vectors_config=VectorParams(
+                            size=get_embedder().dimension, distance=Distance.COSINE
+                        ),
+                    )
+                    _verified_collections.add(self._settings.qdrant_collection)
         except Exception as exc:  # pragma: no cover - depends on infra
             LOGGER.warning("Unable to initialise Qdrant client: %s", exc)
             self._client = None

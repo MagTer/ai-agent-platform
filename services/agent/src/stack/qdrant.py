@@ -111,6 +111,11 @@ def restore(
     compose_path = compose_file if compose_file.is_absolute() else (repo_root / compose_file)
     tooling.ensure_container_exists(container)
 
+    typer.confirm(
+        f"This will stop Qdrant and replace its data with backup '{backup_file.name}'. Continue?",
+        abort=True,
+    )
+
     typer.echo("Stopping Qdrant via docker compose…")
     compose.run_compose(["stop", "qdrant"], files_override=[compose_path])
 

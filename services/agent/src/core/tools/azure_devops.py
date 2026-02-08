@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from functools import lru_cache
@@ -394,7 +395,7 @@ class AzureDevOpsTool(Tool):
         try:
             credentials = BasicAuthentication("", pat)
             connection = Connection(base_url=org_url, creds=credentials)
-            wit_client = connection.clients.get_work_item_tracking_client()
+            wit_client = await asyncio.to_thread(connection.clients.get_work_item_tracking_client)
 
             # Project priority: explicit param > credential metadata
             target_project = project or kwargs.get("project") or cred_project
@@ -503,8 +504,11 @@ class AzureDevOpsTool(Tool):
                 )
 
                 try:
-                    wi = wit_client.create_work_item(
-                        document=document, project=target_project, type=final_type
+                    wi = await asyncio.to_thread(
+                        wit_client.create_work_item,
+                        document=document,
+                        project=target_project,
+                        type=final_type,
                     )
                 except Exception as create_err:
                     # Fallback for AC field failure
@@ -560,8 +564,11 @@ class AzureDevOpsTool(Tool):
                                 }
                             )
 
-                        wi = wit_client.create_work_item(
-                            document=document, project=target_project, type=final_type
+                        wi = await asyncio.to_thread(
+                            wit_client.create_work_item,
+                            document=document,
+                            project=target_project,
+                            type=final_type,
                         )
                     else:
                         raise create_err
@@ -573,7 +580,7 @@ class AzureDevOpsTool(Tool):
                 if not work_item_id:
                     return "❌ Error: 'work_item_id' is required for action='get'."
 
-                wi = wit_client.get_work_item(work_item_id, expand="All")
+                wi = await asyncio.to_thread(wit_client.get_work_item, work_item_id, expand="All")
                 fields = wi.fields
 
                 out_title = fields.get("System.Title", "No Title")
@@ -637,14 +644,16 @@ class AzureDevOpsTool(Tool):
                 ORDER BY [System.ChangedDate] DESC
                 """  # noqa: S608
 
-                wiql_result = wit_client.query_by_wiql({"query": wiql}, top=top)
+                wiql_result = await asyncio.to_thread(
+                    wit_client.query_by_wiql, {"query": wiql}, top=top
+                )
 
                 if not wiql_result.work_items:
                     return "No work items found matching the criteria."
 
                 # Fetch details
                 ids = [wi.id for wi in wiql_result.work_items[:top]]
-                work_items = wit_client.get_work_items(ids=ids)
+                work_items = await asyncio.to_thread(wit_client.get_work_items, ids=ids)
 
                 results = [f"### Found {len(work_items)} Work Items\n"]
                 for wi in work_items:
@@ -694,13 +703,15 @@ class AzureDevOpsTool(Tool):
                 ORDER BY [System.ChangedDate] DESC
                 """  # noqa: S608
 
-                wiql_result = wit_client.query_by_wiql({"query": wiql}, top=top)
+                wiql_result = await asyncio.to_thread(
+                    wit_client.query_by_wiql, {"query": wiql}, top=top
+                )
 
                 if not wiql_result.work_items:
                     return f"No work items found matching '{query}'."
 
                 ids = [wi.id for wi in wiql_result.work_items[:top]]
-                work_items = wit_client.get_work_items(ids=ids)
+                work_items = await asyncio.to_thread(wit_client.get_work_items, ids=ids)
 
                 results = [f"### Search Results for '{query}' ({len(work_items)} items)\n"]
                 for wi in work_items:
@@ -718,7 +729,9 @@ class AzureDevOpsTool(Tool):
                     return "❌ Error: 'work_item_id' is required for action='children'."
 
                 # Get parent item first
-                parent = wit_client.get_work_item(work_item_id, expand="Relations")
+                parent = await asyncio.to_thread(
+                    wit_client.get_work_item, work_item_id, expand="Relations"
+                )
                 fields = parent.fields
                 parent_title = fields.get("System.Title", "Unknown")
 
@@ -734,7 +747,7 @@ class AzureDevOpsTool(Tool):
                 if not child_ids:
                     return f"Work item #{work_item_id} ({parent_title}) has no child items."
 
-                children = wit_client.get_work_items(ids=child_ids)
+                children = await asyncio.to_thread(wit_client.get_work_items, ids=child_ids)
 
                 results = [f"### Children of #{work_item_id}: {parent_title}\n"]
                 state_counts: dict[str, int] = {}
@@ -807,7 +820,9 @@ class AzureDevOpsTool(Tool):
                       AND [System.AreaPath] UNDER '{safe_area}'
                       AND [System.State] = 'Active'
                     """  # noqa: S608
-                    active_result = wit_client.query_by_wiql({"query": active_query})
+                    active_result = await asyncio.to_thread(
+                        wit_client.query_by_wiql, {"query": active_query}
+                    )
                     active_count = len(active_result.work_items)
 
                     # Query new count
@@ -817,7 +832,9 @@ class AzureDevOpsTool(Tool):
                       AND [System.AreaPath] UNDER '{safe_area}'
                       AND [System.State] = 'New'
                     """  # noqa: S608
-                    new_result = wit_client.query_by_wiql({"query": new_query})
+                    new_result = await asyncio.to_thread(
+                        wit_client.query_by_wiql, {"query": new_query}
+                    )
                     new_count = len(new_result.work_items)
 
                     # Query closed count
@@ -827,7 +844,9 @@ class AzureDevOpsTool(Tool):
                       AND [System.AreaPath] UNDER '{safe_area}'
                       AND [System.State] = 'Closed'
                     """  # noqa: S608
-                    closed_result = wit_client.query_by_wiql({"query": closed_query})
+                    closed_result = await asyncio.to_thread(
+                        wit_client.query_by_wiql, {"query": closed_query}
+                    )
                     closed_count = len(closed_result.work_items)
 
                     results.append(
