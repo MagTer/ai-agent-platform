@@ -313,7 +313,10 @@ async def update_user(
 
     await session.commit()
     LOGGER.info(
-        "Updated user %s: role=%s, is_active=%s", sanitize_log(user_id), user.role, user.is_active
+        "Updated user %s: role=%s, is_active=%s",
+        sanitize_log(user_id),
+        sanitize_log(user.role),
+        sanitize_log(user.is_active),
     )
 
     # Get context count for response

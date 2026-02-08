@@ -38,11 +38,21 @@ jobs:
         uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: 'agent:${{ github.sha }}'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          exit-code: '1'
+
+      - name: Generate Trivy SARIF report
+        if: always()
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: 'agent:${{ github.sha }}'
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'HIGH,CRITICAL'
           ignore-unfixed: true
-          exit-code: '1'
+          exit-code: '0'
 
       - name: Upload Trivy scan results
         if: always()
