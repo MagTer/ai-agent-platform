@@ -41,7 +41,7 @@ jobs:
             services/agent
 
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: 'agent:${{ github.sha }}'
           format: 'sarif'
@@ -50,4 +50,5 @@ jobs:
           exit-code: '1'
 
       - name: Upload Trivy scan results
+        if: always()
         uses: github/codeql-action/upload-sarif@v3

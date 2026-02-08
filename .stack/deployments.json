@@ -1,0 +1,34 @@
+[
+  {
+    "timestamp": "2026-02-07T22:44:03.759367+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "image_tag": "previous"
+  },
+  {
+    "timestamp": "2026-02-08T00:03:51.226434+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "image_tag": "previous"
+  },
+  {
+    "timestamp": "2026-02-08T00:14:13.788545+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "image_tag": "previous"
+  },
+  {
+    "timestamp": "2026-02-08T00:32:43.253450+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "image_tag": "previous"
+  }
+]
