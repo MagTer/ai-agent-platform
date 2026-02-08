@@ -57,6 +57,7 @@ mypy = "^1.10.0"
 respx = "^0.22.0"
 types-PyYAML = "^6.0.12"
 coverage = "7.11.3"
+pytest-cov = "^6.0"
 colorama = "^0.4.6"
 aiosqlite = "^0.22.1"
 pytest-xdist = "^3.8.0"
@@ -128,7 +129,18 @@ ignore_missing_imports = true
 minversion = "8.0"
 addopts = "-ra --import-mode=importlib"
 asyncio_mode = "auto"
-testpaths = ["../../tests", "src/core/tests", "src/stack/tests"]
+testpaths = [
+    "../../tests",
+    "src/core/auth/tests",
+    "src/core/tests",
+    "src/core/tools/tests",
+    "src/interfaces/http/tests",
+    "src/modules/email/tests",
+    "src/modules/price_tracker/tests",
+    "src/shared/tests",
+    "src/stack/tests",
+    "src/utils/tests",
+]
 
 [tool.coverage.run]
 branch = true

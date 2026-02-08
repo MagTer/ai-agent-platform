@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,7 +59,7 @@ async def get_context_id_from_conversation(
     try:
         conversation_uuid = UUID(conversation_id)
     except ValueError:
-        LOGGER.warning(f"Invalid conversation_id format: {conversation_id}")
+        LOGGER.warning("Invalid conversation_id format: %s", sanitize_log(conversation_id))
         return None
 
     stmt = select(Conversation).where(Conversation.id == conversation_uuid)
@@ -68,7 +69,7 @@ async def get_context_id_from_conversation(
     if conversation:
         return conversation.context_id
 
-    LOGGER.warning(f"Conversation not found: {conversation_id}")
+    LOGGER.warning("Conversation not found: %s", sanitize_log(conversation_id))
     return None
 
 
@@ -203,8 +204,10 @@ async def initiate_oauth(
         )
 
         LOGGER.info(
-            f"Initiated OAuth for {request.provider} (conversation: {request.conversation_id}, "
-            f"context: {context_id})"
+            "Initiated OAuth for %s (conversation: %s, context: %s)",
+            sanitize_log(request.provider),
+            sanitize_log(request.conversation_id),
+            sanitize_log(context_id),
         )
 
         return InitiateOAuthResponse(

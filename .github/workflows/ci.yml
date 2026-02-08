@@ -1,6 +1,8 @@
 name: CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
 
 env:
@@ -63,13 +65,37 @@ jobs:
       - run: poetry config virtualenvs.create false
       - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
       - name: Pytest
-        run: python -m pytest -x -n auto
+        run: python -m pytest -x -n auto --dist=worksteal
         working-directory: services/agent
+
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/agent/poetry.lock
+      - uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: ${{ env.POETRY_VERSION }}
+      - run: poetry config virtualenvs.create false
+      - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - name: Pytest with coverage
+        run: python -m pytest --cov=src --cov-report=xml --cov-report=term-missing
+        working-directory: services/agent
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: services/agent/coverage.xml
 
   compose:
     name: Compose config
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test]
     steps:
       - uses: actions/checkout@v4
       - name: Prepare compose environment
@@ -77,11 +103,74 @@ jobs:
       - name: Validate docker compose configuration
         run: docker compose -f docker-compose.yml config
 
+  trivy:
+    name: Container Security Scan (Trivy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free Disk Space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf "/usr/local/share/boost"
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t agent:${{ github.sha }} \
+            -f services/agent/Dockerfile \
+            services/agent
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: 'agent:${{ github.sha }}'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Generate Trivy SARIF report
+        if: always()
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          image-ref: 'agent:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'HIGH,CRITICAL'
+          ignore-unfixed: true
+          exit-code: '0'
+      - name: Upload Trivy scan results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  dependency-audit:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/agent/poetry.lock
+      - uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: ${{ env.POETRY_VERSION }}
+      - run: poetry config virtualenvs.create false
+      - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - run: pip install pip-audit
+      - name: Run pip-audit
+        run: pip-audit --strict --desc
+
   # Gate job - single required check for branch protection
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test, compose]
+    needs: [lint, typecheck, test, compose, trivy, dependency-audit]
     if: always()
     steps:
       - name: Check results
@@ -89,7 +178,9 @@ jobs:
           if [ "${{ needs.lint.result }}" != "success" ] || \
              [ "${{ needs.typecheck.result }}" != "success" ] || \
              [ "${{ needs.test.result }}" != "success" ] || \
-             [ "${{ needs.compose.result }}" != "success" ]; then
+             [ "${{ needs.compose.result }}" != "success" ] || \
+             [ "${{ needs.trivy.result }}" != "success" ] || \
+             [ "${{ needs.dependency-audit.result }}" != "success" ]; then
             echo "One or more checks failed"
             exit 1
           fi

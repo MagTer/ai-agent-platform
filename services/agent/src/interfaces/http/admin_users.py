@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -311,7 +312,12 @@ async def update_user(
         user.is_active = update.is_active
 
     await session.commit()
-    LOGGER.info(f"Updated user {user_id}: role={user.role}, is_active={user.is_active}")
+    LOGGER.info(
+        "Updated user %s: role=%s, is_active=%s",
+        sanitize_log(user_id),
+        sanitize_log(user.role),
+        sanitize_log(user.is_active),
+    )
 
     # Get context count for response
     count_stmt = select(func.count(UserContext.id)).where(UserContext.user_id == user_id)
@@ -361,7 +367,7 @@ async def delete_user(
 
     await session.delete(user)
     await session.commit()
-    LOGGER.info(f"Deleted user {user_id}")
+    LOGGER.info("Deleted user %s", sanitize_log(user_id))
 
     return {"status": "deleted", "user_id": str(user_id)}
 

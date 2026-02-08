@@ -132,6 +132,18 @@ class HomeyTool(Tool):
         """Initialize Homey tool."""
         # Cache: homey_id -> (session_token, homey_url)
         self._session_cache: dict[str, tuple[str, str]] = {}
+        # Shared HTTP client to avoid overhead of creating new clients
+        self._http_client: httpx.AsyncClient | None = None
+
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """Get or create shared HTTP client.
+
+        Returns:
+            Shared httpx.AsyncClient instance.
+        """
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(timeout=30.0)
+        return self._http_client
 
     async def _get_oauth_token(
         self,
@@ -174,14 +186,14 @@ class HomeyTool(Tool):
         Raises:
             httpx.HTTPStatusError: If request fails.
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{ATHOM_API_BASE}/delegation/token",
-                params={"audience": "homey"},
-                headers={"Authorization": f"Bearer {oauth_token}"},
-            )
-            response.raise_for_status()
-            return response.text.strip().strip('"')  # Response is a raw JWT string
+        client = self._get_http_client()
+        response = await client.post(
+            f"{ATHOM_API_BASE}/delegation/token",
+            params={"audience": "homey"},
+            headers={"Authorization": f"Bearer {oauth_token}"},
+        )
+        response.raise_for_status()
+        return response.text.strip().strip('"')  # Response is a raw JWT string
 
     async def _get_homey_session(
         self,
@@ -200,13 +212,13 @@ class HomeyTool(Tool):
         Raises:
             httpx.HTTPStatusError: If request fails.
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{homey_url}/api/manager/users/login",
-                json={"token": delegation_token},
-            )
-            response.raise_for_status()
-            return response.text.strip().strip('"')
+        client = self._get_http_client()
+        response = await client.post(
+            f"{homey_url}/api/manager/users/login",
+            json={"token": delegation_token},
+        )
+        response.raise_for_status()
+        return response.text.strip().strip('"')
 
     async def _get_user_homeys(self, oauth_token: str) -> list[dict[str, Any]]:
         """Get list of Homey devices for authenticated user.
@@ -217,14 +229,14 @@ class HomeyTool(Tool):
         Returns:
             List of Homey device info dicts.
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(
-                f"{ATHOM_API_BASE}/user/me",
-                headers={"Authorization": f"Bearer {oauth_token}"},
-            )
-            response.raise_for_status()
-            user_data = response.json()
-            return user_data.get("homeys", [])
+        client = self._get_http_client()
+        response = await client.get(
+            f"{ATHOM_API_BASE}/user/me",
+            headers={"Authorization": f"Bearer {oauth_token}"},
+        )
+        response.raise_for_status()
+        user_data = response.json()
+        return user_data.get("homeys", [])
 
     async def _ensure_session(
         self,
@@ -283,15 +295,15 @@ class HomeyTool(Tool):
         Returns:
             Parsed JSON response.
         """
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.request(
-                method=method,
-                url=f"{homey_url}{path}",
-                headers={"Authorization": f"Bearer {session_token}"},
-                json=json_body,
-            )
-            response.raise_for_status()
-            return response.json()
+        client = self._get_http_client()
+        response = await client.request(
+            method=method,
+            url=f"{homey_url}{path}",
+            headers={"Authorization": f"Bearer {session_token}"},
+            json=json_body,
+        )
+        response.raise_for_status()
+        return response.json()
 
     async def _get_cached_device(
         self,

@@ -390,6 +390,13 @@ def down(
         env_label = "[bold magenta]PRODUCTION[/bold magenta]"
     else:
         env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
+
+    if remove_volumes:
+        typer.confirm(
+            "This will remove all persistent volumes (database, Qdrant, etc.). Continue?",
+            abort=True,
+        )
+
     console.print(f"[bold yellow]Stopping stack ({env_label})…[/bold yellow]")
     compose.compose_down(remove_volumes=remove_volumes, extra_files=overrides, prod=prod)
     console.print("[bold green]Stack stopped.[/bold green]")
@@ -862,6 +869,14 @@ def deploy(
     console.print("[bold cyan]Deploying to production…[/bold cyan]")
     up_args = ["up", "-d", "--no-deps"] + services_to_build
     compose.run_compose(up_args, prod=True, capture_output=False)
+
+    # Step 4.5: Post-deploy health check
+    console.print("[bold cyan]Verifying deployment health…[/bold cyan]")
+    if not tooling.wait_http_ok("http://localhost:8000/health", timeout=30):
+        console.print("[bold red]⚠ Health check failed after deploy![/bold red]")
+        console.print("[yellow]Service may still be starting. Check: stack logs agent[/yellow]")
+    else:
+        console.print("[bold green]✓ Health check passed[/bold green]")
 
     # Step 5: Record deployment
     # current_branch is guaranteed to be not None here due to early exit check

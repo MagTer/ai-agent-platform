@@ -9,6 +9,7 @@ from uuid import UUID
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -626,7 +627,7 @@ async def set_tool_permission(
         # Create explicit "allowed=True" for all tools, then override the target tool
         LOGGER.info(
             "Context %s transitioning from default to customized permissions",
-            context_id,
+            sanitize_log(context_id),
         )
         for t_name in tool_names:
             allowed = request.allowed if t_name == tool_name else True
@@ -660,11 +661,11 @@ async def set_tool_permission(
     action = "allowed" if request.allowed else "denied"
     LOGGER.info(
         "Admin %s %s tool '%s' for context %s (%s)",
-        admin.email,
+        sanitize_log(admin.email),
         action,
-        tool_name,
-        context_id,
-        ctx.name,
+        sanitize_log(tool_name),
+        sanitize_log(context_id),
+        sanitize_log(ctx.name),
     )
 
     return {
@@ -719,9 +720,9 @@ async def bulk_permission_action(
 
         LOGGER.info(
             "Admin %s reset permissions for context %s (%s)",
-            admin.email,
-            context_id,
-            ctx.name,
+            sanitize_log(admin.email),
+            sanitize_log(context_id),
+            sanitize_log(ctx.name),
         )
 
         return BulkActionResponse(
@@ -753,10 +754,10 @@ async def bulk_permission_action(
     action_desc = "allowed" if allowed else "denied"
     LOGGER.info(
         "Admin %s set all tools to %s for context %s (%s)",
-        admin.email,
+        sanitize_log(admin.email),
         action_desc,
-        context_id,
-        ctx.name,
+        sanitize_log(context_id),
+        sanitize_log(ctx.name),
     )
 
     return BulkActionResponse(

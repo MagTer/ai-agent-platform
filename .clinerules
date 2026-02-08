@@ -12,22 +12,21 @@ You are working on a **local-first AI Agent Platform** - a modular monolith orch
 Before writing code for non-trivial tasks:
 1. Check if a plan exists in `.claude/plans/CURRENT_PLAN.md` or `.claude/plans/YYYY-MM-DD-feature.md`
 2. For complex tasks (3+ files, architectural changes), a plan is REQUIRED
-3. If no plan exists, use `/architect` to create one FIRST
+3. If no plan exists, use `/plan` to create one FIRST
 4. Never write code without a plan for complex features
 
 ### Model Selection Guide
 
-- **Opus (`/architect`)**: Planning, architecture review, security audits, complex reasoning
-- **Sonnet (`/builder`)**: Implementation, debugging, API design, code writing
-- **Haiku (`/janitor`)**: Testing, linting, docs, simple fixes, maintenance
+- **Opus (`/plan`)**: Planning, architecture review, security audits, complex reasoning
+- **Sonnet (`/build`)**: Implementation, debugging, API design, code writing
+- **Haiku (`/ops`)**: Testing, linting, docs, simple fixes, maintenance
 
 Use the right model for the task to optimize costs. When switching models is needed, ask the user explicitly.
 
 ### Always Read These First
 
 1. `/CLAUDE.md` - Workflow and context hygiene (THIS FILE)
-2. `.claude/PRIMER.md` - Project essentials (architecture, standards, patterns)
-3. Plan file - If implementing from a plan
+2. Plan file - If implementing from a plan
 
 ## Critical Workflow (MANDATORY)
 Before marking ANY task as complete, you MUST run the quality assurance script:
@@ -108,10 +107,10 @@ Context -> Conversation -> Session -> Message
 
 When troubleshooting runtime issues, use the diagnostics APIs:
 
-- `GET /diagnostics/summary` - AI-optimized health report with error codes and recovery hints
-- `GET /diagnostics/crash-log` - Read last_crash.log content via API
-- `GET /diagnostics/traces` - Search recent traces (add `?show_all=true` for health checks)
-- `POST /diagnostics/run` - Run integration tests on all components
+- `GET /platformadmin/api/status` - System health status (HEALTHY/DEGRADED/CRITICAL)
+- `GET /platformadmin/api/debug/stats` - Debug log statistics by event type
+- `GET /platformadmin/api/traces/search` - Search OpenTelemetry traces
+- `GET /platformadmin/api/traces/{trace_id}` - Get full trace detail with all spans
 
 Crash logs: `services/agent/last_crash.log` (access via API, not file system)
 

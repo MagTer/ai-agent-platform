@@ -61,7 +61,7 @@ class TestPriceTrackerService:
         mock_session = AsyncMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
-        mock_result = AsyncMock()
+        mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
         mock_session.execute.return_value = mock_result
 
@@ -77,7 +77,7 @@ class TestPriceTrackerService:
         mock_session = AsyncMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
-        mock_result = AsyncMock()
+        mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
         mock_session.execute.return_value = mock_result
 
@@ -116,7 +116,7 @@ class TestPriceTrackerService:
         mock_session = AsyncMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
-        mock_result = AsyncMock()
+        mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
         mock_session.execute.return_value = mock_result
 
@@ -132,7 +132,7 @@ class TestPriceTrackerService:
         mock_session = AsyncMock()
         mock_session_factory.return_value.__aenter__.return_value = mock_session
 
-        mock_result = AsyncMock()
+        mock_result = MagicMock()
         mock_result.all.return_value = []
         mock_session.execute.return_value = mock_result
 

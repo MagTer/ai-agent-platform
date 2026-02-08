@@ -225,6 +225,11 @@ class Settings(BaseModel):
                     "AGENT_ADMIN_JWT_SECRET must be set in production for admin portal "
                     "authentication. Generate one with: openssl rand -hex 32"
                 )
+            if not self.internal_api_key:
+                raise ValueError(
+                    "AGENT_INTERNAL_API_KEY must be set in production to protect "
+                    "agent API endpoints. Generate one with: openssl rand -hex 32"
+                )
         return self
 
     @model_validator(mode="after")

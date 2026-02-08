@@ -216,6 +216,35 @@ async def run_agent(
 
 See [Multi-Tenant Architecture](./MULTI_TENANT_ARCHITECTURE.md) for details.
 
+### Shared Adapter Services
+
+Two shared services enable consistent behavior across all platform adapters:
+
+**ContextService** (`core/context/service.py`):
+
+Consolidates context resolution logic that was previously duplicated in each adapter. All adapters call the same service, preserving exact naming patterns (`openwebui_{uuid}`, `telegram_{chat_id}`, `personal_{user_id}`).
+
+| Method | Use Case |
+|--------|----------|
+| `resolve_for_authenticated_user()` | OpenWebUI with X-OpenWebUI-User-* headers |
+| `resolve_for_platform()` | Telegram (platform + chat_id lookup) |
+| `resolve_for_conversation_id()` | UUID-based conversation reference |
+| `resolve_anonymous()` | Ephemeral context (no identity) |
+
+**ChunkFilter** (`shared/chunk_filter.py`):
+
+Applies verbosity-level and content-safety rules to AgentChunk streams. Replaces scattered inline checks in adapters.
+
+| Method | Purpose |
+|--------|---------|
+| `should_show(chunk_type, metadata, content)` | Verbosity-based visibility (DEFAULT/VERBOSE/DEBUG) |
+| `is_safe_content(content)` | Raw model token + noise fragment filtering |
+| `is_duplicate_plan(content)` | Plan description deduplication |
+
+**PlatformAdapter** (`interfaces/base.py`):
+
+All adapters implement this ABC with a `platform_name` class attribute used by ContextService. Rendering stays adapter-specific (SSE/markdown for OpenWebUI, plain text for Telegram).
+
 ### Admin API
 
 The platform includes admin endpoints for managing users, contexts, credentials, OAuth tokens, and MCP clients:

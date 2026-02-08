@@ -24,6 +24,23 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
+# Cache for Fernet instances to avoid re-creating on every encrypt/decrypt
+_fernet_cache: dict[str, Fernet] = {}
+
+
+def _get_fernet(key: str) -> Fernet:
+    """Get cached Fernet instance for the given key.
+
+    Args:
+        key: Encryption key string
+
+    Returns:
+        Fernet instance (cached or newly created)
+    """
+    if key not in _fernet_cache:
+        _fernet_cache[key] = Fernet(key.encode())
+    return _fernet_cache[key]
+
 
 def _utc_now() -> datetime:
     """Return naive UTC datetime for SQLAlchemy defaults.
@@ -60,7 +77,7 @@ def encrypt_token(plaintext: str) -> str:
         return plaintext
 
     try:
-        fernet = Fernet(key.encode())
+        fernet = _get_fernet(key)
         return fernet.encrypt(plaintext.encode()).decode()
     except Exception as e:
         LOGGER.error(f"Failed to encrypt OAuth token: {e}")
@@ -82,7 +99,7 @@ def decrypt_token(encrypted: str) -> str:
         return encrypted
 
     try:
-        fernet = Fernet(key.encode())
+        fernet = _get_fernet(key)
         return fernet.decrypt(encrypted.encode()).decode()
     except InvalidToken:
         # Token is likely stored in plaintext from before encryption was enabled.

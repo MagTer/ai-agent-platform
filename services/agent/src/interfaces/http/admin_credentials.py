@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -646,7 +647,10 @@ async def create_credential(
     await session.commit()
 
     LOGGER.info(
-        f"Admin {admin.email} created {request.credential_type} credential for user {user.email}"
+        "Admin %s created %s credential for user %s",
+        sanitize_log(admin.email),
+        sanitize_log(request.credential_type),
+        sanitize_log(user.email),
     )
 
     # Log security event

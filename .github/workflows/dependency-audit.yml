@@ -1,0 +1,31 @@
+name: Dependency Audit
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+
+env:
+  PYTHON_VERSION: '3.11'
+  POETRY_VERSION: '1.8.2'
+
+jobs:
+  pip-audit:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: services/agent/poetry.lock
+      - uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: ${{ env.POETRY_VERSION }}
+      - run: poetry config virtualenvs.create false
+      - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - run: pip install pip-audit
+      - name: Run pip-audit
+        run: pip-audit --strict --desc
