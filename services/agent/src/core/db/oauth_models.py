@@ -84,9 +84,14 @@ def decrypt_token(encrypted: str) -> str:
     try:
         fernet = Fernet(key.encode())
         return fernet.decrypt(encrypted.encode()).decode()
-    except InvalidToken as e:
-        LOGGER.error("Failed to decrypt OAuth token - encryption key may have changed")
-        raise ValueError("Token decryption failed") from e
+    except InvalidToken:
+        # Token is likely stored in plaintext from before encryption was enabled.
+        # Return as-is so existing OAuth connections keep working.
+        LOGGER.warning(
+            "OAuth token appears to be plaintext (pre-encryption). "
+            "It will be re-encrypted on next refresh/save."
+        )
+        return encrypted
     except Exception as e:
         LOGGER.error(f"Unexpected error decrypting OAuth token: {e}")
         raise
