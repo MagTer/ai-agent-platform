@@ -130,6 +130,7 @@ addopts = "-ra --import-mode=importlib"
 asyncio_mode = "auto"
 testpaths = [
     "../../tests",
+    "src/core/auth/tests",
     "src/core/tests",
     "src/core/tools/tests",
     "src/interfaces/http/tests",
