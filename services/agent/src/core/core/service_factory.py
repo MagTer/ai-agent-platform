@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -110,16 +112,37 @@ class ServiceFactory:
             )
 
         # Load MCP tools for this context (Phase 3)
-        # This uses OAuth tokens to create context-specific MCP clients
-        from core.tools.mcp_loader import load_mcp_tools_for_context
+        # This uses OAuth tokens to create context-specific MCP clients.
+        # Capped at 5s to avoid blocking chat requests when MCP servers are unreachable.
+        # Failed attempts are cached to avoid retry storms.
+        from core.tools.mcp_loader import get_mcp_client_pool, load_mcp_tools_for_context
 
         try:
-            await load_mcp_tools_for_context(
-                context_id=context_id,
-                tool_registry=tool_registry,
-                session=session,
-                settings=self._settings,
-            )
+            pool = get_mcp_client_pool()
+            # Check negative cache before attempting (avoids 5s timeout on every request)
+            if context_id not in pool._negative_cache or (
+                time.monotonic() - pool._negative_cache[context_id] >= pool._negative_cache_ttl
+            ):
+                await asyncio.wait_for(
+                    load_mcp_tools_for_context(
+                        context_id=context_id,
+                        tool_registry=tool_registry,
+                        session=session,
+                        settings=self._settings,
+                    ),
+                    timeout=5.0,
+                )
+        except TimeoutError:
+            LOGGER.warning("MCP tool loading timed out for context %s (5s cap)", context_id)
+            # Set negative cache so we don't retry on next request
+            try:
+                pool = get_mcp_client_pool()
+                pool._negative_cache[context_id] = time.monotonic()
+            except RuntimeError:
+                pass
+        except RuntimeError:
+            # MCP pool not initialized - skip silently
+            pass
         except Exception as e:
             # Don't fail service creation if MCP loading fails
             LOGGER.warning(f"Failed to load MCP tools for context {context_id}: {e}")

@@ -47,6 +47,8 @@ class McpClientPool:
         self._locks: dict[UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._timestamps: dict[UUID, float] = {}
         self._cache_ttl = 300  # 5 minutes
+        self._negative_cache: dict[UUID, float] = {}  # context_id → failure timestamp
+        self._negative_cache_ttl = 300  # Don't retry failed connections for 5 minutes
         self._eviction_task: asyncio.Task[None] | None = None
 
     async def get_clients(
@@ -57,11 +59,12 @@ class McpClientPool:
         """Get or create MCP clients for a context.
 
         This method:
-        1. Checks cache for existing clients
-        2. Validates cached clients are still connected
-        3. Loads OAuth tokens for this context
-        4. Creates clients for each authorized provider
-        5. Caches clients for reuse
+        1. Checks negative cache (skip if recently failed)
+        2. Checks cache for existing clients
+        3. Validates cached clients are still connected
+        4. Loads OAuth tokens for this context
+        5. Creates clients for each authorized provider
+        6. Caches clients for reuse
 
         Args:
             context_id: Context UUID
@@ -70,6 +73,20 @@ class McpClientPool:
         Returns:
             List of MCP clients for this context (may be empty)
         """
+        # Check negative cache - don't retry recently failed connections
+        if context_id in self._negative_cache:
+            elapsed = time.monotonic() - self._negative_cache[context_id]
+            if elapsed < self._negative_cache_ttl:
+                LOGGER.debug(
+                    "Skipping MCP for context %s (failed %.0fs ago, retry in %.0fs)",
+                    context_id,
+                    elapsed,
+                    self._negative_cache_ttl - elapsed,
+                )
+                return []
+            # TTL expired - clear negative cache and retry
+            del self._negative_cache[context_id]
+
         # Check cache first and validate existing clients
         if context_id in self._pools and self._pools[context_id]:
             valid_clients = []
@@ -124,6 +141,7 @@ class McpClientPool:
             LOGGER.debug(f"Found {len(tokens)} OAuth tokens for context {context_id}")
 
             clients = []
+            connection_attempted = False
 
             # Create clients for each authorized provider
             for token in tokens:
@@ -131,6 +149,7 @@ class McpClientPool:
 
                 # Context7 MCP (future provider)
                 if provider == "context7" and self._settings.context7_mcp_url:
+                    connection_attempted = True
                     try:
                         client = McpClient(
                             url=str(self._settings.context7_mcp_url),
@@ -138,10 +157,10 @@ class McpClientPool:
                             oauth_provider="context7",
                             name="Context7",
                             auto_reconnect=True,
-                            max_retries=3,
+                            max_retries=1,
                             cache_ttl_seconds=300,
                         )
-                        await client.connect()
+                        await asyncio.wait_for(client.connect(), timeout=5.0)
                         clients.append(client)
                         LOGGER.info(
                             f"Connected Context7 MCP for context {context_id} "
@@ -192,6 +211,7 @@ class McpClientPool:
                                 uid, "zapier_mcp_url", session
                             )
                             if zapier_url:
+                                connection_attempted = True
                                 try:
                                     client = McpClient(
                                         url=zapier_url,
@@ -199,10 +219,10 @@ class McpClientPool:
                                         auth_token=None,
                                         name="Zapier",
                                         auto_reconnect=True,
-                                        max_retries=3,
+                                        max_retries=1,
                                         cache_ttl_seconds=300,
                                     )
-                                    await client.connect()
+                                    await asyncio.wait_for(client.connect(), timeout=10.0)
                                     clients.append(client)
                                     LOGGER.info(
                                         f"Connected Zapier MCP for context {context_id} "
@@ -253,6 +273,15 @@ class McpClientPool:
 
             if clients:
                 LOGGER.info(f"Created {len(clients)} MCP clients for context {context_id}")
+                # Clear negative cache on success
+                self._negative_cache.pop(context_id, None)
+            elif connection_attempted:
+                # Had credentials but failed to connect - negative cache to avoid retry storms
+                self._negative_cache[context_id] = time.monotonic()
+                LOGGER.info(
+                    f"MCP connection failed for context {context_id}, "
+                    f"will retry in {self._negative_cache_ttl}s"
+                )
             else:
                 LOGGER.debug(
                     f"No MCP clients created for context {context_id} "
