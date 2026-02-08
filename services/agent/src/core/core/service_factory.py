@@ -112,40 +112,33 @@ class ServiceFactory:
             )
 
         # Load MCP tools for this context (Phase 3)
-        # This uses OAuth tokens to create context-specific MCP clients.
-        # Capped at 5s to avoid blocking chat requests when MCP servers are unreachable.
-        # Failed attempts are cached to avoid retry storms.
-        from core.tools.mcp_loader import get_mcp_client_pool, load_mcp_tools_for_context
+        # Non-blocking: if cached clients exist, use them immediately.
+        # Otherwise, fire a background task to connect and skip MCP for this request.
+        from core.tools.mcp_loader import McpToolWrapper, get_mcp_client_pool
 
         try:
             pool = get_mcp_client_pool()
-            # Check negative cache before attempting (avoids 5s timeout on every request)
-            if context_id not in pool._negative_cache or (
+            cached = pool._pools.get(context_id, [])
+            if cached:
+                # Instant path: use already-connected MCP clients
+                for client in cached:
+                    if client.is_connected:
+                        for mcp_tool in client.tools:
+                            tool_registry.register(
+                                McpToolWrapper(
+                                    mcp_client=client,
+                                    mcp_tool=mcp_tool,
+                                    server_name=client.name,
+                                )
+                            )
+                LOGGER.debug("Loaded cached MCP tools for context %s", context_id)
+            elif context_id not in pool._negative_cache or (
                 time.monotonic() - pool._negative_cache[context_id] >= pool._negative_cache_ttl
             ):
-                await asyncio.wait_for(
-                    load_mcp_tools_for_context(
-                        context_id=context_id,
-                        tool_registry=tool_registry,
-                        session=session,
-                        settings=self._settings,
-                    ),
-                    timeout=5.0,
-                )
-        except TimeoutError:
-            LOGGER.warning("MCP tool loading timed out for context %s (5s cap)", context_id)
-            # Set negative cache so we don't retry on next request
-            try:
-                pool = get_mcp_client_pool()
-                pool._negative_cache[context_id] = time.monotonic()
-            except RuntimeError:
-                pass
+                # No cached clients and not in negative cache: connect in background
+                asyncio.create_task(self._connect_mcp_background(context_id, pool))
         except RuntimeError:
-            # MCP pool not initialized - skip silently
-            pass
-        except Exception as e:
-            # Don't fail service creation if MCP loading fails
-            LOGGER.warning(f"Failed to load MCP tools for context {context_id}: {e}")
+            pass  # MCP pool not initialized
 
         # Create context-scoped memory store
         # MemoryStore will filter all searches by this context_id
@@ -168,6 +161,39 @@ class ServiceFactory:
         )
 
         return service
+
+    async def _connect_mcp_background(
+        self,
+        context_id: UUID,
+        pool: object,
+    ) -> None:
+        """Connect MCP clients in the background so chat requests are never blocked.
+
+        Populates the pool's client cache. Next request for this context
+        will find cached clients and register tools instantly.
+        """
+        from core.db.engine import AsyncSessionLocal
+        from core.mcp.client_pool import McpClientPool
+
+        if not isinstance(pool, McpClientPool):
+            return
+
+        try:
+            async with AsyncSessionLocal() as bg_session:
+                await asyncio.wait_for(
+                    pool.get_clients(context_id, bg_session),
+                    timeout=10.0,
+                )
+        except TimeoutError:
+            LOGGER.warning("Background MCP connect timed out for context %s", context_id)
+            pool._negative_cache[context_id] = time.monotonic()
+        except Exception as e:
+            LOGGER.warning(
+                "Background MCP connect failed for context %s: %s",
+                context_id,
+                e,
+            )
+            pool._negative_cache[context_id] = time.monotonic()
 
 
 __all__ = ["ServiceFactory"]
