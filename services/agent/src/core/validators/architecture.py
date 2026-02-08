@@ -108,7 +108,7 @@ class ArchitectureValidator:
         Returns:
             True if first-party import
         """
-        first_party_roots = ("core", "modules", "orchestrator", "interfaces", "stack")
+        first_party_roots = ("core", "modules", "orchestrator", "interfaces", "shared", "stack")
         return module.split(".")[0] in first_party_roots
 
     def _extract_imports(self, file_path: Path) -> list[tuple[str, int]]:

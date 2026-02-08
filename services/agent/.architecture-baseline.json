@@ -1,0 +1,17 @@
+[
+  "core/tools/price_tracker.py:66 - core/ must not import from modules/\n  Import: modules.price_tracker\n  Rule: Core layer isolation",
+  "interfaces/http/admin_price_tracker.py:219 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.price_tracker.models\n  Rule: Interface layer dependencies",
+  "interfaces/http/admin_price_tracker.py:36 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.price_tracker.models\n  Rule: Interface layer dependencies",
+  "interfaces/http/admin_price_tracker.py:37 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.price_tracker.parser\n  Rule: Interface layer dependencies",
+  "interfaces/http/admin_price_tracker.py:375 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.price_tracker.models\n  Rule: Interface layer dependencies",
+  "interfaces/http/admin_price_tracker.py:38 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.price_tracker.service\n  Rule: Interface layer dependencies",
+  "interfaces/http/admin_price_tracker.py:727 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.price_tracker.models\n  Rule: Interface layer dependencies",
+  "interfaces/http/admin_price_tracker.py:905 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.price_tracker.models\n  Rule: Interface layer dependencies",
+  "interfaces/http/app.py:341 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.embedder\n  Rule: Interface layer dependencies",
+  "interfaces/http/app.py:342 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.fetcher\n  Rule: Interface layer dependencies",
+  "interfaces/http/app.py:343 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.indexer\n  Rule: Interface layer dependencies",
+  "interfaces/http/app.py:344 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.rag\n  Rule: Interface layer dependencies",
+  "interfaces/http/app.py:444 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.email.service\n  Rule: Interface layer dependencies",
+  "interfaces/http/app.py:457 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.price_tracker.scheduler\n  Rule: Interface layer dependencies",
+  "interfaces/http/app.py:469 - interfaces/ should not import modules/ directly (use orchestrator/)\n  Import: modules.homey.scheduler\n  Rule: Interface layer dependencies"
+]

@@ -243,9 +243,9 @@ class OAuthClient:
             expires_at = now + timedelta(seconds=token_response.expires_in)
 
             if existing_token:
-                # Update existing token
-                existing_token.access_token = token_response.access_token
-                existing_token.refresh_token = token_response.refresh_token
+                # Update existing token (use setters for encryption)
+                existing_token.set_access_token(token_response.access_token)
+                existing_token.set_refresh_token(token_response.refresh_token)
                 existing_token.token_type = token_response.token_type
                 existing_token.expires_at = expires_at
                 existing_token.scope = token_response.scope
@@ -256,12 +256,13 @@ class OAuthClient:
                     context_id=context_id,
                     user_id=user_id,
                     provider=provider,
-                    access_token=token_response.access_token,
-                    refresh_token=token_response.refresh_token,
                     token_type=token_response.token_type,
                     expires_at=expires_at,
                     scope=token_response.scope,
                 )
+                # Set tokens using encryption methods
+                new_token.set_access_token(token_response.access_token)
+                new_token.set_refresh_token(token_response.refresh_token)
                 session.add(new_token)
 
             # Delete used state
@@ -325,13 +326,13 @@ class OAuthClient:
             # Check if token expired (with 60s buffer)
             now = datetime.now(UTC).replace(tzinfo=None)
             if now >= token.expires_at - timedelta(seconds=60):
-                if token.refresh_token:
+                if token.has_refresh_token():
                     # Attempt refresh
                     try:
                         await self._refresh_token(session, token, provider)
                         await session.commit()
-                        # Return refreshed token
-                        return token.access_token
+                        # Return refreshed token (decrypt)
+                        return token.get_access_token()
                     except Exception as e:
                         LOGGER.warning(
                             "Token refresh failed",
@@ -342,7 +343,15 @@ class OAuthClient:
                     # No refresh token, token invalid
                     return None
 
-            return token.access_token
+            # Return decrypted token
+            try:
+                return token.get_access_token()
+            except ValueError as e:
+                LOGGER.error(
+                    "Failed to decrypt OAuth access token",
+                    extra={"provider": provider, "context_id": str(context_id), "error": str(e)},
+                )
+                return None
 
     async def _refresh_token(self, session: AsyncSession, token: OAuthToken, provider: str) -> None:
         """Refresh expired access token.
@@ -357,9 +366,17 @@ class OAuthClient:
         """
         config = self._get_provider_config(provider)
 
+        # Get decrypted refresh token for API call
+        try:
+            refresh_token_value = token.get_refresh_token()
+            if not refresh_token_value:
+                raise OAuthError("no_refresh_token", "Refresh token not available")
+        except ValueError as e:
+            raise OAuthError("decryption_failed", "Failed to decrypt refresh token") from e
+
         refresh_data = {
             "grant_type": "refresh_token",
-            "refresh_token": token.refresh_token,
+            "refresh_token": refresh_token_value,
             "client_id": config.client_id,
         }
 
@@ -396,10 +413,10 @@ class OAuthClient:
         # Parse token response
         token_response = TokenResponse(**token_response_data)
 
-        # Update token in place
-        token.access_token = token_response.access_token
+        # Update token in place (use setters for encryption)
+        token.set_access_token(token_response.access_token)
         if token_response.refresh_token:
-            token.refresh_token = token_response.refresh_token
+            token.set_refresh_token(token_response.refresh_token)
         now = datetime.now(UTC).replace(tzinfo=None)
         token.expires_at = now + timedelta(seconds=token_response.expires_in)
         token.updated_at = now

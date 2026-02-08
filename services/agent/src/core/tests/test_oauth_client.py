@@ -258,8 +258,8 @@ class TestTokenExchange:
         for call in mock_session.add.call_args_list:
             if isinstance(call[0][0], OAuthToken):
                 token = call[0][0]
-                assert token.access_token == "new_access_token"
-                assert token.refresh_token == "new_refresh_token"
+                assert token.get_access_token() == "new_access_token"
+                assert token.get_refresh_token() == "new_refresh_token"
                 assert token.context_id == context_id
                 token_added = True
         assert token_added or mock_session.add.call_count > 0
@@ -329,7 +329,7 @@ class TestGetToken:
         factory, mock_session = mock_session_factory
 
         mock_token = MagicMock()
-        mock_token.access_token = "valid_token"
+        mock_token.get_access_token.return_value = "valid_token"
         mock_token.expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(hours=1)
 
         mock_result = MagicMock()
@@ -348,9 +348,8 @@ class TestGetToken:
         factory, mock_session = mock_session_factory
 
         mock_token = MagicMock()
-        mock_token.access_token = "expired_token"
+        mock_token.has_refresh_token.return_value = False
         mock_token.expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)
-        mock_token.refresh_token = None
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_token
@@ -369,10 +368,11 @@ class TestGetToken:
         factory, mock_session = mock_session_factory
 
         mock_token = MagicMock()
-        mock_token.access_token = "old_token"
+        mock_token.has_refresh_token.return_value = True
+        mock_token.get_refresh_token.return_value = "refresh_token"
+        mock_token.get_access_token.return_value = "new_access_token"
         # Token just expired 30 seconds ago
         mock_token.expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(seconds=30)
-        mock_token.refresh_token = "refresh_token"
         mock_token.context_id = uuid.uuid4()
 
         mock_result = MagicMock()
@@ -395,11 +395,12 @@ class TestGetToken:
         mock_httpx.return_value = mock_http_client
 
         client = OAuthClient(factory, {"test_provider": provider_config})
-        _ = await client.get_token("test_provider", uuid.uuid4())
+        result = await client.get_token("test_provider", uuid.uuid4())
 
         # Token should be refreshed
-        assert mock_token.access_token == "new_access_token"
+        mock_token.set_access_token.assert_called_with("new_access_token")
         mock_session.commit.assert_called()
+        assert result == "new_access_token"
 
 
 @pytest.mark.asyncio

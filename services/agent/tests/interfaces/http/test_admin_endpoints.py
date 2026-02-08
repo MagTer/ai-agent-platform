@@ -165,10 +165,10 @@ class TestAdminOAuthEndpoints:
         token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="secret_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token.set_access_token("secret_token")  # Use setter for encryption
         async_session_sync.add(token)
         async_session_sync.commit()
 
@@ -203,17 +203,17 @@ class TestAdminOAuthEndpoints:
         token_a = OAuthToken(
             context_id=context_a.id,
             provider="homey",
-            access_token="token_a",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token_a.set_access_token("token_a")  # Use setter for encryption
         token_b = OAuthToken(
             context_id=context_b.id,
             provider="homey",
-            access_token="token_b",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token_b.set_access_token("token_b")  # Use setter for encryption
         async_session_sync.add(token_a)
         async_session_sync.add(token_b)
         async_session_sync.commit()
@@ -240,10 +240,10 @@ class TestAdminOAuthEndpoints:
         token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="revoke_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token.set_access_token("revoke_token")  # Use setter for encryption
         async_session_sync.add(token)
         async_session_sync.commit()
 
@@ -268,11 +268,11 @@ class TestAdminOAuthEndpoints:
         token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="status_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
             scope="read write",
         )
+        token.set_access_token("status_token")  # Use setter for encryption
         async_session_sync.add(token)
         async_session_sync.commit()
 

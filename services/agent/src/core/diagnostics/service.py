@@ -60,7 +60,12 @@ class DiagnosticsService:
         self._settings = settings
         self._trace_log_path = Path(str(settings.trace_span_log_path or "data/spans.jsonl"))
 
-    def get_system_health_metrics(self, window: int = 60) -> dict[str, Any]:
+    def _read_trace_lines(self) -> deque[str]:
+        """Read trace log lines synchronously (called via asyncio.to_thread)."""
+        with self._trace_log_path.open("r", encoding="utf-8") as f:
+            return deque(f, maxlen=3000)
+
+    async def get_system_health_metrics(self, window: int = 60) -> dict[str, Any]:
         """
         Analyze recent traces to determine system health.
 
@@ -87,8 +92,7 @@ class DiagnosticsService:
         # We read more lines than window size to ensure we capture full traces
         # Assuming average 10 spans per trace, 3000 lines covers ~300 traces
         try:
-            with self._trace_log_path.open("r", encoding="utf-8") as f:
-                lines = deque(f, maxlen=3000)
+            lines = await asyncio.to_thread(self._read_trace_lines)
         except Exception as e:
             LOGGER.error(f"Failed to read trace log: {e}")
             return {
@@ -252,7 +256,7 @@ class DiagnosticsService:
         from core.observability.error_codes import ErrorSeverity, get_error_info
 
         results = await self.run_diagnostics()
-        health_metrics = self.get_system_health_metrics()
+        health_metrics = await self.get_system_health_metrics()
 
         # Classify results
         failed: list[dict[str, Any]] = []
@@ -590,6 +594,11 @@ class DiagnosticsService:
                 message=str(e),
             )
 
+    def _workspace_write_test(self, test_file: Path) -> None:
+        """Synchronous workspace write test (called via asyncio.to_thread)."""
+        test_file.write_text("ok", encoding="utf-8")
+        test_file.unlink()
+
     async def _check_workspace(self) -> TestResult:
         path = self._settings.contexts_dir
         start = time.perf_counter()
@@ -605,9 +614,7 @@ class DiagnosticsService:
             # Try writing a temp file
             test_file = path / ".health_check"
             try:
-                # Blocking IO is acceptable for small test in diagnostics
-                test_file.write_text("ok", encoding="utf-8")
-                test_file.unlink()
+                await asyncio.to_thread(self._workspace_write_test, test_file)
             except Exception as e:
                 return TestResult(
                     component="Workspace",
@@ -1124,7 +1131,39 @@ class DiagnosticsService:
         except (KeyError, ValueError):
             return None
 
-    def get_recent_traces(
+    def _read_trace_spans_by_id(self, trace_id: str) -> list[TraceSpan]:
+        """Search entire file for spans matching trace_id (called via asyncio.to_thread)."""
+        raw_spans: list[TraceSpan] = []
+        with self._trace_log_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                if trace_id not in line:
+                    continue
+                try:
+                    data = json.loads(line)
+                    span = self._parse_span(data)
+                    if span:
+                        raw_spans.append(span)
+                except (json.JSONDecodeError, ValueError):
+                    continue
+        return raw_spans
+
+    def _read_recent_trace_spans(self, limit: int) -> list[TraceSpan]:
+        """Read recent trace spans from tail of file (called via asyncio.to_thread)."""
+        raw_spans: list[TraceSpan] = []
+        with self._trace_log_path.open("r", encoding="utf-8") as f:
+            last_lines = deque(f, maxlen=limit)
+
+        for line in last_lines:
+            try:
+                data = json.loads(line)
+                span = self._parse_span(data)
+                if span:
+                    raw_spans.append(span)
+            except (json.JSONDecodeError, ValueError):
+                continue
+        return raw_spans
+
+    async def get_recent_traces(
         self, limit: int = 1000, show_all: bool = False, trace_id: str | None = None
     ) -> list[TraceGroup]:
         """
@@ -1146,30 +1185,10 @@ class DiagnosticsService:
         try:
             if trace_id:
                 # Full-file search for specific trace_id
-                with self._trace_log_path.open("r", encoding="utf-8") as f:
-                    for line in f:
-                        if trace_id not in line:
-                            continue
-                        try:
-                            data = json.loads(line)
-                            span = self._parse_span(data)
-                            if span:
-                                raw_spans.append(span)
-                        except (json.JSONDecodeError, ValueError):
-                            continue
+                raw_spans = await asyncio.to_thread(self._read_trace_spans_by_id, trace_id)
             else:
                 # Tail-based reading for recent traces
-                with self._trace_log_path.open("r", encoding="utf-8") as f:
-                    last_lines = deque(f, maxlen=limit)
-
-                for line in last_lines:
-                    try:
-                        data = json.loads(line)
-                        span = self._parse_span(data)
-                        if span:
-                            raw_spans.append(span)
-                    except (json.JSONDecodeError, ValueError):
-                        continue
+                raw_spans = await asyncio.to_thread(self._read_recent_trace_spans, limit)
         except Exception as e:
             LOGGER.error(f"Error reading trace log: {e}")
             return []

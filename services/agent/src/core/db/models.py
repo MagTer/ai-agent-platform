@@ -39,7 +39,7 @@ class Context(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, unique=True, index=True)
     type: Mapped[str] = mapped_column(String)  # e.g. 'git_repo', 'devops'
-    config: Mapped[dict[str, Any]] = mapped_column(JSONB, default={})
+    config: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     pinned_files: Mapped[list[str]] = mapped_column(JSONB, default=list)
     default_cwd: Mapped[str] = mapped_column(String, default="/tmp")  # noqa: S108
 
@@ -74,7 +74,7 @@ class Conversation(Base):
     platform_id: Mapped[str] = mapped_column(String)
     context_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contexts.id"), index=True)
     current_cwd: Mapped[str] = mapped_column(String)
-    conversation_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default={})
+    conversation_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
@@ -102,7 +102,7 @@ class Session(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     # Note: 'metadata' is reserved in SQLAlchemy Base, using 'meta_data' or 'session_metadata'
     # But usually mapped_column should handle it if passed as name
-    session_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default={})
+    session_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
 
     conversation = relationship("Conversation", back_populates="sessions")
     messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
@@ -210,7 +210,7 @@ class UserCredential(Base):
     credential_type: Mapped[str] = mapped_column(String, index=True)
     encrypted_value: Mapped[str] = mapped_column(String)  # Fernet encrypted
     # Non-sensitive metadata (org URL, etc.)
-    credential_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default={})
+    credential_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
@@ -305,7 +305,7 @@ class SystemConfig(Base):
     __tablename__ = "system_config"
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
-    value: Mapped[dict[str, Any]] = mapped_column(JSONB, default={})
+    value: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
@@ -323,5 +323,5 @@ class DebugLog(Base):
     trace_id: Mapped[str] = mapped_column(String, index=True)
     conversation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String, index=True)
-    event_data: Mapped[dict[str, Any]] = mapped_column(JSONB, default={})
+    event_data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 import traceback
 import uuid
@@ -12,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from opentelemetry import trace
@@ -58,6 +59,55 @@ from interfaces.http.oauth_webui import router as oauth_webui_router
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
 LOGGER = logging.getLogger(__name__)
+
+
+def verify_internal_api_key(
+    authorization: str | None,
+    x_api_key: str | None,
+    settings: Settings,
+) -> None:
+    """Verify internal API key for agent endpoints.
+
+    Checks for API key in Authorization: Bearer <key> OR X-API-Key: <key> header.
+    If AGENT_INTERNAL_API_KEY is not set, SKIP auth (dev convenience).
+
+    Args:
+        authorization: Authorization header value
+        x_api_key: X-API-Key header value
+        settings: Application settings
+
+    Raises:
+        HTTPException 401: If key is required but invalid or missing
+    """
+    # If internal_api_key is not set, skip authentication
+    if not settings.internal_api_key:
+        if settings.environment != "test":
+            LOGGER.warning(
+                "AGENT_INTERNAL_API_KEY not set - agent API endpoints are UNAUTHENTICATED. "
+                "Set AGENT_INTERNAL_API_KEY in production for security."
+            )
+        return
+
+    # Extract key from headers
+    provided_key: str | None = None
+
+    # Check Authorization: Bearer <key>
+    if authorization and authorization.startswith("Bearer "):
+        provided_key = authorization[7:]  # Remove "Bearer " prefix
+
+    # Check X-API-Key header (takes precedence if both present)
+    if x_api_key:
+        provided_key = x_api_key
+
+    # Validate key using constant-time comparison
+    if not provided_key or not secrets.compare_digest(
+        provided_key.encode(),
+        settings.internal_api_key.encode(),
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key",
+        )
 
 
 def create_app(settings: Settings | None = None, service: AgentService | None = None) -> FastAPI:
@@ -148,6 +198,14 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         response.headers["X-XSS-Protection"] = "0"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'self'"
+        )
 
         # X-Frame-Options: SAMEORIGIN for admin portal, DENY for everything else
         if request.url.path.startswith("/platformadmin/"):
@@ -307,6 +365,8 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
     # Create shared LiteLLM client (stateless, safe to share across contexts)
     litellm_client = LiteLLMClient(settings)
+    # Store in app.state for access by openwebui_adapter and other components
+    app.state.litellm_client = litellm_client
 
     # NOTE: We no longer create a global service instance
     # Instead, we'll create a ServiceFactory in the lifespan that creates
@@ -475,6 +535,8 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         await mcp_pool.stop()
         await litellm_client.aclose()
         await token_manager.shutdown()
+        # Close shared Qdrant client in ServiceFactory
+        await service_factory.close()
 
     # Assign lifespan to app
     app.router.lifespan_context = lifespan
@@ -482,6 +544,24 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     def get_service_factory() -> ServiceFactory:
         """Return the service factory from app state."""
         return app.state.service_factory
+
+    def verify_agent_api_key(
+        authorization: str | None = Header(None),
+        x_api_key: str | None = Header(None, alias="X-API-Key"),
+    ) -> None:
+        """Verify internal API key for agent endpoints (dependency injection).
+
+        Checks for API key in Authorization: Bearer <key> OR X-API-Key: <key> header.
+        If AGENT_INTERNAL_API_KEY is not set, SKIP auth (dev convenience).
+
+        Args:
+            authorization: Authorization header value
+            x_api_key: X-API-Key header value
+
+        Raises:
+            HTTPException 401: If key is required but invalid or missing
+        """
+        verify_internal_api_key(authorization, x_api_key, settings)
 
     async def get_service(
         request: Request,
@@ -557,21 +637,18 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         async def check_qdrant() -> dict[str, Any]:
             try:
                 start = time.perf_counter()
-                from qdrant_client import AsyncQdrantClient
+                # Use shared Qdrant client from service factory
+                factory = request.app.state.service_factory
+                client = factory._qdrant_client
 
-                qdrant_url = settings.qdrant_url
-                client = AsyncQdrantClient(url=str(qdrant_url))
-                try:
-                    # List collections to verify connection
-                    await asyncio.wait_for(client.get_collections(), timeout=2.0)
-                    latency = (time.perf_counter() - start) * 1000
-                    return {"status": "ok", "latency_ms": round(latency, 1)}
-                finally:
-                    await client.close()
+                # List collections to verify connection
+                await asyncio.wait_for(client.get_collections(), timeout=2.0)
+                latency = (time.perf_counter() - start) * 1000
+                return {"status": "ok", "latency_ms": round(latency, 1)}
             except TimeoutError:
                 return {"status": "error", "error": "timeout"}
-            except ImportError:
-                return {"status": "unavailable", "error": "qdrant-client not installed"}
+            except AttributeError:
+                return {"status": "unavailable", "error": "qdrant client not initialized"}
             except Exception as e:
                 return {"status": "error", "error": str(e)[:200]}
 
@@ -688,6 +765,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         request: AgentRequest,
         factory: ServiceFactory = Depends(get_service_factory),
         session: AsyncSession = Depends(get_db),
+        _auth: None = Depends(verify_agent_api_key),
     ) -> AgentResponse:
         try:
             # Extract or create context_id from conversation_id
@@ -798,6 +876,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         request: ChatCompletionRequest,
         svc: AgentService = Depends(get_service),
         session: AsyncSession = Depends(get_db),
+        _auth: None = Depends(verify_agent_api_key),
     ) -> ChatCompletionResponse:
         return await _handle_chat_completions(request, svc, session)
 
@@ -806,11 +885,15 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         request: ChatCompletionRequest,
         svc: AgentService = Depends(get_service),
         session: AsyncSession = Depends(get_db),
+        _auth: None = Depends(verify_agent_api_key),
     ) -> ChatCompletionResponse:
         return await _handle_chat_completions(request, svc, session)
 
     @app.get("/models")
-    async def list_models(svc: AgentService = Depends(get_service)) -> Any:
+    async def list_models(
+        svc: AgentService = Depends(get_service),
+        _auth: None = Depends(verify_agent_api_key),
+    ) -> Any:
         try:
             return await svc.list_models()
         except LiteLLMError as exc:  # pragma: no cover - upstream failure
@@ -820,7 +903,10 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             ) from exc
 
     @app.get("/v1/models")
-    async def list_models_v1(svc: AgentService = Depends(get_service)) -> Any:
+    async def list_models_v1(
+        svc: AgentService = Depends(get_service),
+        _auth: None = Depends(verify_agent_api_key),
+    ) -> Any:
         return await list_models(svc)
 
     @app.get("/v1/agent/history/{conversation_id}", response_model=list[AgentMessage])
@@ -828,6 +914,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         conversation_id: str,
         svc: AgentService = Depends(get_service),
         session: AsyncSession = Depends(get_db),
+        _auth: None = Depends(verify_agent_api_key),
     ) -> list[AgentMessage]:
         try:
             return await svc.get_history(conversation_id, session=session)
@@ -874,7 +961,7 @@ def run() -> None:  # pragma: no cover - used by Poetry script
     )
 
 
-__all__ = ["create_app", "run"]
+__all__ = ["create_app", "run", "verify_internal_api_key"]
 
 
 def _build_agent_request_from_chat(request: ChatCompletionRequest) -> AgentRequest:

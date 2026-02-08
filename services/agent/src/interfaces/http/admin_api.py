@@ -540,7 +540,7 @@ async def search_traces(
     diagnostics = DiagnosticsService(settings)
 
     # Get traces using the correct method
-    trace_groups = diagnostics.get_recent_traces(
+    trace_groups = await diagnostics.get_recent_traces(
         limit=limit * 10,  # Read more to allow filtering
         show_all=True,
         trace_id=trace_id,
@@ -585,7 +585,7 @@ async def get_trace_detail(
     settings = get_settings()
     diagnostics = DiagnosticsService(settings)
 
-    trace_groups = diagnostics.get_recent_traces(
+    trace_groups = await diagnostics.get_recent_traces(
         limit=100,
         show_all=True,
         trace_id=trace_id,

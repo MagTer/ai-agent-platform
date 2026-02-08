@@ -34,7 +34,7 @@ The system follows a **Modular Monolith** architecture with a strict unidirectio
 
 1.  **`interfaces/`** (Top Level)
     *   *Purpose:* HTTP API, CLI, Event consumers. Adapts external protocols to internal data structures.
-    *   *Rule:* Can import everything below (`orchestrator`, `modules`, `core`). **NO Business Logic here.**
+    *   *Rule:* Can import `orchestrator` and `core` only. **CANNOT** import `modules` directly. **NO Business Logic here.**
 
 2.  **`orchestrator/`**
     *   *Purpose:* Workflows, Task Delegation. Contains the Planner Agent and Skill delegation logic.

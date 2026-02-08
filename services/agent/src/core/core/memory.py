@@ -44,13 +44,20 @@ class MemoryStore:
     and searches are filtered to only return memories from the same context.
     """
 
-    def __init__(self, settings: Settings, context_id: UUID | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        context_id: UUID | None = None,
+        client: AsyncQdrantClient | None = None,
+    ) -> None:
         """Initialize memory store.
 
         Args:
             settings: Application settings
             context_id: Context UUID for multi-tenant isolation.
                        If None, context filtering is disabled (backward compatibility).
+            client: Optional pre-created AsyncQdrantClient to share across requests.
+                   If None, a new client will be created (backward compatibility).
 
         SECURITY NOTE: context_id should always be provided for user-facing operations
         to ensure proper tenant isolation. The None case is only for backwards
@@ -58,7 +65,8 @@ class MemoryStore:
         """
         self._settings = settings
         self._context_id = context_id
-        self._client: AsyncQdrantClient | None = None
+        self._client: AsyncQdrantClient | None = client
+        self._owns_client = client is None  # Track if we created the client
 
         # SECURITY: Warn if context_id is None - this disables tenant isolation
         if context_id is None:
@@ -77,6 +85,20 @@ class MemoryStore:
         await self._async_ensure_client()
 
     async def _async_ensure_client(self) -> None:
+        # If client was provided externally, just ensure collection exists
+        if self._client is not None:
+            try:
+                await self._client.get_collection(self._settings.qdrant_collection)
+            except UnexpectedResponse:
+                await self._client.create_collection(
+                    collection_name=self._settings.qdrant_collection,
+                    vectors_config=VectorParams(
+                        size=get_embedder().dimension, distance=Distance.COSINE
+                    ),
+                )
+            return
+
+        # Create a new client if we own it
         try:
             self._client = AsyncQdrantClient(
                 url=str(self._settings.qdrant_url),
@@ -232,6 +254,16 @@ class MemoryStore:
         except Exception as exc:
             LOGGER.warning("Embedder request failed: %s", exc)
         return []
+
+    async def close(self) -> None:
+        """Close the Qdrant client if we own it.
+
+        Only closes the client if it was created by this MemoryStore instance.
+        Shared clients should be closed by their owner (e.g., ServiceFactory).
+        """
+        if self._client is not None and self._owns_client:
+            await self._client.close()
+            self._client = None
 
 
 __all__ = ["MemoryStore", "MemoryRecord"]

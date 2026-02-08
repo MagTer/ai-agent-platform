@@ -126,6 +126,12 @@ class Settings(BaseModel):
         description="API key for diagnostic API access by AI agents.",
     )
 
+    # Internal API Key (for agent endpoints)
+    internal_api_key: str | None = Field(
+        default=None,
+        description="API key for internal agent API endpoints (generate: openssl rand -hex 32).",
+    )
+
     # Entra ID (Azure AD) Configuration for Admin Portal
     entra_client_id: str | None = Field(
         default=None,

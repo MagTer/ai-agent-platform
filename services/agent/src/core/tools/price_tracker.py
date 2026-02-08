@@ -64,7 +64,11 @@ Anvand for fragor som:
         """Execute the price tracker action."""
         from core.providers import get_price_tracker
 
-        service = get_price_tracker()
+        try:
+            service = get_price_tracker()
+        except Exception as e:
+            logger.warning(f"Price tracker not configured: {e}")
+            return "Prisfunktionen är inte konfigurerad. Kontakta administratören."
 
         try:
             if action == "check_price":

@@ -1,13 +1,16 @@
 import asyncio
 import hashlib
+import ipaddress
 import json
 import logging
 import os
+import socket
 import time
 from collections import deque
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin, urlparse
 
 import httpx
 import trafilatura
@@ -32,6 +35,34 @@ class _PlainTextExtractor(HTMLParser):
 
 
 class WebFetcher:
+    # Blocked hostnames (common internal Docker services)
+    BLOCKED_HOSTNAMES = frozenset(
+        {
+            "postgres",
+            "qdrant",
+            "litellm",
+            "redis",
+            "searxng",
+            "openwebui",
+            "traefik",
+            "webfetch",
+            "embedder",
+            "agent",
+        }
+    )
+
+    # Private/reserved IP ranges
+    PRIVATE_RANGES = [
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+        ipaddress.ip_network("127.0.0.0/8"),
+        ipaddress.ip_network("169.254.0.0/16"),
+        ipaddress.ip_network("::1/128"),
+        ipaddress.ip_network("fc00::/7"),
+        ipaddress.ip_network("fe80::/10"),
+    ]
+
     def __init__(self, rag_manager: IRAGManager | None = None) -> None:
         self.searxng_url = os.getenv("SEARXNG_URL", "http://searxng:8080")
         self.request_timeout = int(os.getenv("FETCHER_REQUEST_TIMEOUT", "15"))
@@ -47,7 +78,7 @@ class WebFetcher:
 
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.http_client = httpx.AsyncClient(
-            follow_redirects=True,
+            follow_redirects=False,  # Disable auto-redirect to validate each URL
             limits=httpx.Limits(
                 max_connections=50,
                 max_keepalive_connections=20,
@@ -100,7 +131,60 @@ class WebFetcher:
         parser.feed(html)
         return parser.get_text()
 
+    async def _validate_url(self, url: str) -> None:
+        """Validate URL to prevent SSRF attacks.
+
+        Blocks:
+        - Non-HTTP(S) schemes
+        - Private/reserved IP ranges
+        - Common internal Docker service hostnames
+
+        Args:
+            url: The URL to validate
+
+        Raises:
+            ValueError: If the URL is blocked
+        """
+        parsed = urlparse(url)
+
+        # Only allow HTTP(S)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError(f"Blocked URL scheme: {parsed.scheme}")
+
+        hostname = parsed.hostname
+        if not hostname:
+            raise ValueError("URL missing hostname")
+
+        # Block internal Docker service names
+        if hostname.lower() in self.BLOCKED_HOSTNAMES:
+            raise ValueError(f"Blocked internal hostname: {hostname}")
+
+        # Resolve hostname to IP addresses (blocking call, wrap in to_thread)
+        try:
+            addr_info = await asyncio.to_thread(
+                socket.getaddrinfo, hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM
+            )
+        except socket.gaierror as e:
+            raise ValueError(f"DNS resolution failed for {hostname}: {e}") from e
+
+        # Check all resolved IPs
+        for _family, _, _, _, sockaddr in addr_info:
+            ip_str = sockaddr[0]
+            try:
+                ip_addr = ipaddress.ip_address(ip_str)
+            except ValueError:
+                # Invalid IP (shouldn't happen with getaddrinfo)
+                continue
+
+            # Check against private ranges
+            for network in self.PRIVATE_RANGES:
+                if ip_addr in network:
+                    raise ValueError(f"Blocked private IP: {ip_str} (from {hostname})")
+
     async def fetch(self, url: str) -> dict[str, Any]:
+        # Validate URL before checking cache to prevent cache poisoning
+        await self._validate_url(url)
+
         cached = self._cache_get(url)
         if cached:
             return cached
@@ -127,12 +211,42 @@ class WebFetcher:
                 "Connection": "keep-alive",
                 "Upgrade-Insecure-Requests": "1",
             }
-            r = await self.http_client.get(
-                url,
-                timeout=self.request_timeout,
-                headers=headers,
-            )
-            r.raise_for_status()
+
+            # Manual redirect following with SSRF validation
+            current_url = url
+            max_redirects = 10
+            redirect_count = 0
+
+            while redirect_count < max_redirects:
+                r = await self.http_client.get(
+                    current_url,
+                    timeout=self.request_timeout,
+                    headers=headers,
+                )
+
+                # Check for redirects (3xx status codes)
+                if 300 <= r.status_code < 400:
+                    redirect_url = r.headers.get("Location")
+                    if not redirect_url:
+                        break
+
+                    # Handle relative redirects
+                    if not redirect_url.startswith(("http://", "https://")):
+                        redirect_url = urljoin(current_url, redirect_url)
+
+                    # Validate redirect target to prevent SSRF via redirect
+                    await self._validate_url(redirect_url)
+                    current_url = redirect_url
+                    redirect_count += 1
+                    continue
+
+                # Not a redirect, process the response
+                r.raise_for_status()
+                break
+
+            if redirect_count >= max_redirects:
+                raise ValueError(f"Too many redirects (>{max_redirects})")
+
             raw_html = r.text
             text = await asyncio.to_thread(self._extract_text, raw_html)
             text = text.strip()

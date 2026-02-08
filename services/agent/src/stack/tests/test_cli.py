@@ -220,11 +220,13 @@ def test_check_command_success(monkeypatch: MonkeyPatch) -> None:
         include_semantic: bool,
         semantic_category: str | None = None,
         skip_architecture: bool = False,
+        update_baseline: bool = False,
         repo_root: Path | None,
     ) -> list[checks.CheckResult]:
         called["fix"] = fix
         called["include_semantic"] = include_semantic
         called["semantic_category"] = semantic_category
+        called["update_baseline"] = update_baseline
         return [
             checks.CheckResult(success=True, name="ruff"),
             checks.CheckResult(success=True, name="black"),
@@ -239,6 +241,7 @@ def test_check_command_success(monkeypatch: MonkeyPatch) -> None:
     assert "passed" in result.output.lower()
     assert called["fix"] is True
     assert called["include_semantic"] is False
+    assert called["update_baseline"] is False
 
 
 def test_check_command_no_fix(monkeypatch: MonkeyPatch) -> None:
@@ -253,6 +256,7 @@ def test_check_command_no_fix(monkeypatch: MonkeyPatch) -> None:
         include_semantic: bool,
         semantic_category: str | None = None,
         skip_architecture: bool = False,
+        update_baseline: bool = False,
         repo_root: Path | None,
     ) -> list[checks.CheckResult]:
         called["fix"] = fix
@@ -275,6 +279,7 @@ def test_check_command_failure(monkeypatch: MonkeyPatch) -> None:
         include_semantic: bool,
         semantic_category: str | None = None,
         skip_architecture: bool = False,
+        update_baseline: bool = False,
         repo_root: Path | None,
     ) -> list[checks.CheckResult]:
         return [

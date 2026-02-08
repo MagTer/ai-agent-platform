@@ -304,7 +304,7 @@ async def get_context_details(
                 "token_type": token.token_type,
                 "expires_at": token.expires_at.isoformat(),
                 "is_expired": token.expires_at < now,
-                "has_refresh_token": token.refresh_token is not None,
+                "has_refresh_token": token.has_refresh_token(),
                 "scope": token.scope,
                 "created_at": token.created_at.isoformat(),
             }

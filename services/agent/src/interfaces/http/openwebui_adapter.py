@@ -1,13 +1,14 @@
 import asyncio
 import json
 import logging
+import secrets
 import time
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from shared.content_classifier import contains_raw_model_tokens, is_noise_fragment
@@ -18,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.header_auth import extract_user_from_headers
 from core.auth.user_service import get_or_create_user, get_user_default_context
 from core.core.config import Settings, get_settings
-from core.core.litellm_client import LiteLLMClient
 from core.core.service import AgentService
 from core.core.service_factory import ServiceFactory
 from core.db.engine import get_db
@@ -29,6 +29,50 @@ from orchestrator.dispatcher import Dispatcher
 LOGGER = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def verify_internal_api_key_openwebui(
+    authorization: str | None = Header(None),
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    """Verify internal API key for OpenWebUI adapter endpoints.
+
+    Checks for API key in Authorization: Bearer <key> OR X-API-Key: <key> header.
+    If AGENT_INTERNAL_API_KEY is not set, SKIP auth (dev convenience).
+
+    Args:
+        authorization: Authorization header value
+        x_api_key: X-API-Key header value
+        settings: Application settings
+
+    Raises:
+        HTTPException 401: If key is required but invalid or missing
+    """
+    # If internal_api_key is not set, skip authentication
+    if not settings.internal_api_key:
+        return
+
+    # Extract key from headers
+    provided_key: str | None = None
+
+    # Check Authorization: Bearer <key>
+    if authorization and authorization.startswith("Bearer "):
+        provided_key = authorization[7:]  # Remove "Bearer " prefix
+
+    # Check X-API-Key header (takes precedence if both present)
+    if x_api_key:
+        provided_key = x_api_key
+
+    # Validate key using constant-time comparison
+    if not provided_key or not secrets.compare_digest(
+        provided_key.encode(),
+        settings.internal_api_key.encode(),
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key",
+        )
 
 
 def _get_debug_category(chunk_type: str, metadata: dict[str, Any] | None) -> tuple[str, str]:
@@ -112,13 +156,22 @@ class ChatCompletionRequest(BaseModel):
 # --- Dependencies ---
 
 
-def get_settings_dep() -> Settings:
-    return get_settings()
+def get_dispatcher(request: Request) -> Dispatcher:
+    """Get Dispatcher with shared LiteLLMClient from app state.
 
+    Reuses the singleton LiteLLMClient to avoid per-request httpx.AsyncClient leaks.
+    """
+    factory: ServiceFactory = request.app.state.service_factory
+    skill_registry = factory._skill_registry
 
-def get_dispatcher(request: Request, settings: Settings = Depends(get_settings_dep)) -> Dispatcher:
-    skill_registry = request.app.state.service_factory._skill_registry
-    litellm = LiteLLMClient(settings)
+    # Get shared LiteLLM client from app state (created once at startup)
+    litellm = request.app.state.litellm_client
+
+    # skill_registry can be None if not initialized - handle gracefully
+    if skill_registry is None:
+        raise HTTPException(status_code=503, detail="Skill registry not initialized")
+
+    # After None check, mypy knows skill_registry is SkillRegistry
     return Dispatcher(skill_registry, litellm)
 
 
@@ -281,6 +334,7 @@ async def chat_completions(
     context_id: UUID = Depends(get_or_create_context_id),
     agent_service: AgentService = Depends(get_agent_service),
     session: AsyncSession = Depends(get_db),
+    _auth: None = Depends(verify_internal_api_key_openwebui),
 ) -> Any:
     """
     OpenAI-compatible endpoint for Open WebUI.
