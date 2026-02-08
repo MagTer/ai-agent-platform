@@ -274,7 +274,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                 "/diagnostics",
                 "/health",
                 "/metrics",
-                "/v1/agent/history",
+                "/v1/agent",
                 "/v1/chat/completions",
             )
         )

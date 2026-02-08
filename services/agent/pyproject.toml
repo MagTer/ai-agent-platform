@@ -128,7 +128,17 @@ ignore_missing_imports = true
 minversion = "8.0"
 addopts = "-ra --import-mode=importlib"
 asyncio_mode = "auto"
-testpaths = ["../../tests", "src/core/tests", "src/stack/tests"]
+testpaths = [
+    "../../tests",
+    "src/core/tests",
+    "src/core/tools/tests",
+    "src/interfaces/http/tests",
+    "src/modules/email/tests",
+    "src/modules/price_tracker/tests",
+    "src/shared/tests",
+    "src/stack/tests",
+    "src/utils/tests",
+]
 
 [tool.coverage.run]
 branch = true
