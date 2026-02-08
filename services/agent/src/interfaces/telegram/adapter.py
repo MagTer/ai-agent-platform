@@ -1,16 +1,15 @@
 import logging
 from typing import Any
-from uuid import UUID
 
 from aiogram import Bot
 from aiogram import Dispatcher as TelegramDispatcher
 from aiogram.types import Message
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from shared.chunk_filter import ChunkFilter
+from shared.streaming import VerbosityLevel
 
+from core.context import ContextService
 from core.core.service_factory import ServiceFactory
 from core.db.engine import AsyncSessionLocal
-from core.db.models import Context, Conversation
 from interfaces.base import PlatformAdapter
 from orchestrator.dispatcher import Dispatcher as AgentDispatcher
 
@@ -18,6 +17,8 @@ LOGGER = logging.getLogger(__name__)
 
 
 class TelegramAdapter(PlatformAdapter):
+    platform_name = "telegram"
+
     def __init__(
         self,
         dispatcher: AgentDispatcher,
@@ -70,45 +71,6 @@ class TelegramAdapter(PlatformAdapter):
         except Exception as e:
             LOGGER.error(f"Failed to send Telegram message: {e}")
 
-    async def _get_or_create_context(self, chat_id: str, session: AsyncSession) -> UUID:
-        """Get or create context for a Telegram chat.
-
-        Each Telegram chat gets its own context for isolation.
-
-        Args:
-            chat_id: Telegram chat ID
-            session: Database session
-
-        Returns:
-            Context UUID for this Telegram chat
-        """
-        # Look for existing conversation with this platform_id
-        stmt = select(Conversation).where(
-            Conversation.platform == "telegram",
-            Conversation.platform_id == chat_id,
-        )
-        result = await session.execute(stmt)
-        conversation = result.scalar_one_or_none()
-
-        if conversation:
-            # Found existing conversation - return its context
-            LOGGER.debug(
-                f"Found existing Telegram conversation, context_id={conversation.context_id}"
-            )
-            return conversation.context_id
-
-        # No conversation yet - create a new context for this Telegram chat
-        context = Context(
-            name=f"telegram_{chat_id}",
-            type="virtual",
-            config={"platform": "telegram", "chat_id": chat_id},
-            default_cwd="/tmp",  # noqa: S108
-        )
-        session.add(context)
-        await session.flush()
-        LOGGER.info(f"Created new context for Telegram chat {chat_id}: {context.id}")
-        return context.id
-
     async def _handle_message(self, message: Message) -> None:
         if not message.text:
             return
@@ -121,10 +83,12 @@ class TelegramAdapter(PlatformAdapter):
         try:
             async with AsyncSessionLocal() as session:
                 # Get or create context for this Telegram chat
-                context_id = await self._get_or_create_context(chat_id, session)
+                context_id = await ContextService.resolve_for_platform("telegram", chat_id, session)
 
                 # Create context-scoped agent service
                 agent_service = await self.service_factory.create_service(context_id, session)
+
+                chunk_filter = ChunkFilter(VerbosityLevel.DEFAULT)
 
                 # Delegate to Dispatcher with explicit Platform context
                 full_response = ""
@@ -136,10 +100,31 @@ class TelegramAdapter(PlatformAdapter):
                     db_session=session,
                     agent_service=agent_service,
                 ):
-                    if chunk["type"] == "content" and chunk["content"]:
-                        full_response += chunk["content"]
-                    elif chunk["type"] == "error" and chunk["content"]:
-                        full_response += f"\nError: {chunk['content']}"
+                    chunk_type = chunk["type"]
+                    content = chunk.get("content")
+
+                    if not chunk_filter.should_show(chunk_type, chunk.get("metadata"), content):
+                        continue
+
+                    if chunk_type == "content" and content:
+                        if chunk_filter.is_safe_content(content):
+                            full_response += content
+
+                    elif chunk_type == "awaiting_input":
+                        meta = chunk.get("metadata") or {}
+                        prompt = meta.get("prompt", "Input needed:")
+                        options = meta.get("options")
+                        hitl_text = f"[Input needed] {prompt}"
+                        if options:
+                            for i, opt in enumerate(options, 1):
+                                hitl_text += f"\n{i}. {opt}"
+                        if full_response:
+                            await self.send_message(chat_id, full_response)
+                            full_response = ""
+                        await self.send_message(chat_id, hitl_text)
+
+                    elif chunk_type == "error" and content:
+                        full_response += f"\nError: {content}"
 
                 if full_response:
                     await self.send_message(chat_id, full_response)

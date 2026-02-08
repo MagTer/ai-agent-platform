@@ -36,7 +36,7 @@ from core.core.models import (
 from core.core.service import AgentService
 from core.core.service_factory import ServiceFactory
 from core.db.engine import get_db
-from core.db.models import Context, Conversation
+from core.db.models import Context
 from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
 from core.observability.tracing import configure_tracing
 from core.tools.mcp_loader import set_mcp_client_pool
@@ -768,55 +768,14 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         _auth: None = Depends(verify_agent_api_key),
     ) -> AgentResponse:
         try:
-            # Extract or create context_id from conversation_id
-            from uuid import UUID
+            from core.context import ContextService
 
-            context_id: UUID
             if request.conversation_id:
-                try:
-                    conversation_uuid = UUID(request.conversation_id)
-                    # Look up conversation to get context_id
-                    from sqlalchemy import select
-
-                    stmt = select(Conversation).where(Conversation.id == conversation_uuid)
-                    result = await session.execute(stmt)
-                    conversation = result.scalar_one_or_none()
-
-                    if conversation:
-                        context_id = conversation.context_id
-                    else:
-                        # Create default context for new conversation
-                        context = Context(
-                            name=f"agent_{conversation_uuid}",
-                            type="virtual",
-                            config={},
-                            default_cwd="/tmp",  # noqa: S108
-                        )
-                        session.add(context)
-                        await session.flush()
-                        context_id = context.id
-                except ValueError:
-                    # Invalid UUID - create default context
-                    context = Context(
-                        name=f"agent_{uuid.uuid4()}",
-                        type="virtual",
-                        config={},
-                        default_cwd="/tmp",  # noqa: S108
-                    )
-                    session.add(context)
-                    await session.flush()
-                    context_id = context.id
-            else:
-                # No conversation_id - create default context
-                context = Context(
-                    name=f"agent_{uuid.uuid4()}",
-                    type="virtual",
-                    config={},
-                    default_cwd="/tmp",  # noqa: S108
+                context_id = await ContextService.resolve_for_conversation_id(
+                    request.conversation_id, "agent", session
                 )
-                session.add(context)
-                await session.flush()
-                context_id = context.id
+            else:
+                context_id = await ContextService.resolve_anonymous("agent", session)
 
             # Create context-scoped service
             svc = await factory.create_service(context_id, session)

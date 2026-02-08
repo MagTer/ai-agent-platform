@@ -252,8 +252,8 @@ Task(
 - Absolute imports only (no relative imports)
 
 **Language:**
-- Swedish ONLY for conversation with user (chat messages)
-- English for ALL code, web content, UI text, config, comments, docs
+- English for EVERYTHING: conversation, code, web content, UI text, config, comments, docs, plans, commit messages
+- Respond in English regardless of what language the user writes in
 - ASCII-safe punctuation (no emojis or smart quotes)
 - Copy/pasteable examples
 
@@ -397,6 +397,8 @@ if step.tool == "my_integration":
 ├── config/tools.yaml      # Tool registration
 └── src/
     ├── core/
+    │   ├── context/       # Shared context resolution
+    │   │   └── service.py        # ContextService (all adapters use this)
     │   ├── tools/         # Tool implementations
     │   │   ├── base.py
     │   │   ├── homey.py
@@ -408,9 +410,14 @@ if step.tool == "my_integration":
     │   │   └── executor.py       # SkillExecutor (scoped execution)
     │   └── db/
     │       └── models.py  # Database models (Context, Workspace, etc.)
+    ├── shared/
+    │   └── chunk_filter.py       # ChunkFilter (verbosity + safety filtering)
     └── interfaces/
-        └── http/
-            └── admin_*.py # Admin portal modules
+        ├── base.py               # PlatformAdapter ABC (platform_name)
+        ├── http/
+        │   └── admin_*.py        # Admin portal modules
+        └── telegram/
+            └── adapter.py        # Telegram adapter (uses ContextService + ChunkFilter)
 ```
 
 ### Context-Isolated Workspaces
@@ -653,9 +660,12 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 **Core Architecture:**
 - `services/agent/config/tools.yaml` - Tool registration
 - `services/agent/src/core/db/models.py` - Database models
+- `services/agent/src/core/context/service.py` - ContextService (shared context resolution)
 - `services/agent/src/core/skills/registry.py` - Skill validation
 - `services/agent/src/core/skills/executor.py` - Skill execution
 - `services/agent/src/shared/models.py` - Shared Pydantic models (StepOutcome, etc.)
+- `services/agent/src/shared/chunk_filter.py` - ChunkFilter (verbosity + safety filtering)
+- `services/agent/src/interfaces/base.py` - PlatformAdapter ABC
 
 **Admin Portal:**
 - `services/agent/src/interfaces/http/admin_shared.py` - Navigation, shared components

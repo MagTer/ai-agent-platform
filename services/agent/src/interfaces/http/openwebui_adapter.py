@@ -11,18 +11,17 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from shared.content_classifier import contains_raw_model_tokens, is_noise_fragment
+from shared.chunk_filter import ChunkFilter
 from shared.streaming import VerbosityLevel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.header_auth import extract_user_from_headers
-from core.auth.user_service import get_or_create_user, get_user_default_context
+from core.auth.user_service import get_or_create_user
+from core.context import ContextService
 from core.core.config import Settings, get_settings
 from core.core.service import AgentService
 from core.core.service_factory import ServiceFactory
 from core.db.engine import get_db
-from core.db.models import Context, Conversation
 from interfaces.base import PlatformAdapter
 from orchestrator.dispatcher import Dispatcher
 
@@ -113,11 +112,13 @@ def _get_debug_category(chunk_type: str, metadata: dict[str, Any] | None) -> tup
 
 
 class OpenWebUIAdapter(PlatformAdapter):
-    """
-    Adapter for Open WebUI (HTTP/OpenAI API).
+    """Adapter for Open WebUI (HTTP/OpenAI API).
+
     This is primarily a passive adapter (FastAPI handles the lifecycle),
     but implementation ensures architectural consistency.
     """
+
+    platform_name = "openwebui"
 
     async def start(self) -> None:
         LOGGER.info("OpenWebUIAdapter (HTTP) initialized. Listening via FastAPI.")
@@ -182,10 +183,7 @@ async def get_or_create_context_id(
 ) -> UUID:
     """Extract or create context_id from OpenWebUI conversation.
 
-    Flow:
-    1. Try to extract user from X-OpenWebUI-* headers
-    2. If user exists: Get or create user + return their personal context
-    3. If anonymous: Use existing ephemeral context logic (chat_id-based)
+    Delegates to ContextService for the actual resolution logic.
 
     Args:
         request: OpenWebUI chat completion request
@@ -195,104 +193,23 @@ async def get_or_create_context_id(
     Returns:
         Context UUID for this conversation
     """
-    # Step 1: Try to extract authenticated user from headers
+    # Try authenticated user first
     identity = extract_user_from_headers(http_request)
-
     if identity:
-        # Step 2: Get or create user (auto-provisions on first login)
-        user = await get_or_create_user(identity, session)
+        return await ContextService.resolve_for_authenticated_user(identity, session)
 
-        # Step 3: Get user's default (personal) context
-        context = await get_user_default_context(user, session)
-        if context:
-            LOGGER.debug(f"Using personal context {context.id} for user {user.email}")
-            return context.id
-
-        # Fallback: Create context if somehow missing (shouldn't happen)
-        LOGGER.warning(f"User {user.email} has no default context, creating one")
-        context = Context(
-            name=f"personal_{user.id}",
-            type="personal",
-            config={"owner_email": user.email},
-            default_cwd="/tmp",  # noqa: S108
-        )
-        session.add(context)
-        await session.flush()
-        return context.id
-
-    # Step 4: Anonymous user - use existing ephemeral context logic
+    # Anonymous -- resolve via conversation ID
     LOGGER.debug("No user headers found, using anonymous context logic")
-
-    # Extract conversation_id from OpenWebUI request
     conversation_id_str = (
         request.chat_id or request.session_id or (request.metadata or {}).get("conversation_id")
     )
 
     if not conversation_id_str:
-        # No conversation ID - create a default context for this request
-        # This handles the case where OpenWebUI starts a fresh conversation
-        context = Context(
-            name=f"openwebui_{uuid.uuid4()}",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",  # noqa: S108
-        )
-        session.add(context)
-        await session.flush()
-        LOGGER.info(f"Created new context for fresh OpenWebUI conversation: {context.id}")
-        return context.id
+        return await ContextService.resolve_anonymous("openwebui", session)
 
-    # Try to parse as UUID
-    try:
-        conversation_uuid = UUID(conversation_id_str)
-    except ValueError:
-        # Invalid UUID format - create default context
-        LOGGER.warning(
-            f"Invalid conversation_id format: {conversation_id_str}, creating new context"
-        )
-        context = Context(
-            name=f"openwebui_{uuid.uuid4()}",
-            type="virtual",
-            config={},
-            default_cwd="/tmp",  # noqa: S108
-        )
-        session.add(context)
-        await session.flush()
-        return context.id
-
-    # Look up conversation in database
-    stmt = select(Conversation).where(Conversation.id == conversation_uuid)
-    result = await session.execute(stmt)
-    conversation = result.scalar_one_or_none()
-
-    if conversation:
-        # Conversation exists - return its context
-        LOGGER.debug(
-            f"Found existing conversation {conversation_uuid}, context_id={conversation.context_id}"
-        )
-        return conversation.context_id
-
-    # Conversation doesn't exist yet (will be created by AgentService later)
-    # Check if context already exists for this conversation (handles retries)
-    ctx_name = f"openwebui_{conversation_uuid}"
-    ctx_stmt = select(Context).where(Context.name == ctx_name)
-    ctx_result = await session.execute(ctx_stmt)
-    context = ctx_result.scalar_one_or_none()
-
-    if not context:
-        context = Context(
-            name=ctx_name,
-            type="virtual",
-            config={"platform": "openwebui", "conversation_id": str(conversation_uuid)},
-            default_cwd="/tmp",  # noqa: S108
-        )
-        session.add(context)
-        await session.flush()
-        LOGGER.info(f"Created new context for conversation {conversation_uuid}: {context.id}")
-    else:
-        LOGGER.debug(f"Reusing existing context {context.id} for conversation {conversation_uuid}")
-
-    return context.id
+    return await ContextService.resolve_for_conversation_id(
+        conversation_id_str, "openwebui", session
+    )
 
 
 def get_service_factory(request: Request) -> ServiceFactory:
@@ -427,76 +344,6 @@ async def chat_completions(
     )
 
 
-def _should_show_chunk_default(
-    chunk_type: str,
-    metadata: dict[str, Any] | None = None,
-    content: str | None = None,
-) -> bool:
-    """Determine if a chunk should be shown in DEFAULT verbosity mode.
-
-    DEFAULT mode shows minimal output:
-    - Final answer (content)
-    - Errors
-    - Plan announcement (Agent: Plan: ...)
-    - Skill start (Using skill: <skill name>)
-    - Supervisor replan notices (NOT "Plan approved")
-
-    Args:
-        chunk_type: The type of the agent chunk.
-        metadata: Optional chunk metadata.
-        content: Optional chunk content (for content-based filtering).
-
-    Returns:
-        True if the chunk should be shown, False otherwise.
-    """
-    # Always show: content (final answer), error, trace_info, awaiting_input
-    if chunk_type in ("content", "error", "trace_info", "awaiting_input"):
-        return True
-
-    # Show thinking chunks from Planner and Supervisor (important status updates)
-    # Never show internal thinking that clutters UI:
-    # - reasoning_model: LLM chain-of-thought (gpt-oss-120b, Qwen3)
-    # - skill_internal: Skill executor progress (Goal:, Searching:)
-    if chunk_type == "thinking":
-        meta = metadata or {}
-        source = meta.get("source", "")
-        if source in ("reasoning_model", "skill_internal"):
-            return False
-
-        role = meta.get("role", "")
-        # Show Planner messages (plan announcements, replans)
-        if role == "Planner":
-            return True
-        # Supervisor: Only show replan notices, NOT "Plan approved" or similar
-        if role == "Supervisor":
-            if content and "replan" in content.lower():
-                return True
-            return False
-
-        # Show plan announcements (may not have role but have orchestration/type)
-        orchestration = meta.get("orchestration", "")
-        msg_type = meta.get("type", "")
-        if orchestration == "plan" or msg_type == "plan":
-            return True
-
-        return False
-
-    # Show step_start for skill steps (executor="skill" or action="skill")
-    if chunk_type == "step_start":
-        meta = metadata or {}
-        executor = meta.get("executor", "")
-        action = meta.get("action", "")
-        if executor == "skill" or action == "skill":
-            return True
-        return False
-
-    # Hide everything else in DEFAULT mode:
-    # - tool_start (internal tool calls)
-    # - tool_output (completion status)
-    # - skill_activity (search queries, URLs)
-    return False
-
-
 async def stream_response_generator(
     session_id: str,
     message: str,
@@ -538,8 +385,8 @@ async def stream_response_generator(
     # Track execution phase for content filtering
     in_completion_phase = False
 
-    # Track displayed plans to avoid duplicates
-    shown_plan_descriptions: set[str] = set()
+    # Shared chunk filter for verbosity + safety rules
+    chunk_filter = ChunkFilter(verbosity)
 
     # Track if we've shown any substantive output yet
     has_shown_output = False
@@ -556,16 +403,8 @@ async def stream_response_generator(
             content_buffer = []
             last_flush_time = time.time()
 
-            # Filter out content with raw model tokens
-            if contains_raw_model_tokens(batched_content):
-                LOGGER.debug("Filtered content with raw model tokens: %s", batched_content[:100])
+            if not chunk_filter.is_safe_content(batched_content):
                 return
-
-            # In DEFAULT mode, filter noise fragments
-            if verbosity == VerbosityLevel.DEFAULT:
-                if is_noise_fragment(batched_content):
-                    LOGGER.debug("Filtered noise fragment: %r", batched_content)
-                    return
 
             has_shown_output = True
             yield _format_chunk(chunk_id, created, model_name, batched_content)
@@ -602,10 +441,9 @@ async def stream_response_generator(
                 action = (metadata or {}).get("action", "")
                 in_completion_phase = action == "completion"
 
-            # Apply verbosity filter (DEFAULT mode only)
-            if verbosity == VerbosityLevel.DEFAULT:
-                if not _should_show_chunk_default(chunk_type, metadata, content):
-                    continue
+            # Apply verbosity filter
+            if not chunk_filter.should_show(chunk_type, metadata, content):
+                continue
 
             # DEBUG mode: Show categorized JSON for all chunks except completion content
             if verbosity == VerbosityLevel.DEBUG:
@@ -632,23 +470,9 @@ async def stream_response_generator(
 
             # Process chunks normally (formatted output for DEFAULT/VERBOSE, or content for DEBUG)
             if chunk_type == "content" and content:
-                # Filter out content with raw model tokens early
-                if contains_raw_model_tokens(content):
-                    LOGGER.debug("Skipping content with raw tokens: %s", content[:80])
-                    continue
-
-                # In DEFAULT mode, apply filtering for reasoning/noise
-                if verbosity == VerbosityLevel.DEFAULT:
-                    # Always show content with AWAITING_USER_INPUT marker
-                    if "[AWAITING_USER_INPUT" in content:
-                        pass  # Don't filter this
-                    # Filter out noise fragments from reasoning model streaming
-                    elif is_noise_fragment(content):
-                        LOGGER.debug("Skipping noise fragment: %r", content)
-                        continue
-                    # Filter raw model tokens
-                    elif contains_raw_model_tokens(content):
-                        LOGGER.debug("Skipping raw tokens: %s", content[:80])
+                # Apply safety filters (skip AWAITING_USER_INPUT marker)
+                if "[AWAITING_USER_INPUT" not in content:
+                    if not chunk_filter.is_safe_content(content):
                         continue
 
                 # Add to buffer instead of yielding immediately
@@ -667,27 +491,19 @@ async def stream_response_generator(
 
             elif chunk_type == "thinking" and content:
                 # Skip internal thinking that clutters the UI
-                # - reasoning_model: LLM chain-of-thought (gpt-oss-120b, Qwen3)
-                # - skill_internal: Skill executor progress (Goal:, Searching:)
-                # DEBUG mode shows these via raw JSON output above
                 source = (agent_chunk.get("metadata") or {}).get("source", "")
                 skip_sources = ("reasoning_model", "skill_internal")
                 if source in skip_sources and verbosity != VerbosityLevel.DEBUG:
                     continue
 
                 # Filter out thinking with raw model tokens
-                if contains_raw_model_tokens(content):
-                    LOGGER.debug("Skipping thinking with raw tokens: %s", content[:80])
+                if not chunk_filter.is_safe_content(content):
                     continue
 
                 # Skip duplicate plan descriptions
                 cleaned = _clean_content(content)
-                if cleaned.startswith("Plan:"):
-                    plan_key = cleaned[:100]  # Use first 100 chars as key
-                    if plan_key in shown_plan_descriptions:
-                        LOGGER.debug("Skipping duplicate plan: %s", plan_key[:50])
-                        continue
-                    shown_plan_descriptions.add(plan_key)
+                if cleaned.startswith("Plan:") and chunk_filter.is_duplicate_plan(cleaned):
+                    continue
 
                 # Flush any pending content before thinking output
                 async for chunk in flush_content_buffer():
@@ -822,10 +638,10 @@ async def stream_response_generator(
                 else:
                     # Fallback with content
                     cleaned = _clean_content(content) if content else "Processing"
-                    if not contains_raw_model_tokens(cleaned):
+                    if chunk_filter.is_safe_content(cleaned):
                         formatted = f"\n⚙️ *{cleaned}*\n"
                     else:
-                        continue  # Skip if contains raw tokens
+                        continue
                 yield _format_chunk(chunk_id, created, model_name, formatted)
 
             elif chunk_type == "awaiting_input":
@@ -889,8 +705,7 @@ async def stream_response_generator(
                     output = agent_chunk.get("output")
 
                 if output and isinstance(output, str):
-                    # Filter raw tokens from result output too
-                    if not contains_raw_model_tokens(output):
+                    if chunk_filter.is_safe_content(output):
                         yield _format_chunk(chunk_id, created, model_name, output)
 
             else:
