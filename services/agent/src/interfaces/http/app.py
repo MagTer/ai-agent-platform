@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from opentelemetry import trace
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from shared.sanitize import sanitize_log
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -878,7 +879,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         try:
             return await svc.get_history(conversation_id, session=session)
         except Exception as exc:
-            LOGGER.exception(f"Failed to fetch history for {conversation_id}")
+            LOGGER.exception("Failed to fetch history for %s", sanitize_log(conversation_id))
             raise HTTPException(
                 status_code=500, detail="Failed to retrieve conversation history"
             ) from exc

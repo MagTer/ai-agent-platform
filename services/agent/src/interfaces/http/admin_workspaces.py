@@ -12,6 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -429,7 +430,10 @@ async def create_workspace(
         await session.commit()
 
         LOGGER.info(
-            "Admin created workspace %s (name: %s, repo: %s)", workspace.id, name, request.repo_url
+            "Admin created workspace %s (name: %s, repo: %s)",
+            workspace.id,
+            sanitize_log(name),
+            sanitize_log(request.repo_url),
         )
 
         return CreateWorkspaceResponse(
@@ -517,7 +521,7 @@ async def sync_workspace(
         workspace.sync_error = None
         await session.commit()
 
-        LOGGER.info("Admin synced workspace %s", workspace_id)
+        LOGGER.info("Admin synced workspace %s", sanitize_log(workspace_id))
 
         return SyncWorkspaceResponse(success=True, message="Workspace synced successfully")
 
@@ -566,7 +570,11 @@ async def delete_workspace(
     await session.delete(workspace)
     await session.commit()
 
-    LOGGER.info("Admin deleted workspace %s (name: %s)", workspace_id, workspace_name)
+    LOGGER.info(
+        "Admin deleted workspace %s (name: %s)",
+        sanitize_log(workspace_id),
+        sanitize_log(workspace_name),
+    )
 
     return DeleteWorkspaceResponse(
         success=True,

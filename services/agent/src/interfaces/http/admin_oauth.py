@@ -11,6 +11,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -271,7 +272,12 @@ async def revoke_oauth_token(
     await session.delete(token)
     await session.commit()
 
-    LOGGER.info(f"Revoked OAuth token {token_id} for context {context_id} (provider: {provider})")
+    LOGGER.info(
+        "Revoked OAuth token %s for context %s (provider: %s)",
+        sanitize_log(token_id),
+        sanitize_log(context_id),
+        sanitize_log(provider),
+    )
 
     # Invalidate MCP client cache for this context
     try:
@@ -499,7 +505,12 @@ async def initiate_oauth(
             user_id=user.id,
         )
 
-        LOGGER.info(f"Initiating OAuth for {provider} (user: {user.email}, context: {context.id})")
+        LOGGER.info(
+            "Initiating OAuth for %s (user: %s, context: %s)",
+            sanitize_log(provider),
+            sanitize_log(user.email),
+            sanitize_log(context.id),
+        )
 
         # Redirect to provider's authorization page
         return RedirectResponse(url=authorization_url, status_code=302)

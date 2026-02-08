@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from shared.chunk_filter import ChunkFilter
+from shared.sanitize import sanitize_log
 from shared.streaming import VerbosityLevel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,7 +132,7 @@ class OpenWebUIAdapter(PlatformAdapter):
     ) -> None:
         # In the request-response model, we assume the response is returned
         # by the endpoint. This method is illustrative or for async push if valid.
-        LOGGER.debug(f"OpenWebUIAdapter.send_message called for {conversation_id}")
+        LOGGER.debug("OpenWebUIAdapter.send_message called for %s", sanitize_log(conversation_id))
 
 
 # --- OpenAI Compatibility Models ---
@@ -286,9 +287,9 @@ async def chat_completions(
     )
     if not conversation_id:
         conversation_id = str(uuid.uuid4())
-        LOGGER.warning(f"No chat_id in request, generated new: {conversation_id}")
+        LOGGER.warning("No chat_id in request, generated new: %s", sanitize_log(conversation_id))
     else:
-        LOGGER.info(f"Using chat_id from request: {conversation_id}")
+        LOGGER.info("Using chat_id from request: %s", sanitize_log(conversation_id))
 
     # 2. Extract conversation history
     # OpenWebUI sends full history in each request - we must pass it to the agent

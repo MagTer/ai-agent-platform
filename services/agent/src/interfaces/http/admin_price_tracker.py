@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
+from shared.sanitize import sanitize_log
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -421,7 +422,7 @@ async def get_product(
     except HTTPException:
         raise
     except Exception as e:
-        LOGGER.exception(f"Failed to get product {product_id}")
+        LOGGER.exception("Failed to get product %s", sanitize_log(product_id))
         raise HTTPException(status_code=500, detail="Failed to retrieve product") from e
 
 
@@ -482,7 +483,7 @@ async def update_product(
     except HTTPException:
         raise
     except Exception as e:
-        LOGGER.exception(f"Failed to update product {product_id}")
+        LOGGER.exception("Failed to update product %s", sanitize_log(product_id))
         raise HTTPException(status_code=500, detail="Failed to update product") from e
 
 
@@ -535,7 +536,11 @@ async def link_product_to_store(
             "message": "Product linked to store successfully",
         }
     except Exception as e:
-        LOGGER.exception(f"Failed to link product {product_id} to store {data.store_id}")
+        LOGGER.exception(
+            "Failed to link product %s to store %s",
+            sanitize_log(product_id),
+            sanitize_log(data.store_id),
+        )
         raise HTTPException(status_code=500, detail="Failed to link product to store") from e
 
 
@@ -640,7 +645,11 @@ async def update_check_frequency(
     except HTTPException:
         raise
     except Exception as e:
-        LOGGER.exception(f"Failed to update frequency for product {product_id}, store {store_id}")
+        LOGGER.exception(
+            "Failed to update frequency for product %s, store %s",
+            sanitize_log(product_id),
+            sanitize_log(store_id),
+        )
         raise HTTPException(status_code=500, detail="Failed to update frequency") from e
 
 
@@ -689,7 +698,11 @@ async def unlink_product_from_store(
     except HTTPException:
         raise
     except Exception as e:
-        LOGGER.exception(f"Failed to unlink product {product_id} from store {store_id}")
+        LOGGER.exception(
+            "Failed to unlink product %s from store %s",
+            sanitize_log(product_id),
+            sanitize_log(store_id),
+        )
         raise HTTPException(status_code=500, detail="Failed to unlink product from store") from e
 
 
@@ -761,7 +774,7 @@ async def get_price_history(
     except HTTPException:
         raise
     except Exception as e:
-        LOGGER.exception(f"Failed to get price history for product {product_id}")
+        LOGGER.exception("Failed to get price history for product %s", sanitize_log(product_id))
         raise HTTPException(status_code=500, detail="Failed to retrieve price history") from e
 
 
@@ -878,7 +891,7 @@ async def trigger_price_check(
     except HTTPException:
         raise
     except Exception as e:
-        LOGGER.exception(f"Failed to trigger price check for {product_store_id}")
+        LOGGER.exception("Failed to trigger price check for %s", sanitize_log(product_store_id))
         raise HTTPException(status_code=500, detail="Failed to trigger price check") from e
 
 
@@ -1136,7 +1149,7 @@ async def update_watch(
     except HTTPException:
         raise
     except Exception as e:
-        LOGGER.exception(f"Failed to update watch {watch_id}")
+        LOGGER.exception("Failed to update watch %s", sanitize_log(watch_id))
         raise HTTPException(status_code=500, detail="Failed to update price watch") from e
 
 
@@ -1179,7 +1192,7 @@ async def delete_watch(
     except HTTPException:
         raise
     except Exception as e:
-        LOGGER.exception(f"Failed to delete watch {watch_id}")
+        LOGGER.exception("Failed to delete watch %s", sanitize_log(watch_id))
         raise HTTPException(status_code=500, detail="Failed to delete price watch") from e
 
 
@@ -1213,7 +1226,7 @@ async def delete_product(
     except ValueError as e:
         raise HTTPException(status_code=400, detail="Invalid product ID") from e
     except Exception as e:
-        LOGGER.exception(f"Failed to delete product {product_id}")
+        LOGGER.exception("Failed to delete product %s", sanitize_log(product_id))
         raise HTTPException(status_code=500, detail="Failed to delete product") from e
 
 

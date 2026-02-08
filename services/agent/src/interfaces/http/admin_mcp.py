@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -356,7 +357,7 @@ async def disconnect_mcp_clients(context_id: UUID) -> DisconnectResponse:
 
     await pool.disconnect_context(context_id)
 
-    LOGGER.info(f"Admin disconnected MCP clients for context {context_id}")
+    LOGGER.info("Admin disconnected MCP clients for context %s", sanitize_log(context_id))
 
     return DisconnectResponse(
         success=True,
