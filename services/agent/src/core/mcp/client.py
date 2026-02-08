@@ -256,24 +256,28 @@ class McpClient:
 
     async def _connect_sse(self, headers: dict[str, str]) -> None:
         """Connect using the legacy SSE transport."""
-        streams = await self._exit_stack.enter_async_context(
-            sse_client(str(self._url), headers=headers)
+        streams = await asyncio.wait_for(
+            self._exit_stack.enter_async_context(sse_client(str(self._url), headers=headers)),
+            timeout=8.0,
         )
         read_stream, write_stream = streams
 
         self._mcp_session = ClientSession(read_stream, write_stream)
-        await asyncio.wait_for(self._mcp_session.initialize(), timeout=60.0)
+        await asyncio.wait_for(self._mcp_session.initialize(), timeout=8.0)
 
     async def _connect_streamable_http(self, headers: dict[str, str]) -> None:
         """Connect using the Streamable HTTP transport (spec 2025-03-26+)."""
-        streams = await self._exit_stack.enter_async_context(
-            streamablehttp_client(str(self._url), headers=headers)
+        streams = await asyncio.wait_for(
+            self._exit_stack.enter_async_context(
+                streamablehttp_client(str(self._url), headers=headers)
+            ),
+            timeout=8.0,
         )
         # streamablehttp_client returns (read, write, get_session_id)
         read_stream, write_stream = streams[0], streams[1]
 
         self._mcp_session = ClientSession(read_stream, write_stream)
-        await asyncio.wait_for(self._mcp_session.initialize(), timeout=60.0)
+        await asyncio.wait_for(self._mcp_session.initialize(), timeout=8.0)
 
     async def _cleanup_connection(self) -> None:
         """Clean up connection resources."""
