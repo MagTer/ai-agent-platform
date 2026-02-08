@@ -18,13 +18,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: services/agent/poetry.lock
       - uses: abatilo/actions-poetry@v3
         with:
           poetry-version: ${{ env.POETRY_VERSION }}
-      - run: poetry config virtualenvs.create false
+      - run: poetry config virtualenvs.in-project true
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: services/agent/.venv
+          key: venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}
       - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
       - name: Ruff
         run: python -m ruff check . --config services/agent/pyproject.toml
       - name: Black
@@ -38,13 +42,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: services/agent/poetry.lock
       - uses: abatilo/actions-poetry@v3
         with:
           poetry-version: ${{ env.POETRY_VERSION }}
-      - run: poetry config virtualenvs.create false
+      - run: poetry config virtualenvs.in-project true
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: services/agent/.venv
+          key: venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}
       - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
       - name: Mypy
         run: python -m mypy
         working-directory: services/agent
@@ -57,13 +65,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: services/agent/poetry.lock
       - uses: abatilo/actions-poetry@v3
         with:
           poetry-version: ${{ env.POETRY_VERSION }}
-      - run: poetry config virtualenvs.create false
+      - run: poetry config virtualenvs.in-project true
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: services/agent/.venv
+          key: venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}
       - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
       - name: Pytest
         run: python -m pytest -x -n auto --dist=worksteal
         working-directory: services/agent
@@ -76,13 +88,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: services/agent/poetry.lock
       - uses: abatilo/actions-poetry@v3
         with:
           poetry-version: ${{ env.POETRY_VERSION }}
-      - run: poetry config virtualenvs.create false
+      - run: poetry config virtualenvs.in-project true
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: services/agent/.venv
+          key: venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}
       - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
       - name: Pytest with coverage
         run: python -m pytest --cov=src --cov-report=xml --cov-report=term-missing
         working-directory: services/agent
@@ -155,13 +171,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: services/agent/poetry.lock
       - uses: abatilo/actions-poetry@v3
         with:
           poetry-version: ${{ env.POETRY_VERSION }}
-      - run: poetry config virtualenvs.create false
+      - run: poetry config virtualenvs.in-project true
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: services/agent/.venv
+          key: venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}
       - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
       - run: pip install pip-audit
       - name: Run pip-audit
         run: pip-audit --strict --desc
