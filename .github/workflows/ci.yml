@@ -182,7 +182,7 @@ jobs:
           key: venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}
       - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
       - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
-      - run: pip install pip-audit
+      - run: pip install --upgrade pip pip-audit
       - name: Run pip-audit
         run: pip-audit --strict --desc
 
