@@ -38,7 +38,10 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 
 # Use --no-cache to reduce image size
-RUN poetry install --no-root --only main --no-cache
+# Remove Poetry after install - it's only needed as a build tool, not at runtime.
+# This also eliminates HIGH CVEs in Poetry's vendored deps (jaraco.context, wheel).
+RUN poetry install --no-root --only main --no-cache \
+    && rm -rf /opt/poetry /usr/local/bin/poetry
 
 COPY src ./src
 COPY entrypoint.sh ./entrypoint.sh
