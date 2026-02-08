@@ -418,6 +418,11 @@ class AgentService:
         replan without requiring supervisor LLM evaluation. This saves latency and cost
         for obvious failures like authentication errors, timeouts, or resource not found.
 
+        Only checks text patterns when the step explicitly reported an error status.
+        Successful results (status="ok") are always sent to the step supervisor for
+        proper evaluation, avoiding false positives from output text that incidentally
+        contains error-like keywords (e.g., work item titles mentioning "timeout").
+
         Args:
             step_result: The result from step execution
             plan_step: The plan step that was executed
@@ -426,14 +431,27 @@ class AgentService:
             Tuple of (should_replan, reason). If should_replan is True,
             the step should trigger a replan immediately.
         """
-        output = str(step_result.result.get("output", ""))
-        status = step_result.result.get("status", "")
+        # Only auto-replan on explicit error status. Successful results should
+        # be evaluated by the step supervisor to avoid false positives.
+        if step_result.status != "error":
+            LOGGER.debug(
+                "Auto-replan skipped for step '%s' (status=%s, not error)",
+                plan_step.label,
+                step_result.status,
+            )
+            return False, ""
 
-        # Pattern 1: Tool explicitly returned error status
-        if status == "error":
-            return True, f"Tool returned error status: {output[:200]}"
+        output = str(step_result.result.get("output", "") or step_result.result.get("error", ""))
+        LOGGER.info(
+            "Auto-replan checking error output for step '%s': %s",
+            plan_step.label,
+            output[:200],
+        )
 
-        # Pattern 2: Authentication/authorization failures
+        # Check for specific error patterns to provide better feedback
+        output_lower = output.lower()
+
+        # Pattern 1: Authentication/authorization failures
         auth_patterns = [
             "401 Unauthorized",
             "403 Forbidden",
@@ -442,20 +460,20 @@ class AgentService:
             "token expired",
             "access denied",
         ]
-        output_lower = output.lower()
         for pattern in auth_patterns:
             if pattern.lower() in output_lower:
                 return True, f"Authentication/authorization error detected: {pattern}"
 
-        # Pattern 3: Resource not found (tool target doesn't exist)
+        # Pattern 2: Resource not found (tool target doesn't exist)
         if "404 Not Found" in output or "resource not found" in output_lower:
             return True, f"Resource not found: {output[:200]}"
 
-        # Pattern 4: Timeout
+        # Pattern 3: Timeout
         if "timed out" in output_lower or "timeout" in output_lower:
             return True, f"Step timed out: {output[:200]}"
 
-        return False, ""
+        # Generic error fallback
+        return True, f"Tool returned error: {output[:200]}"
 
     async def _execute_step_with_retry(
         self,
