@@ -55,10 +55,10 @@ class TestMcpClientPool:
         token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="test_homey_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token.set_access_token("test_homey_token")  # Use setter for encryption
         async_session.add(token)
         await async_session.commit()
 
@@ -102,10 +102,10 @@ class TestMcpClientPool:
         token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="cache_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token.set_access_token("cache_token")  # Use setter for encryption
         async_session.add(token)
         await async_session.commit()
 
@@ -146,10 +146,10 @@ class TestMcpClientPool:
         token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="health_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token.set_access_token("health_token")  # Use setter for encryption
         async_session.add(token)
         await async_session.commit()
 
@@ -192,10 +192,10 @@ class TestMcpClientPool:
         token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="disconnect_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token.set_access_token("disconnect_token")  # Use setter for encryption
         async_session.add(token)
         await async_session.commit()
 
@@ -241,17 +241,17 @@ class TestMcpClientPool:
         token_a = OAuthToken(
             context_id=context_a.id,
             provider="homey",
-            access_token="shutdown_token_a",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token_a.set_access_token("shutdown_token_a")  # Use setter for encryption
         token_b = OAuthToken(
             context_id=context_b.id,
             provider="homey",
-            access_token="shutdown_token_b",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token_b.set_access_token("shutdown_token_b")  # Use setter for encryption
         async_session.add(token_a)
         async_session.add(token_b)
         await async_session.commit()
@@ -299,10 +299,10 @@ class TestMcpClientPool:
         token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="health_status_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token.set_access_token("health_status_token")  # Use setter for encryption
         async_session.add(token)
         await async_session.commit()
 
@@ -358,17 +358,17 @@ class TestMcpClientPool:
         token_a = OAuthToken(
             context_id=context_a.id,
             provider="homey",
-            access_token="stats_token_a",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token_a.set_access_token("stats_token_a")  # Use setter for encryption
         token_b = OAuthToken(
             context_id=context_b.id,
             provider="homey",
-            access_token="stats_token_b",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token_b.set_access_token("stats_token_b")  # Use setter for encryption
         async_session.add(token_a)
         async_session.add(token_b)
         await async_session.commit()
@@ -411,10 +411,10 @@ class TestMcpClientPool:
         token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="concurrent_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token.set_access_token("concurrent_token")  # Use setter for encryption
         async_session.add(token)
         await async_session.commit()
 

@@ -94,20 +94,20 @@ class TestContextIsolation:
         token_a = OAuthToken(
             context_id=context_a.id,
             provider="homey",
-            access_token="token_a_secret",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token_a.set_access_token("token_a_secret")  # Use setter for encryption
         async_session.add(token_a)
 
         # Create OAuth token for context B (Homey)
         token_b = OAuthToken(
             context_id=context_b.id,
             provider="homey",
-            access_token="token_b_secret",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        token_b.set_access_token("token_b_secret")  # Use setter for encryption
         async_session.add(token_b)
         await async_session.commit()
 
@@ -124,8 +124,8 @@ class TestContextIsolation:
         # Assert isolation
         assert len(tokens_a) == 1
         assert len(tokens_b) == 1
-        assert tokens_a[0].access_token == "token_a_secret"
-        assert tokens_b[0].access_token == "token_b_secret"
+        assert tokens_a[0].get_access_token() == "token_a_secret"  # Use getter for decryption
+        assert tokens_b[0].get_access_token() == "token_b_secret"  # Use getter for decryption
         assert tokens_a[0].id != tokens_b[0].id
 
     async def test_tool_permission_isolation(self, async_session):
@@ -197,10 +197,10 @@ class TestContextIsolation:
         oauth_token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="cascade_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        oauth_token.set_access_token("cascade_token")  # Use setter for encryption
         async_session.add(oauth_token)
 
         tool_perm = ToolPermission(

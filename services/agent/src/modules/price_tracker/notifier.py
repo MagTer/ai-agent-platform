@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 from decimal import Decimal
 
@@ -90,6 +91,19 @@ class PriceNotifier:
         result = await self._email_service.send(message)
         return result.success
 
+    def _is_safe_url(self, url: str | None) -> bool:
+        """Validate that URL uses a safe scheme (http/https).
+
+        Args:
+            url: The URL to validate.
+
+        Returns:
+            True if URL is safe, False otherwise.
+        """
+        if not url:
+            return False
+        return url.startswith("http://") or url.startswith("https://")
+
     def _build_alert_html(
         self,
         product_name: str,
@@ -104,6 +118,10 @@ class PriceNotifier:
         unit_price_drop_percent: float | None = None,
     ) -> str:
         """Build HTML for price alert email."""
+        # Escape all user-controlled text to prevent HTML injection
+        safe_product_name = html.escape(product_name)
+        safe_store_name = html.escape(store_name)
+
         target_row = ""
         if target_price:
             target_row = f"""
@@ -148,23 +166,26 @@ class PriceNotifier:
 
         offer_row = ""
         if offer_type:
-            details = f" - {offer_details}" if offer_details else ""
+            safe_offer_type = html.escape(offer_type)
+            safe_details = f" - {html.escape(offer_details)}" if offer_details else ""
             offer_row = f"""
             <tr>
                 <td style="padding: 8px; border-bottom: 1px solid #eee;">Erbjudande:</td>
                 <td style="padding: 8px; border-bottom: 1px solid #eee;">
                     <span style="background: #22c55e; color: white; padding: 2px 8px;
                                 border-radius: 4px;">
-                        {offer_type}
-                    </span>{details}
+                        {safe_offer_type}
+                    </span>{safe_details}
                 </td>
             </tr>"""
 
         link_section = ""
-        if product_url:
+        if product_url and self._is_safe_url(product_url):
+            # URL is validated, but still escape it for HTML attribute safety
+            safe_url = html.escape(product_url, quote=True)
             link_section = f"""
             <p style="margin-top: 20px;">
-                <a href="{product_url}"
+                <a href="{safe_url}"
                    style="background: #2563eb; color: white; padding: 10px 20px;
                           text-decoration: none; border-radius: 4px;">Se produkten</a>
             </p>"""
@@ -176,7 +197,7 @@ class PriceNotifier:
         <body style="font-family: Arial, sans-serif; max-width: 600px;
                      margin: 0 auto; padding: 20px;">
             <h2 style="color: #1e3a5f;">Prisvarning!</h2>
-            <p><strong>{product_name}</strong> hos <strong>{store_name}</strong>
+            <p><strong>{safe_product_name}</strong> hos <strong>{safe_store_name}</strong>
                har ett bra pris.</p>
 
             <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
@@ -217,12 +238,18 @@ class PriceNotifier:
                 store_name = deal.get("store_name", "")
                 offer_price = deal.get("offer_price_sek", "")
                 offer_type = deal.get("offer_type", "")
+
+                # Escape all user-controlled data
+                safe_product_name = html.escape(str(product_name))
+                safe_store_name = html.escape(str(store_name))
+                safe_offer_type = html.escape(str(offer_type))
+
                 deals_rows += f"""
                 <tr>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">
-                        {product_name}</td>
+                        {safe_product_name}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">
-                        {store_name}</td>
+                        {safe_store_name}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;
                                color: #22c55e; font-weight: bold;">
                         {offer_price} kr
@@ -231,7 +258,7 @@ class PriceNotifier:
                         <span style="background: #f59e0b; color: white;
                                      padding: 2px 6px; border-radius: 3px;
                                      font-size: 0.8em;">
-                            {offer_type}
+                            {safe_offer_type}
                         </span>
                     </td>
                 </tr>"""
@@ -258,14 +285,19 @@ class PriceNotifier:
                 name = product.get("name", "")
                 lowest_price = product.get("lowest_price", "N/A")
                 store_name = product.get("store_name", "")
+
+                # Escape all user-controlled data
+                safe_name = html.escape(str(name))
+                safe_store_name = html.escape(str(store_name))
+
                 watched_rows += f"""
                 <tr>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">
-                        {name}</td>
+                        {safe_name}</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">
                         {lowest_price} kr</td>
                     <td style="padding: 8px; border-bottom: 1px solid #eee;">
-                        {store_name}</td>
+                        {safe_store_name}</td>
                 </tr>"""
 
             watched_html = f"""

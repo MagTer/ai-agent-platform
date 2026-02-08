@@ -725,6 +725,11 @@ def check(
         "--skip-architecture",
         help="Skip architecture validation (not recommended).",
     ),
+    update_baseline: bool = typer.Option(
+        False,
+        "--update-baseline",
+        help="Update architecture baseline with current violations.",
+    ),
 ) -> None:
     """Run all quality checks (architecture, ruff, black, mypy, pytest).
 
@@ -738,6 +743,7 @@ def check(
     Use --no-fix for CI-style check-only mode.
     Use --semantic to include end-to-end tests (requires running agent).
     Use --skip-architecture to bypass architecture validation (not recommended).
+    Use --update-baseline to accept current architecture violations as baseline.
 
     Example:
         stack check                              # Full check with auto-fix
@@ -745,6 +751,7 @@ def check(
         stack check --semantic                   # Include all e2e tests
         stack check --semantic-category routing  # Only routing e2e tests
         stack check --skip-architecture          # Skip architecture check (temporary)
+        stack check --update-baseline            # Accept current violations as baseline
     """
     checks.ensure_dependencies()
 
@@ -756,11 +763,15 @@ def check(
         include_semantic=include_semantic,
         semantic_category=semantic_category,
         skip_architecture=skip_architecture,
+        update_baseline=update_baseline,
         repo_root=_repo_root(),
     )
 
     if all(r.success for r in results):
-        console.print("[bold green]All quality checks passed.[/bold green]")
+        if update_baseline:
+            console.print("[bold green]Baseline updated successfully.[/bold green]")
+        else:
+            console.print("[bold green]All quality checks passed.[/bold green]")
     else:
         failed = [r for r in results if not r.success]
         console.print(f"[bold red]Quality checks failed at: {failed[0].name}[/bold red]")
@@ -1192,7 +1203,11 @@ def _run_quality_checks(repo_root: Path, *, skip_architecture: bool = False) -> 
     console.print(f"[cyan]{msg}[/cyan]")
     checks.ensure_dependencies()
     results = checks.run_all_checks(
-        fix=True, include_semantic=False, skip_architecture=skip_architecture, repo_root=repo_root
+        fix=True,
+        include_semantic=False,
+        skip_architecture=skip_architecture,
+        update_baseline=False,
+        repo_root=repo_root,
     )
     if not all(r.success for r in results):
         failed = [r for r in results if not r.success]

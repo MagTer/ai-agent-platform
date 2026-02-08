@@ -291,3 +291,113 @@ class TestPriceNotifier:
         assert "Veckans prisoversikt" in sent_msg.subject
         assert "Mjolk" in sent_msg.html_body
         assert "Smor" in sent_msg.html_body
+
+    def test_build_alert_html_escapes_html_injection(self) -> None:
+        """Test _build_alert_html escapes malicious HTML in product/store names."""
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
+
+        html = notifier._build_alert_html(
+            product_name='<script>alert("XSS")</script>Evil Product',
+            store_name='<img src=x onerror="alert(1)">Evil Store',
+            current_price=Decimal("19.90"),
+            target_price=None,
+            offer_type='<b onload="malicious()">offer</b>',
+            offer_details='<iframe src="evil.com"></iframe>',
+            product_url="https://safe.example.com/product",
+        )
+
+        # Check that HTML is escaped (should see &lt; &gt; instead of < >)
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+        assert "<img" not in html
+        assert "&lt;img" in html
+        assert "<b onload=" not in html
+        assert "&lt;b onload=" in html
+        assert "<iframe" not in html
+        assert "&lt;iframe" in html
+        assert "Evil Product" in html  # Text content should still be there
+        assert "Evil Store" in html
+
+    def test_build_alert_html_blocks_javascript_url(self) -> None:
+        """Test _build_alert_html blocks javascript: URLs."""
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
+
+        html = notifier._build_alert_html(
+            product_name="Test Product",
+            store_name="Test Store",
+            current_price=Decimal("19.90"),
+            target_price=None,
+            offer_type=None,
+            offer_details=None,
+            product_url='javascript:alert("XSS")',
+        )
+
+        # Should NOT contain the link section if URL is invalid
+        assert "Se produkten" not in html
+        assert "javascript:" not in html
+
+    def test_build_alert_html_allows_safe_urls(self) -> None:
+        """Test _build_alert_html allows http/https URLs."""
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
+
+        # Test http
+        html_http = notifier._build_alert_html(
+            product_name="Test",
+            store_name="Store",
+            current_price=Decimal("10.00"),
+            target_price=None,
+            offer_type=None,
+            offer_details=None,
+            product_url="http://example.com/product",
+        )
+        assert "Se produkten" in html_http
+        assert "http://example.com/product" in html_http
+
+        # Test https
+        html_https = notifier._build_alert_html(
+            product_name="Test",
+            store_name="Store",
+            current_price=Decimal("10.00"),
+            target_price=None,
+            offer_type=None,
+            offer_details=None,
+            product_url="https://example.com/product",
+        )
+        assert "Se produkten" in html_https
+        assert "https://example.com/product" in html_https
+
+    def test_build_summary_html_escapes_html_injection(self) -> None:
+        """Test _build_summary_html escapes malicious HTML in deals and products."""
+        mock_service = MockEmailService()
+        notifier = PriceNotifier(email_service=mock_service)
+
+        deals: list[dict[str, str | Decimal | None]] = [
+            {
+                "product_name": '<script>alert("deal")</script>',
+                "store_name": '<img src=x onerror="bad()">',
+                "offer_price_sek": Decimal("19.90"),
+                "offer_type": "<b>evil</b>",
+            }
+        ]
+        watched: list[dict[str, str | Decimal | None]] = [
+            {
+                "name": '<iframe src="evil.com">Product</iframe>',
+                "lowest_price": Decimal("29.90"),
+                "store_name": '<a href="javascript:alert()">Store</a>',
+            }
+        ]
+
+        html = notifier._build_summary_html(deals=deals, watched_products=watched)
+
+        # All HTML should be escaped
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+        assert "<img src=" not in html
+        assert "&lt;img" in html
+        assert "<iframe" not in html
+        assert "&lt;iframe" in html
+        # javascript: in href attribute should be escaped, not executable
+        assert '<a href="javascript:' not in html  # Executable link blocked

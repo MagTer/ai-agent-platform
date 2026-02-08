@@ -14,6 +14,7 @@ Functions:
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -29,6 +30,7 @@ from core.validators.architecture import validate_architecture
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 AGENT_SERVICE_DIR = REPO_ROOT / "services" / "agent"
 PYPROJECT_CONFIG = AGENT_SERVICE_DIR / "pyproject.toml"
+ARCHITECTURE_BASELINE = AGENT_SERVICE_DIR / ".architecture-baseline.json"
 
 
 @dataclass
@@ -103,34 +105,155 @@ def _run_cmd(
     )
 
 
-def run_architecture(*, repo_root: Path | None = None) -> CheckResult:
-    """Run architecture validator.
+def _load_baseline(baseline_path: Path) -> set[str]:
+    """Load architecture violation baseline from JSON file.
+
+    Args:
+        baseline_path: Path to baseline JSON file.
+
+    Returns:
+        Set of known violation strings.
+    """
+    if not baseline_path.exists():
+        return set()
+
+    try:
+        with baseline_path.open("r", encoding="utf-8") as f:
+            baseline_list = json.load(f)
+            return set(baseline_list)
+    except (json.JSONDecodeError, OSError) as e:
+        _print_info(f"Failed to load baseline: {e}")
+        return set()
+
+
+def _save_baseline(baseline_path: Path, violations: list[str]) -> None:
+    """Save architecture violations to baseline JSON file.
+
+    Args:
+        baseline_path: Path to baseline JSON file.
+        violations: List of violation strings to save.
+    """
+    # Sort for deterministic output
+    sorted_violations = sorted(violations)
+
+    try:
+        with baseline_path.open("w", encoding="utf-8") as f:
+            json.dump(sorted_violations, f, indent=2, ensure_ascii=False)
+            f.write("\n")  # Add trailing newline
+        _print_success(f"Baseline saved to {baseline_path}")
+    except OSError as e:
+        _print_error(f"Failed to save baseline: {e}")
+
+
+def _normalize_violation(violation: str) -> str:
+    """Normalize violation string for comparison.
+
+    Extracts the file path and imported module to create a stable identifier.
+    Line numbers are ignored to handle code changes.
+
+    Args:
+        violation: Full violation string from validator.
+
+    Returns:
+        Normalized violation identifier (e.g., "interfaces/http/admin.py modules.rag")
+    """
+    # Parse first line: "path/to/file.py:123 - description"
+    first_line = violation.split("\n")[0]
+    if " - " in first_line:
+        location = first_line.split(" - ")[0].strip()
+    else:
+        location = first_line.strip()
+
+    # Remove line number from location (keep only file path)
+    if ":" in location:
+        file_path = location.split(":")[0]
+    else:
+        file_path = location
+
+    # Extract import statement from "  Import: module.name" line
+    import_line = ""
+    for line in violation.split("\n"):
+        if line.strip().startswith("Import:"):
+            import_line = line.split("Import:")[1].strip()
+            break
+
+    # Return normalized key: "file import"
+    if import_line:
+        return f"{file_path} {import_line}"
+    return file_path
+
+
+def run_architecture(
+    *, repo_root: Path | None = None, update_baseline: bool = False
+) -> CheckResult:
+    """Run architecture validator with baseline support.
 
     Args:
         repo_root: Repository root path. Defaults to auto-detected.
+        update_baseline: If True, update baseline with current violations.
 
     Returns:
         CheckResult indicating success or failure.
     """
     root = repo_root or REPO_ROOT
     src_dir = root / "services" / "agent" / "src"
+    baseline_path = ARCHITECTURE_BASELINE
 
     _print_step("Running Architecture Validator")
 
     passed, violations = validate_architecture(src_dir)
 
     if passed:
-        _print_success("Architecture validation passed")
+        _print_success("Architecture validation passed - no violations found")
         return CheckResult(success=True, name="architecture")
-    else:
-        # Warn-only mode: report violations but don't fail the build.
-        # Pre-existing violations are documented in .architecture-violations.md.
-        # TODO: Switch to strict mode once all violations are resolved.
-        print(f"\n{YELLOW}[WARN] Found {len(violations)} architecture violation(s):{RESET}\n")
-        for violation in violations:
-            print(f"{YELLOW}{violation}{RESET}\n")
-        _print_info(f"Architecture check: {len(violations)} violation(s) found (warn-only mode)")
+
+    # Normalize violations for comparison
+    normalized_current = {_normalize_violation(v): v for v in violations}
+
+    # Update baseline mode
+    if update_baseline:
+        _save_baseline(baseline_path, violations)
+        _print_info(f"Baseline updated with {len(violations)} violation(s)")
         return CheckResult(success=True, name="architecture")
+
+    # Load baseline
+    baseline = _load_baseline(baseline_path)
+    normalized_baseline = {_normalize_violation(v) for v in baseline}
+
+    # Compare violations
+    new_violations = set(normalized_current.keys()) - normalized_baseline
+    fixed_violations = normalized_baseline - set(normalized_current.keys())
+
+    # Report results
+    if new_violations:
+        print(f"\n{RED}[FAIL] Found {len(new_violations)} NEW architecture violation(s):{RESET}\n")
+        for key in sorted(new_violations):
+            print(f"{RED}{normalized_current[key]}{RESET}\n")
+        _print_error(
+            f"Architecture check failed: {len(new_violations)} new violation(s). "
+            "Run './stack check --update-baseline' to accept these violations."
+        )
+        return CheckResult(success=False, name="architecture")
+
+    # Known violations (baseline)
+    known_count = len(normalized_current) - len(new_violations)
+    if known_count > 0:
+        print(f"\n{YELLOW}[WARN] Found {known_count} known (baselined) violation(s){RESET}")
+        if fixed_violations:
+            fixed_count = len(fixed_violations)
+            msg = f"{GREEN}[GOOD] Fixed {fixed_count} violation(s) since baseline!{RESET}\n"
+            print(msg)
+            for key in sorted(fixed_violations):
+                print(f"  {GREEN}✓ {key}{RESET}")
+        _print_info(
+            f"Architecture check passed: {known_count} known violation(s) baselined, "
+            f"{len(new_violations)} new violations"
+        )
+        return CheckResult(success=True, name="architecture")
+
+    # All violations are new (no baseline exists)
+    _print_success("Architecture validation passed")
+    return CheckResult(success=True, name="architecture")
 
 
 def run_ruff(*, fix: bool = True, repo_root: Path | None = None) -> CheckResult:
@@ -324,6 +447,7 @@ def run_all_checks(
     include_semantic: bool = False,
     semantic_category: str | None = None,
     skip_architecture: bool = False,
+    update_baseline: bool = False,
     repo_root: Path | None = None,
 ) -> list[CheckResult]:
     """Run all quality checks in sequence.
@@ -335,6 +459,7 @@ def run_all_checks(
         include_semantic: If True, include semantic e2e tests.
         semantic_category: Optional category filter for semantic tests.
         skip_architecture: If True, skip architecture validation.
+        update_baseline: If True, update architecture baseline with current violations.
         repo_root: Repository root path. Defaults to auto-detected.
 
     Returns:
@@ -350,8 +475,11 @@ def run_all_checks(
 
     # Architecture validation (FIRST - catches structural issues)
     if not skip_architecture:
-        arch_result = run_architecture(repo_root=root)
+        arch_result = run_architecture(repo_root=root, update_baseline=update_baseline)
         results.append(arch_result)
+        if update_baseline:
+            # Stop after updating baseline
+            return results
     else:
         _print_info("Skipping architecture validation")
 

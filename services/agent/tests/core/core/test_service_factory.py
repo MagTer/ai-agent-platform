@@ -151,10 +151,10 @@ class TestServiceFactory:
         oauth_token = OAuthToken(
             context_id=context.id,
             provider="homey",
-            access_token="test_token",
             token_type="Bearer",
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
+        oauth_token.set_access_token("test_token")  # Use setter for encryption
         async_session.add(oauth_token)
         await async_session.commit()
 

@@ -8,6 +8,7 @@ import time
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from qdrant_client import AsyncQdrantClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,6 +60,15 @@ class ServiceFactory:
         LOGGER.info("Loading base tool registry from %s", settings.tools_config_path)
         self._base_tool_registry = load_tool_registry(settings.tools_config_path)
         LOGGER.info("Loaded %d base tools", len(self._base_tool_registry.list_tools()))
+
+        # Create shared AsyncQdrantClient for reuse across requests
+        # This avoids creating a new HTTP client + connection pool per request
+        self._qdrant_client = AsyncQdrantClient(
+            url=str(settings.qdrant_url),
+            api_key=settings.qdrant_api_key,
+            timeout=30,  # SECURITY: Prevent hanging under load
+        )
+        LOGGER.info("Created shared AsyncQdrantClient for service factory")
 
     async def create_service(
         self,
@@ -140,9 +150,13 @@ class ServiceFactory:
         except RuntimeError:
             pass  # MCP pool not initialized
 
-        # Create context-scoped memory store
+        # Create context-scoped memory store with shared Qdrant client
         # MemoryStore will filter all searches by this context_id
-        memory_store = MemoryStore(self._settings, context_id=context_id)
+        memory_store = MemoryStore(
+            self._settings,
+            context_id=context_id,
+            client=self._qdrant_client,
+        )
         await memory_store.ainit()
 
         # Create service with context-scoped dependencies
@@ -194,6 +208,15 @@ class ServiceFactory:
                 e,
             )
             pool._negative_cache[context_id] = time.monotonic()
+
+    async def close(self) -> None:
+        """Close the shared AsyncQdrantClient.
+
+        This should be called during application shutdown to clean up resources.
+        """
+        if self._qdrant_client is not None:
+            await self._qdrant_client.close()
+            LOGGER.info("Closed shared AsyncQdrantClient")
 
 
 __all__ = ["ServiceFactory"]

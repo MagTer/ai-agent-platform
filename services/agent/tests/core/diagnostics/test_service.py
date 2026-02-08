@@ -2,11 +2,14 @@ import json
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from core.core.config import Settings
 from core.diagnostics.service import DiagnosticsService
 
 
-def test_get_system_health_metrics():
+@pytest.mark.asyncio
+async def test_get_system_health_metrics() -> None:
     # Create a temporary trace log
     with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as tmp:
         # Trace 1: OK
@@ -65,7 +68,7 @@ def test_get_system_health_metrics():
         settings = Settings(trace_span_log_path=tmp.name)
         svc = DiagnosticsService(settings)
 
-        metrics = svc.get_system_health_metrics(window=10)
+        metrics = await svc.get_system_health_metrics(window=10)
 
         print(f"Metrics: {metrics}")
 
@@ -89,7 +92,8 @@ def test_get_system_health_metrics():
         Path(tmp.name).unlink()
 
 
-def test_get_recent_traces_with_trace_id_filter():
+@pytest.mark.asyncio
+async def test_get_recent_traces_with_trace_id_filter() -> None:
     """Test that trace_id parameter filters traces correctly."""
     with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as tmp:
         # Write spans for two different traces
@@ -126,16 +130,16 @@ def test_get_recent_traces_with_trace_id_filter():
         svc = DiagnosticsService(settings)
 
         # Without filter - should return both
-        all_traces = svc.get_recent_traces(limit=100, show_all=True)
+        all_traces = await svc.get_recent_traces(limit=100, show_all=True)
         assert len(all_traces) == 2
 
         # With trace_id filter - should return only matching
-        filtered = svc.get_recent_traces(limit=100, show_all=True, trace_id="abc123")
+        filtered = await svc.get_recent_traces(limit=100, show_all=True, trace_id="abc123")
         assert len(filtered) == 1
         assert filtered[0].trace_id == "abc123def456"
 
         # With non-matching filter - should return empty
-        empty = svc.get_recent_traces(limit=100, show_all=True, trace_id="nonexistent")
+        empty = await svc.get_recent_traces(limit=100, show_all=True, trace_id="nonexistent")
         assert len(empty) == 0
 
     finally:

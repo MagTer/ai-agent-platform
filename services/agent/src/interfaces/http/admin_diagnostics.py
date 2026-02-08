@@ -50,7 +50,7 @@ async def get_traces(
     Security:
         Requires admin role via Entra ID authentication.
     """
-    return service.get_recent_traces(limit, show_all=show_all)
+    return await service.get_recent_traces(limit, show_all=show_all)
 
 
 @router.get("/metrics", dependencies=[Depends(verify_admin_user)])
@@ -70,7 +70,7 @@ async def get_metrics(
     Security:
         Requires admin role via Entra ID authentication.
     """
-    return service.get_system_health_metrics(window=window)
+    return await service.get_system_health_metrics(window=window)
 
 
 @router.post(

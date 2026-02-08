@@ -215,7 +215,7 @@ async def list_oauth_tokens(
             expires_at=token.expires_at,
             scope=token.scope,
             is_expired=token.expires_at < now,
-            has_refresh_token=token.refresh_token is not None,
+            has_refresh_token=token.has_refresh_token(),
             created_at=token.created_at,
             updated_at=token.updated_at,
         )
@@ -323,7 +323,7 @@ async def get_oauth_status(
                 "authorized": True,
                 "expires_at": token.expires_at.isoformat(),
                 "is_expired": token.expires_at < now,
-                "has_refresh_token": token.refresh_token is not None,
+                "has_refresh_token": token.has_refresh_token(),
                 "scope": token.scope,
             }
         )

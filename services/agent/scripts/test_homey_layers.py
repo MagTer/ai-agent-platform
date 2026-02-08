@@ -99,8 +99,8 @@ async def get_oauth_token(context_id: UUID) -> str | None:
         if token:
             LOGGER.info(f"Found OAuth token for context {context_id}")
             LOGGER.info(f"  Token expires: {token.expires_at}")
-            LOGGER.info(f"  Has refresh token: {bool(token.refresh_token)}")
-            return token.access_token
+            LOGGER.info(f"  Has refresh token: {token.has_refresh_token()}")
+            return token.get_access_token()  # Use getter for decryption
         else:
             LOGGER.error(f"No OAuth token found for context {context_id}")
             return None
