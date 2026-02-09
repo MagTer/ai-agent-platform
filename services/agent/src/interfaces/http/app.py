@@ -667,13 +667,13 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             except Exception as e:
                 return {"status": "error", "error": str(e)[:200]}
 
-        # LiteLLM check
+        # LiteLLM check (use /health/liveliness for fast response)
         async def check_litellm() -> dict[str, Any]:
             try:
                 start = time.perf_counter()
-                async with httpx.AsyncClient(timeout=2.0) as client:
+                async with httpx.AsyncClient(timeout=3.0) as client:
                     litellm_url = str(settings.litellm_api_base).rstrip("/")
-                    response = await client.get(f"{litellm_url}/health")
+                    response = await client.get(f"{litellm_url}/health/liveliness")
                     latency = (time.perf_counter() - start) * 1000
                     if response.status_code == 200:
                         return {"status": "ok", "latency_ms": round(latency, 1)}
@@ -681,10 +681,10 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
                         "status": "error",
                         "error": f"HTTP {response.status_code}",
                     }
-            except TimeoutError:
+            except (TimeoutError, httpx.TimeoutException):
                 return {"status": "error", "error": "timeout"}
             except Exception as e:
-                return {"status": "error", "error": str(e)[:200]}
+                return {"status": "error", "error": str(e)[:200] or type(e).__name__}
 
         # Run all checks in parallel with timeout
         try:

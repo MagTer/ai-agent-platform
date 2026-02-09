@@ -198,6 +198,172 @@ git pull origin main
 
 ---
 
+## Post-Deploy Verification Protocol
+
+**After EVERY `./stack dev deploy` or `./stack deploy`, run these checks in order.**
+
+### Step 1: Container Check
+```bash
+# Dev
+./stack dev status
+
+# Prod
+./stack status
+```
+All containers must show "running" or "healthy". If any show "exited" or "restarting", go to Diagnosis.
+
+### Step 2: Health Check (Liveness)
+```bash
+# Dev (port 8001)
+curl -sf http://localhost:8001/healthz
+
+# Prod (port 8000)
+curl -sf http://localhost:8000/healthz
+```
+
+### Step 3: Readiness Check (Dependencies)
+```bash
+# Dev
+curl -sf http://localhost:8001/readyz
+
+# Prod
+curl -sf http://localhost:8000/readyz
+```
+This checks DB, Qdrant, LiteLLM, and skills. Parse the JSON to identify which component failed.
+
+### Step 4: Platformadmin Check
+```bash
+# Dev
+curl -sf http://localhost:8001/platformadmin/ -o /dev/null -w "%{http_code}"
+
+# Prod
+curl -sf http://localhost:8000/platformadmin/ -o /dev/null -w "%{http_code}"
+```
+Expect HTTP 200 (or 302 redirect to login).
+
+### Step 5: API Check
+```bash
+# Dev (requires AGENT_INTERNAL_API_KEY if set)
+curl -sf http://localhost:8001/v1/models -H "X-API-Key: $AGENT_INTERNAL_API_KEY" -o /dev/null -w "%{http_code}"
+
+# Prod
+curl -sf http://localhost:8000/v1/models -H "X-API-Key: $AGENT_INTERNAL_API_KEY" -o /dev/null -w "%{http_code}"
+```
+Expect HTTP 200. The `/v1/models` endpoint requires `AGENT_INTERNAL_API_KEY` when set (production). If the key is unset, auth is skipped (dev convenience).
+
+**If all 5 steps pass, report:**
+```
+Deploy: SUCCESS
+- Containers: all running
+- Health: /healthz OK
+- Readiness: /readyz OK (DB, Qdrant, LiteLLM, skills)
+- Platformadmin: HTTP 200
+- API: HTTP 200
+```
+
+---
+
+## Deployment Failure Diagnosis
+
+**When any verification step fails, follow this diagnosis tree.**
+
+### Container Not Running or Restarting
+```bash
+# Get startup logs
+docker logs <container_name> --tail 50
+
+# Look for:
+# - ImportError / ModuleNotFoundError (code issue)
+# - KeyError / missing env var (config issue)
+# - "Bind for 0.0.0.0:XXXX failed" (port conflict)
+# - "connection refused" (dependency not started)
+```
+
+### Port Conflict ("Bind for 0.0.0.0:XXXX failed")
+```bash
+# Find what's holding the port
+docker ps --format "{{.Names}}\t{{.Ports}}" | grep <port>
+
+# Common cause: stale stack from previous deploy
+# Fix: stop the stale stack, then retry
+./stack dev down && ./stack dev deploy   # Dev
+./stack down && ./stack deploy           # Prod
+```
+
+### Health Check Fails but Container Running
+```bash
+# Check readyz for component-level status
+curl -s http://localhost:<port>/readyz | python3 -m json.tool
+
+# Check application logs
+./stack dev logs    # Dev
+./stack logs agent  # Prod
+
+# Common causes:
+# - DB connection refused: postgres container not healthy yet
+# - Missing env vars: check .env file
+# - Startup exception: check logs for traceback
+```
+
+### Readyz Shows Dependency Errors
+```bash
+# DB error: verify postgres
+docker ps --format "{{.Names}}\t{{.Status}}" | grep postgres
+
+# LiteLLM error: verify litellm proxy
+docker ps --format "{{.Names}}\t{{.Status}}" | grep litellm
+curl -sf http://localhost:4001/health  # Dev
+curl -sf http://localhost:4000/health  # Prod
+
+# Qdrant error: verify qdrant
+docker ps --format "{{.Names}}\t{{.Status}}" | grep qdrant
+```
+
+---
+
+## Common Auto-Fix Procedures
+
+The ops agent can autonomously fix these issues:
+
+| Issue | Auto-Fix |
+|-------|----------|
+| Port conflict (stale stack) | `./stack dev down && ./stack dev deploy` |
+| Dependent services not running | `./stack dev up` then `./stack dev deploy` |
+| Container crash loop (code error) | Check logs, escalate to Engineer with details |
+
+**Do NOT auto-fix:**
+- Code-level errors (import errors, syntax errors) -- escalate to Engineer
+- Missing environment variables -- report which var is missing and escalate
+- Database migration issues -- escalate to Engineer
+
+---
+
+## Escalation with Context
+
+**When escalating deployment failures to Engineer/Opus, ALWAYS include:**
+
+```
+Deploy: FAILED at [step name]
+
+Container Status:
+[paste ./stack dev status output]
+
+Last 50 Log Lines:
+[paste docker logs <container> --tail 50 output]
+
+Readyz Output:
+[paste curl /readyz output, or "unreachable"]
+
+Error Classification: [infra | code | config]
+- infra: port conflict, service down, network issue
+- code: import error, syntax error, runtime exception
+- config: missing env var, wrong credentials
+
+Attempted Auto-Fix: [what was tried, or "none applicable"]
+```
+
+---
+
 ## Pre-PR Architecture Audit
 
 Before creating a PR, verify these requirements:
@@ -234,13 +400,16 @@ Before creating a PR, verify these requirements:
 - Test failures require code changes
 - Complex Mypy type errors
 - Bugs discovered during checks
+- Deployment failures caused by code or config issues (see "Escalation with Context" above)
 
-**Report:**
+**Report (quality issues):**
 ```
 Issue: [Brief description]
 Action: Escalate to Engineer
 Reason: [Why it's complex]
 ```
+
+**Report (deployment failures):** Use the enriched format from "Escalation with Context" section above.
 
 ---
 
@@ -252,6 +421,8 @@ Reason: [Why it's complex]
 | Sync branch | `git pull origin main` |
 | Quality check | `stack check` |
 | Deploy dev | `./stack dev deploy` |
+| Verify deploy (dev) | `curl -sf http://localhost:8001/readyz` |
+| Verify deploy (prod) | `curl -sf http://localhost:8000/readyz` |
 | Create PR | `gh pr create ...` |
 | Merge PR | `gh pr merge N --squash` |
 
