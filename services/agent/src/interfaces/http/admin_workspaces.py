@@ -387,27 +387,16 @@ async def create_workspace(
             detail="Workspace for this repository already exists in this context",
         )
 
-    # Determine local path using only validated components
+    # Determine local path using a generated directory name (UUID) to avoid
+    # any user-controlled data in filesystem paths
     workspace_base = Path(
         os.environ.get("AGENT_WORKSPACE_BASE", "/tmp/agent-workspaces")  # noqa: S108
     )
-    # Build path from validated UUID and sanitized name (no user-controlled path components)
-    safe_context = str(request.context_id)
-    local_path = workspace_base / safe_context / name
-    resolved_path = local_path.resolve()
-    resolved_base = workspace_base.resolve()
+    import uuid as _uuid
 
-    # Defense-in-depth: verify path stays under workspace base
-    if (
-        not str(resolved_path).startswith(str(resolved_base) + os.sep)
-        and resolved_path != resolved_base
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid workspace name",
-        )
-
-    resolved_path.parent.mkdir(parents=True, exist_ok=True)
+    dir_name = str(_uuid.uuid4())
+    workspace_dir = workspace_base / str(request.context_id) / dir_name
+    workspace_dir.mkdir(parents=True, exist_ok=True)
 
     # Create workspace record with pending status
     workspace = Workspace(
@@ -415,7 +404,7 @@ async def create_workspace(
         name=name,
         repo_url=request.repo_url,
         branch=request.branch or "main",
-        local_path=str(resolved_path),
+        local_path=str(workspace_dir),
         status="pending",
     )
     session.add(workspace)
@@ -430,7 +419,7 @@ async def create_workspace(
         cmd = ["git", "clone", "--depth", "100"]
         if request.branch:
             cmd.extend(["--branch", request.branch])
-        cmd.extend([request.repo_url, str(local_path)])
+        cmd.extend([request.repo_url, str(workspace_dir)])
 
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -464,7 +453,7 @@ async def create_workspace(
 
         return CreateWorkspaceResponse(
             success=True,
-            message=f"Cloned repository to {local_path}",
+            message=f"Cloned repository to {workspace_dir}",
             workspace_id=workspace.id,
         )
 
