@@ -33,7 +33,7 @@ services:
       - ./services/agent/pyproject.toml:/app/pyproject.toml
       - ./services/agent/data:/app/data  # Bind mount for trace logs (accessible from host)
     environment:
-      AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-development}
+      AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
       QDRANT_URL: http://qdrant:6333
       SEARXNG_URL: http://searxng:8080
       POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/agent_db}
