@@ -167,15 +167,10 @@ async def list_products(
         # Build query with proper join handling
         stmt = select(Product)
 
-        # Apply context filter: show only products that have watches in this context
+        # Apply context filter: show products owned by this context
         if context_id:
             context_uuid = uuid.UUID(context_id)
-            stmt = (
-                stmt.join(PriceWatch, Product.id == PriceWatch.product_id)
-                .where(PriceWatch.context_id == context_uuid)
-                .where(PriceWatch.is_active.is_(True))
-                .distinct()
-            )
+            stmt = stmt.where(Product.context_id == context_uuid)
 
         # Apply search filter
         if search:
@@ -1706,22 +1701,43 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
         .btn-sm { padding: 4px 8px; font-size: 12px; }
         .btn-danger { background: #ef4444; color: white; }
         .btn-danger:hover { background: #dc2626; }
+        .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; color: white; font-size: 14px; z-index: 2000; opacity: 0; transition: opacity 0.3s; max-width: 400px; }
+        .toast.show { opacity: 1; }
+        .toast-success { background: #16a34a; }
+        .toast-error { background: #dc2626; }
     """
 
     extra_js = """
         let userContextId = null;
 
+        function showToast(message, type = 'success') {
+            const el = document.createElement('div');
+            el.className = `toast toast-${type}`;
+            el.textContent = message;
+            document.body.appendChild(el);
+            requestAnimationFrame(() => el.classList.add('show'));
+            setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 300); }, 4000);
+        }
+
+        async function apiFetch(url, options = {}) {
+            const res = await fetch(url, options);
+            if (!res.ok) {
+                let msg = `Request failed (${res.status})`;
+                try { const body = await res.json(); if (body.detail) msg = body.detail; } catch {}
+                throw new Error(msg);
+            }
+            return res;
+        }
+
         async function getUserContext() {
             if (userContextId) return userContextId;
-            try {
-                const res = await fetch('/platformadmin/price-tracker/me/context');
-                const data = await res.json();
-                userContextId = data.context_id;
-                return userContextId;
-            } catch (e) {
-                console.error('Failed to get user context:', e);
-                return null;
+            const res = await apiFetch('/platformadmin/price-tracker/me/context');
+            const data = await res.json();
+            if (!data.context_id) {
+                throw new Error('No user context found. Visit Contexts to create one.');
             }
+            userContextId = data.context_id;
+            return userContextId;
         }
 
         // Modal infrastructure
@@ -1745,9 +1761,9 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
 
             document.body.appendChild(overlay);
 
-            document.getElementById('modal-form').onsubmit = (e) => {
+            document.getElementById('modal-form').onsubmit = async (e) => {
                 e.preventDefault();
-                onSubmit();
+                try { await onSubmit(); } catch (err) { showToast(err.message, 'error'); }
             };
         }
 
@@ -1788,17 +1804,18 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 package_quantity: parseFloat(document.getElementById('prod-package-qty').value) || null,
                 context_id: contextId
             };
-            await fetch('/platformadmin/price-tracker/products', {
+            await apiFetch('/platformadmin/price-tracker/products', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data)
             });
             closeModal();
+            showToast('Product created');
             showProductsView();
         }
 
         async function editProduct(productId) {
-            const res = await fetch(`/platformadmin/price-tracker/products/${productId}`);
+            const res = await apiFetch(`/platformadmin/price-tracker/products/${productId}`);
             const product = await res.json();
 
             showModal({
@@ -1830,24 +1847,28 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 package_size: document.getElementById('prod-package-size').value || null,
                 package_quantity: parseFloat(document.getElementById('prod-package-qty').value) || null
             };
-            await fetch(`/platformadmin/price-tracker/products/${productId}`, {
+            await apiFetch(`/platformadmin/price-tracker/products/${productId}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data)
             });
             closeModal();
+            showToast('Product updated');
             showProductsView();
         }
 
         async function deleteProduct(id, name) {
             if (!confirm(`Delete product "${name}" and all its price history?`)) return;
-            await fetch(`/platformadmin/price-tracker/products/${id}`, {method: 'DELETE'});
-            showProductsView();
+            try {
+                await apiFetch(`/platformadmin/price-tracker/products/${id}`, {method: 'DELETE'});
+                showToast('Product deleted');
+                showProductsView();
+            } catch (err) { showToast(err.message, 'error'); }
         }
 
         // Store Link Management
         async function showLinkStoreModal(productId) {
-            const storesRes = await fetch('/platformadmin/price-tracker/stores');
+            const storesRes = await apiFetch('/platformadmin/price-tracker/stores');
             const stores = await storesRes.json();
 
             showModal({
@@ -1894,12 +1915,13 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 check_frequency_hours: parseInt(document.getElementById('link-freq').value),
                 check_weekday: weekday ? parseInt(weekday) : null
             };
-            await fetch(`/platformadmin/price-tracker/products/${productId}/stores`, {
+            await apiFetch(`/platformadmin/price-tracker/products/${productId}/stores`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data)
             });
             closeModal();
+            showToast('Store linked');
             showProductsView();
         }
 
@@ -1940,21 +1962,25 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 check_frequency_hours: parseInt(document.getElementById('edit-freq').value),
                 check_weekday: weekday ? parseInt(weekday) : null
             };
-            await fetch(`/platformadmin/price-tracker/products/${productId}/stores/${storeId}/frequency`, {
+            await apiFetch(`/platformadmin/price-tracker/products/${productId}/stores/${storeId}/frequency`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data)
             });
             closeModal();
+            showToast('Schedule updated');
             showProductsView();
         }
 
         async function unlinkProductFromStore(productId, storeId, storeName) {
             if (!confirm(`Unlink from ${storeName}?`)) return;
-            await fetch(`/platformadmin/price-tracker/products/${productId}/stores/${storeId}`, {
-                method: 'DELETE'
-            });
-            showProductsView();
+            try {
+                await apiFetch(`/platformadmin/price-tracker/products/${productId}/stores/${storeId}`, {
+                    method: 'DELETE'
+                });
+                showToast('Store unlinked');
+                showProductsView();
+            } catch (err) { showToast(err.message, 'error'); }
         }
 
         async function triggerPriceCheck(productStoreId) {
@@ -1963,17 +1989,17 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             btn.textContent = 'Checking...';
 
             try {
-                const res = await fetch(`/platformadmin/price-tracker/check/${productStoreId}`, {
+                const res = await apiFetch(`/platformadmin/price-tracker/check/${productStoreId}`, {
                     method: 'POST'
                 });
                 const result = await res.json();
                 if (result.price_sek) {
-                    alert(`Price: ${result.price_sek} SEK${result.offer_price_sek ? ` (Offer: ${result.offer_price_sek} SEK)` : ''}`);
+                    showToast(`Price: ${result.price_sek} SEK${result.offer_price_sek ? ` (Offer: ${result.offer_price_sek} SEK)` : ''}`);
                 } else {
-                    alert(result.message || 'Price extraction failed');
+                    showToast(result.message || 'Price extraction failed', 'error');
                 }
             } catch (e) {
-                alert('Failed to check price');
+                showToast(e.message, 'error');
             }
 
             btn.disabled = false;
@@ -2021,18 +2047,19 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 unit_price_target_sek: parseFloat(document.getElementById('watch-unit-target').value) || null,
                 unit_price_drop_threshold_percent: parseFloat(document.getElementById('watch-unit-drop').value) || null
             };
-            await fetch(`/platformadmin/price-tracker/watches?context_id=${contextId}`, {
+            await apiFetch(`/platformadmin/price-tracker/watches?context_id=${contextId}`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data)
             });
             closeModal();
+            showToast('Watch created');
             showWatchesView();
         }
 
         async function editWatch(watchId) {
             const contextId = await getUserContext();
-            const res = await fetch(`/platformadmin/price-tracker/watches?context_id=${contextId}`);
+            const res = await apiFetch(`/platformadmin/price-tracker/watches?context_id=${contextId}`);
             const watches = await res.json();
             const watch = watches.find(w => w.watch_id === watchId);
 
@@ -2077,19 +2104,23 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                 unit_price_target_sek: parseFloat(document.getElementById('watch-unit-target').value) || null,
                 unit_price_drop_threshold_percent: parseFloat(document.getElementById('watch-unit-drop').value) || null
             };
-            await fetch(`/platformadmin/price-tracker/watches/${watchId}`, {
+            await apiFetch(`/platformadmin/price-tracker/watches/${watchId}`, {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify(data)
             });
             closeModal();
+            showToast('Watch updated');
             showWatchesView();
         }
 
         async function deleteWatch(watchId, productName) {
             if (!confirm(`Delete watch for "${productName}"?`)) return;
-            await fetch(`/platformadmin/price-tracker/watches/${watchId}`, {method: 'DELETE'});
-            showWatchesView();
+            try {
+                await apiFetch(`/platformadmin/price-tracker/watches/${watchId}`, {method: 'DELETE'});
+                showToast('Watch deleted');
+                showWatchesView();
+            } catch (err) { showToast(err.message, 'error'); }
         }
 
         // Price History Chart
@@ -2124,8 +2155,14 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             const contentEl = document.getElementById('main-content');
             contentEl.innerHTML = '<div class="loading">Loading price history...</div>';
 
-            const res = await fetch(`/platformadmin/price-tracker/products/${productId}/prices?days=${days}`);
-            const prices = await res.json();
+            let prices;
+            try {
+                const res = await apiFetch(`/platformadmin/price-tracker/products/${productId}/prices?days=${days}`);
+                prices = await res.json();
+            } catch (e) {
+                contentEl.innerHTML = `<div style="color: var(--error);">${escapeHtml(e.message)}</div>`;
+                return;
+            }
 
             if (prices.length === 0) {
                 contentEl.innerHTML = `<div class="card"><p>No price history available for the last ${days} days.</p><button class="btn btn-sm" onclick="showProductsView()">Back</button></div>`;
@@ -2258,14 +2295,9 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             const contentEl = document.getElementById('main-content');
             contentEl.innerHTML = '<div class="loading">Loading products...</div>';
 
-            const contextId = await getUserContext();
-            if (!contextId) {
-                contentEl.innerHTML = '<div style="color: var(--error);">No context found for user</div>';
-                return;
-            }
-
             try {
-                const res = await fetch(`/platformadmin/price-tracker/products?context_id=${contextId}`);
+                const contextId = await getUserContext();
+                const res = await apiFetch(`/platformadmin/price-tracker/products?context_id=${contextId}`);
                 const products = await res.json();
 
                 if (products.length === 0) {
@@ -2307,7 +2339,7 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                         </div>
                     `).join('') + '</div>';
             } catch (e) {
-                contentEl.innerHTML = '<div style="color: var(--error);">Failed to load products</div>';
+                contentEl.innerHTML = `<div style="color: var(--error);">${escapeHtml(e.message)}</div>`;
             }
         }
 
@@ -2316,7 +2348,7 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             contentEl.innerHTML = '<div class="loading">Loading current deals...</div>';
 
             try {
-                const res = await fetch('/platformadmin/price-tracker/deals');
+                const res = await apiFetch('/platformadmin/price-tracker/deals');
                 const deals = await res.json();
 
                 if (deals.length === 0) {
@@ -2339,7 +2371,7 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                         </div>
                     `).join('') + '</div>';
             } catch (e) {
-                contentEl.innerHTML = '<div style="color: var(--error);">Failed to load deals</div>';
+                contentEl.innerHTML = `<div style="color: var(--error);">${escapeHtml(e.message)}</div>`;
             }
         }
 
@@ -2347,14 +2379,9 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             const contentEl = document.getElementById('main-content');
             contentEl.innerHTML = '<div class="loading">Loading price watches...</div>';
 
-            const contextId = await getUserContext();
-            if (!contextId) {
-                contentEl.innerHTML = '<div style="color: var(--error);">No context found for user</div>';
-                return;
-            }
-
             try {
-                const res = await fetch(`/platformadmin/price-tracker/watches?context_id=${contextId}`);
+                const contextId = await getUserContext();
+                const res = await apiFetch(`/platformadmin/price-tracker/watches?context_id=${contextId}`);
                 const watches = await res.json();
 
                 if (watches.length === 0) {
@@ -2381,7 +2408,7 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                         </div>
                     `).join('') + '</div>';
             } catch (e) {
-                contentEl.innerHTML = '<div style="color: var(--error);">Failed to load watches</div>';
+                contentEl.innerHTML = `<div style="color: var(--error);">${escapeHtml(e.message)}</div>`;
             }
         }
 
@@ -2390,7 +2417,7 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             contentEl.innerHTML = '<div class="loading">Loading stores...</div>';
 
             try {
-                const res = await fetch('/platformadmin/price-tracker/stores');
+                const res = await apiFetch('/platformadmin/price-tracker/stores');
                 const stores = await res.json();
 
                 if (stores.length === 0) {
@@ -2411,7 +2438,7 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
                         </div>
                     `).join('') + '</div>';
             } catch (e) {
-                contentEl.innerHTML = '<div style="color: var(--error);">Failed to load stores</div>';
+                contentEl.innerHTML = `<div style="color: var(--error);">${escapeHtml(e.message)}</div>`;
             }
         }
 
