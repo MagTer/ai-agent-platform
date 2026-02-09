@@ -14,15 +14,15 @@ import asyncio
 import logging
 import time
 from collections import defaultdict
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.auth.credential_service import CredentialService
 from core.core.config import Settings
-from core.db.models import DebugLog, UserContext
+from core.db.models import DebugLog
 from core.db.oauth_models import OAuthToken
 from core.mcp.client import McpClient
 
@@ -192,81 +192,10 @@ class McpClientPool:
                             )
                         )
 
-                # Add more providers here as they're configured
-
-            # Zapier MCP - credential-based (URL contains API key)
-            if self._settings.credential_encryption_key:
-                try:
-                    # Find user IDs linked to this context
-                    uc_stmt = select(UserContext.user_id).where(
-                        UserContext.context_id == context_id
-                    )
-                    uc_result = await session.execute(uc_stmt)
-                    user_ids = [row[0] for row in uc_result.all()]
-
-                    if user_ids:
-                        cred_service = CredentialService(self._settings.credential_encryption_key)
-                        for uid in user_ids:
-                            zapier_url = await cred_service.get_credential(
-                                uid, "zapier_mcp_url", session
-                            )
-                            if zapier_url:
-                                connection_attempted = True
-                                try:
-                                    client = McpClient(
-                                        url=zapier_url,
-                                        context_id=context_id,
-                                        auth_token=None,
-                                        name="Zapier",
-                                        auto_reconnect=True,
-                                        max_retries=1,
-                                        cache_ttl_seconds=300,
-                                    )
-                                    await asyncio.wait_for(client.connect(), timeout=10.0)
-                                    clients.append(client)
-                                    LOGGER.info(
-                                        f"Connected Zapier MCP for context {context_id} "
-                                        f"(discovered {len(client.tools)} tools)"
-                                    )
-                                    session.add(
-                                        DebugLog(
-                                            trace_id=str(context_id),
-                                            event_type="mcp_connect",
-                                            event_data={
-                                                "provider": "Zapier",
-                                                "tools_count": len(client.tools),
-                                                "transport": "streamable_http",
-                                            },
-                                        )
-                                    )
-                                except Exception as e:
-                                    LOGGER.error(
-                                        f"Failed to connect Zapier MCP for context "
-                                        f"{context_id}: {e}"
-                                    )
-                                    session.add(
-                                        DebugLog(
-                                            trace_id=str(context_id),
-                                            event_type="mcp_error",
-                                            event_data={
-                                                "provider": "Zapier",
-                                                "error": str(e),
-                                            },
-                                        )
-                                    )
-                                break  # One Zapier connection per context
-                except Exception as e:
-                    LOGGER.error(f"Error loading Zapier credentials for context {context_id}: {e}")
-                    session.add(
-                        DebugLog(
-                            trace_id=str(context_id),
-                            event_type="mcp_error",
-                            event_data={
-                                "provider": "Zapier",
-                                "error": f"Credential lookup failed: {e}",
-                            },
-                        )
-                    )
+            # Load user-defined MCP servers from database
+            user_attempted = await self._load_user_mcp_servers(context_id, session, clients)
+            if user_attempted:
+                connection_attempted = True
 
             # Store in cache
             self._pools[context_id] = clients
@@ -289,6 +218,155 @@ class McpClientPool:
                 )
 
             return clients
+
+    async def _load_user_mcp_servers(
+        self,
+        context_id: UUID,
+        session: AsyncSession,
+        clients: list[McpClient],
+    ) -> bool:
+        """Load user-defined MCP servers from database.
+
+        Queries the mcp_servers table for enabled servers in this context,
+        creates McpClient instances, and appends connected clients to the list.
+
+        Args:
+            context_id: Context UUID
+            session: Database session
+            clients: List to append connected clients to (mutated in place)
+
+        Returns:
+            True if any connection was attempted, False otherwise
+        """
+        from core.db.models import McpServer
+        from core.mcp.client import McpTransport
+
+        stmt = select(McpServer).where(
+            McpServer.context_id == context_id,
+            McpServer.is_enabled.is_(True),
+        )
+        result = await session.execute(stmt)
+        user_servers = result.scalars().all()
+
+        if not user_servers:
+            return False
+
+        connection_attempted = False
+        now_naive = datetime.now(UTC).replace(tzinfo=None)
+
+        for server in user_servers:
+            connection_attempted = True
+
+            # Determine auth token
+            auth_token: str | None = None
+            oauth_provider: str | None = None
+
+            if server.auth_type == "bearer":
+                auth_token = server.get_auth_token()
+            elif server.auth_type == "oauth" and server.oauth_provider_name:
+                oauth_provider = server.oauth_provider_name
+
+            # Register dynamic OAuth provider for token resolution
+            if server.auth_type == "oauth" and server.oauth_provider_name:
+                try:
+                    from core.auth.models import OAuthProviderConfig
+                    from core.providers import get_token_manager
+
+                    if self._settings.oauth_redirect_uri:
+                        from pydantic import HttpUrl
+
+                        config = OAuthProviderConfig(
+                            provider_name=server.oauth_provider_name,
+                            authorization_url=HttpUrl(
+                                server.oauth_authorize_url or "https://placeholder"
+                            ),
+                            token_url=HttpUrl(server.oauth_token_url or "https://placeholder"),
+                            client_id=server.oauth_client_id or "",
+                            client_secret=server.get_oauth_client_secret(),
+                            scopes=server.oauth_scopes,
+                            redirect_uri=self._settings.oauth_redirect_uri,
+                        )
+                        get_token_manager().register_dynamic_provider(
+                            server.oauth_provider_name, config
+                        )
+                except Exception:
+                    LOGGER.warning(
+                        "Could not register dynamic OAuth provider for %s",
+                        server.name,
+                    )
+
+            # Map transport string to enum
+            transport_map = {
+                "auto": McpTransport.AUTO,
+                "sse": McpTransport.SSE,
+                "streamable_http": McpTransport.STREAMABLE_HTTP,
+            }
+            transport = transport_map.get(server.transport, McpTransport.AUTO)
+
+            try:
+                client = McpClient(
+                    url=server.url,
+                    auth_token=auth_token,
+                    context_id=context_id,
+                    oauth_provider=oauth_provider,
+                    name=server.name,
+                    auto_reconnect=True,
+                    max_retries=1,
+                    cache_ttl_seconds=300,
+                    transport=transport,
+                )
+                await asyncio.wait_for(client.connect(), timeout=10.0)
+                clients.append(client)
+
+                # Update server status in DB
+                server.status = "connected"
+                server.last_error = None
+                server.last_connected_at = now_naive
+                server.tools_count = len(client.tools)
+
+                LOGGER.info(
+                    "Connected user MCP '%s' for context %s (%d tools)",
+                    server.name,
+                    context_id,
+                    len(client.tools),
+                )
+                session.add(
+                    DebugLog(
+                        trace_id=str(context_id),
+                        event_type="mcp_connect",
+                        event_data={
+                            "provider": server.name,
+                            "tools_count": len(client.tools),
+                            "transport": server.transport,
+                            "source": "user_defined",
+                        },
+                    )
+                )
+
+            except Exception as e:
+                error_msg = str(e)[:500]
+                server.status = "error"
+                server.last_error = error_msg
+
+                LOGGER.error(
+                    "Failed to connect user MCP '%s' for context %s: %s",
+                    server.name,
+                    context_id,
+                    error_msg,
+                )
+                session.add(
+                    DebugLog(
+                        trace_id=str(context_id),
+                        event_type="mcp_error",
+                        event_data={
+                            "provider": server.name,
+                            "error": error_msg,
+                            "source": "user_defined",
+                        },
+                    )
+                )
+
+        return connection_attempted
 
     async def disconnect_context(self, context_id: UUID) -> None:
         """Disconnect all clients for a context.

@@ -66,6 +66,64 @@ class OAuthClient:
             raise ValueError(f"OAuth provider '{provider}' not configured")
         return config
 
+    async def _get_provider_config_with_db_fallback(
+        self, provider: str, session: AsyncSession
+    ) -> OAuthProviderConfig:
+        """Get provider config with DB fallback for dynamic MCP providers.
+
+        Checks in-memory configs first, then falls back to loading config
+        from the McpServer table for providers with names starting with 'mcp_'.
+        This handles the case where the server restarts and dynamic provider
+        configs are lost from memory.
+
+        Args:
+            provider: Provider name
+            session: Database session for fallback query
+
+        Returns:
+            Provider configuration
+
+        Raises:
+            ValueError: If provider not configured and not found in DB
+        """
+        config = self._provider_configs.get(provider)
+        if config:
+            return config
+
+        # Fall back to McpServer table for dynamic mcp_ providers
+        if provider.startswith("mcp_"):
+            from core.core.config import get_settings
+            from core.db.models import McpServer
+
+            stmt = select(McpServer).where(McpServer.oauth_provider_name == provider)
+            result = await session.execute(stmt)
+            server = result.scalar_one_or_none()
+
+            if server and server.auth_type == "oauth":
+                from pydantic import HttpUrl
+
+                settings = get_settings()
+                redirect_uri = settings.oauth_redirect_uri or HttpUrl("https://placeholder")
+
+                db_config = OAuthProviderConfig(
+                    provider_name=provider,
+                    authorization_url=HttpUrl(server.oauth_authorize_url or "https://placeholder"),
+                    token_url=HttpUrl(server.oauth_token_url or "https://placeholder"),
+                    client_id=server.oauth_client_id or "",
+                    client_secret=server.get_oauth_client_secret(),
+                    scopes=server.oauth_scopes,
+                    redirect_uri=redirect_uri,
+                )
+                # Cache it for future calls
+                self._provider_configs[provider] = db_config
+                LOGGER.info(
+                    "Loaded dynamic OAuth config from DB for provider: %s",
+                    provider,
+                )
+                return db_config
+
+        raise ValueError(f"OAuth provider '{provider}' not configured")
+
     @staticmethod
     def _generate_pkce_params() -> tuple[str, str]:
         """Generate PKCE code verifier and challenge.
@@ -178,8 +236,8 @@ class OAuthClient:
             user_id = oauth_state.user_id
             code_verifier = oauth_state.code_verifier
 
-            # Get provider config
-            config = self._get_provider_config(provider)
+            # Get provider config (with DB fallback for dynamic mcp_ providers)
+            config = await self._get_provider_config_with_db_fallback(provider, session)
 
             # Exchange authorization code for tokens
             token_data = {
@@ -356,6 +414,9 @@ class OAuthClient:
     async def _refresh_token(self, session: AsyncSession, token: OAuthToken, provider: str) -> None:
         """Refresh expired access token.
 
+        Uses DB fallback for dynamic mcp_ providers whose config may not
+        be in memory after a server restart.
+
         Args:
             session: Database session
             token: Token to refresh (modified in place)
@@ -364,7 +425,7 @@ class OAuthClient:
         Raises:
             OAuthError: If refresh fails
         """
-        config = self._get_provider_config(provider)
+        config = await self._get_provider_config_with_db_fallback(provider, session)
 
         # Get decrypted refresh token for API call
         try:
