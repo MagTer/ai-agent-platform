@@ -133,7 +133,7 @@ services:
     environment:
       # OpenAI-compatible backend (our agent)
       - OPENAI_API_BASE_URL=http://agent:8000/v1
-      - OPENAI_API_KEY=sk-dummy
+      - OPENAI_API_KEY=${AGENT_INTERNAL_API_KEY:-sk-dummy}
       # Microsoft Entra ID Authentication
       - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
       - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
