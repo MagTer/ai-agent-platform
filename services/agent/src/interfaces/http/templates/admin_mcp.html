@@ -1,0 +1,466 @@
+<h1 class="page-title">MCP Servers</h1>
+
+<div class="stats-grid" style="margin-bottom: 24px;">
+    <div class="stat-box">
+        <div class="stat-value" id="statTotal">0</div>
+        <div class="stat-label">Total Servers</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-value" id="statConnected" style="color: var(--success)">0</div>
+        <div class="stat-label">Connected</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-value" id="statError" style="color: var(--error)">0</div>
+        <div class="stat-label">Error</div>
+    </div>
+    <div class="stat-box">
+        <div class="stat-value" id="statPending">0</div>
+        <div class="stat-label">Pending</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">All MCP Servers</span>
+        <div>
+            <button class="btn btn-primary" onclick="openAddModal()">+ Add Server</button>
+            <button class="btn" onclick="loadServers()">Refresh</button>
+        </div>
+    </div>
+    <table id="serversTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>URL</th>
+                <th>Context</th>
+                <th>Auth</th>
+                <th>Status</th>
+                <th>Tools</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="serversBody">
+            <tr><td colspan="7" class="loading">Loading...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <span class="card-title">Recent Activity</span>
+        <button class="btn btn-sm" onclick="loadActivity()">Refresh</button>
+    </div>
+    <div id="activity">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<!-- Add/Edit Server Modal -->
+<div class="modal" id="serverModal">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3 id="modalTitle">Add MCP Server</h3>
+            <button class="btn" onclick="closeModal()">&times;</button>
+        </div>
+        <form id="serverForm" onsubmit="submitServer(event)">
+            <input type="hidden" id="editServerId" value="">
+            <div class="form-group">
+                <label for="contextId">Context *</label>
+                <select id="contextId" required>
+                    <option value="">Select context...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="serverName">Server Name *</label>
+                <input type="text" id="serverName" required placeholder="e.g., My Zapier MCP">
+            </div>
+            <div class="form-group">
+                <label for="serverUrl">Server URL *</label>
+                <input type="url" id="serverUrl" required placeholder="https://mcp.example.com/sse">
+            </div>
+            <div class="form-group">
+                <label for="transport">Transport</label>
+                <select id="transport">
+                    <option value="auto">Auto (recommended)</option>
+                    <option value="streamable_http">Streamable HTTP</option>
+                    <option value="sse">SSE (legacy)</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="authType">Authentication</label>
+                <select id="authType" onchange="toggleAuthFields()">
+                    <option value="none">None</option>
+                    <option value="bearer">Bearer Token</option>
+                    <option value="oauth">OAuth 2.0</option>
+                </select>
+            </div>
+            <!-- Bearer fields -->
+            <div id="bearerFields" style="display: none;">
+                <div class="form-group">
+                    <label for="authToken">Bearer Token *</label>
+                    <input type="password" id="authToken" placeholder="Enter API key or bearer token">
+                    <small>Encrypted at rest using Fernet encryption.</small>
+                </div>
+            </div>
+            <!-- OAuth fields -->
+            <div id="oauthFields" style="display: none;">
+                <div class="oauth-note">OAuth 2.1: PKCE is required. The authorization server must support S256 code challenge method.</div>
+                <div class="form-group">
+                    <label for="oauthAuthorizeUrl">Authorization URL *</label>
+                    <input type="url" id="oauthAuthorizeUrl" placeholder="https://provider.com/oauth/authorize">
+                </div>
+                <div class="form-group">
+                    <label for="oauthTokenUrl">Token URL *</label>
+                    <input type="url" id="oauthTokenUrl" placeholder="https://provider.com/oauth/token">
+                </div>
+                <div class="form-group">
+                    <label for="oauthClientId">Client ID *</label>
+                    <input type="text" id="oauthClientId" placeholder="Enter OAuth client ID">
+                </div>
+                <div class="form-group">
+                    <label for="oauthClientSecret">Client Secret</label>
+                    <input type="password" id="oauthClientSecret" placeholder="Enter OAuth client secret (optional for public clients)">
+                    <small>Encrypted at rest. Leave blank for public clients.</small>
+                </div>
+                <div class="form-group">
+                    <label for="oauthScopes">Scopes</label>
+                    <input type="text" id="oauthScopes" placeholder="read write (space-separated)">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width: 100%" id="submitBtn">Add Server</button>
+        </form>
+    </div>
+</div>
+
+<!-- Test Result Modal -->
+<div class="modal" id="testModal">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3>Connection Test</h3>
+            <button class="btn" onclick="closeTestModal()">&times;</button>
+        </div>
+        <div id="testResult">
+            <div class="loading">Testing connection...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast" id="toast"></div>
+<!-- SECTION_SEPARATOR -->
+.modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; }
+.modal.active { display: flex; align-items: center; justify-content: center; }
+.modal-content { background: white; border-radius: 8px; padding: 24px; width: 90%; max-width: 500px; max-height: 80vh; overflow-y: auto; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.modal-header h3 { margin: 0; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.form-group input, .form-group select { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+.form-group small { color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px; }
+.toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; color: white; font-size: 14px; z-index: 200; display: none; }
+.toast.success { background: var(--success); display: block; }
+.toast.error { background: var(--error); display: block; }
+.oauth-note { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #1e40af; margin-bottom: 16px; }
+.tooltip-wrap { position: relative; cursor: help; }
+.tooltip-wrap .tooltip-text { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--text); color: #fff; padding: 6px 10px; border-radius: 4px; font-size: 11px; white-space: nowrap; z-index: 10; margin-bottom: 4px; }
+.tooltip-wrap:hover .tooltip-text { display: block; }
+.url-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; font-size: 12px; }
+.error-text { color: var(--error); font-size: 12px; margin-top: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool-list { font-size: 12px; line-height: 1.6; max-height: 200px; overflow-y: auto; }
+.tool-list .tool-item { padding: 4px 0; border-bottom: 1px solid var(--border); }
+.tool-list .tool-name { font-weight: 500; font-family: monospace; }
+.tool-list .tool-desc { color: var(--text-muted); font-size: 11px; }
+<!-- SECTION_SEPARATOR -->
+let allServers = [];
+
+async function loadServers() {
+    try {
+        const res = await fetch('/platformadmin/mcp/servers');
+        const data = await res.json();
+        allServers = data.servers || [];
+        renderServers(allServers);
+        updateStats(allServers);
+    } catch (e) {
+        document.getElementById('serversBody').innerHTML = '<tr><td colspan="7" style="color: var(--error); text-align: center;">Failed to load servers</td></tr>';
+    }
+}
+
+async function loadActivity() {
+    try {
+        const res = await fetch('/platformadmin/mcp/activity');
+        const data = await res.json();
+        renderActivity(data.events);
+    } catch (e) {
+        document.getElementById('activity').innerHTML = '<div style="color: var(--error)">Failed to load activity</div>';
+    }
+}
+
+async function loadContexts() {
+    try {
+        const res = await fetch('/platformadmin/contexts');
+        const data = await res.json();
+        const sel = document.getElementById('contextId');
+        sel.innerHTML = '<option value="">Select context...</option>' +
+            (data.contexts || []).map(c => '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>').join('');
+    } catch (e) {
+        console.error('Failed to load contexts:', e);
+    }
+}
+
+function updateStats(servers) {
+    document.getElementById('statTotal').textContent = servers.length;
+    document.getElementById('statConnected').textContent = servers.filter(s => s.status === 'connected').length;
+    document.getElementById('statError').textContent = servers.filter(s => s.status === 'error').length;
+    document.getElementById('statPending').textContent = servers.filter(s => s.status === 'pending').length;
+}
+
+function renderServers(servers) {
+    const tbody = document.getElementById('serversBody');
+    if (!servers || servers.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: var(--text-muted);">No MCP servers configured. Click "+ Add Server" to get started.</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = servers.map(s => {
+        const statusBadge = s.status === 'connected'
+            ? '<span class="badge badge-success">Connected</span>'
+            : s.status === 'error'
+            ? '<span class="tooltip-wrap"><span class="badge badge-error">Error</span><span class="tooltip-text">' + escapeHtml(s.last_error || 'Unknown') + '</span></span>'
+            : s.status === 'disabled'
+            ? '<span class="badge badge-muted">Disabled</span>'
+            : '<span class="badge badge-warning">Pending</span>';
+        const authBadge = s.auth_type === 'oauth'
+            ? '<span class="badge badge-info">OAuth</span>'
+            : s.auth_type === 'bearer'
+            ? '<span class="badge badge-muted">Bearer</span>'
+            : '<span class="badge">None</span>';
+        const ctx = escapeHtml(s.context_name || s.context_id.slice(0, 8) + '...');
+        const enabledIcon = s.is_enabled ? '' : ' <span title="Disabled" style="opacity: 0.5;">(off)</span>';
+
+        let actions = '<button class="btn btn-sm" onclick="testServer(\'' + s.id + '\')">Test</button> ';
+        if (s.auth_type === 'oauth' && s.has_oauth_config) {
+            actions += '<button class="btn btn-sm btn-primary" onclick="startOAuth(\'' + s.id + '\')">Auth</button> ';
+        }
+        actions += '<button class="btn btn-sm" onclick="editServer(\'' + s.id + '\')">Edit</button> ';
+        actions += '<button class="btn btn-sm btn-danger" onclick="deleteServer(\'' + s.id + '\', \'' + escapeHtml(s.name) + '\')">Del</button>';
+
+        return '<tr>' +
+            '<td>' + escapeHtml(s.name) + enabledIcon + '</td>' +
+            '<td class="url-cell" title="' + escapeHtml(s.url) + '">' + escapeHtml(s.url) + '</td>' +
+            '<td>' + ctx + '</td>' +
+            '<td>' + authBadge + '</td>' +
+            '<td>' + statusBadge + '</td>' +
+            '<td>' + s.tools_count + '</td>' +
+            '<td style="white-space: nowrap;">' + actions + '</td>' +
+            '</tr>';
+    }).join('');
+}
+
+function renderActivity(events) {
+    const el = document.getElementById('activity');
+    if (!events || events.length === 0) {
+        el.innerHTML = '<div style="text-align: center; padding: 20px; color: var(--text-muted);">No recent MCP activity</div>';
+        return;
+    }
+    let html = '<table><thead><tr><th>Time</th><th>Context</th><th>Provider</th><th>Result</th><th>Tools</th><th>Transport</th></tr></thead><tbody>';
+    for (const ev of events) {
+        const resultBadge = ev.result === 'connected'
+            ? '<span class="badge badge-success">Connected</span>'
+            : '<span class="tooltip-wrap"><span class="badge badge-error">Error</span><span class="tooltip-text">' + escapeHtml(ev.error || 'Unknown error') + '</span></span>';
+        const ts = new Date(ev.timestamp).toLocaleString();
+        const ctxShort = ev.context_id ? ev.context_id.slice(0, 8) + '...' : '-';
+        html += '<tr><td>' + ts + '</td><td>' + ctxShort + '</td><td>' + escapeHtml(ev.provider || '-') + '</td><td>' + resultBadge + '</td><td>' + (ev.tools_count != null ? ev.tools_count : '-') + '</td><td>' + escapeHtml(ev.transport || '-') + '</td></tr>';
+    }
+    html += '</tbody></table>';
+    el.innerHTML = html;
+}
+
+function toggleAuthFields() {
+    const authType = document.getElementById('authType').value;
+    document.getElementById('bearerFields').style.display = authType === 'bearer' ? 'block' : 'none';
+    document.getElementById('oauthFields').style.display = authType === 'oauth' ? 'block' : 'none';
+}
+
+function openAddModal() {
+    document.getElementById('editServerId').value = '';
+    document.getElementById('modalTitle').textContent = 'Add MCP Server';
+    document.getElementById('submitBtn').textContent = 'Add Server';
+    document.getElementById('serverForm').reset();
+    document.getElementById('bearerFields').style.display = 'none';
+    document.getElementById('oauthFields').style.display = 'none';
+    loadContexts();
+    document.getElementById('serverModal').classList.add('active');
+}
+
+function editServer(serverId) {
+    const server = allServers.find(s => s.id === serverId);
+    if (!server) return;
+
+    document.getElementById('editServerId').value = serverId;
+    document.getElementById('modalTitle').textContent = 'Edit MCP Server';
+    document.getElementById('submitBtn').textContent = 'Update Server';
+    loadContexts();
+
+    // Pre-fill fields after contexts load
+    setTimeout(() => {
+        document.getElementById('contextId').value = server.context_id;
+        document.getElementById('serverName').value = server.name;
+        document.getElementById('serverUrl').value = server.url;
+        document.getElementById('transport').value = server.transport;
+        document.getElementById('authType').value = server.auth_type;
+        toggleAuthFields();
+    }, 300);
+
+    document.getElementById('serverModal').classList.add('active');
+}
+
+function closeModal() {
+    document.getElementById('serverModal').classList.remove('active');
+    document.getElementById('serverForm').reset();
+}
+
+async function submitServer(e) {
+    e.preventDefault();
+    const serverId = document.getElementById('editServerId').value;
+    const isEdit = !!serverId;
+
+    const body = {
+        context_id: document.getElementById('contextId').value,
+        name: document.getElementById('serverName').value,
+        url: document.getElementById('serverUrl').value,
+        transport: document.getElementById('transport').value,
+        auth_type: document.getElementById('authType').value,
+    };
+
+    if (body.auth_type === 'bearer') {
+        const token = document.getElementById('authToken').value;
+        if (token) body.auth_token = token;
+        else if (!isEdit) {
+            showToast('Bearer token is required', 'error');
+            return;
+        }
+    }
+
+    if (body.auth_type === 'oauth') {
+        body.oauth_authorize_url = document.getElementById('oauthAuthorizeUrl').value;
+        body.oauth_token_url = document.getElementById('oauthTokenUrl').value;
+        body.oauth_client_id = document.getElementById('oauthClientId').value;
+        const secret = document.getElementById('oauthClientSecret').value;
+        if (secret) body.oauth_client_secret = secret;
+        const scopes = document.getElementById('oauthScopes').value;
+        if (scopes) body.oauth_scopes = scopes;
+    }
+
+    try {
+        const url = isEdit ? '/platformadmin/mcp/servers/' + serverId : '/platformadmin/mcp/servers';
+        const method = isEdit ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || (isEdit ? 'Server updated' : 'Server created'), 'success');
+            closeModal();
+            loadServers();
+        } else {
+            showToast(data.detail || data.message || 'Operation failed', 'error');
+        }
+    } catch (err) {
+        showToast('Network error', 'error');
+    }
+}
+
+async function deleteServer(serverId, serverName) {
+    if (!confirm('Delete MCP server "' + serverName + '"? This cannot be undone.')) return;
+
+    try {
+        const res = await fetch('/platformadmin/mcp/servers/' + serverId, { method: 'DELETE' });
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'Server deleted', 'success');
+            loadServers();
+        } else {
+            showToast(data.detail || 'Failed to delete', 'error');
+        }
+    } catch (err) {
+        showToast('Network error', 'error');
+    }
+}
+
+async function testServer(serverId) {
+    document.getElementById('testResult').innerHTML = '<div class="loading">Testing connection...</div>';
+    document.getElementById('testModal').classList.add('active');
+
+    try {
+        const res = await fetch('/platformadmin/mcp/servers/' + serverId + '/test', { method: 'POST' });
+        const data = await res.json();
+
+        if (data.success) {
+            let toolsHtml = '';
+            if (data.tools && data.tools.length > 0) {
+                toolsHtml = '<div class="tool-list" style="margin-top: 12px;">';
+                for (const t of data.tools) {
+                    toolsHtml += '<div class="tool-item"><span class="tool-name">' + escapeHtml(t.name) + '</span>';
+                    if (t.description) toolsHtml += '<div class="tool-desc">' + escapeHtml(t.description) + '</div>';
+                    toolsHtml += '</div>';
+                }
+                toolsHtml += '</div>';
+            }
+            document.getElementById('testResult').innerHTML =
+                '<div style="text-align: center; padding: 12px;">' +
+                '<div style="font-size: 32px; margin-bottom: 8px;">&#9989;</div>' +
+                '<div style="font-weight: 500; color: var(--success);">' + escapeHtml(data.message) + '</div>' +
+                '</div>' + toolsHtml;
+        } else {
+            document.getElementById('testResult').innerHTML =
+                '<div style="text-align: center; padding: 12px;">' +
+                '<div style="font-size: 32px; margin-bottom: 8px;">&#10060;</div>' +
+                '<div style="font-weight: 500; color: var(--error);">Connection Failed</div>' +
+                '<div style="color: var(--text-muted); font-size: 13px; margin-top: 8px; word-break: break-all;">' + escapeHtml(data.error || 'Unknown error') + '</div>' +
+                '</div>';
+        }
+        loadServers();
+    } catch (err) {
+        document.getElementById('testResult').innerHTML =
+            '<div style="text-align: center; padding: 12px; color: var(--error);">Network error during test</div>';
+    }
+}
+
+function closeTestModal() {
+    document.getElementById('testModal').classList.remove('active');
+}
+
+async function startOAuth(serverId) {
+    try {
+        const res = await fetch('/platformadmin/mcp/servers/' + serverId + '/oauth/start', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.authorization_url) {
+            window.open(data.authorization_url, '_blank');
+            showToast('OAuth flow started. Complete authorization in the new tab.', 'success');
+        } else {
+            showToast(data.detail || 'Failed to start OAuth', 'error');
+        }
+    } catch (err) {
+        showToast('Network error', 'error');
+    }
+}
+
+function showToast(message, type) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = 'toast ' + type;
+    setTimeout(() => { toast.className = 'toast'; }, 3000);
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// Initial load
+loadServers();
+loadActivity();

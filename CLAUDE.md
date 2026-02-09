@@ -688,6 +688,7 @@ interfaces/http/
 ├── admin_credentials.py      # User credential management
 ├── admin_contexts.py         # Context (workspace) management
 ├── admin_workspaces.py       # Git repository workspaces
+├── admin_mcp.py              # MCP server management (user-defined connections)
 └── templates/                # Large HTML templates (40KB+)
 ```
 
@@ -740,6 +741,30 @@ NavItem("My Module", "/platformadmin/mymodule/", "&#128736;", "features"),
 - **List pattern**: Table with actions (edit, delete, sync)
 - **Async operations**: Use background tasks with polling for long operations
 - **Error handling**: HTTPException with user-friendly messages
+
+### MCP Server Management
+
+The MCP management page (`/platformadmin/mcp/`) allows admins to configure user-defined MCP server connections per context.
+
+**Features:**
+- Add/edit/delete MCP servers with name, URL, transport (auto/SSE/streamable HTTP)
+- Authentication: None, Bearer token (encrypted), OAuth 2.0/2.1 (with PKCE)
+- Test connection button with tool discovery
+- Connection status monitoring (pending/connected/error)
+- OAuth authorization flow for servers requiring OAuth
+- All credentials encrypted at rest (Fernet)
+
+**API Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/platformadmin/mcp/servers` | GET | List all MCP servers |
+| `/platformadmin/mcp/servers` | POST | Create new MCP server |
+| `/platformadmin/mcp/servers/{id}` | PUT | Update MCP server |
+| `/platformadmin/mcp/servers/{id}` | DELETE | Delete MCP server |
+| `/platformadmin/mcp/servers/{id}/test` | POST | Test connection |
+| `/platformadmin/mcp/servers/{id}/oauth/start` | POST | Start OAuth flow |
+
+**Template:** `interfaces/http/templates/admin_mcp.html`
 
 ---
 

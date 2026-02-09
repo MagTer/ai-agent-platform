@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -293,6 +293,85 @@ class Workspace(Base):
         UniqueConstraint("context_id", "name", name="uq_context_workspace_name"),
         UniqueConstraint("context_id", "repo_url", name="uq_context_workspace_repo"),
     )
+
+
+class McpServer(Base):
+    """User-defined MCP server connection configuration.
+
+    Stores connection details for Model Context Protocol servers that users
+    configure via the admin portal. Each server is scoped to a context
+    for multi-tenant isolation.
+
+    Auth types:
+    - none: No authentication
+    - bearer: Static API key / bearer token (encrypted)
+    - oauth: Full OAuth 2.0 flow (uses OAuthToken table)
+    """
+
+    __tablename__ = "mcp_servers"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String, index=True)
+    url: Mapped[str] = mapped_column(String)
+    transport: Mapped[str] = mapped_column(String, default="auto")  # auto, sse, streamable_http
+    auth_type: Mapped[str] = mapped_column(String, default="none")  # none, bearer, oauth
+    auth_token_encrypted: Mapped[str | None] = mapped_column(String, nullable=True)
+    oauth_provider_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    oauth_authorize_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    oauth_token_url: Mapped[str | None] = mapped_column(String, nullable=True)
+    oauth_client_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    oauth_client_secret_encrypted: Mapped[str | None] = mapped_column(String, nullable=True)
+    oauth_scopes: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # pending, connected, error, disabled
+    status: Mapped[str] = mapped_column(String, default="pending")
+    last_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_connected_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    tools_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    # Relationships
+    context = relationship("Context")
+
+    __table_args__ = (UniqueConstraint("context_id", "name", name="uq_context_mcp_name"),)
+
+    def set_auth_token(self, plaintext: str | None) -> None:
+        """Encrypt and store a static bearer token."""
+        if plaintext is None:
+            self.auth_token_encrypted = None
+        else:
+            from core.db.oauth_models import encrypt_token
+
+            self.auth_token_encrypted = encrypt_token(plaintext)
+
+    def get_auth_token(self) -> str | None:
+        """Decrypt the stored bearer token."""
+        if self.auth_token_encrypted is None:
+            return None
+        from core.db.oauth_models import decrypt_token
+
+        return decrypt_token(self.auth_token_encrypted)
+
+    def set_oauth_client_secret(self, plaintext: str | None) -> None:
+        """Encrypt and store OAuth client secret."""
+        if plaintext is None:
+            self.oauth_client_secret_encrypted = None
+        else:
+            from core.db.oauth_models import encrypt_token
+
+            self.oauth_client_secret_encrypted = encrypt_token(plaintext)
+
+    def get_oauth_client_secret(self) -> str | None:
+        """Decrypt the stored OAuth client secret."""
+        if self.oauth_client_secret_encrypted is None:
+            return None
+        from core.db.oauth_models import decrypt_token
+
+        return decrypt_token(self.oauth_client_secret_encrypted)
 
 
 class SystemConfig(Base):

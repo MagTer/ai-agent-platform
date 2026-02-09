@@ -113,6 +113,28 @@ class TokenManager:
         """
         await self._oauth_client.revoke_token(provider, context_id)
 
+    def register_dynamic_provider(self, provider_name: str, config: OAuthProviderConfig) -> None:
+        """Register a dynamic OAuth provider config (e.g., from user-defined MCP servers).
+
+        This enables the standard OAuth callback to handle token exchange
+        for providers not statically configured at startup.
+
+        Args:
+            provider_name: Unique provider name (e.g., 'mcp_<uuid>')
+            config: OAuth provider configuration
+        """
+        self._oauth_client._provider_configs[provider_name] = config
+        LOGGER.info("Registered dynamic OAuth provider: %s", provider_name)
+
+    def unregister_dynamic_provider(self, provider_name: str) -> None:
+        """Remove a dynamic OAuth provider config.
+
+        Args:
+            provider_name: Provider name to remove
+        """
+        self._oauth_client._provider_configs.pop(provider_name, None)
+        LOGGER.debug("Unregistered dynamic OAuth provider: %s", provider_name)
+
     async def shutdown(self) -> None:
         """Cleanup on application shutdown.
 
