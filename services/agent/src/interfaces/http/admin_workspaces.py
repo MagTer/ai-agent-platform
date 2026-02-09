@@ -395,7 +395,8 @@ async def create_workspace(
     import uuid as _uuid
 
     dir_name = str(_uuid.uuid4())
-    workspace_dir = workspace_base / str(request.context_id) / dir_name
+    # Use context.id from DB (trusted) instead of request.context_id (user input)
+    workspace_dir = workspace_base / str(context.id) / dir_name
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     # Create workspace record with pending status
