@@ -180,6 +180,7 @@ class SystemStatusResponse(BaseModel):
     """Aggregated system status for AI diagnosis."""
 
     status: str  # HEALTHY, DEGRADED, CRITICAL
+    environment: str
     timestamp: str
     healthy_components: list[str]
     failed_components: list[dict[str, Any]]
@@ -319,6 +320,7 @@ async def get_system_status(
 
     return SystemStatusResponse(
         status=summary.get("overall_status", "UNKNOWN"),
+        environment=settings.environment,
         timestamp=datetime.now(UTC).isoformat(),
         healthy_components=summary.get("healthy_components", []),
         failed_components=summary.get("failed_components", []),
@@ -901,4 +903,5 @@ async def get_request_stats(
 @router.get("/health")
 async def health_check() -> dict[str, str]:
     """Simple health check endpoint (no auth required for this one)."""
-    return {"status": "ok", "service": "diagnostic-api"}
+    settings = get_settings()
+    return {"status": "ok", "service": "diagnostic-api", "environment": settings.environment}

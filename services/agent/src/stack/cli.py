@@ -184,6 +184,42 @@ def _record_deployment(branch: str, services: list[str]) -> None:
     deployments_file.write_text(json.dumps(deployments, indent=2), encoding="utf-8")
 
 
+def _dev_deployments_file() -> Path:
+    """Get the path to the dev deployments history file."""
+    return _stack_dir() / "dev-deployments.json"
+
+
+def _record_dev_deployment(services: list[str]) -> None:
+    """Record a dev deployment in the dev deployment history.
+
+    Keeps the last 20 entries (dev deploys are more frequent).
+    """
+    deployments_file = _dev_deployments_file()
+    deployments: list[dict[str, object]] = []
+
+    if deployments_file.exists():
+        try:
+            deployments = json.loads(deployments_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            deployments = []
+
+    repo_root = _repo_root()
+    branch = tooling.current_branch(repo_root) or "unknown"
+
+    deployment: dict[str, object] = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "branch": branch,
+        "services": services,
+        "environment": "development",
+    }
+    deployments.append(deployment)
+
+    # Keep last 20 entries (dev deploys are more frequent)
+    deployments = deployments[-20:]
+
+    deployments_file.write_text(json.dumps(deployments, indent=2), encoding="utf-8")
+
+
 def _tag_current_image() -> None:
     """Tag the current agent image as 'previous' for rollback capability."""
     docker_bin = shutil.which("docker")
@@ -223,6 +259,25 @@ def _tag_current_image() -> None:
         console.print(f"[yellow]Warning: Failed to tag image: {tag_result.stderr.strip()}[/yellow]")
     else:
         console.print("[dim]Image tagged successfully.[/dim]")
+
+
+def _verify_openwebui_to_agent(project_name: str) -> bool:
+    """Check that Open WebUI can reach the agent's /healthz endpoint.
+
+    Uses ``docker exec`` to run curl inside the Open WebUI container,
+    verifying end-to-end connectivity.
+    """
+    container = f"{project_name}-open-webui-1"
+    try:
+        tooling.docker_exec(
+            container,
+            "sh",
+            "-lc",
+            "curl -sf --max-time 5 http://agent:8000/healthz > /dev/null",
+        )
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _compose_overrides(bind_mounts: bool) -> list[Path]:
@@ -573,6 +628,11 @@ def dev_deploy(
         None,
         help="Services to deploy (default: agent).",
     ),
+    all_services: bool = typer.Option(
+        False,
+        "--all",
+        help="Rebuild and recreate all services (use when .env changes affect multiple services).",
+    ),
     timeout: float = typer.Option(60.0, help="Health check timeout in seconds."),
 ) -> None:
     """Build and deploy to dev environment with health verification.
@@ -580,12 +640,18 @@ def dev_deploy(
     Rebuilds the specified services (default: agent only) and waits for
     health checks to pass before reporting success.  This is the recommended
     command for deploying code changes to the dev environment.
+
+    Use --all when .env changes affect Open WebUI or other services.
     """
     tooling.ensure_docker()
     services = list(service) if service else ["agent"]
 
-    console.print(f"[bold cyan]Building and deploying: {', '.join(services)}...[/bold cyan]")
-    args = ["up", "-d", "--no-deps", "--build"] + services
+    if all_services:
+        console.print("[bold cyan]Building and deploying ALL services...[/bold cyan]")
+        args = ["up", "-d", "--build"]
+    else:
+        console.print(f"[bold cyan]Building and deploying: {', '.join(services)}...[/bold cyan]")
+        args = ["up", "-d", "--no-deps", "--build"] + services
     compose.run_compose(args, dev=True, capture_output=False)
     _connect_traefik_to_dev_network()
 
@@ -608,6 +674,18 @@ def dev_deploy(
         timeout=timeout,
         mode="http",
     )
+
+    # Verify Open WebUI -> Agent connectivity
+    if _verify_openwebui_to_agent(dev_project):
+        console.print("[green]Open WebUI -> Agent connectivity verified.[/green]")
+    else:
+        console.print(
+            "[yellow]Warning: Open WebUI cannot reach Agent. "
+            "Try: ./stack dev deploy --all[/yellow]"
+        )
+
+    # Record dev deployment
+    _record_dev_deployment(services)
 
     console.print("[bold green]Dev deploy complete - all services healthy.[/bold green]")
 
@@ -877,6 +955,16 @@ def deploy(
         console.print("[yellow]Service may still be starting. Check: stack logs agent[/yellow]")
     else:
         console.print("[bold green]✓ Health check passed[/bold green]")
+
+    # Step 4.6: Verify Open WebUI -> Agent connectivity
+    prod_project = "ai-agent-platform"
+    if _verify_openwebui_to_agent(prod_project):
+        console.print("[bold green]✓ Open WebUI -> Agent connectivity verified[/bold green]")
+    else:
+        console.print(
+            "[yellow]⚠ Open WebUI cannot reach Agent. "
+            "Consider full restart: ./stack down && ./stack up --prod[/yellow]"
+        )
 
     # Step 5: Record deployment
     # current_branch is guaranteed to be not None here due to early exit check

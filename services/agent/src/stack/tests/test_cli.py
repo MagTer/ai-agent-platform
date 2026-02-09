@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -357,6 +358,63 @@ def test_dev_status_command(monkeypatch: MonkeyPatch) -> None:
     assert "development" in result.output.lower()
 
 
+# --- Dev deploy command tests ---
+
+
+def test_dev_deploy_default_uses_no_deps(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """Test that dev deploy default passes --no-deps to only rebuild agent."""
+    called: dict[str, Any] = {}
+    (tmp_path / "docker-compose.yml").write_text("# fake")
+
+    monkeypatch.setattr(cli.tooling, "ensure_docker", lambda: None)
+    monkeypatch.setattr(cli, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.tooling, "current_branch", lambda path: "main")
+
+    def fake_run_compose(args: list[str], dev: bool = False, **kwargs: Any) -> SimpleNamespace:
+        called.setdefault("compose_calls", []).append(args)
+        return SimpleNamespace(stdout=b"status")
+
+    monkeypatch.setattr(cli.compose, "run_compose", fake_run_compose)
+    monkeypatch.setattr(cli, "_wait_for_service", lambda **_: None)
+    monkeypatch.setattr(cli, "_connect_traefik_to_dev_network", lambda: None)
+    monkeypatch.setattr(cli, "_verify_openwebui_to_agent", lambda _: True)
+
+    result = runner.invoke(cli.app, ["dev", "deploy"])
+    assert result.exit_code == 0
+    # The first compose call should be the deploy (up -d --no-deps --build agent)
+    deploy_args = called["compose_calls"][0]
+    assert "--no-deps" in deploy_args
+    assert "--build" in deploy_args
+    assert "agent" in deploy_args
+
+
+def test_dev_deploy_all_omits_no_deps(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """Test that dev deploy --all omits --no-deps and rebuilds all services."""
+    called: dict[str, Any] = {}
+    (tmp_path / "docker-compose.yml").write_text("# fake")
+
+    monkeypatch.setattr(cli.tooling, "ensure_docker", lambda: None)
+    monkeypatch.setattr(cli, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.tooling, "current_branch", lambda path: "main")
+
+    def fake_run_compose(args: list[str], dev: bool = False, **kwargs: Any) -> SimpleNamespace:
+        called.setdefault("compose_calls", []).append(args)
+        return SimpleNamespace(stdout=b"status")
+
+    monkeypatch.setattr(cli.compose, "run_compose", fake_run_compose)
+    monkeypatch.setattr(cli, "_wait_for_service", lambda **_: None)
+    monkeypatch.setattr(cli, "_connect_traefik_to_dev_network", lambda: None)
+    monkeypatch.setattr(cli, "_verify_openwebui_to_agent", lambda _: True)
+
+    result = runner.invoke(cli.app, ["dev", "deploy", "--all"])
+    assert result.exit_code == 0
+    deploy_args = called["compose_calls"][0]
+    assert "--no-deps" not in deploy_args
+    assert "--build" in deploy_args
+    # Should not have specific service names when --all is used
+    assert "agent" not in deploy_args
+
+
 # --- Deploy command tests ---
 
 
@@ -453,3 +511,73 @@ def test_deploy_skip_checks(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["deploy", "--skip-checks"])
     assert result.exit_code == 0
     assert quality_check_called["called"] is False
+
+
+# --- Dev deployment tracking tests ---
+
+
+def test_record_dev_deployment(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """Test that _record_dev_deployment creates file with correct structure."""
+    (tmp_path / "docker-compose.yml").write_text("# fake")
+    stack_dir = tmp_path / ".stack"
+    stack_dir.mkdir()
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.tooling, "current_branch", lambda path: "feature/test")
+
+    cli._record_dev_deployment(["agent"])
+
+    deployments_file = stack_dir / "dev-deployments.json"
+    assert deployments_file.exists()
+    data = json.loads(deployments_file.read_text(encoding="utf-8"))
+    assert len(data) == 1
+    assert data[0]["branch"] == "feature/test"
+    assert data[0]["services"] == ["agent"]
+    assert data[0]["environment"] == "development"
+    assert "timestamp" in data[0]
+
+
+def test_record_dev_deployment_keeps_last_20(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
+    """Test that _record_dev_deployment caps at 20 entries."""
+    (tmp_path / "docker-compose.yml").write_text("# fake")
+    stack_dir = tmp_path / ".stack"
+    stack_dir.mkdir()
+
+    # Seed with 20 existing entries
+    existing = [{"timestamp": f"2026-01-{i:02d}", "services": ["agent"]} for i in range(1, 21)]
+    (stack_dir / "dev-deployments.json").write_text(json.dumps(existing), encoding="utf-8")
+
+    monkeypatch.setattr(cli, "_repo_root", lambda: tmp_path)
+    monkeypatch.setattr(cli.tooling, "current_branch", lambda path: "main")
+
+    cli._record_dev_deployment(["agent"])
+
+    data = json.loads((stack_dir / "dev-deployments.json").read_text(encoding="utf-8"))
+    assert len(data) == 20
+    # First entry should be the second of the originals (first was dropped)
+    assert data[0]["timestamp"] == "2026-01-02"
+    # Last entry should be the newly added one
+    assert data[-1]["branch"] == "main"
+
+
+# --- Open WebUI -> Agent connectivity tests ---
+
+
+def test_verify_openwebui_to_agent_success(monkeypatch: MonkeyPatch) -> None:
+    """Test connectivity check returns True when docker exec succeeds."""
+    monkeypatch.setattr(
+        cli.tooling,
+        "docker_exec",
+        lambda *args, **kwargs: SimpleNamespace(returncode=0),
+    )
+    assert cli._verify_openwebui_to_agent("ai-agent-platform-dev") is True
+
+
+def test_verify_openwebui_to_agent_failure(monkeypatch: MonkeyPatch) -> None:
+    """Test connectivity check returns False when docker exec raises."""
+
+    def failing_exec(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("container not found")
+
+    monkeypatch.setattr(cli.tooling, "docker_exec", failing_exec)
+    assert cli._verify_openwebui_to_agent("ai-agent-platform-dev") is False

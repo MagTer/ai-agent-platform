@@ -142,3 +142,20 @@ async def test_readiness_database_check_failure() -> None:
 
     assert result["status"] == "error"
     assert "Connection refused" in result["error"]
+
+
+def test_healthz_includes_environment(test_app: TestClient) -> None:
+    """Test that /healthz includes the environment field."""
+    response = test_app.get("/healthz")
+    assert response.status_code == 200
+    data = response.json()
+    assert "environment" in data
+    assert data["environment"] == "test"
+
+
+def test_readyz_includes_environment(test_app: TestClient) -> None:
+    """Test that /readyz includes the environment field."""
+    response = test_app.get("/readyz")
+    data = response.json()
+    assert "environment" in data
+    assert data["environment"] == "test"
