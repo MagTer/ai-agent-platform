@@ -6,7 +6,7 @@ import subprocess
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import TypedDict
 
 import httpx
 import typer
@@ -102,7 +102,6 @@ class HealthTarget(TypedDict):
     container: str
     port: int
     path: str
-    mode: Literal["http", "exec"]
 
 
 class ServiceCheck(TypedDict):
@@ -121,21 +120,18 @@ HEALTH_TARGETS: list[HealthTarget] = [
         "container": "searxng",
         "port": 8080,
         "path": "/",
-        "mode": "http",
     },
     {
         "name": "qdrant",
         "container": "qdrant",
         "port": 6333,
         "path": "/healthz",
-        "mode": "http",
     },
     {
         "name": "openwebui",
         "container": "openwebui",
         "port": 8080,
         "path": "/",
-        "mode": "http",
     },
 ]
 
@@ -261,6 +257,48 @@ def _tag_current_image() -> None:
         console.print("[dim]Image tagged successfully.[/dim]")
 
 
+def _wait_for_prod_services(project_name: str, timeout: float = 60) -> None:
+    """Wait for production services to become healthy using docker exec.
+
+    In prod mode, ports aren't exposed to the host (Traefik handles routing),
+    so we exec into each container to check health.
+    """
+    import time as _time
+
+    checks = [
+        ("SearxNG", f"{project_name}-searxng-1", 8080, "/"),
+        ("Qdrant", f"{project_name}-qdrant-1", 6333, "/healthz"),
+        ("Agent", f"{project_name}-agent-1", 8000, "/healthz"),
+        ("Open WebUI", f"{project_name}-open-webui-1", 8080, "/"),
+    ]
+    for name, container, port, path in checks:
+        console.print(f"[cyan]Waiting for {name} ({container})…[/cyan]")
+        deadline = _time.monotonic() + timeout
+        healthy = False
+        while _time.monotonic() < deadline:
+            try:
+                tooling.docker_exec(
+                    container,
+                    "sh",
+                    "-lc",
+                    f"curl -sf --max-time 3 http://localhost:{port}{path} > /dev/null",
+                )
+                healthy = True
+                break
+            except Exception:  # noqa: BLE001
+                _time.sleep(2.0)
+        if healthy:
+            console.print(f"[green]{name}: healthy[/green]")
+        else:
+            console.print(f"[yellow]{name}: not healthy after {timeout}s[/yellow]")
+
+    # Verify Open WebUI -> Agent connectivity
+    if _verify_openwebui_to_agent(project_name):
+        console.print("[green]Open WebUI -> Agent connectivity verified.[/green]")
+    else:
+        console.print("[yellow]Warning: Open WebUI cannot reach Agent.[/yellow]")
+
+
 def _verify_openwebui_to_agent(project_name: str) -> bool:
     """Check that Open WebUI can reach the agent's /healthz endpoint.
 
@@ -297,26 +335,12 @@ def _wait_for_service(
     port: int,
     path: str,
     timeout: float,
-    mode: Literal["http", "exec"] = "http",
 ) -> None:
-    if mode == "http":
-        mapped = tooling.get_mapped_port(container, port)
-        url = f"http://localhost:{mapped}{path}"
-        console.print(f"[cyan]Waiting for {name} at {url}[/cyan]")
-        if not tooling.wait_http_ok(url, timeout):
-            raise RuntimeError(f"{name} did not become healthy within {timeout} seconds")
-    else:
-        console.print(f"[cyan]Executing health check inside {container}[/cyan]")
-
-        if name == "Context7":
-            # Context7 returns 404 on root, so just check tcp connectivity
-            command = f"nc -z localhost {port}"
-        else:
-            # Use --spider to check for existence without downloading (avoids hanging on streams)
-            command = f"wget -q --spider http://localhost:{port}{path}"
-
-        # Use compose exec to handle service names vs container names
-        compose.run_compose(["exec", "-T", container, "sh", "-lc", command])
+    mapped = tooling.get_mapped_port(container, port)
+    url = f"http://localhost:{mapped}{path}"
+    console.print(f"[cyan]Waiting for {name} at {url}[/cyan]")
+    if not tooling.wait_http_ok(url, timeout):
+        raise RuntimeError(f"{name} did not become healthy within {timeout} seconds")
 
 
 @app.command()
@@ -359,58 +383,63 @@ def up(
     console.print(f"[bold green]Starting stack ({env_label}) via docker compose…[/bold green]")
     compose.compose_up(detach=detach, build=build, extra_files=overrides, prod=prod)
 
-    service_checks: list[ServiceCheck] = [
-        {
-            "name": "SearxNG",
-            "container": "searxng",
-            "port": 8080,
-            "path": "/",
-            "timeout": 60.0,
-        },
-        {
-            "name": "Qdrant",
-            "container": "qdrant",
-            "port": 6333,
-            "path": "/healthz",
-            "timeout": 60.0,
-        },
-    ]
-    for check in service_checks:
-        _wait_for_service(
-            name=check["name"],
-            container=check["container"],
-            port=check["port"],
-            path=check["path"],
-            timeout=check["timeout"],
-        )
-
-    if check_litellm:
-        try:
+    if prod:
+        # In prod mode, ports aren't exposed to host (Traefik handles routing).
+        # Use exec-based health checks inside the containers instead.
+        _wait_for_prod_services("ai-agent-platform-prod")
+    else:
+        service_checks: list[ServiceCheck] = [
+            {
+                "name": "SearxNG",
+                "container": "searxng",
+                "port": 8080,
+                "path": "/",
+                "timeout": 60.0,
+            },
+            {
+                "name": "Qdrant",
+                "container": "qdrant",
+                "port": 6333,
+                "path": "/healthz",
+                "timeout": 60.0,
+            },
+        ]
+        for check in service_checks:
             _wait_for_service(
-                name="LiteLLM",
-                container="litellm",
-                port=4000,
-                path="/health",
-                timeout=120,
+                name=check["name"],
+                container=check["container"],
+                port=check["port"],
+                path=check["path"],
+                timeout=check["timeout"],
             )
-        except RuntimeError as exc:  # pragma: no cover - advisory warning
-            console.print(f"[yellow]{exc}[/yellow]")
 
-    console.print("[cyan]Probing additional HTTP frontends…[/cyan]")
-    _wait_for_service(
-        name="SearxNG",
-        container="searxng",
-        port=8080,
-        path="/",
-        timeout=30,
-    )
-    _wait_for_service(
-        name="Open WebUI",
-        container="openwebui",
-        port=8080,
-        path="/",
-        timeout=30,
-    )
+        if check_litellm:
+            try:
+                _wait_for_service(
+                    name="LiteLLM",
+                    container="litellm",
+                    port=4000,
+                    path="/health",
+                    timeout=120,
+                )
+            except RuntimeError as exc:  # pragma: no cover - advisory warning
+                console.print(f"[yellow]{exc}[/yellow]")
+
+        console.print("[cyan]Probing additional HTTP frontends…[/cyan]")
+        _wait_for_service(
+            name="SearxNG",
+            container="searxng",
+            port=8080,
+            path="/",
+            timeout=30,
+        )
+        _wait_for_service(
+            name="Open WebUI",
+            container="openwebui",
+            port=8080,
+            path="/",
+            timeout=30,
+        )
 
     status = compose.run_compose(["ps"], extra_files=overrides, prod=prod)
     console.print("[bold cyan]Stack is running. Current container status:[/bold cyan]")
@@ -664,7 +693,6 @@ def dev_deploy(
         port=8000,
         path="/healthz",
         timeout=timeout,
-        mode="http",
     )
     _wait_for_service(
         name="openwebui",
@@ -672,7 +700,6 @@ def dev_deploy(
         port=8080,
         path="/",
         timeout=timeout,
-        mode="http",
     )
 
     # Verify Open WebUI -> Agent connectivity
@@ -1108,30 +1135,19 @@ def health_check(
 
     for target in targets:
         name = target["name"]
-        mode = target["mode"]
-        if mode == "http":
-            mapped = tooling.get_mapped_port(target["container"], target["port"])
-            url = f"http://localhost:{mapped}{target['path']}"
-            try:
-                response = httpx.get(url, timeout=5.0)
-            except Exception as exc:  # noqa: BLE001
-                overall_ok = False
-                table.add_row(name, "[red]error[/red]", str(exc))
-            else:
-                if 200 <= response.status_code < 300:
-                    table.add_row(name, "[green]ok[/green]", str(response.status_code))
-                else:
-                    overall_ok = False
-                    table.add_row(name, "[yellow]warn[/yellow]", f"HTTP {response.status_code}")
+        mapped = tooling.get_mapped_port(target["container"], target["port"])
+        url = f"http://localhost:{mapped}{target['path']}"
+        try:
+            response = httpx.get(url, timeout=5.0)
+        except Exception as exc:  # noqa: BLE001
+            overall_ok = False
+            table.add_row(name, "[red]error[/red]", str(exc))
         else:
-            try:
-                # Use --spider to check for existence without downloading
-                command = f"wget -q --spider http://localhost:{target['port']}{target['path']}"
-                tooling.docker_exec(target["container"], "sh", "-lc", command, user=None)
-                table.add_row(name, "[green]ok[/green]", "exec")
-            except Exception as exc:  # noqa: BLE001
+            if 200 <= response.status_code < 300:
+                table.add_row(name, "[green]ok[/green]", str(response.status_code))
+            else:
                 overall_ok = False
-                table.add_row(name, "[red]error[/red]", str(exc))
+                table.add_row(name, "[yellow]warn[/yellow]", f"HTTP {response.status_code}")
 
     console.print(table)
     if not overall_ok:
