@@ -243,18 +243,7 @@ async def test_should_auto_replan_patterns(tmp_path: Path) -> None:
         args={},
     )
 
-    # Test Pattern 1: Explicit error status
-    step_result = StepResult(
-        step=plan_step,
-        status="completed",
-        result={"status": "error", "output": "Something went wrong"},
-        messages=[],
-    )
-    should_replan, reason = service._should_auto_replan(step_result, plan_step)
-    assert should_replan is True
-    assert "error status" in reason.lower()
-
-    # Test Pattern 2: Authentication failures
+    # Test: error status with auth failure pattern
     auth_patterns = [
         "401 Unauthorized",
         "403 Forbidden",
@@ -266,43 +255,72 @@ async def test_should_auto_replan_patterns(tmp_path: Path) -> None:
     for pattern in auth_patterns:
         step_result = StepResult(
             step=plan_step,
-            status="completed",
-            result={"output": f"Error: {pattern}"},
+            status="error",
+            result={"error": f"Error: {pattern}"},
             messages=[],
         )
         should_replan, reason = service._should_auto_replan(step_result, plan_step)
         assert should_replan is True
         assert "authentication" in reason.lower() or "authorization" in reason.lower()
 
-    # Test Pattern 3: Resource not found
+    # Test: error status with resource not found
     step_result = StepResult(
         step=plan_step,
-        status="completed",
-        result={"output": "404 Not Found: Resource doesn't exist"},
+        status="error",
+        result={"error": "404 Not Found: Resource doesn't exist"},
         messages=[],
     )
     should_replan, reason = service._should_auto_replan(step_result, plan_step)
     assert should_replan is True
     assert "not found" in reason.lower()
 
-    # Test Pattern 4: Timeout
+    # Test: error status with timeout
     step_result = StepResult(
         step=plan_step,
-        status="completed",
-        result={"output": "Request timed out after 30 seconds"},
+        status="error",
+        result={"error": "Request timed out after 30 seconds"},
         messages=[],
     )
     should_replan, reason = service._should_auto_replan(step_result, plan_step)
     assert should_replan is True
     assert "timed" in reason.lower()
 
-    # Test success case - no replan needed
+    # Test: generic error falls back to error message
     step_result = StepResult(
         step=plan_step,
-        status="completed",
+        status="error",
+        result={"error": "Something unexpected happened"},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is True
+    assert "error" in reason.lower()
+
+    # Test: success case - no replan needed
+    step_result = StepResult(
+        step=plan_step,
+        status="ok",
         result={"output": "Operation completed successfully"},
         messages=[],
     )
     should_replan, reason = service._should_auto_replan(step_result, plan_step)
     assert should_replan is False
+    assert reason == ""
+
+    # Test: successful output containing error-like text (false positive guard)
+    step_result = StepResult(
+        step=plan_step,
+        status="ok",
+        result={
+            "output": (
+                "### Found 20 Work Items\n"
+                "- #12345 Fix timeout on build pipeline\n"
+                "- #12346 Handle 401 Unauthorized in API gateway\n"
+                "- #12347 Access denied error for storage account"
+            )
+        },
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is False, "Should not replan on successful output with error-like keywords"
     assert reason == ""
