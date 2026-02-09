@@ -367,7 +367,13 @@ async def create_workspace(
     # Sanitize name to prevent path traversal
     import re
 
-    name = re.sub(r"[/\\]", "-", name)
+    # Sanitize name: only allow safe characters (alphanumeric, dash, underscore, dot)
+    name = re.sub(r"[^a-zA-Z0-9._-]", "-", name)
+    if not name or name in (".", ".."):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workspace name",
+        )
 
     # Check if workspace already exists
     existing_stmt = select(Workspace).where(
@@ -381,20 +387,27 @@ async def create_workspace(
             detail="Workspace for this repository already exists in this context",
         )
 
-    # Determine local path
+    # Determine local path using only validated components
     workspace_base = Path(
         os.environ.get("AGENT_WORKSPACE_BASE", "/tmp/agent-workspaces")  # noqa: S108
     )
-    local_path = (workspace_base / str(request.context_id) / name).resolve()
+    # Build path from validated UUID and sanitized name (no user-controlled path components)
+    safe_context = str(request.context_id)
+    local_path = workspace_base / safe_context / name
+    resolved_path = local_path.resolve()
+    resolved_base = workspace_base.resolve()
 
-    # Verify path is still under workspace_base (prevent path traversal)
-    if not str(local_path).startswith(str(workspace_base.resolve())):
+    # Defense-in-depth: verify path stays under workspace base
+    if (
+        not str(resolved_path).startswith(str(resolved_base) + os.sep)
+        and resolved_path != resolved_base
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid workspace name",
         )
 
-    local_path.parent.mkdir(parents=True, exist_ok=True)
+    resolved_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Create workspace record with pending status
     workspace = Workspace(
@@ -402,7 +415,7 @@ async def create_workspace(
         name=name,
         repo_url=request.repo_url,
         branch=request.branch or "main",
-        local_path=str(local_path),
+        local_path=str(resolved_path),
         status="pending",
     )
     session.add(workspace)

@@ -424,9 +424,7 @@ async def delete_context(
     await session.delete(ctx)
     await session.commit()
 
-    from shared.sanitize import sanitize_log
-
-    LOGGER.info("Admin deleted context %s (name: %s)", context_id, sanitize_log(context_name))
+    LOGGER.info("Admin deleted context %s", context_id)
 
     # Note: MCP clients will be automatically cleaned up on next access
     # since the context no longer exists in the database

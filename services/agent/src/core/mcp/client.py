@@ -139,22 +139,14 @@ class McpClient:
                 token_manager = get_token_manager()
                 token = await token_manager.get_token(self._oauth_provider, self._context_id)
                 if token:
-                    LOGGER.debug("Fetched credentials for %s provider", self._oauth_provider)
+                    LOGGER.debug("Successfully fetched OAuth credentials")
                     return token
                 else:
-                    # Redact context_id (log only last 8 chars for traceability)
-                    context_suffix = str(self._context_id)[-8:] if self._context_id else "none"
-                    LOGGER.warning(
-                        "No OAuth token found for %s provider, context suffix: %s",
-                        self._oauth_provider,
-                        context_suffix,
-                    )
-            except Exception as e:
-                # Log only exception type to avoid leaking sensitive data from error messages
+                    LOGGER.warning("No OAuth token found, falling back to static token")
+            except Exception:
                 LOGGER.warning(
-                    "Failed to fetch OAuth token for %s: %s. Falling back to static token.",
-                    self._oauth_provider,
-                    type(e).__name__,
+                    "Failed to fetch OAuth token, falling back to static token",
+                    exc_info=True,
                 )
 
         # Fallback to static token
