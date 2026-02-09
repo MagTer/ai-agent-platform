@@ -229,8 +229,8 @@ class TestActivityMessage:
         from core.tools.activity_hints import build_activity_message
 
         msg = build_activity_message(None, "fetch_url", {"url": "https://example.com/page"})
-        assert "Fetching" in msg
-        assert "example.com" in msg
+        # Check for exact expected output format (domain extraction)
+        assert msg == "Fetching example.com"
 
     def test_build_activity_message_truncates_long_query(self) -> None:
         """Test that long queries are truncated."""

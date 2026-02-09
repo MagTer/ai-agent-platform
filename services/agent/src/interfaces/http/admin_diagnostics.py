@@ -142,7 +142,7 @@ async def get_crash_log() -> dict[str, Any]:
         }
     except Exception as e:
         LOGGER.error(f"Failed to read crash log: {e}")
-        return {"exists": False, "content": None, "message": f"Read error: {e}"}
+        return {"exists": False, "content": None, "message": "Failed to read crash log"}
 
 
 @router.post("/retention", dependencies=[Depends(verify_admin_user), Depends(require_csrf)])
@@ -217,7 +217,7 @@ async def get_mcp_health() -> dict[str, Any]:
         LOGGER.error("Failed to get MCP health: %s", e)
         return {
             "status": "error",
-            "message": str(e),
+            "message": "Failed to retrieve MCP health status",
             "servers": {},
             "connected_count": 0,
             "total_count": 0,
@@ -299,7 +299,7 @@ async def get_system_events(
             "events": [],
             "total_count": 0,
             "filters_applied": {"event_type": event_type, "severity": severity},
-            "error": str(e),
+            "error": "Failed to read system events",
         }
 
 
@@ -379,7 +379,7 @@ async def get_application_logs(
             "logs": [],
             "total_count": 0,
             "filters_applied": {"level": level, "logger_name": logger_name, "search": search},
-            "error": str(e),
+            "error": "Failed to read application logs",
         }
 
 

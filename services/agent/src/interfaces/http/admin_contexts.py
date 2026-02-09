@@ -424,7 +424,7 @@ async def delete_context(
     await session.delete(ctx)
     await session.commit()
 
-    LOGGER.info(f"Admin deleted context {context_id} (name: {context_name})")
+    LOGGER.info("Admin deleted context %s", context_id)
 
     # Note: MCP clients will be automatically cleaned up on next access
     # since the context no longer exists in the database
