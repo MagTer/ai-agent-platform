@@ -364,6 +364,11 @@ async def create_workspace(
         if name.endswith(".git"):
             name = name[:-4]
 
+    # Sanitize name to prevent path traversal
+    import re
+
+    name = re.sub(r"[/\\]", "-", name)
+
     # Check if workspace already exists
     existing_stmt = select(Workspace).where(
         Workspace.context_id == request.context_id,
@@ -380,7 +385,15 @@ async def create_workspace(
     workspace_base = Path(
         os.environ.get("AGENT_WORKSPACE_BASE", "/tmp/agent-workspaces")  # noqa: S108
     )
-    local_path = workspace_base / str(request.context_id) / name
+    local_path = (workspace_base / str(request.context_id) / name).resolve()
+
+    # Verify path is still under workspace_base (prevent path traversal)
+    if not str(local_path).startswith(str(workspace_base.resolve())):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid workspace name",
+        )
+
     local_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Create workspace record with pending status

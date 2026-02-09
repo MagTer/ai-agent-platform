@@ -249,4 +249,4 @@ async def list_oauth_providers() -> dict[str, Any]:
 
     except Exception as e:
         LOGGER.error(f"Failed to list OAuth providers: {e}")
-        return {"providers": [], "message": f"Error listing providers: {e}"}
+        return {"providers": [], "message": "Failed to list OAuth providers"}

@@ -718,7 +718,9 @@ async def stream_response_generator(
         async for chunk in flush_content_buffer():
             yield chunk
         LOGGER.error(f"Error during streaming: {e}")
-        yield _format_chunk(chunk_id, created, model_name, f"\n\nSystem Error: {str(e)}")
+        yield _format_chunk(
+            chunk_id, created, model_name, "\n\nAn internal error occurred. Please try again."
+        )
 
     # Flush any remaining content before DONE
     async for chunk in flush_content_buffer():
