@@ -154,6 +154,7 @@ class HealthStatus(BaseModel):
     """Lightweight health payload for monitoring."""
 
     status: str = Field(default="ok")
+    environment: str = Field(default="unknown")
     detail: str | None = None
 
 

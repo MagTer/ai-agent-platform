@@ -184,16 +184,32 @@ git pull origin main
 
 ### Dev Environment
 ```bash
-./stack dev deploy     # Build, deploy, verify health (USE THIS)
-./stack dev restart    # Quick restart only (no build, no health check)
-./stack dev logs       # View logs
-./stack dev status     # Check status
+./stack dev deploy          # Build agent only, verify health (USE THIS)
+./stack dev deploy --all    # Rebuild ALL services (use when .env changes)
+./stack dev restart         # Quick restart only (no build, no health check)
+./stack dev logs            # View logs
+./stack dev status          # Check status
 ```
 
 ### Production
 ```bash
 ./stack deploy         # Full deploy (runs checks first)
 ./stack deploy --skip-checks  # Skip checks (use with caution)
+```
+
+### Environment Variable Propagation
+
+When `.env` changes affect different services, choose the right command:
+
+| Scenario | Command |
+|----------|---------|
+| Code changes only | `./stack dev deploy` (default, agent only) |
+| `.env` changes affecting Open WebUI | `./stack dev deploy --all` |
+| Volume or network changes | `./stack dev down && ./stack dev up` |
+
+**Diagnostic:** Check if Open WebUI has stale API key:
+```bash
+docker exec ai-agent-platform-dev-open-webui-1 printenv OPENAI_API_KEY
 ```
 
 ---
@@ -214,22 +230,22 @@ All containers must show "running" or "healthy". If any show "exited" or "restar
 
 ### Step 2: Health Check (Liveness)
 ```bash
-# Dev (port 8001)
-curl -sf http://localhost:8001/healthz
+# Dev (port 8001) -- verify environment field says "development"
+curl -sf http://localhost:8001/healthz | python3 -c "import sys,json; d=json.load(sys.stdin); print(d); assert d['environment']=='development'"
 
-# Prod (port 8000)
-curl -sf http://localhost:8000/healthz
+# Prod (port 8000) -- verify environment field says "production"
+curl -sf http://localhost:8000/healthz | python3 -c "import sys,json; d=json.load(sys.stdin); print(d); assert d['environment']=='production'"
 ```
 
 ### Step 3: Readiness Check (Dependencies)
 ```bash
-# Dev
-curl -sf http://localhost:8001/readyz
+# Dev -- also verify environment field
+curl -sf http://localhost:8001/readyz | python3 -m json.tool
 
 # Prod
-curl -sf http://localhost:8000/readyz
+curl -sf http://localhost:8000/readyz | python3 -m json.tool
 ```
-This checks DB, Qdrant, LiteLLM, and skills. Parse the JSON to identify which component failed.
+This checks DB, Qdrant, LiteLLM, and skills. The response includes an `environment` field. Parse the JSON to identify which component failed.
 
 ### Step 4: Platformadmin Check
 ```bash
@@ -241,7 +257,17 @@ curl -sf http://localhost:8000/platformadmin/ -o /dev/null -w "%{http_code}"
 ```
 Expect HTTP 200 (or 302 redirect to login).
 
-### Step 5: API Check
+### Step 5: Open WebUI -> Agent Connectivity
+```bash
+# Dev
+docker exec ai-agent-platform-dev-open-webui-1 curl -sf --max-time 5 http://agent:8000/healthz
+
+# Prod
+docker exec ai-agent-platform-open-webui-1 curl -sf --max-time 5 http://agent:8000/healthz
+```
+If this fails, Open WebUI cannot reach the agent. Fix with `./stack dev deploy --all` (dev) or full restart (prod).
+
+### Step 6: API Check
 ```bash
 # Dev (requires AGENT_INTERNAL_API_KEY if set)
 curl -sf http://localhost:8001/v1/models -H "X-API-Key: $AGENT_INTERNAL_API_KEY" -o /dev/null -w "%{http_code}"
@@ -251,13 +277,14 @@ curl -sf http://localhost:8000/v1/models -H "X-API-Key: $AGENT_INTERNAL_API_KEY"
 ```
 Expect HTTP 200. The `/v1/models` endpoint requires `AGENT_INTERNAL_API_KEY` when set (production). If the key is unset, auth is skipped (dev convenience).
 
-**If all 5 steps pass, report:**
+**If all 6 steps pass, report:**
 ```
 Deploy: SUCCESS
 - Containers: all running
-- Health: /healthz OK
+- Health: /healthz OK (environment: <dev|prod>)
 - Readiness: /readyz OK (DB, Qdrant, LiteLLM, skills)
 - Platformadmin: HTTP 200
+- Open WebUI -> Agent: connected
 - API: HTTP 200
 ```
 

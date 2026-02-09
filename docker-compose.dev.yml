@@ -45,10 +45,12 @@ services:
       - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Role="
       - "traefik.http.routers.agent-admin-dev.middlewares=strip-agent-headers-dev"
 
-  # Open WebUI with dev port and optional Traefik routing
+  # Open WebUI with dev port, separate data volume, and optional Traefik routing
   open-webui:
     ports:
       - "3001:8080"
+    volumes:
+      - ./data/openwebui_dev:/app/backend/data
     environment:
       # External URL for OAuth callbacks - defaults to localhost for local dev
       # When DOMAIN_DEV is set, uses https://DOMAIN_DEV

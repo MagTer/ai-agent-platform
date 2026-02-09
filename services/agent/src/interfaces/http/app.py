@@ -604,7 +604,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
 
     @app.get("/healthz", response_model=HealthStatus)
     async def health() -> HealthStatus:  # pragma: no cover - trivial endpoint
-        return HealthStatus(status="ok")
+        return HealthStatus(status="ok", environment=settings.environment)
 
     @app.get("/readyz")
     async def readiness(
@@ -757,6 +757,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             status_code=status_code,
             content={
                 "status": "ready" if all_ready else "not_ready",
+                "environment": settings.environment,
                 "checks": checks,
             },
         )
