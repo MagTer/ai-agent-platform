@@ -581,9 +581,20 @@ class AgentService:
                 suggested_fix = None
             else:
                 # Check for auto-detectable failures BEFORE calling supervisor
-                should_auto_replan, auto_reason = self._should_auto_replan(
-                    step_execution_result, plan_step
-                )
+                with start_span(
+                    "auto_replan.check",
+                    attributes={
+                        "step_label": plan_step.label,
+                        "step_status": step_execution_result.status,
+                    },
+                ) as auto_span:
+                    should_auto_replan, auto_reason = self._should_auto_replan(
+                        step_execution_result, plan_step
+                    )
+                    auto_span.set_attribute("triggered", should_auto_replan)
+                    if auto_reason:
+                        auto_span.set_attribute("reason", auto_reason)
+
                 if should_auto_replan:
                     LOGGER.info(
                         "Auto-replan triggered for step '%s': %s",
