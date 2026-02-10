@@ -107,26 +107,26 @@ async def workspaces_dashboard(admin: AdminUser = Depends(require_admin_or_redir
         let contexts = [];
 
         async function loadWorkspaces() {
-            try {
-                const res = await fetch('/platformadmin/workspaces/list');
-                const data = await res.json();
-                renderWorkspaces(data);
-            } catch (e) {
+            const res = await fetchWithErrorHandling('/platformadmin/workspaces/list');
+            if (!res) {
                 document.getElementById('workspaces').innerHTML = '<div style="color: var(--error)">Failed to load workspaces</div>';
+                return;
             }
+            const data = await res.json();
+            renderWorkspaces(data);
         }
 
         async function loadContexts() {
-            try {
-                const res = await fetch('/platformadmin/contexts');
-                const data = await res.json();
-                contexts = data.contexts || [];
-                const select = document.getElementById('context-select');
-                select.innerHTML = '<option value="">Select a context...</option>' +
-                    contexts.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
-            } catch (e) {
-                console.error('Failed to load contexts:', e);
+            const res = await fetchWithErrorHandling('/platformadmin/contexts');
+            if (!res) {
+                console.error('Failed to load contexts');
+                return;
             }
+            const data = await res.json();
+            contexts = data.contexts || [];
+            const select = document.getElementById('context-select');
+            select.innerHTML = '<option value="">Select a context...</option>' +
+                contexts.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
         }
 
         function renderWorkspaces(data) {
@@ -177,46 +177,40 @@ async def workspaces_dashboard(admin: AdminUser = Depends(require_admin_or_redir
             const branch = document.getElementById('branch').value || null;
 
             if (!contextId || !repoUrl) {
-                alert('Please select a context and enter a repository URL');
+                showToast('Please select a context and enter a repository URL', 'error');
                 return;
             }
 
-            try {
-                const res = await fetch('/platformadmin/workspaces', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ context_id: contextId, repo_url: repoUrl, name, branch })
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Failed to create workspace');
+            const res = await fetchWithErrorHandling('/platformadmin/workspaces', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ context_id: contextId, repo_url: repoUrl, name, branch })
+            });
+
+            if (res) {
+                showToast('Workspace created successfully', 'success');
                 hideAddModal();
                 loadWorkspaces();
-            } catch (e) {
-                alert('Error: ' + e.message);
             }
         }
 
         async function syncWorkspace(id) {
             if (!confirm('Sync this workspace? This will pull the latest changes.')) return;
-            try {
-                const res = await fetch(`/platformadmin/workspaces/${id}/sync`, { method: 'POST' });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Sync failed');
+
+            const res = await fetchWithErrorHandling(`/platformadmin/workspaces/${id}/sync`, { method: 'POST' });
+            if (res) {
+                showToast('Workspace synced successfully', 'success');
                 loadWorkspaces();
-            } catch (e) {
-                alert('Error: ' + e.message);
             }
         }
 
         async function deleteWorkspace(id, name) {
             if (!confirm(`Delete workspace "${name}"? This will remove the local files.`)) return;
-            try {
-                const res = await fetch(`/platformadmin/workspaces/${id}`, { method: 'DELETE' });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.detail || 'Delete failed');
+
+            const res = await fetchWithErrorHandling(`/platformadmin/workspaces/${id}`, { method: 'DELETE' });
+            if (res) {
+                showToast('Workspace deleted successfully', 'success');
                 loadWorkspaces();
-            } catch (e) {
-                alert('Error: ' + e.message);
             }
         }
 

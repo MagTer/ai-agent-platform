@@ -595,6 +595,141 @@ class TestAvailableSkillsText:
         assert "homey: Smart home control" in system_message.content
 
 
+class TestPlanParsingRobustness:
+    """Tests for plan parsing error handling and edge cases."""
+
+    @pytest.mark.asyncio
+    async def test_preserves_step_order(self, mock_litellm: MagicMock) -> None:
+        """Test that steps maintain their order from JSON."""
+        response = """```json
+{
+  "description": "Multi-step ordered plan",
+  "steps": [
+    {"id": "3", "label": "Third", "tool": "researcher"},
+    {"id": "1", "label": "First", "tool": "homey"},
+    {"id": "2", "label": "Second", "tool": "deep_research"}
+  ]
+}
+```"""
+        mock_litellm.generate.return_value = response
+
+        orchestrator = UnifiedOrchestrator(mock_litellm)
+        result = await orchestrator.process("Test order preservation")
+
+        assert result.plan is not None
+        assert len(result.plan.steps) == 3
+        # Order should match JSON array order, not ID order
+        assert result.plan.steps[0].id == "3"
+        assert result.plan.steps[0].label == "Third"
+        assert result.plan.steps[1].id == "1"
+        assert result.plan.steps[1].label == "First"
+        assert result.plan.steps[2].id == "2"
+        assert result.plan.steps[2].label == "Second"
+
+    @pytest.mark.asyncio
+    async def test_non_dict_step_items_skipped(self, mock_litellm: MagicMock) -> None:
+        """Test that non-dict items in steps array are skipped."""
+        response = """```json
+{
+  "description": "Plan with invalid step items",
+  "steps": [
+    {"id": "1", "label": "Valid step", "tool": "researcher"},
+    "invalid string step",
+    null,
+    42,
+    {"id": "2", "label": "Another valid step", "tool": "homey"}
+  ]
+}
+```"""
+        mock_litellm.generate.return_value = response
+
+        orchestrator = UnifiedOrchestrator(mock_litellm)
+        result = await orchestrator.process("Test invalid step items")
+
+        assert result.plan is not None
+        # Should only have the 2 valid dict steps
+        assert len(result.plan.steps) == 2
+        assert result.plan.steps[0].label == "Valid step"
+        assert result.plan.steps[1].label == "Another valid step"
+
+    @pytest.mark.asyncio
+    async def test_all_non_dict_steps_returns_none(self, mock_litellm: MagicMock) -> None:
+        """Test that plan with only non-dict steps is treated as direct answer."""
+        response = """```json
+{
+  "description": "Invalid steps",
+  "steps": ["string", 42, null, true]
+}
+```"""
+        mock_litellm.generate.return_value = response
+
+        orchestrator = UnifiedOrchestrator(mock_litellm)
+        result = await orchestrator.process("Test all invalid steps")
+
+        # Should be treated as direct answer since no valid steps
+        assert result.is_direct
+        assert result.plan is None
+
+    @pytest.mark.asyncio
+    async def test_missing_tool_and_skill_fields(self, mock_litellm: MagicMock) -> None:
+        """Test step with neither 'tool' nor 'skill' field gets None."""
+        response = """```json
+{
+  "description": "Step without tool reference",
+  "steps": [
+    {"id": "1", "label": "No tool", "executor": "skill", "action": "skill"}
+  ]
+}
+```"""
+        mock_litellm.generate.return_value = response
+
+        orchestrator = UnifiedOrchestrator(mock_litellm)
+        result = await orchestrator.process("Test missing tool")
+
+        assert result.plan is not None
+        assert len(result.plan.steps) == 1
+        # Tool should be None when neither field exists
+        assert result.plan.steps[0].tool is None
+
+    @pytest.mark.asyncio
+    async def test_steps_not_a_list(self, mock_litellm: MagicMock) -> None:
+        """Test that 'steps' as non-list is treated as direct answer."""
+        response = """```json
+{
+  "description": "Steps is not a list",
+  "steps": {"id": "1", "label": "Single step as object"}
+}
+```"""
+        mock_litellm.generate.return_value = response
+
+        orchestrator = UnifiedOrchestrator(mock_litellm)
+        result = await orchestrator.process("Test steps not list")
+
+        assert result.is_direct
+        assert result.plan is None
+
+    @pytest.mark.asyncio
+    async def test_fallback_plan_structure_is_valid(self, mock_litellm: MagicMock) -> None:
+        """Test that fallback plan on error has valid structure."""
+        mock_litellm.generate.side_effect = RuntimeError("Test error")
+
+        orchestrator = UnifiedOrchestrator(mock_litellm)
+        result = await orchestrator.process("Original user request")
+
+        assert result.plan is not None
+        # Verify fallback plan structure
+        assert result.plan.description == "Fallback plan due to orchestrator error"
+        assert len(result.plan.steps) == 1
+
+        step = result.plan.steps[0]
+        assert step.id == "1"
+        assert step.label == "Research"
+        assert step.executor == "skill"
+        assert step.action == "skill"
+        assert step.tool == "researcher"
+        assert step.args == {"goal": "Original user request"}
+
+
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
 

@@ -394,7 +394,7 @@ class TestMcpClientPing:
         client._state = McpConnectionState.CONNECTED
 
         mock_session = AsyncMock()
-        mock_session.list_tools = AsyncMock(return_value=MagicMock(tools=[]))
+        mock_session.send_ping = AsyncMock(return_value=None)
         client._mcp_session = mock_session
 
         assert await client.ping()
@@ -406,7 +406,7 @@ class TestMcpClientPing:
         client._state = McpConnectionState.CONNECTED
 
         mock_session = AsyncMock()
-        mock_session.list_tools = AsyncMock(side_effect=Exception("Connection lost"))
+        mock_session.send_ping = AsyncMock(side_effect=Exception("Connection lost"))
         client._mcp_session = mock_session
 
         result = await client.ping()

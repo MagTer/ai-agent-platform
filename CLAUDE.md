@@ -112,7 +112,7 @@ Task(
     subagent_type="simple-tasks",
     model="haiku",
     description="Fix Swedish UI text",
-    prompt="Change all Swedish UI strings to English in admin_dashboard.py"
+    prompt="Change all Swedish UI strings to English in admin_portal.py"
 )
 ```
 
@@ -683,7 +683,7 @@ The Admin Portal (`/platformadmin/`) provides management interfaces for the plat
 interfaces/http/
 ├── app.py                    # FastAPI app, router registration
 ├── admin_shared.py           # Navigation, shared components
-├── admin_dashboard.py        # Main dashboard
+├── admin_portal.py           # Main dashboard
 ├── admin_oauth.py            # OAuth provider management
 ├── admin_credentials.py      # User credential management
 ├── admin_contexts.py         # Context (workspace) management
@@ -697,12 +697,17 @@ interfaces/http/
 Navigation is defined in `admin_shared.py`:
 
 ```python
-NAV_ITEMS = [
-    NavItem("Dashboard", "/platformadmin/", "&#127968;", "main"),
-    NavItem("Contexts", "/platformadmin/contexts/", "&#128194;", "features"),
-    NavItem("Workspaces", "/platformadmin/workspaces/", "&#128193;", "features"),
-    NavItem("OAuth", "/platformadmin/oauth/", "&#128274;", "features"),
-    NavItem("Credentials", "/platformadmin/credentials/", "&#128273;", "features"),
+# Subset shown -- see admin_shared.py for full list
+ADMIN_NAV_ITEMS = [
+    NavItem("Dashboard", "/platformadmin/", "&#127968;", "home"),
+    NavItem("Diagnostics", "/platformadmin/diagnostics/", "&#128200;", "monitoring"),
+    NavItem("Debug Logs", "/platformadmin/debug/", "&#128270;", "monitoring"),
+    NavItem("Users", "/platformadmin/users/", "&#128100;", "users"),
+    NavItem("Credentials", "/platformadmin/credentials/", "&#128273;", "users"),
+    NavItem("Price Tracker", "/platformadmin/price-tracker/", "&#128181;", "features"),
+    NavItem("MCP Integrations", "/platformadmin/mcp/", "&#128268;", "features"),
+    NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "features"),
+    # ... more items
 ]
 ```
 
@@ -712,14 +717,14 @@ NAV_ITEMS = [
 
 ```python
 from fastapi import APIRouter, Depends
-from interfaces.http.admin_shared import admin_page_layout, NAV_ITEMS
+from interfaces.http.admin_shared import admin_page_layout, ADMIN_NAV_ITEMS
 
 router = APIRouter(prefix="/platformadmin/mymodule", tags=["admin-mymodule"])
 
 @router.get("/")
 async def mymodule_dashboard():
     content = "<h2>My Module</h2>..."
-    return HTMLResponse(admin_page_layout("My Module", content, NAV_ITEMS))
+    return HTMLResponse(admin_page_layout("My Module", content, ADMIN_NAV_ITEMS))
 ```
 
 2. **Register the router** in `app.py`:

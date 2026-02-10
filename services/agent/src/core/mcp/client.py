@@ -425,14 +425,20 @@ class McpClient:
         """Check if the connection is healthy.
 
         Returns True if connected and responsive, False otherwise.
+        Uses the MCP protocol's native ping method for lightweight health checks.
         """
         if not self._mcp_session:
             return False
         try:
-            # list_tools is a lightweight call to verify connection
-            await asyncio.wait_for(self._mcp_session.list_tools(), timeout=5.0)
+            # Use MCP protocol's native ping for lightweight health check
+            await asyncio.wait_for(self._mcp_session.send_ping(), timeout=5.0)
             return True
         except Exception:
+            LOGGER.debug(
+                "MCP health check failed for %s, marking as disconnected",
+                self._url,
+                exc_info=True,
+            )
             self._state = McpConnectionState.DISCONNECTED
             return False
 

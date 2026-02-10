@@ -423,6 +423,26 @@ def get_admin_nav_css() -> str:
             margin-bottom: 16px;
             opacity: 0.5;
         }
+
+        /* Shared toast notification */
+        .shared-toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: white;
+            font-size: 14px;
+            font-weight: 500;
+            z-index: 9999;
+            display: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-width: 400px;
+        }
+        .shared-toast.success { background: var(--success); display: block; }
+        .shared-toast.error { background: var(--error); display: block; }
+        .shared-toast.warning { background: var(--warning); display: block; }
+        .shared-toast.info { background: var(--primary); display: block; }
     """
 
 
@@ -558,7 +578,7 @@ def render_admin_page(
     header = get_admin_header_html(breadcrumbs, user_name, user_email)
     base_css = get_admin_nav_css()
 
-    # CSRF protection JavaScript utilities
+    # CSRF protection and error handling JavaScript utilities
     csrf_js = """
         // CSRF token utilities
         function getCsrfToken() {
@@ -596,6 +616,46 @@ def render_admin_page(
 
             return originalFetch(url, options);
         };
+
+        // Shared toast notification utility
+        function showToast(message, type = 'info') {
+            let toast = document.getElementById('shared-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'shared-toast';
+                toast.className = 'shared-toast';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = message;
+            toast.className = 'shared-toast ' + type;
+            setTimeout(() => { toast.className = 'shared-toast'; }, 4000);
+        }
+
+        // Error-handling fetch wrapper
+        async function fetchWithErrorHandling(url, options = {}) {
+            try {
+                const response = await fetch(url, options);
+
+                if (!response.ok) {
+                    let errorMsg = 'Request failed: ' + response.status;
+                    try {
+                        const errorData = await response.json();
+                        errorMsg = errorData.detail || errorData.message || errorMsg;
+                    } catch {
+                        errorMsg = await response.text() || errorMsg;
+                    }
+                    showToast(errorMsg, 'error');
+                    return null;
+                }
+
+                return response;
+            } catch (error) {
+                const msg = error.message || 'Network error';
+                showToast('Network error: ' + msg, 'error');
+                console.error('Fetch error:', error);
+                return null;
+            }
+        }
     """
 
     return f"""<!DOCTYPE html>

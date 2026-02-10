@@ -241,8 +241,6 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             </div>
         </div>
 
-        <!-- Toast notification -->
-        <div class="toast" id="toast"></div>
     """
 
     extra_css = """
@@ -259,9 +257,6 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
         .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; box-sizing: border-box; }
         .form-group textarea { min-height: 80px; font-family: monospace; }
         .form-group small { color: var(--text-muted); font-size: 12px; display: block; margin-top: 4px; }
-        .toast { position: fixed; bottom: 20px; right: 20px; padding: 12px 20px; border-radius: 6px; color: white; font-size: 14px; z-index: 200; display: none; }
-        .toast.success { background: var(--success); display: block; }
-        .toast.error { background: var(--error); display: block; }
     """
 
     # Build JavaScript with embedded CREDENTIAL_TYPES (proper JSON serialization)
@@ -270,25 +265,25 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
         const CREDENTIAL_TYPES = {cred_types_js};
 
         async function loadCredentials() {{
-            try {{
-                const res = await fetch('/platformadmin/credentials/list');
-                const data = await res.json();
-                renderCredentials(data);
-            }} catch (e) {{
+            const res = await fetchWithErrorHandling('/platformadmin/credentials/list');
+            if (!res) {{
                 document.getElementById('credentialsBody').innerHTML = '<tr><td colspan="5" style="color: var(--error); text-align: center;">Failed to load credentials</td></tr>';
+                return;
             }}
+            const data = await res.json();
+            renderCredentials(data);
         }}
 
         async function loadUsers() {{
-            try {{
-                const res = await fetch('/platformadmin/users/list');
-                const users = await res.json();
-                const select = document.getElementById('userId');
-                select.innerHTML = '<option value="">Select user...</option>' +
-                    users.map(u => `<option value="${{u.id}}">${{escapeHtml(u.email)}} (${{escapeHtml(u.display_name || 'No name')}})</option>`).join('');
-            }} catch (e) {{
-                console.error('Failed to load users:', e);
+            const res = await fetchWithErrorHandling('/platformadmin/users/list');
+            if (!res) {{
+                console.error('Failed to load users');
+                return;
             }}
+            const users = await res.json();
+            const select = document.getElementById('userId');
+            select.innerHTML = '<option value="">Select user...</option>' +
+                users.map(u => `<option value="${{u.id}}">${{escapeHtml(u.email)}} (${{escapeHtml(u.display_name || 'No name')}})</option>`).join('');
         }}
 
         function renderCredentials(data) {{
@@ -318,7 +313,7 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                         <td>${{meta}}</td>
                         <td>${{created}}</td>
                         <td>
-                            <button class="btn btn-danger btn-sm" onclick="deleteCredential('${{c.id}}', '${{escapeHtml(c.credential_type)}}')">Delete</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteCredential(this, '${{c.id}}', '${{escapeHtml(c.credential_type)}}')">Delete</button>
                         </td>
                     </tr>
                 `;
@@ -372,6 +367,9 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
 
         async function submitCredential(e) {{
             e.preventDefault();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+
             const userId = document.getElementById('userId').value;
             const credType = document.getElementById('credType').value;
             const credValue = document.getElementById('credValue').value;
@@ -425,54 +423,46 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                 return;
             }}
 
-            try {{
-                const res = await fetch('/platformadmin/credentials/create', {{
-                    method: 'POST',
-                    headers: {{ 'Content-Type': 'application/json' }},
-                    body: JSON.stringify({{
-                        user_id: userId,
-                        credential_type: credType,
-                        value: credValue,
-                        metadata: Object.keys(metadata).length > 0 ? metadata : null
-                    }})
-                }});
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving...';
 
-                const data = await res.json();
-                if (res.ok) {{
-                    showToast('Credential saved successfully', 'success');
-                    closeAddModal();
-                    loadCredentials();
-                }} else {{
-                    showToast(data.detail || 'Failed to save credential', 'error');
-                }}
-            }} catch (e) {{
-                showToast('Network error', 'error');
+            const res = await fetchWithErrorHandling('/platformadmin/credentials/create', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{
+                    user_id: userId,
+                    credential_type: credType,
+                    value: credValue,
+                    metadata: Object.keys(metadata).length > 0 ? metadata : null
+                }})
+            }});
+
+            submitBtn.disabled = false;
+            submitBtn.textContent = originalText;
+
+            if (res) {{
+                showToast('Credential saved successfully', 'success');
+                closeAddModal();
+                loadCredentials();
             }}
         }}
 
-        async function deleteCredential(credId, credType) {{
+        async function deleteCredential(btn, credId, credType) {{
             if (!confirm(`Delete this ${{credType}} credential? This cannot be undone.`)) return;
 
-            try {{
-                const res = await fetch(`/platformadmin/credentials/${{credId}}`, {{ method: 'DELETE' }});
-                const data = await res.json();
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Deleting...';
 
-                if (res.ok) {{
-                    showToast('Credential deleted', 'success');
-                    loadCredentials();
-                }} else {{
-                    showToast(data.detail || 'Failed to delete', 'error');
-                }}
-            }} catch (e) {{
-                showToast('Network error', 'error');
+            const res = await fetchWithErrorHandling(`/platformadmin/credentials/${{credId}}`, {{ method: 'DELETE' }});
+
+            btn.disabled = false;
+            btn.textContent = originalText;
+
+            if (res) {{
+                showToast('Credential deleted', 'success');
+                loadCredentials();
             }}
-        }}
-
-        function showToast(message, type) {{
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.className = 'toast ' + type;
-            setTimeout(() => {{ toast.className = 'toast'; }}, 3000);
         }}
 
         function escapeHtml(str) {{

@@ -72,6 +72,7 @@ def _run_cmd(
     args: list[str],
     cwd: Path,
     env: dict[str, str] | None = None,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     """Run a subprocess command.
 
@@ -79,6 +80,7 @@ def _run_cmd(
         args: Command arguments list.
         cwd: Directory to execute the command in.
         env: Optional environment variables.
+        timeout: Optional timeout in seconds for the command.
 
     Returns:
         CompletedProcess with return code and output.
@@ -102,6 +104,7 @@ def _run_cmd(
         cwd=cwd,
         env=run_env,
         capture_output=False,
+        timeout=timeout,
     )
 
 
@@ -368,7 +371,7 @@ def run_pytest(*, repo_root: Path | None = None) -> CheckResult:
 
     _print_step("Running Pytest")
 
-    result = _run_cmd(["python", "-m", "pytest"], cwd=service_dir)
+    result = _run_cmd(["python", "-m", "pytest", "-x"], cwd=service_dir)
 
     if result.returncode == 0:
         _print_success("Pytest passed")
@@ -534,6 +537,7 @@ def ensure_dependencies() -> None:
             [sys.executable, "-m", "ruff", "--version"],
             capture_output=True,
             check=True,
+            timeout=5,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
         _print_info("Dependencies missing. Running 'poetry install'...")
@@ -542,7 +546,8 @@ def ensure_dependencies() -> None:
             _print_error("Poetry not found. Cannot install dependencies.")
             sys.exit(1)
 
-        subprocess.run([poetry_bin, "install"], cwd=AGENT_SERVICE_DIR, check=True)
+        # Timeout: 5 min for poetry install (can download many packages)
+        subprocess.run([poetry_bin, "install"], cwd=AGENT_SERVICE_DIR, check=True, timeout=300)
         _print_success("Dependencies installed.")
 
 

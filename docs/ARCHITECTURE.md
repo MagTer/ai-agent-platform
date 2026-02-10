@@ -1,6 +1,6 @@
 # Architecture
 
-The AI Agent Platform follows a **3-layer "Universal Agent" architecture**, designed to separate protocol handling, orchestration, and core execution. This ensures that the agent can be accessed via multiple interfaces (OpenWebUI, Slack, CLI) while maintaining a consistent skill execution logic.
+The AI Agent Platform follows a **4-layer "Universal Agent" architecture**, designed to separate protocol handling, orchestration, feature modules, and core execution. This ensures that the agent can be accessed via multiple interfaces (OpenWebUI, Slack, CLI) while maintaining a consistent skill execution logic.
 
 ```mermaid
 graph TD
@@ -279,41 +279,40 @@ See [Admin API Reference](./ADMIN_API.md) for complete documentation.
 
 The `core/` layer uses **Protocol classes** to define interfaces, enabling dependency injection without importing from higher layers.
 
-### Protocols (`core/protocols/`)
+### Core Classes
 
-| Protocol | Purpose |
+The core layer provides concrete implementations:
+
+| Class | Purpose |
 |----------|---------|
-| `EmbedderProtocol` | Text embedding interface |
-| `MemoryProtocol` | Vector memory store interface |
-| `LLMProtocol` | LLM client interface |
-| `ToolProtocol` | Tool execution interface |
+| `MemoryStore` | Vector memory store backed by Qdrant |
+| `LiteLLMClient` | LLM client using LiteLLM |
+| `Tool` | Abstract base class for tool execution |
+| `ToolRegistry` | Tool registration and lookup |
 
 ### Providers (`core/providers.py`)
 
 Runtime implementations are injected via providers:
 
 ```python
-from core.providers import (
-    get_embedder,
-    get_memory_store,
-    get_tool_registry,
-)
+from core.providers import get_embedder
 
 # In startup (app.py)
 embedder = get_embedder()
-memory = get_memory_store(embedder)
+memory = MemoryStore(qdrant_client, embedder, settings)
+tool_registry = ToolRegistry()
 ```
 
 ### Wiring at Startup
 
-All dependency injection happens in `core/core/app.py` during the FastAPI lifespan event:
+All dependency injection happens in `interfaces/http/app.py` during the FastAPI lifespan event:
 
 ```python
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     embedder = get_embedder()
-    memory = get_memory_store(embedder)
-    tool_registry = get_tool_registry()
+    memory = MemoryStore(...)
+    tool_registry = ToolRegistry(...)
     # ... inject into services
 ```
 

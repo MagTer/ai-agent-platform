@@ -167,6 +167,7 @@ def docker_exec(
     container: str,
     *command: str,
     user: str | None = None,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str | bytes]:
     """Execute ``command`` inside ``container`` using ``docker exec``."""
 
@@ -175,19 +176,23 @@ def docker_exec(
         args.extend(["-u", user])
     args.append(container)
     args.extend(command)
-    return run_command(args)
+    return run_command(args, timeout=timeout)
 
 
-def docker_cp(src: str, dest: str) -> None:
+def docker_cp(src: str, dest: str, timeout: float = 60) -> None:
     """Copy files between the host and a container."""
 
-    run_command(["docker", "cp", src, dest])
+    run_command(["docker", "cp", src, dest], timeout=timeout)
 
 
 def ensure_container_exists(container: str) -> None:
     """Raise when ``container`` is not known to Docker."""
 
-    run_command(["docker", "inspect", container, "--format", "{{.Name}}"], capture_output=True)
+    run_command(
+        ["docker", "inspect", container, "--format", "{{.Name}}"],
+        capture_output=True,
+        timeout=30,
+    )
 
 
 def get_mapped_port(container: str, internal_port: int) -> int:
@@ -197,6 +202,7 @@ def get_mapped_port(container: str, internal_port: int) -> int:
         result = run_command(
             ["docker", "port", container, f"{internal_port}/tcp"],
             capture_output=True,
+            timeout=30,
         )
     except CommandError:
         return internal_port

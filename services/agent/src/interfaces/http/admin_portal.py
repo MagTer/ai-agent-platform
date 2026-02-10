@@ -203,29 +203,25 @@ async def admin_portal(admin: AdminUser = Depends(require_admin_or_redirect)) ->
             dot.className = 'status-dot loading';
             text.textContent = 'Checking system health...';
 
-            try {
-                const response = await fetch('/platformadmin/diagnostics/summary');
-                if (response.ok) {
-                    const data = await response.json();
-                    const status = data.overall_status || 'UNKNOWN';
-
-                    if (status === 'HEALTHY') {
-                        dot.className = 'status-dot';
-                        text.textContent = 'System healthy - All components operational';
-                    } else if (status === 'DEGRADED') {
-                        dot.className = 'status-dot loading';
-                        text.textContent = 'System degraded - Some components need attention';
-                    } else {
-                        dot.className = 'status-dot error';
-                        text.textContent = 'System issues detected - Check diagnostics';
-                    }
-                } else {
-                    dot.className = 'status-dot error';
-                    text.textContent = 'Unable to fetch health status';
-                }
-            } catch (e) {
+            const response = await fetchWithErrorHandling('/platformadmin/diagnostics/summary');
+            if (!response) {
                 dot.className = 'status-dot error';
                 text.textContent = 'Connection error - Check if agent is running';
+                return;
+            }
+
+            const data = await response.json();
+            const status = data.overall_status || 'UNKNOWN';
+
+            if (status === 'HEALTHY') {
+                dot.className = 'status-dot';
+                text.textContent = 'System healthy - All components operational';
+            } else if (status === 'DEGRADED') {
+                dot.className = 'status-dot loading';
+                text.textContent = 'System degraded - Some components need attention';
+            } else {
+                dot.className = 'status-dot error';
+                text.textContent = 'System issues detected - Check diagnostics';
             }
         }
 
@@ -599,29 +595,25 @@ def _get_admin_portal_template() -> str:
             dot.className = 'status-dot loading';
             text.textContent = 'Checking system health...';
 
-            try {
-                const response = await fetch('/platformadmin/diagnostics/summary');
-                if (response.ok) {
-                    const data = await response.json();
-                    const status = data.overall_status || 'UNKNOWN';
-
-                    if (status === 'HEALTHY') {
-                        dot.className = 'status-dot';
-                        text.textContent = 'System healthy - All components operational';
-                    } else if (status === 'DEGRADED') {
-                        dot.className = 'status-dot loading';
-                        text.textContent = 'System degraded - Some components need attention';
-                    } else {
-                        dot.className = 'status-dot error';
-                        text.textContent = 'System issues detected - Check diagnostics';
-                    }
-                } else {
-                    dot.className = 'status-dot error';
-                    text.textContent = 'Unable to fetch health status';
-                }
-            } catch (e) {
+            const response = await fetchWithErrorHandling('/platformadmin/diagnostics/summary');
+            if (!response) {
                 dot.className = 'status-dot error';
                 text.textContent = 'Connection error - Check if agent is running';
+                return;
+            }
+
+            const data = await response.json();
+            const status = data.overall_status || 'UNKNOWN';
+
+            if (status === 'HEALTHY') {
+                dot.className = 'status-dot';
+                text.textContent = 'System healthy - All components operational';
+            } else if (status === 'DEGRADED') {
+                dot.className = 'status-dot loading';
+                text.textContent = 'System degraded - Some components need attention';
+            } else {
+                dot.className = 'status-dot error';
+                text.textContent = 'System issues detected - Check diagnostics';
             }
         }
 

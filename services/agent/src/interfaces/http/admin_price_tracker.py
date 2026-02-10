@@ -1720,13 +1720,21 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
         }
 
         async function apiFetch(url, options = {}) {
-            const res = await fetch(url, options);
-            if (!res.ok) {
-                let msg = `Request failed (${res.status})`;
-                try { const body = await res.json(); if (body.detail) msg = body.detail; } catch {}
-                throw new Error(msg);
+            try {
+                const res = await fetch(url, options);
+                if (!res.ok) {
+                    let msg = `Request failed (${res.status})`;
+                    try { const body = await res.json(); if (body.detail) msg = body.detail; } catch {}
+                    showToast(msg, 'error');
+                    throw new Error(msg);
+                }
+                return res;
+            } catch (error) {
+                if (error.message) {
+                    showToast('Network error: ' + error.message, 'error');
+                }
+                throw error;
             }
-            return res;
         }
 
         async function getUserContext() {
@@ -2454,12 +2462,9 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             const includeHistory = confirm('Include price history? (This makes the file larger but includes all historical price data)');
             try {
                 const url = `/platformadmin/price-tracker/export?include_history=${includeHistory}&history_days=90`;
-                const res = await fetch(url);
-                if (!res.ok) {
-                    const err = await res.json();
-                    alert('Export failed: ' + (err.detail || 'Unknown error'));
-                    return;
-                }
+                const res = await fetchWithErrorHandling(url);
+                if (!res) return;
+
                 const blob = await res.blob();
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
@@ -2570,17 +2575,13 @@ async def price_tracker_dashboard(admin: AdminUser = Depends(require_admin_or_re
             formData.append('file', file);
 
             try {
-                const res = await fetch(`/platformadmin/price-tracker/import?mode=${mode}`, {
+                const res = await fetchWithErrorHandling(`/platformadmin/price-tracker/import?mode=${mode}`, {
                     method: 'POST',
                     body: formData
                 });
 
+                if (!res) return;
                 const result = await res.json();
-
-                if (!res.ok) {
-                    alert('Import failed: ' + (result.detail || 'Unknown error'));
-                    return;
-                }
 
                 const s = result.summary;
                 let message = `Import completed!

@@ -210,6 +210,10 @@ class Dispatcher:
                     try:
                         conv_uuid = uuid.UUID(conversation_id)
                     except ValueError:
+                        LOGGER.debug(
+                            "Invalid UUID format for conversation_id: %s, skipping persistence",
+                            conversation_id,
+                        )
                         conv_uuid = None
 
                     if conv_uuid:

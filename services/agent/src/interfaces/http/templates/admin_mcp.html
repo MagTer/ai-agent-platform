@@ -145,8 +145,6 @@
     </div>
 </div>
 
-<!-- Toast notification -->
-<div class="toast" id="toast"></div>
 <!-- SECTION_SEPARATOR -->
 .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; }
 .modal.active { display: flex; align-items: center; justify-content: center; }
@@ -174,37 +172,37 @@
 let allServers = [];
 
 async function loadServers() {
-    try {
-        const res = await fetch('/platformadmin/mcp/servers');
-        const data = await res.json();
-        allServers = data.servers || [];
-        renderServers(allServers);
-        updateStats(allServers);
-    } catch (e) {
+    const res = await fetchWithErrorHandling('/platformadmin/mcp/servers');
+    if (!res) {
         document.getElementById('serversBody').innerHTML = '<tr><td colspan="7" style="color: var(--error); text-align: center;">Failed to load servers</td></tr>';
+        return;
     }
+    const data = await res.json();
+    allServers = data.servers || [];
+    renderServers(allServers);
+    updateStats(allServers);
 }
 
 async function loadActivity() {
-    try {
-        const res = await fetch('/platformadmin/mcp/activity');
-        const data = await res.json();
-        renderActivity(data.events);
-    } catch (e) {
+    const res = await fetchWithErrorHandling('/platformadmin/mcp/activity');
+    if (!res) {
         document.getElementById('activity').innerHTML = '<div style="color: var(--error)">Failed to load activity</div>';
+        return;
     }
+    const data = await res.json();
+    renderActivity(data.events);
 }
 
 async function loadContexts() {
-    try {
-        const res = await fetch('/platformadmin/contexts');
-        const data = await res.json();
-        const sel = document.getElementById('contextId');
-        sel.innerHTML = '<option value="">Select context...</option>' +
-            (data.contexts || []).map(c => '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>').join('');
-    } catch (e) {
-        console.error('Failed to load contexts:', e);
+    const res = await fetchWithErrorHandling('/platformadmin/contexts');
+    if (!res) {
+        console.error('Failed to load contexts');
+        return;
     }
+    const data = await res.json();
+    const sel = document.getElementById('contextId');
+    sel.innerHTML = '<option value="">Select context...</option>' +
+        (data.contexts || []).map(c => '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>').join('');
 }
 
 function updateStats(servers) {
@@ -237,12 +235,12 @@ function renderServers(servers) {
         const ctx = escapeHtml(s.context_name || s.context_id.slice(0, 8) + '...');
         const enabledIcon = s.is_enabled ? '' : ' <span title="Disabled" style="opacity: 0.5;">(off)</span>';
 
-        let actions = '<button class="btn btn-sm" onclick="testServer(\'' + s.id + '\')">Test</button> ';
+        let actions = '<button class="btn btn-sm" onclick="testServer(this, \'' + s.id + '\')">Test</button> ';
         if (s.auth_type === 'oauth' && s.has_oauth_config) {
-            actions += '<button class="btn btn-sm btn-primary" onclick="startOAuth(\'' + s.id + '\')">Auth</button> ';
+            actions += '<button class="btn btn-sm btn-primary" onclick="startOAuth(this, \'' + s.id + '\')">Auth</button> ';
         }
         actions += '<button class="btn btn-sm" onclick="editServer(\'' + s.id + '\')">Edit</button> ';
-        actions += '<button class="btn btn-sm btn-danger" onclick="deleteServer(\'' + s.id + '\', \'' + escapeHtml(s.name) + '\')">Del</button>';
+        actions += '<button class="btn btn-sm btn-danger" onclick="deleteServer(this, \'' + s.id + '\', \'' + escapeHtml(s.name) + '\')">Del</button>';
 
         return '<tr>' +
             '<td>' + escapeHtml(s.name) + enabledIcon + '</td>' +
@@ -301,15 +299,17 @@ function editServer(serverId) {
     document.getElementById('submitBtn').textContent = 'Update Server';
     loadContexts();
 
-    // Pre-fill fields after contexts load
-    setTimeout(() => {
-        document.getElementById('contextId').value = server.context_id;
-        document.getElementById('serverName').value = server.name;
-        document.getElementById('serverUrl').value = server.url;
-        document.getElementById('transport').value = server.transport;
-        document.getElementById('authType').value = server.auth_type;
-        toggleAuthFields();
-    }, 300);
+    // Pre-fill fields after contexts load - use double rAF for guaranteed DOM paint
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            document.getElementById('contextId').value = server.context_id;
+            document.getElementById('serverName').value = server.name;
+            document.getElementById('serverUrl').value = server.url;
+            document.getElementById('transport').value = server.transport;
+            document.getElementById('authType').value = server.auth_type;
+            toggleAuthFields();
+        });
+    });
 
     document.getElementById('serverModal').classList.add('active');
 }
@@ -321,6 +321,9 @@ function closeModal() {
 
 async function submitServer(e) {
     e.preventDefault();
+    const submitBtn = document.getElementById('submitBtn');
+    const originalText = submitBtn.textContent;
+
     const serverId = document.getElementById('editServerId').value;
     const isEdit = !!serverId;
 
@@ -351,108 +354,118 @@ async function submitServer(e) {
         if (scopes) body.oauth_scopes = scopes;
     }
 
-    try {
-        const url = isEdit ? '/platformadmin/mcp/servers/' + serverId : '/platformadmin/mcp/servers';
-        const method = isEdit ? 'PUT' : 'POST';
-        const res = await fetch(url, {
-            method: method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
+    submitBtn.disabled = true;
+    submitBtn.textContent = isEdit ? 'Updating...' : 'Creating...';
+
+    const url = isEdit ? '/platformadmin/mcp/servers/' + serverId : '/platformadmin/mcp/servers';
+    const method = isEdit ? 'PUT' : 'POST';
+    const res = await fetchWithErrorHandling(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+
+    submitBtn.disabled = false;
+    submitBtn.textContent = originalText;
+
+    if (res) {
         const data = await res.json();
-        if (res.ok && data.success) {
-            showToast(data.message || (isEdit ? 'Server updated' : 'Server created'), 'success');
-            closeModal();
-            loadServers();
-        } else {
-            showToast(data.detail || data.message || 'Operation failed', 'error');
-        }
-    } catch (err) {
-        showToast('Network error', 'error');
+        showToast(data.message || (isEdit ? 'Server updated' : 'Server created'), 'success');
+        closeModal();
+        loadServers();
     }
 }
 
-async function deleteServer(serverId, serverName) {
+async function deleteServer(btn, serverId, serverName) {
     if (!confirm('Delete MCP server "' + serverName + '"? This cannot be undone.')) return;
 
-    try {
-        const res = await fetch('/platformadmin/mcp/servers/' + serverId, { method: 'DELETE' });
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Deleting...';
+
+    const res = await fetchWithErrorHandling('/platformadmin/mcp/servers/' + serverId, { method: 'DELETE' });
+
+    btn.disabled = false;
+    btn.textContent = originalText;
+
+    if (res) {
         const data = await res.json();
-        if (res.ok && data.success) {
-            showToast(data.message || 'Server deleted', 'success');
-            loadServers();
-        } else {
-            showToast(data.detail || 'Failed to delete', 'error');
-        }
-    } catch (err) {
-        showToast('Network error', 'error');
+        showToast(data.message || 'Server deleted', 'success');
+        loadServers();
     }
 }
 
-async function testServer(serverId) {
+async function testServer(btn, serverId) {
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+
     document.getElementById('testResult').innerHTML = '<div class="loading">Testing connection...</div>';
     document.getElementById('testModal').classList.add('active');
 
-    try {
-        const res = await fetch('/platformadmin/mcp/servers/' + serverId + '/test', { method: 'POST' });
-        const data = await res.json();
+    const res = await fetchWithErrorHandling('/platformadmin/mcp/servers/' + serverId + '/test', { method: 'POST' });
 
-        if (data.success) {
-            let toolsHtml = '';
-            if (data.tools && data.tools.length > 0) {
-                toolsHtml = '<div class="tool-list" style="margin-top: 12px;">';
-                for (const t of data.tools) {
-                    toolsHtml += '<div class="tool-item"><span class="tool-name">' + escapeHtml(t.name) + '</span>';
-                    if (t.description) toolsHtml += '<div class="tool-desc">' + escapeHtml(t.description) + '</div>';
-                    toolsHtml += '</div>';
-                }
-                toolsHtml += '</div>';
-            }
-            document.getElementById('testResult').innerHTML =
-                '<div style="text-align: center; padding: 12px;">' +
-                '<div style="font-size: 32px; margin-bottom: 8px;">&#9989;</div>' +
-                '<div style="font-weight: 500; color: var(--success);">' + escapeHtml(data.message) + '</div>' +
-                '</div>' + toolsHtml;
-        } else {
-            document.getElementById('testResult').innerHTML =
-                '<div style="text-align: center; padding: 12px;">' +
-                '<div style="font-size: 32px; margin-bottom: 8px;">&#10060;</div>' +
-                '<div style="font-weight: 500; color: var(--error);">Connection Failed</div>' +
-                '<div style="color: var(--text-muted); font-size: 13px; margin-top: 8px; word-break: break-all;">' + escapeHtml(data.error || 'Unknown error') + '</div>' +
-                '</div>';
-        }
-        loadServers();
-    } catch (err) {
+    btn.disabled = false;
+    btn.textContent = originalText;
+
+    if (!res) {
         document.getElementById('testResult').innerHTML =
             '<div style="text-align: center; padding: 12px; color: var(--error);">Network error during test</div>';
+        return;
     }
+
+    const data = await res.json();
+
+    if (data.success) {
+        let toolsHtml = '';
+        if (data.tools && data.tools.length > 0) {
+            toolsHtml = '<div class="tool-list" style="margin-top: 12px;">';
+            for (const t of data.tools) {
+                toolsHtml += '<div class="tool-item"><span class="tool-name">' + escapeHtml(t.name) + '</span>';
+                if (t.description) toolsHtml += '<div class="tool-desc">' + escapeHtml(t.description) + '</div>';
+                toolsHtml += '</div>';
+            }
+            toolsHtml += '</div>';
+        }
+        document.getElementById('testResult').innerHTML =
+            '<div style="text-align: center; padding: 12px;">' +
+            '<div style="font-size: 32px; margin-bottom: 8px;">&#9989;</div>' +
+            '<div style="font-weight: 500; color: var(--success);">' + escapeHtml(data.message) + '</div>' +
+            '</div>' + toolsHtml;
+    } else {
+        document.getElementById('testResult').innerHTML =
+            '<div style="text-align: center; padding: 12px;">' +
+            '<div style="font-size: 32px; margin-bottom: 8px;">&#10060;</div>' +
+            '<div style="font-weight: 500; color: var(--error);">Connection Failed</div>' +
+            '<div style="color: var(--text-muted); font-size: 13px; margin-top: 8px; word-break: break-all;">' + escapeHtml(data.error || 'Unknown error') + '</div>' +
+            '</div>';
+    }
+    loadServers();
 }
 
 function closeTestModal() {
     document.getElementById('testModal').classList.remove('active');
 }
 
-async function startOAuth(serverId) {
-    try {
-        const res = await fetch('/platformadmin/mcp/servers/' + serverId + '/oauth/start', { method: 'POST' });
+async function startOAuth(btn, serverId) {
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+
+    const res = await fetchWithErrorHandling('/platformadmin/mcp/servers/' + serverId + '/oauth/start', { method: 'POST' });
+
+    btn.disabled = false;
+    btn.textContent = originalText;
+
+    if (res) {
         const data = await res.json();
-        if (res.ok && data.authorization_url) {
+        if (data.authorization_url) {
             window.open(data.authorization_url, '_blank');
             showToast('OAuth flow started. Complete authorization in the new tab.', 'success');
-        } else {
-            showToast(data.detail || 'Failed to start OAuth', 'error');
         }
-    } catch (err) {
-        showToast('Network error', 'error');
     }
 }
 
-function showToast(message, type) {
-    const toast = document.getElementById('toast');
-    toast.textContent = message;
-    toast.className = 'toast ' + type;
-    setTimeout(() => { toast.className = 'toast'; }, 3000);
-}
 
 function escapeHtml(str) {
     if (!str) return '';

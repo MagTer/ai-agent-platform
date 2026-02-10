@@ -54,7 +54,8 @@ async def test_git_clone_url_validation_file_rejected() -> None:
     """Test that file:// URLs are rejected."""
     tool = GitCloneTool()
     result = await tool.run(repo_url="file:///etc/passwd", context_id=uuid4())
-    assert result == "Error: Only HTTPS and SSH git URLs are supported."
+    assert result.startswith("Error: Invalid repository URL")
+    assert "Unsupported protocol" in result
 
 
 @pytest.mark.asyncio
@@ -62,7 +63,8 @@ async def test_git_clone_url_validation_http_rejected() -> None:
     """Test that HTTP (non-secure) URLs are rejected."""
     tool = GitCloneTool()
     result = await tool.run(repo_url="http://example.com/repo.git", context_id=uuid4())
-    assert result == "Error: Only HTTPS and SSH git URLs are supported."
+    assert result.startswith("Error: Invalid repository URL")
+    assert "Unsupported protocol" in result
 
 
 @pytest.mark.asyncio
@@ -70,7 +72,8 @@ async def test_git_clone_url_validation_ftp_rejected() -> None:
     """Test that FTP URLs are rejected."""
     tool = GitCloneTool()
     result = await tool.run(repo_url="ftp://example.com/repo.git", context_id=uuid4())
-    assert result == "Error: Only HTTPS and SSH git URLs are supported."
+    assert result.startswith("Error: Invalid repository URL")
+    assert "Unsupported protocol" in result
 
 
 @pytest.mark.asyncio

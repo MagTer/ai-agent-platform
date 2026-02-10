@@ -87,12 +87,13 @@ async def oauth_login(
 
     # Store state in cookie for verification
     redirect_response = RedirectResponse(url=auth_url, status_code=302)
+    is_secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
     redirect_response.set_cookie(
         key=STATE_COOKIE_NAME,
         value=state,
         max_age=600,  # 10 minutes
         httponly=True,
-        secure=request.url.scheme == "https",
+        secure=is_secure,
         samesite="lax",
     )
 
@@ -165,7 +166,7 @@ async def oauth_callback(
 
     # Verify state (CSRF protection)
     stored_state = request.cookies.get(STATE_COOKIE_NAME)
-    if not stored_state or stored_state != state:
+    if not stored_state or not secrets.compare_digest(stored_state, state):
         log_security_event(
             event_type=AUTH_FAILURE,
             ip_address=client_ip,
@@ -383,12 +384,13 @@ async def oauth_callback(
 
     # Set JWT cookie and redirect to admin portal
     response = RedirectResponse(url="/platformadmin/", status_code=302)
+    is_secure = request.headers.get("x-forwarded-proto", request.url.scheme) == "https"
     response.set_cookie(
         key=COOKIE_NAME,
         value=jwt_token,
         max_age=86400,  # 24 hours
         httponly=True,
-        secure=request.url.scheme == "https",
+        secure=is_secure,
         samesite="lax",
     )
 
