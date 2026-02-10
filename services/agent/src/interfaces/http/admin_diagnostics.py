@@ -1132,25 +1132,22 @@ def _get_diagnostics_js() -> str:
             const grid = document.createElement('div');
             grid.className = 'diag-health-grid';
 
-                Object.entries(data.servers).forEach(([name, info]) => {
-                    const isConnected = info.connected;
-                    const card = document.createElement('div');
-                    card.className = `diag-health-card ${isConnected ? 'ok' : 'fail'}`;
-                    card.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; margin-bottom:10px">
-                            <span style="font-weight:600; font-size:14px">${escapeHtml(name)}</span>
-                            <span style="font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px; color:white"
-                                  class="${isConnected ? 'diag-bg-tool' : 'diag-bg-err'}">${isConnected ? 'Connected' : 'Disconnected'}</span>
-                        </div>
-                        <div style="font-size:24px; font-weight:700; margin-bottom:4px">${info.tools_count || 0}<span style="font-size:12px; font-weight:400; color:#999; margin-left:4px">tools</span></div>
-                        ${info.error ? `<div style="font-size:12px; color:var(--error); margin-top:8px">${escapeHtml(info.error)}</div>` : ''}
-                    `;
-                    grid.appendChild(card);
-                });
-                container.appendChild(grid);
-            } catch (e) {
-                container.innerHTML = `<div style="color:red; padding:20px">Failed: ${e}</div>`;
-            }
+            Object.entries(data.servers).forEach(([name, info]) => {
+                const isConnected = info.connected;
+                const card = document.createElement('div');
+                card.className = `diag-health-card ${isConnected ? 'ok' : 'fail'}`;
+                card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:10px">
+                        <span style="font-weight:600; font-size:14px">${escapeHtml(name)}</span>
+                        <span style="font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px; color:white"
+                              class="${isConnected ? 'diag-bg-tool' : 'diag-bg-err'}">${isConnected ? 'Connected' : 'Disconnected'}</span>
+                    </div>
+                    <div style="font-size:24px; font-weight:700; margin-bottom:4px">${info.tools_count || 0}<span style="font-size:12px; font-weight:400; color:#999; margin-left:4px">tools</span></div>
+                    ${info.error ? `<div style="font-size:12px; color:var(--error); margin-top:8px">${escapeHtml(info.error)}</div>` : ''}
+                `;
+                grid.appendChild(card);
+            });
+            container.appendChild(grid);
         }
 
         async function loadLogs() {
