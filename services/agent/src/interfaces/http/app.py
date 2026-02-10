@@ -39,6 +39,7 @@ from core.core.service_factory import ServiceFactory
 from core.db.engine import get_db
 from core.db.models import Context
 from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
+from core.observability.logging import setup_logging
 from core.observability.tracing import configure_tracing
 from core.tools.mcp_loader import set_mcp_client_pool
 from interfaces.http.admin_api import router as admin_api_router
@@ -121,7 +122,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     """
 
     settings = settings or get_settings()
-    logging.basicConfig(level=settings.log_level)
+    setup_logging(level=settings.log_level)
     configure_tracing(
         settings.app_name,
         span_log_path=str(settings.trace_span_log_path or "data/spans.jsonl"),
