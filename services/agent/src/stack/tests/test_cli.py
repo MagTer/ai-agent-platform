@@ -51,7 +51,13 @@ def test_up_command(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     )
 
     def fake_compose_up(
-        *, detach: bool, build: bool, extra_files: list[Path] | None, prod: bool = False
+        *,
+        detach: bool,
+        build: bool,
+        extra_files: list[Path] | None,
+        prod: bool = False,
+        dev: bool = False,
+        timeout: int | None = None,
     ) -> None:
         called["compose_up"] = {
             "detach": detach,
@@ -61,11 +67,18 @@ def test_up_command(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
         }
 
     monkeypatch.setattr(cli.compose, "compose_up", fake_compose_up)
-    monkeypatch.setattr(
-        cli.compose,
-        "run_compose",
-        lambda args, extra_files=None, prod=False: SimpleNamespace(stdout=b"stack status"),
-    )
+
+    def fake_run_compose(
+        args: list[str],
+        extra_files: list[Path] | None = None,
+        prod: bool = False,
+        dev: bool = False,
+        capture_output: bool = True,
+        timeout: int | None = None,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(stdout=b"stack status")
+
+    monkeypatch.setattr(cli.compose, "run_compose", fake_run_compose)
 
     result = runner.invoke(cli.app, ["up"])
     assert result.exit_code == 0

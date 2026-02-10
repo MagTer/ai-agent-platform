@@ -7,6 +7,7 @@ import logging
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from uuid import UUID
 
 from sqlalchemy import select
@@ -68,6 +69,49 @@ class GitCloneTool(Tool):
         self.workspace_base = workspace_base or DEFAULT_WORKSPACE_BASE
         self.workspace_base.mkdir(parents=True, exist_ok=True)
 
+    def _validate_repo_url(self, url: str) -> None:
+        """Validate repository URL for security issues.
+
+        Rejects URLs with:
+        - Empty URLs
+        - Embedded credentials (username/password)
+        - Non-HTTPS/SSH protocols
+        - Invalid characters (newlines, null bytes, shell metacharacters)
+
+        Args:
+            url: Repository URL to validate.
+
+        Raises:
+            ValueError: If URL is invalid or contains security issues.
+        """
+        # Check for empty URL first
+        if not url.strip():
+            raise ValueError("Repository URL cannot be empty")
+
+        # Parse URL
+        parsed = urlparse(url)
+
+        # Check for embedded credentials (but allow 'git' user for SSH)
+        if parsed.password:
+            raise ValueError("Repository URLs must not contain embedded credentials")
+        if parsed.username and parsed.username != "git":
+            raise ValueError("Repository URLs must not contain embedded credentials")
+
+        # Check protocol - support HTTPS, SSH (git@), and ssh:// scheme
+        if url.startswith("git@"):
+            # SSH URL format: git@github.com:org/repo.git
+            # This is valid, skip scheme check
+            pass
+        elif parsed.scheme not in ("https", "ssh"):
+            msg = f"Unsupported protocol: {parsed.scheme}. Only HTTPS and SSH are allowed."
+            raise ValueError(msg)
+
+        # Check for invalid characters that could enable command injection
+        dangerous_chars = ["\n", "\r", "\0", ";", "&", "|", "`", "$", "(", ")"]
+        for char in dangerous_chars:
+            if char in url:
+                raise ValueError(f"Repository URL contains invalid character: {repr(char)}")
+
     async def run(
         self,
         repo_url: str,
@@ -88,9 +132,11 @@ class GitCloneTool(Tool):
         Returns:
             The local path to the cloned repository, or an error message.
         """
-        # Validate URL
-        if not repo_url.startswith(("https://", "git@")):
-            return "Error: Only HTTPS and SSH git URLs are supported."
+        # Validate URL for security issues
+        try:
+            self._validate_repo_url(repo_url)
+        except ValueError as e:
+            return f"Error: Invalid repository URL: {e}"
 
         # Derive workspace name from URL if not provided
         if not workspace_name:

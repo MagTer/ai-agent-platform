@@ -111,17 +111,43 @@ class WebFetcher:
     def _cache_key(self, s: str) -> str:
         return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
-    def _cache_get(self, url: str) -> dict[str, Any] | None:
+    async def _cache_get(self, url: str) -> dict[str, Any] | None:
         p = self.cache_dir / self._cache_key(url)
-        if p.exists() and (time.time() - p.stat().st_mtime) < self.cache_ttl:
-            try:
-                return json.loads(p.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                return None
-        return None
+        if not p.exists():
+            return None
 
-    def _cache_set(self, url: str, data: dict[str, Any]) -> None:
-        (self.cache_dir / self._cache_key(url)).write_text(json.dumps(data), encoding="utf-8")
+        # Check expiry
+        stat = await asyncio.to_thread(p.stat)
+        if (time.time() - stat.st_mtime) >= self.cache_ttl:
+            return None
+
+        # Read cache file asynchronously
+        try:
+            text = await asyncio.to_thread(p.read_text, encoding="utf-8")
+            return json.loads(text)
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    async def _evict_old_cache_entries(self, max_entries: int = 1000) -> None:
+        """Evict oldest cache entries when limit exceeded."""
+        # Get all cache files sorted by modification time
+        entries = await asyncio.to_thread(
+            lambda: sorted(self.cache_dir.glob("*"), key=lambda p: p.stat().st_mtime)
+        )
+
+        # Delete oldest entries if we exceed the limit
+        while len(entries) >= max_entries:
+            oldest = entries.pop(0)
+            await asyncio.to_thread(oldest.unlink, missing_ok=True)
+
+    async def _cache_set(self, url: str, data: dict[str, Any]) -> None:
+        # Evict old entries before writing new one
+        await self._evict_old_cache_entries()
+
+        # Write cache file asynchronously
+        cache_path = self.cache_dir / self._cache_key(url)
+        content = json.dumps(data)
+        await asyncio.to_thread(cache_path.write_text, content, encoding="utf-8")
 
     def _extract_text(self, html: str) -> str:
         if trafilatura:
@@ -185,7 +211,7 @@ class WebFetcher:
         # Validate URL before checking cache to prevent cache poisoning
         await self._validate_url(url)
 
-        cached = self._cache_get(url)
+        cached = await self._cache_get(url)
         if cached:
             return cached
 
@@ -259,7 +285,7 @@ class WebFetcher:
                 "text": text,
                 "html_truncated": raw_html[:20000],
             }
-            self._cache_set(url, data)
+            await self._cache_set(url, data)
             return data
         except Exception as e:
             logger.error(f"Fetch failed for {url}: {e}")

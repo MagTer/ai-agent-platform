@@ -58,6 +58,7 @@ def run_compose(
     capture_output: bool = True,
     prod: bool = False,
     dev: bool = False,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str | bytes]:
     """Execute a docker compose command and return the completed process.
 
@@ -69,6 +70,7 @@ def run_compose(
         capture_output: Whether to capture stdout/stderr
         prod: If True, use production compose file (docker-compose.prod.yml)
         dev: If True, use development compose file (docker-compose.dev.yml)
+        timeout: Optional timeout in seconds for the command
     """
     env = load_environment()
     if env_override:
@@ -81,6 +83,7 @@ def run_compose(
             env=env,
             capture_output=capture_output,
             text=False,
+            timeout=timeout,
         )
     except subprocess.CalledProcessError as exc:  # pragma: no cover - integration failure
         raise ComposeError(exc.stderr.decode("utf-8")) from exc
@@ -93,6 +96,7 @@ def compose_up(
     extra_files: Iterable[Pathish | None] | None = None,
     prod: bool = False,
     dev: bool = False,
+    timeout: float | None = None,
 ) -> None:
     """Bring up the stack.
 
@@ -102,13 +106,16 @@ def compose_up(
         extra_files: Additional compose files to include
         prod: If True, use production compose file
         dev: If True, use development compose file
+        timeout: Optional timeout in seconds for the command
     """
     args = ["up"]
     if detach:
         args.append("-d")
     if build:
         args.append("--build")
-    run_compose(args, extra_files=extra_files, capture_output=False, prod=prod, dev=dev)
+    run_compose(
+        args, extra_files=extra_files, capture_output=False, prod=prod, dev=dev, timeout=timeout
+    )
 
 
 def compose_down(
@@ -117,6 +124,7 @@ def compose_down(
     extra_files: Iterable[Pathish | None] | None = None,
     prod: bool = False,
     dev: bool = False,
+    timeout: float | None = None,
 ) -> None:
     """Tear down the stack.
 
@@ -125,11 +133,12 @@ def compose_down(
         extra_files: Additional compose files to include
         prod: If True, use production compose file
         dev: If True, use development compose file
+        timeout: Optional timeout in seconds for the command
     """
     args = ["down", "--remove-orphans"]
     if remove_volumes:
         args.append("--volumes")
-    run_compose(args, extra_files=extra_files, prod=prod, dev=dev)
+    run_compose(args, extra_files=extra_files, prod=prod, dev=dev, timeout=timeout)
 
 
 def compose_logs(

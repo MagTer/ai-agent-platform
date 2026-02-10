@@ -230,6 +230,7 @@ def _tag_current_image() -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=30,
     )
 
     if get_image_id.returncode != 0 or not get_image_id.stdout.strip():
@@ -250,6 +251,7 @@ def _tag_current_image() -> None:
         capture_output=True,
         text=True,
         check=False,
+        timeout=30,
     )
 
     if tag_result.returncode != 0:
@@ -283,6 +285,7 @@ def _wait_for_prod_services(project_name: str, timeout: float = 60) -> None:
                     "sh",
                     "-lc",
                     f"curl -sf --max-time 3 http://localhost:{port}{path} > /dev/null",
+                    timeout=10,
                 )
                 healthy = True
                 break
@@ -313,6 +316,7 @@ def _verify_openwebui_to_agent(project_name: str) -> bool:
             "sh",
             "-lc",
             "curl -sf --max-time 5 http://agent:8000/healthz > /dev/null",
+            timeout=10,
         )
         return True
     except Exception:  # noqa: BLE001
@@ -382,7 +386,8 @@ def up(
     else:
         env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
     console.print(f"[bold green]Starting stack ({env_label}) via docker compose…[/bold green]")
-    compose.compose_up(detach=detach, build=build, extra_files=overrides, prod=prod)
+    # Timeout: 10 min for up (can include building images if --build is set)
+    compose.compose_up(detach=detach, build=build, extra_files=overrides, prod=prod, timeout=600)
 
     if prod:
         # In prod mode, ports aren't exposed to host (Traefik handles routing).
@@ -442,7 +447,7 @@ def up(
             timeout=30,
         )
 
-    status = compose.run_compose(["ps"], extra_files=overrides, prod=prod)
+    status = compose.run_compose(["ps"], extra_files=overrides, prod=prod, timeout=30)
     console.print("[bold cyan]Stack is running. Current container status:[/bold cyan]")
     console.print(_ensure_text(status.stdout))
 
@@ -483,7 +488,10 @@ def down(
         )
 
     console.print(f"[bold yellow]Stopping stack ({env_label})…[/bold yellow]")
-    compose.compose_down(remove_volumes=remove_volumes, extra_files=overrides, prod=prod)
+    # Timeout: 2 min for down operations
+    compose.compose_down(
+        remove_volumes=remove_volumes, extra_files=overrides, prod=prod, timeout=120
+    )
     console.print("[bold green]Stack stopped.[/bold green]")
 
 
@@ -507,8 +515,8 @@ def restart(
     else:
         env_label = "[bold cyan]DEVELOPMENT[/bold cyan]"
     console.print(f"[bold yellow]Restarting stack ({env_label})…[/bold yellow]")
-    compose.compose_down(prod=prod)
-    compose.compose_up(detach=True, build=build, prod=prod)
+    compose.compose_down(prod=prod, timeout=120)
+    compose.compose_up(detach=True, build=build, prod=prod, timeout=600)
     console.print("[bold green]Stack restarted.[/bold green]")
 
 
@@ -532,6 +540,7 @@ def _connect_traefik_to_dev_network() -> None:
         [docker_bin, "network", "connect", dev_network, "traefik"],
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if result.returncode == 0:
         console.print(f"[dim]Connected Traefik to {dev_network}[/dim]")
@@ -565,13 +574,13 @@ def dev_up(
     console.print("[dim]Project: ai-agent-platform-dev[/dim]")
     console.print("[dim]Open WebUI: http://localhost:3001[/dim]")
     console.print("[dim]Agent API:  http://localhost:8001[/dim]")
-    compose.compose_up(detach=True, build=build, dev=True)
+    compose.compose_up(detach=True, build=build, dev=True, timeout=600)
 
     # Connect Traefik to dev network for external routing (if Traefik is running)
     _connect_traefik_to_dev_network()
 
     # Show status
-    status = compose.run_compose(["ps"], dev=True)
+    status = compose.run_compose(["ps"], dev=True, timeout=30)
     console.print("[bold cyan]Development stack is running:[/bold cyan]")
     console.print(_ensure_text(status.stdout))
 
@@ -592,7 +601,7 @@ def dev_down(
     """
     tooling.ensure_docker()
     console.print("[bold yellow]Stopping DEVELOPMENT environment…[/bold yellow]")
-    compose.compose_down(remove_volumes=remove_volumes, dev=True)
+    compose.compose_down(remove_volumes=remove_volumes, dev=True, timeout=120)
     console.print("[bold green]Development stack stopped.[/bold green]")
 
 
@@ -624,6 +633,7 @@ def dev_logs(
         args.append(f"--tail={tail}")
     if service:
         args.extend(service)
+    # Don't add timeout to logs command - it can run indefinitely with -f
     compose.run_compose(args, dev=True, capture_output=False)
 
 
@@ -631,7 +641,7 @@ def dev_logs(
 def dev_status() -> None:
     """Show status of the development environment."""
     tooling.ensure_docker()
-    result = compose.run_compose(["ps"], dev=True)
+    result = compose.run_compose(["ps"], dev=True, timeout=30)
     console.print("[bold cyan]Development environment status:[/bold cyan]")
     console.print(_ensure_text(result.stdout))
 
@@ -643,8 +653,8 @@ def dev_restart(
     """Restart the development environment."""
     tooling.ensure_docker()
     console.print("[bold yellow]Restarting DEVELOPMENT environment…[/bold yellow]")
-    compose.compose_down(dev=True)
-    compose.compose_up(detach=True, build=build, dev=True)
+    compose.compose_down(dev=True, timeout=120)
+    compose.compose_up(detach=True, build=build, dev=True, timeout=600)
 
     # Connect Traefik to dev network for external routing (if Traefik is running)
     _connect_traefik_to_dev_network()
@@ -682,7 +692,8 @@ def dev_deploy(
     else:
         console.print(f"[bold cyan]Building and deploying: {', '.join(services)}...[/bold cyan]")
         args = ["up", "-d", "--no-deps", "--build"] + services
-    compose.run_compose(args, dev=True, capture_output=False)
+    # Timeout: 10 min for build + deploy
+    compose.run_compose(args, dev=True, capture_output=False, timeout=600)
     _connect_traefik_to_dev_network()
 
     # Health checks - use full dev container names for port mapping
@@ -967,12 +978,14 @@ def deploy(
     # Step 3: Build
     console.print(f"[bold cyan]Building: {', '.join(services_to_build)}…[/bold cyan]")
     build_args = ["build"] + services_to_build
-    compose.run_compose(build_args, prod=True, capture_output=False)
+    # Timeout: 10 min for building images
+    compose.run_compose(build_args, prod=True, capture_output=False, timeout=600)
 
     # Step 4: Rolling restart (recreate only changed containers)
     console.print("[bold cyan]Deploying to production…[/bold cyan]")
     up_args = ["up", "-d", "--no-deps"] + services_to_build
-    compose.run_compose(up_args, prod=True, capture_output=False)
+    # Timeout: 2 min for container restart
+    compose.run_compose(up_args, prod=True, capture_output=False, timeout=120)
 
     # Step 4.5: Post-deploy health check
     console.print("[bold cyan]Verifying deployment health…[/bold cyan]")
@@ -999,7 +1012,7 @@ def deploy(
 
     # Step 6: Show status
     console.print("[bold green]✓ Deployment complete![/bold green]")
-    result = compose.run_compose(["ps"], prod=True)
+    result = compose.run_compose(["ps"], prod=True, timeout=30)
     console.print(_ensure_text(result.stdout))
 
 
@@ -1040,6 +1053,7 @@ def rollback(
         capture_output=True,
         text=True,
         check=False,
+        timeout=30,
     )
 
     if check_image.returncode != 0 or not check_image.stdout.strip():
@@ -1057,6 +1071,7 @@ def rollback(
         capture_output=True,
         text=True,
         check=False,
+        timeout=30,
     )
 
     if tag_result.returncode != 0:
@@ -1065,11 +1080,13 @@ def rollback(
 
     # Restart agent service
     console.print("[cyan]Restarting agent service...[/cyan]")
-    compose.run_compose(["up", "-d", "--no-deps", "agent"], prod=True, capture_output=False)
+    compose.run_compose(
+        ["up", "-d", "--no-deps", "agent"], prod=True, capture_output=False, timeout=120
+    )
 
     # Show status
     console.print("[bold green]✓ Rollback complete![/bold green]")
-    result = compose.run_compose(["ps", "agent"], prod=True)
+    result = compose.run_compose(["ps", "agent"], prod=True, timeout=30)
     console.print(_ensure_text(result.stdout))
 
     console.print("")
@@ -1200,7 +1217,7 @@ def repo_save(
         try:
             tooling.ensure_docker()
             console.print("[cyan]Validating docker-compose configuration…[/cyan]")
-            compose.run_compose(["config"])
+            compose.run_compose(["config"], timeout=30)
         except FileNotFoundError:
             console.print("[yellow]Docker not available; skipping compose validation.[/yellow]")
 
@@ -1352,14 +1369,16 @@ def n8n_export(
     tmp_export = "/home/node/n8n_export"
     console.print(f"[cyan]Preparing export directory {tmp_export}[/cyan]")
     cleanup_cmd = f"rm -rf {tmp_export} && mkdir -p {tmp_export}"
-    tooling.docker_exec(container, "sh", "-lc", cleanup_cmd, user="0")
-    tooling.docker_exec(container, "sh", "-lc", f"chown -R node:node {tmp_export}", user="0")
+    tooling.docker_exec(container, "sh", "-lc", cleanup_cmd, user="0", timeout=30)
+    chown_cmd = f"chown -R node:node {tmp_export}"
+    tooling.docker_exec(container, "sh", "-lc", chown_cmd, user="0", timeout=30)
 
     console.print("[cyan]Running n8n export…[/cyan]")
     workflow_export_cmd = (
         "n8n export:workflow --all --pretty --separate " "--output '/home/node/n8n_export' || true"
     )
-    tooling.docker_exec(container, "sh", "-lc", workflow_export_cmd)
+    # Timeout: 2 min for n8n export (can have many workflows)
+    tooling.docker_exec(container, "sh", "-lc", workflow_export_cmd, timeout=120)
 
     if include_credentials:
         console.print("[cyan]Exporting credentials (without decrypting secrets)…[/cyan]")
@@ -1367,7 +1386,7 @@ def n8n_export(
             "n8n export:credentials --all --pretty --output "
             "'/home/node/n8n_export/credentials.json' || true"
         )
-        tooling.docker_exec(container, "sh", "-lc", credentials_export_cmd)
+        tooling.docker_exec(container, "sh", "-lc", credentials_export_cmd, timeout=60)
 
     workflows_dest = target_dir / "workflows"
     if workflows_dest.exists():
@@ -1437,19 +1456,22 @@ def n8n_import(
     tmp_import = "/home/node/n8n_import"
     console.print(f"[cyan]Preparing import directory {tmp_import}[/cyan]")
     prep_cmd = f"rm -rf {tmp_import} && mkdir -p {tmp_import}"
-    tooling.docker_exec(container, "sh", "-lc", prep_cmd, user="0")
-    tooling.docker_exec(container, "sh", "-lc", f"chown -R node:node {tmp_import}", user="0")
+    tooling.docker_exec(container, "sh", "-lc", prep_cmd, user="0", timeout=30)
+    chown_cmd = f"chown -R node:node {tmp_import}"
+    tooling.docker_exec(container, "sh", "-lc", chown_cmd, user="0", timeout=30)
 
     console.print(f"[cyan]Copying workflows from {import_source}…[/cyan]")
+    # docker_cp already has default timeout=60
     tooling.docker_cp(str(import_source), f"{container}:{tmp_import}")
-    tooling.docker_exec(container, "sh", "-lc", f"chown -R node:node {tmp_import}", user="0")
+    chown_cmd = f"chown -R node:node {tmp_import}"
+    tooling.docker_exec(container, "sh", "-lc", chown_cmd, user="0", timeout=30)
     flatten_cmd = (
         "if [ -d '/home/node/n8n_import/workflows' ]; then "
         "mv /home/node/n8n_import/workflows/* /home/node/n8n_import/ && "
         "rmdir /home/node/n8n_import/workflows; "
         "fi"
     )
-    tooling.docker_exec(container, "sh", "-lc", flatten_cmd, user="0")
+    tooling.docker_exec(container, "sh", "-lc", flatten_cmd, user="0", timeout=30)
 
     import_cmd = (
         "if [ -d '/home/node/n8n_import/export' ]; then "
@@ -1458,20 +1480,22 @@ def n8n_import(
         "n8n import:workflow --separate --input '/home/node/n8n_import'; "
         "fi"
     )
-    tooling.docker_exec(container, "sh", "-lc", import_cmd)
+    # Timeout: 2 min for n8n import (can have many workflows)
+    tooling.docker_exec(container, "sh", "-lc", import_cmd, timeout=120)
     console.print("[green]Workflow import completed.[/green]")
 
     if include_credentials:
         credentials_file = source_root / "credentials.json"
         if credentials_file.exists():
             console.print(f"[cyan]Importing credentials from {credentials_file}…[/cyan]")
+            # docker_cp already has default timeout=60
             tooling.docker_cp(str(credentials_file), f"{container}:{tmp_import}/credentials.json")
             chown_cmd = "chown node:node /home/node/n8n_import/credentials.json"
-            tooling.docker_exec(container, "sh", "-lc", chown_cmd, user="0")
+            tooling.docker_exec(container, "sh", "-lc", chown_cmd, user="0", timeout=30)
             credentials_import_cmd = (
                 "n8n import:credentials --input " "'/home/node/n8n_import/credentials.json'"
             )
-            tooling.docker_exec(container, "sh", "-lc", credentials_import_cmd)
+            tooling.docker_exec(container, "sh", "-lc", credentials_import_cmd, timeout=60)
             console.print("[green]Credentials import completed.[/green]")
         else:
             console.print(
@@ -1519,7 +1543,8 @@ finally:
         "-lc",
         exec_script,
     ]
-    result = compose.run_compose(exec_args, files_override=[compose_path])
+    # Timeout: 1 min for database export
+    result = compose.run_compose(exec_args, files_override=[compose_path], timeout=60)
     dump_path.write_text(_ensure_text(result.stdout), encoding="utf-8")
     console.print(f"[green]Exported Open WebUI database → {dump_path}[/green]")
 
@@ -1554,7 +1579,10 @@ def openwebui_import(
     compose_path = compose_file if compose_file.is_absolute() else (repo_root / compose_file)
 
     container_target = f"{service}:/tmp/openwebui.sql"
-    compose.run_compose(["cp", str(resolved_dump), container_target], files_override=[compose_path])
+    # Timeout: 1 min for file copy
+    compose.run_compose(
+        ["cp", str(resolved_dump), container_target], files_override=[compose_path], timeout=60
+    )
 
     python_script = """
 import os, sqlite3, pathlib
@@ -1584,7 +1612,8 @@ os.remove(tmp_path)
         "-lc",
         exec_script,
     ]
-    compose.run_compose(exec_args, files_override=[compose_path])
+    # Timeout: 1 min for database import
+    compose.run_compose(exec_args, files_override=[compose_path], timeout=60)
     console.print(f"[green]Imported Open WebUI database from {resolved_dump}[/green]")
 
 
@@ -1620,11 +1649,13 @@ def db_migrate(
         env_label = "[bold]BASE[/bold]"
 
     console.print(f"[cyan]Running database migrations ({env_label})...[/cyan]")
+    # Timeout: 2 min for database migrations
     compose.run_compose(
         ["exec", "-T", "agent", "alembic", "upgrade", "head"],
         prod=prod,
         dev=dev,
         capture_output=False,
+        timeout=120,
     )
     console.print("[bold green]Database migration complete.[/bold green]")
 
@@ -1655,11 +1686,13 @@ def db_status(
         env_label = "[bold]BASE[/bold]"
 
     console.print(f"[cyan]Checking database status ({env_label})...[/cyan]")
+    # Timeout: 30 sec for status check
     compose.run_compose(
         ["exec", "-T", "agent", "alembic", "current"],
         prod=prod,
         dev=dev,
         capture_output=False,
+        timeout=30,
     )
 
 
@@ -1702,11 +1735,13 @@ def db_rollback(
             return
 
     console.print(f"[cyan]Rolling back database migration ({env_label})...[/cyan]")
+    # Timeout: 2 min for database rollback
     compose.run_compose(
         ["exec", "-T", "agent", "alembic", "downgrade", "-1"],
         prod=prod,
         dev=dev,
         capture_output=False,
+        timeout=120,
     )
     console.print("[bold green]Database rollback complete.[/bold green]")
 
@@ -1737,11 +1772,13 @@ def db_history(
         env_label = "[bold]BASE[/bold]"
 
     console.print(f"[cyan]Showing migration history ({env_label})...[/cyan]")
+    # Timeout: 30 sec for history command
     compose.run_compose(
         ["exec", "-T", "agent", "alembic", "history", "--verbose"],
         prod=prod,
         dev=dev,
         capture_output=False,
+        timeout=30,
     )
 
 

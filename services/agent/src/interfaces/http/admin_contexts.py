@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
@@ -185,34 +185,30 @@ async def list_contexts(
     Security:
         Requires admin role via Entra ID authentication.
     """
-    stmt = select(Context)
+    # Single query with LEFT JOINs to avoid N+1 pattern
+    # For N contexts, this runs 1 query instead of 1 + 3N queries
+    stmt = (
+        select(
+            Context,
+            func.count(distinct(Conversation.id)).label("conv_count"),
+            func.count(distinct(OAuthToken.id)).label("oauth_count"),
+            func.count(distinct(ToolPermission.id)).label("perm_count"),
+        )
+        .outerjoin(Conversation, Conversation.context_id == Context.id)
+        .outerjoin(OAuthToken, OAuthToken.context_id == Context.id)
+        .outerjoin(ToolPermission, ToolPermission.context_id == Context.id)
+        .group_by(Context.id)
+        .order_by(Context.name)
+    )
 
     if type_filter:
         stmt = stmt.where(Context.type == type_filter)
 
     result = await session.execute(stmt)
-    contexts = result.scalars().all()
+    rows = result.all()
 
     context_infos = []
-    for ctx in contexts:
-        # Count related entities
-        conv_count_stmt = (
-            select(func.count()).select_from(Conversation).where(Conversation.context_id == ctx.id)
-        )
-        conv_count = await session.scalar(conv_count_stmt) or 0
-
-        oauth_count_stmt = (
-            select(func.count()).select_from(OAuthToken).where(OAuthToken.context_id == ctx.id)
-        )
-        oauth_count = await session.scalar(oauth_count_stmt) or 0
-
-        perm_count_stmt = (
-            select(func.count())
-            .select_from(ToolPermission)
-            .where(ToolPermission.context_id == ctx.id)
-        )
-        perm_count = await session.scalar(perm_count_stmt) or 0
-
+    for ctx, conv_count, oauth_count, perm_count in rows:
         context_infos.append(
             ContextInfo(
                 id=ctx.id,
