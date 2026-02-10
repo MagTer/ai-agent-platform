@@ -83,13 +83,13 @@ async def oauth_dashboard(admin: AdminUser = Depends(require_admin_or_redirect))
 
     extra_js = """
         async function loadTokens() {
-            try {
-                const res = await fetch('/platformadmin/oauth/tokens');
-                const data = await res.json();
-                renderTokens(data);
-            } catch (e) {
+            const res = await fetchWithErrorHandling('/platformadmin/oauth/tokens');
+            if (!res) {
                 document.getElementById('tokens').innerHTML = '<div style="color: var(--error)">Failed to load tokens</div>';
+                return;
             }
+            const data = await res.json();
+            renderTokens(data);
         }
         function renderTokens(data) {
             document.getElementById('count').textContent = data.total || 0;

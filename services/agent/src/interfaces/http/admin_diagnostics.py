@@ -1051,81 +1051,86 @@ def _get_diagnostics_js() -> str:
         }
 
         async function loadMetrics() {
-            try {
-                const res = await fetch(`${API_BASE}/metrics?window=60`);
-                const data = await res.json();
+            const res = await fetchWithErrorHandling(`${API_BASE}/metrics?window=60`);
+            if (!res) return;
 
-                document.getElementById('mTotal').innerText = data.metrics?.total_requests || 0;
-                document.getElementById('mCount').innerText = data.metrics?.error_count || 0;
+            const data = await res.json();
 
-                const rateEl = document.getElementById('mRate');
-                const rate = ((data.metrics?.error_rate || 0) * 100).toFixed(1) + '%';
-                rateEl.innerText = rate;
-                if ((data.metrics?.error_rate || 0) > 0.1) rateEl.parentElement.classList.add('bad');
-                else rateEl.parentElement.classList.remove('bad');
+            document.getElementById('mTotal').innerText = data.metrics?.total_requests || 0;
+            document.getElementById('mCount').innerText = data.metrics?.error_count || 0;
 
-                const tbody = document.getElementById('hotspotsBody');
-                tbody.innerHTML = '';
+            const rateEl = document.getElementById('mRate');
+            const rate = ((data.metrics?.error_rate || 0) * 100).toFixed(1) + '%';
+            rateEl.innerText = rate;
+            if ((data.metrics?.error_rate || 0) > 0.1) rateEl.parentElement.classList.add('bad');
+            else rateEl.parentElement.classList.remove('bad');
 
-                if ((data.metrics?.error_count || 0) === 0) {
-                    tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:30px; color:#999">No errors detected.</td></tr>';
-                    return;
-                }
+            const tbody = document.getElementById('hotspotsBody');
+            tbody.innerHTML = '';
 
-                if (data.insights && data.insights.hotspots) {
-                    data.insights.hotspots.forEach(h => {
-                        const tr = document.createElement('tr');
-                        let reasonsHtml = h.top_reasons.map(r => `<span class="diag-reason-tag">${escapeHtml(r)}</span>`).join('');
-                        tr.innerHTML = `<td style="font-weight:600">${escapeHtml(h.name)}</td><td>${h.count}</td><td>${reasonsHtml}</td>`;
-                        tbody.appendChild(tr);
-                    });
-                }
-            } catch (e) { console.error(e); }
+            if ((data.metrics?.error_count || 0) === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; padding:30px; color:#999">No errors detected.</td></tr>';
+                return;
+            }
+
+            if (data.insights && data.insights.hotspots) {
+                data.insights.hotspots.forEach(h => {
+                    const tr = document.createElement('tr');
+                    let reasonsHtml = h.top_reasons.map(r => `<span class="diag-reason-tag">${escapeHtml(r)}</span>`).join('');
+                    tr.innerHTML = `<td style="font-weight:600">${escapeHtml(h.name)}</td><td>${h.count}</td><td>${reasonsHtml}</td>`;
+                    tbody.appendChild(tr);
+                });
+            }
         }
 
         async function runHealthChecks() {
             const grid = document.getElementById('healthGrid');
             grid.innerHTML = '<div style="padding:20px; text-align:center">Running integration tests...</div>';
 
-            try {
-                const res = await fetch(`${API_BASE}/run`, {method: 'POST'});
-                const results = await res.json();
-                grid.innerHTML = '';
-
-                results.forEach(r => {
-                    const isOk = r.status === 'ok';
-                    const el = document.createElement('div');
-                    el.className = `diag-health-card ${isOk ? 'ok' : 'fail'}`;
-                    el.innerHTML = `
-                        <div style="display:flex; justify-content:space-between; margin-bottom:10px">
-                            <span style="font-weight:600; font-size:14px">${escapeHtml(r.component)}</span>
-                            <span style="font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px; color:white"
-                                  class="${isOk ? 'diag-bg-tool' : 'diag-bg-err'}">${isOk ? 'Active' : 'Failed'}</span>
-                        </div>
-                        <div style="font-size:24px; font-weight:700; margin-bottom:4px">${r.latency_ms.toFixed(0)}<span style="font-size:12px; font-weight:400; color:#999; margin-left:4px">ms</span></div>
-                        ${!isOk && r.message ? `<div style="font-size:12px; color:var(--error); margin-top:8px">${escapeHtml(r.message)}</div>` : ''}
-                    `;
-                    grid.appendChild(el);
-                });
-            } catch (e) {
-                grid.innerHTML = `<div style="color:red">Failed: ${e}</div>`;
+            const res = await fetchWithErrorHandling(`${API_BASE}/run`, {method: 'POST'});
+            if (!res) {
+                grid.innerHTML = '<div style="color:red">Failed to run health checks</div>';
+                return;
             }
+
+            const results = await res.json();
+            grid.innerHTML = '';
+
+            results.forEach(r => {
+                const isOk = r.status === 'ok';
+                const el = document.createElement('div');
+                el.className = `diag-health-card ${isOk ? 'ok' : 'fail'}`;
+                el.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; margin-bottom:10px">
+                        <span style="font-weight:600; font-size:14px">${escapeHtml(r.component)}</span>
+                        <span style="font-size:10px; font-weight:bold; padding:2px 6px; border-radius:4px; color:white"
+                              class="${isOk ? 'diag-bg-tool' : 'diag-bg-err'}">${isOk ? 'Active' : 'Failed'}</span>
+                    </div>
+                    <div style="font-size:24px; font-weight:700; margin-bottom:4px">${r.latency_ms.toFixed(0)}<span style="font-size:12px; font-weight:400; color:#999; margin-left:4px">ms</span></div>
+                    ${!isOk && r.message ? `<div style="font-size:12px; color:var(--error); margin-top:8px">${escapeHtml(r.message)}</div>` : ''}
+                `;
+                grid.appendChild(el);
+            });
         }
 
         async function loadMcpStatus() {
             const container = document.getElementById('mcpStatusContainer');
-            try {
-                const res = await fetch(`${API_BASE}/mcp`);
-                const data = await res.json();
-                container.innerHTML = '';
+            const res = await fetchWithErrorHandling(`${API_BASE}/mcp`);
+            if (!res) {
+                container.innerHTML = '<div style="color:red; padding:20px">Failed to load MCP status</div>';
+                return;
+            }
 
-                if (!data.servers || Object.keys(data.servers).length === 0) {
-                    container.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted); border: 2px dashed var(--border); border-radius:8px; background:white;">No MCP servers configured</div>';
-                    return;
-                }
+            const data = await res.json();
+            container.innerHTML = '';
 
-                const grid = document.createElement('div');
-                grid.className = 'diag-health-grid';
+            if (!data.servers || Object.keys(data.servers).length === 0) {
+                container.innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted); border: 2px dashed var(--border); border-radius:8px; background:white;">No MCP servers configured</div>';
+                return;
+            }
+
+            const grid = document.createElement('div');
+            grid.className = 'diag-health-grid';
 
                 Object.entries(data.servers).forEach(([name, info]) => {
                     const isConnected = info.connected;
@@ -1153,34 +1158,35 @@ def _get_diagnostics_js() -> str:
             const level = document.getElementById('logLevelFilter')?.value || '';
             const search = document.getElementById('logSearchBox')?.value || '';
 
-            try {
-                let url = `${API_BASE}/logs?limit=100`;
-                if (level) url += `&level=${encodeURIComponent(level)}`;
-                if (search) url += `&search=${encodeURIComponent(search)}`;
+            let url = `${API_BASE}/logs?limit=100`;
+            if (level) url += `&level=${encodeURIComponent(level)}`;
+            if (search) url += `&search=${encodeURIComponent(search)}`;
 
-                const res = await fetch(url);
-                const data = await res.json();
-                tbody.innerHTML = '';
-
-                if (!data.logs || data.logs.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#999">No logs found</td></tr>';
-                    return;
-                }
-
-                data.logs.forEach(log => {
-                    const tr = document.createElement('tr');
-                    const levelColor = log.level === 'CRITICAL' ? 'var(--error)' : log.level === 'ERROR' ? '#f59e0b' : 'var(--text-muted)';
-                    tr.innerHTML = `
-                        <td style="font-family:monospace; font-size:11px">${escapeHtml(log.timestamp || '')}</td>
-                        <td><span style="color:${levelColor}; font-weight:600; font-size:11px">${escapeHtml(log.level || '')}</span></td>
-                        <td style="font-family:monospace; font-size:11px">${escapeHtml(log.name || '')}</td>
-                        <td style="font-size:12px">${escapeHtml(log.message || '')}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="4" style="color:red; padding:20px">Failed: ${e}</td></tr>`;
+            const res = await fetchWithErrorHandling(url);
+            if (!res) {
+                tbody.innerHTML = '<tr><td colspan="4" style="color:red; padding:20px">Failed to load logs</td></tr>';
+                return;
             }
+
+            const data = await res.json();
+            tbody.innerHTML = '';
+
+            if (!data.logs || data.logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#999">No logs found</td></tr>';
+                return;
+            }
+
+            data.logs.forEach(log => {
+                const tr = document.createElement('tr');
+                const levelColor = log.level === 'CRITICAL' ? 'var(--error)' : log.level === 'ERROR' ? '#f59e0b' : 'var(--text-muted)';
+                tr.innerHTML = `
+                    <td style="font-family:monospace; font-size:11px">${escapeHtml(log.timestamp || '')}</td>
+                    <td><span style="color:${levelColor}; font-weight:600; font-size:11px">${escapeHtml(log.level || '')}</span></td>
+                    <td style="font-family:monospace; font-size:11px">${escapeHtml(log.name || '')}</td>
+                    <td style="font-size:12px">${escapeHtml(log.message || '')}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         async function loadEvents() {
@@ -1188,46 +1194,47 @@ def _get_diagnostics_js() -> str:
             const eventType = document.getElementById('eventTypeFilter')?.value || '';
             const severity = document.getElementById('eventSeverityFilter')?.value || '';
 
-            try {
-                let url = `${API_BASE}/events?limit=100`;
-                if (eventType) url += `&event_type=${encodeURIComponent(eventType)}`;
-                if (severity) url += `&severity=${encodeURIComponent(severity)}`;
+            let url = `${API_BASE}/events?limit=100`;
+            if (eventType) url += `&event_type=${encodeURIComponent(eventType)}`;
+            if (severity) url += `&severity=${encodeURIComponent(severity)}`;
 
-                const res = await fetch(url);
-                const data = await res.json();
-                tbody.innerHTML = '';
-
-                if (!data.events || data.events.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#999">No events found</td></tr>';
-                    return;
-                }
-
-                const eventTypeFilter = document.getElementById('eventTypeFilter');
-                if (eventTypeFilter.options.length === 1) {
-                    const eventTypes = new Set(data.events.map(e => e.event_type).filter(Boolean));
-                    eventTypes.forEach(type => {
-                        const option = document.createElement('option');
-                        option.value = type;
-                        option.textContent = type;
-                        eventTypeFilter.appendChild(option);
-                    });
-                }
-
-                data.events.forEach(event => {
-                    const tr = document.createElement('tr');
-                    const severityColor = event.severity === 'CRITICAL' || event.severity === 'ERROR' ? 'var(--error)' : event.severity === 'WARNING' ? '#f59e0b' : 'var(--text)';
-                    const details = typeof event.details === 'object' ? JSON.stringify(event.details) : event.details || '';
-                    tr.innerHTML = `
-                        <td style="font-family:monospace; font-size:11px">${escapeHtml(event.timestamp || '')}</td>
-                        <td style="font-weight:600; font-size:11px">${escapeHtml(event.event_type || '')}</td>
-                        <td><span style="color:${severityColor}; font-weight:600; font-size:11px">${escapeHtml(event.severity || '')}</span></td>
-                        <td style="font-size:12px">${escapeHtml(details)}</td>
-                    `;
-                    tbody.appendChild(tr);
-                });
-            } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="4" style="color:red; padding:20px">Failed: ${e}</td></tr>`;
+            const res = await fetchWithErrorHandling(url);
+            if (!res) {
+                tbody.innerHTML = '<tr><td colspan="4" style="color:red; padding:20px">Failed to load events</td></tr>';
+                return;
             }
+
+            const data = await res.json();
+            tbody.innerHTML = '';
+
+            if (!data.events || data.events.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; padding:30px; color:#999">No events found</td></tr>';
+                return;
+            }
+
+            const eventTypeFilter = document.getElementById('eventTypeFilter');
+            if (eventTypeFilter.options.length === 1) {
+                const eventTypes = new Set(data.events.map(e => e.event_type).filter(Boolean));
+                eventTypes.forEach(type => {
+                    const option = document.createElement('option');
+                    option.value = type;
+                    option.textContent = type;
+                    eventTypeFilter.appendChild(option);
+                });
+            }
+
+            data.events.forEach(event => {
+                const tr = document.createElement('tr');
+                const severityColor = event.severity === 'CRITICAL' || event.severity === 'ERROR' ? 'var(--error)' : event.severity === 'WARNING' ? '#f59e0b' : 'var(--text)';
+                const details = typeof event.details === 'object' ? JSON.stringify(event.details) : event.details || '';
+                tr.innerHTML = `
+                    <td style="font-family:monospace; font-size:11px">${escapeHtml(event.timestamp || '')}</td>
+                    <td style="font-weight:600; font-size:11px">${escapeHtml(event.event_type || '')}</td>
+                    <td><span style="color:${severityColor}; font-weight:600; font-size:11px">${escapeHtml(event.severity || '')}</span></td>
+                    <td style="font-size:12px">${escapeHtml(details)}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         async function viewCrashLog() {
@@ -1236,29 +1243,30 @@ def _get_diagnostics_js() -> str:
             content.innerHTML = 'Loading...';
             modal.classList.add('open');
 
-            try {
-                const res = await fetch(`${API_BASE}/crash-log`);
-                const data = await res.json();
+            const res = await fetchWithErrorHandling(`${API_BASE}/crash-log`);
+            if (!res) {
+                content.innerHTML = '<div style="color:red; padding:20px">Failed to load crash log</div>';
+                return;
+            }
 
-                if (!data.exists) {
-                    content.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted)">No crash log found</div>';
-                    return;
-                }
+            const data = await res.json();
 
-                const pre = document.createElement('pre');
-                pre.className = 'diag-modal-pre';
-                pre.textContent = data.content;
-                content.innerHTML = '';
-                content.appendChild(pre);
+            if (!data.exists) {
+                content.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-muted)">No crash log found</div>';
+                return;
+            }
 
-                if (data.modified) {
-                    const timestamp = document.createElement('div');
-                    timestamp.style.cssText = 'font-size:12px; color:var(--text-muted); margin-top:12px';
-                    timestamp.textContent = `Last modified: ${new Date(data.modified).toLocaleString()}`;
-                    content.appendChild(timestamp);
-                }
-            } catch (e) {
-                content.innerHTML = `<div style="color:red; padding:20px">Failed: ${e}</div>`;
+            const pre = document.createElement('pre');
+            pre.className = 'diag-modal-pre';
+            pre.textContent = data.content;
+            content.innerHTML = '';
+            content.appendChild(pre);
+
+            if (data.modified) {
+                const timestamp = document.createElement('div');
+                timestamp.style.cssText = 'font-size:12px; color:var(--text-muted); margin-top:12px';
+                timestamp.textContent = `Last modified: ${new Date(data.modified).toLocaleString()}`;
+                content.appendChild(timestamp);
             }
         }
 
@@ -1269,21 +1277,22 @@ def _get_diagnostics_js() -> str:
         async function loadTraces(searchTraceId = null) {
             const list = document.getElementById('reqList');
             const showAll = document.getElementById('showAllTraces')?.checked || false;
-            try {
-                let url = `${API_BASE}/traces?limit=500&show_all=${showAll}`;
-                if (searchTraceId && searchTraceId.length >= 8) url += `&trace_id=${encodeURIComponent(searchTraceId)}`;
 
-                const res = await fetch(url);
-                if (!res.ok) throw new Error("API " + res.status);
-                traceGroups = await res.json();
-                filterTraces();
+            let url = `${API_BASE}/traces?limit=500&show_all=${showAll}`;
+            if (searchTraceId && searchTraceId.length >= 8) url += `&trace_id=${encodeURIComponent(searchTraceId)}`;
 
-                if (selectedTraceId) {
-                    const idx = traceGroups.findIndex(g => g.trace_id === selectedTraceId);
-                    if (idx >= 0) selectTrace(idx);
-                }
-            } catch (e) {
-                list.innerHTML = `<div style="padding:20px; color:red">Error: ${e}</div>`;
+            const res = await fetchWithErrorHandling(url);
+            if (!res) {
+                list.innerHTML = '<div style="padding:20px; color:red">Failed to load traces</div>';
+                return;
+            }
+
+            traceGroups = await res.json();
+            filterTraces();
+
+            if (selectedTraceId) {
+                const idx = traceGroups.findIndex(g => g.trace_id === selectedTraceId);
+                if (idx >= 0) selectTrace(idx);
             }
         }
 

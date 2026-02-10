@@ -191,8 +191,6 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             </table>
         </div>
 
-        <!-- Toast notification -->
-        <div class="toast" id="toast"></div>
     """
 
     extra_css = """
@@ -245,35 +243,20 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             font-style: italic;
             font-size: 12px;
         }
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            padding: 12px 20px;
-            border-radius: 6px;
-            color: white;
-            font-size: 14px;
-            z-index: 200;
-            display: none;
-        }
-        .toast.success { background: var(--success); display: block; }
-        .toast.error { background: var(--error); display: block; }
     """
 
     extra_js = """
         let currentContextId = null;
 
         async function loadContexts() {
-            try {
-                const res = await fetch('/platformadmin/permissions/contexts');
-                if (!res.ok) throw new Error('HTTP ' + res.status + ': ' + res.statusText);
-                const data = await res.json();
-                renderContextList(data);
-            } catch (e) {
-                console.error('loadContexts failed:', e);
+            const res = await fetchWithErrorHandling('/platformadmin/permissions/contexts');
+            if (!res) {
                 document.getElementById('contextListBody').innerHTML =
-                    '<tr><td colspan="5" style="color: var(--error); text-align: center;">Failed to load contexts: ' + e.message + '</td></tr>';
+                    '<tr><td colspan="5" style="color: var(--error); text-align: center;">Failed to load contexts</td></tr>';
+                return;
             }
+            const data = await res.json();
+            renderContextList(data);
         }
 
         function renderContextList(data) {
@@ -314,13 +297,8 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             document.getElementById('toolListBody').innerHTML =
                 '<tr><td colspan="4" class="loading">Loading...</td></tr>';
 
-            try {
-                const res = await fetch('/platformadmin/permissions/contexts/' + contextId);
-                if (!res.ok) throw new Error('HTTP ' + res.status);
-                const data = await res.json();
-                renderToolList(data);
-            } catch (e) {
-                console.error('openDetail failed:', e);
+            const res = await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + contextId);
+            if (!res) {
                 document.getElementById('toolListBody').innerHTML =
                     '<tr><td colspan="4" style="color: var(--error); text-align: center;">Failed to load permissions: ' + e.message + '</td></tr>';
             }
@@ -360,21 +338,20 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
 
         async function toggleTool(toolName, allowed) {
             if (!currentContextId) return;
-            try {
-                const res = await fetch('/platformadmin/permissions/contexts/' + currentContextId + '/tools/' + encodeURIComponent(toolName), {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ allowed: allowed })
-                });
-                if (!res.ok) throw new Error('Failed to update');
+
+            const res = await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + currentContextId + '/tools/' + encodeURIComponent(toolName), {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ allowed: allowed })
+            });
+
+            if (res) {
                 const data = await res.json();
                 showToast(data.message, 'success');
-                // Refresh both views
                 loadContexts();
                 openDetail(currentContextId);
-            } catch (e) {
-                showToast('Failed to update permission', 'error');
-                // Refresh to revert UI state
+            } else {
+                // Refresh to revert UI state on error
                 openDetail(currentContextId);
             }
         }
@@ -389,19 +366,17 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
 
             if (!confirm(confirmMsg)) return;
 
-            try {
-                const res = await fetch('/platformadmin/permissions/contexts/' + currentContextId + '/bulk', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: action })
-                });
-                if (!res.ok) throw new Error('Failed to execute');
+            const res = await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + currentContextId + '/bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: action })
+            });
+
+            if (res) {
                 const data = await res.json();
                 showToast(data.message, 'success');
                 loadContexts();
                 openDetail(currentContextId);
-            } catch (e) {
-                showToast('Failed to execute bulk action', 'error');
             }
         }
 
@@ -410,12 +385,6 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             currentContextId = null;
         }
 
-        function showToast(message, type) {
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.className = 'toast ' + type;
-            setTimeout(() => { toast.className = 'toast'; }, 3000);
-        }
 
         function escapeHtml(str) {
             if (!str) return '';

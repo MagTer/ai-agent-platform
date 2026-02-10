@@ -103,13 +103,13 @@ async def users_dashboard(admin: AdminUser = Depends(require_admin_or_redirect))
 
     extra_js = """
         async function loadUsers() {
-            try {
-                const res = await fetch('/platformadmin/users/list');
-                const users = await res.json();
-                renderUsers(users);
-            } catch (e) {
+            const res = await fetchWithErrorHandling('/platformadmin/users/list');
+            if (!res) {
                 document.getElementById('usersBody').innerHTML = '<tr><td colspan="7" style="color: var(--error); text-align: center;">Failed to load users</td></tr>';
+                return;
             }
+            const users = await res.json();
+            renderUsers(users);
         }
 
         function renderUsers(users) {

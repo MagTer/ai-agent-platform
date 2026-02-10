@@ -58,13 +58,13 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
 
     extra_js = """
         async function loadContexts() {
-            try {
-                const res = await fetch('/platformadmin/contexts');
-                const data = await res.json();
-                renderContexts(data);
-            } catch (e) {
+            const res = await fetchWithErrorHandling('/platformadmin/contexts');
+            if (!res) {
                 document.getElementById('contexts').innerHTML = '<div style="color: var(--error)">Failed to load contexts</div>';
+                return;
             }
+            const data = await res.json();
+            renderContexts(data);
         }
         function renderContexts(data) {
             document.getElementById('count').textContent = data.total || 0;
