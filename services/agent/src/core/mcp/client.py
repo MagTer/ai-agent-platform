@@ -434,6 +434,11 @@ class McpClient:
             await asyncio.wait_for(self._mcp_session.send_ping(), timeout=5.0)
             return True
         except Exception:
+            LOGGER.debug(
+                "MCP health check failed for %s, marking as disconnected",
+                self._url,
+                exc_info=True,
+            )
             self._state = McpConnectionState.DISCONNECTED
             return False
 

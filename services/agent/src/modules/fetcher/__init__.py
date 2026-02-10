@@ -126,6 +126,9 @@ class WebFetcher:
             text = await asyncio.to_thread(p.read_text, encoding="utf-8")
             return json.loads(text)
         except (OSError, json.JSONDecodeError):
+            logger.debug(
+                "Failed to read or parse cache file %s, treating as missing", p, exc_info=True
+            )
             return None
 
     async def _evict_old_cache_entries(self, max_entries: int = 1000) -> None:
@@ -199,7 +202,9 @@ class WebFetcher:
             try:
                 ip_addr = ipaddress.ip_address(ip_str)
             except ValueError:
-                # Invalid IP (shouldn't happen with getaddrinfo)
+                logger.debug(
+                    "Invalid IP address from getaddrinfo: %s (unexpected)", ip_str, exc_info=True
+                )
                 continue
 
             # Check against private ranges

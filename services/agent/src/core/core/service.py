@@ -365,6 +365,9 @@ class AgentService:
                     try:
                         category = AwaitingInputCategory(category_str)
                     except ValueError:
+                        LOGGER.warning(
+                            "Invalid HITL category '%s', using CLARIFICATION", category_str
+                        )
                         category = AwaitingInputCategory.CLARIFICATION
                     awaiting_input_request = AwaitingInputRequest(
                         category=category,
@@ -1941,6 +1944,13 @@ class AgentService:
                     return True
             return False
         except Exception:
+            LOGGER.debug(
+                "Path resolution failed during sandbox check for %s (allowed: %s), "
+                "assuming not sandboxed",
+                file_path,
+                allowed_bases,
+                exc_info=True,
+            )
             return False
 
     async def _inject_pinned_files(
@@ -2029,7 +2039,7 @@ class AgentService:
         try:
             workspace_resolved = Path(workspace_path).resolve()
         except Exception:
-            LOGGER.warning(f"Invalid workspace path: {workspace_path}")
+            LOGGER.warning("Invalid workspace path: %s", workspace_path, exc_info=True)
             return
 
         rules_path = Path(workspace_path) / ".agent" / "rules.md"
@@ -2041,6 +2051,7 @@ class AgentService:
                 LOGGER.warning(f"Blocked rules path traversal: {rules_path}")
                 return
         except Exception:
+            LOGGER.warning("Failed to validate rules path: %s", rules_path, exc_info=True)
             return
 
         if not await asyncio.to_thread(rules_path.exists) or not await asyncio.to_thread(

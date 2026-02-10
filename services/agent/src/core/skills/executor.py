@@ -70,8 +70,8 @@ class SkillExecutor:
         self._skill_registry = skill_registry
         self._tool_registry = tool_registry
         self._litellm = litellm
-        # Cache for validated context ownership (context_id -> user_id)
-        self._validated_contexts: dict[UUID, UUID] = {}
+        # Cache for validated context ownership ((context_id, user_id) -> bool)
+        self._validated_contexts: dict[tuple[UUID, UUID], bool] = {}
 
     async def _validate_context_ownership(
         self,
@@ -92,11 +92,10 @@ class SkillExecutor:
         Returns:
             True if user has access, False otherwise.
         """
-        # Check cache first
-        cache_key = claimed_context_id
+        # Check cache first (cache key is tuple of both IDs for security)
+        cache_key = (claimed_context_id, authenticated_user_id)
         if cache_key in self._validated_contexts:
-            if self._validated_contexts[cache_key] == authenticated_user_id:
-                return True
+            return self._validated_contexts[cache_key]
 
         from core.db.models import UserContext
 
@@ -109,9 +108,11 @@ class SkillExecutor:
 
         if user_context:
             # Cache the valid ownership
-            self._validated_contexts[cache_key] = authenticated_user_id
+            self._validated_contexts[cache_key] = True
             return True
 
+        # Cache the failed validation to avoid repeated DB queries
+        self._validated_contexts[cache_key] = False
         LOGGER.warning(
             "Context ownership validation FAILED: user=%s claimed context=%s",
             authenticated_user_id,
@@ -536,6 +537,12 @@ class SkillExecutor:
                         try:
                             fargs = json.loads(func.get("arguments", "{}"))
                         except json.JSONDecodeError:
+                            LOGGER.warning(
+                                "%s Failed to parse tool arguments for %s, using empty dict",
+                                logger_prefix,
+                                fname,
+                                exc_info=True,
+                            )
                             fargs = {}
 
                         # Build activity message
