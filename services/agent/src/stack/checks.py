@@ -368,7 +368,7 @@ def run_pytest(*, repo_root: Path | None = None) -> CheckResult:
 
     _print_step("Running Pytest")
 
-    result = _run_cmd(["python", "-m", "pytest"], cwd=service_dir)
+    result = _run_cmd(["python", "-m", "pytest", "-x"], cwd=service_dir)
 
     if result.returncode == 0:
         _print_success("Pytest passed")

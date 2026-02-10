@@ -30,5 +30,29 @@
       "agent"
     ],
     "image_tag": "previous"
+  },
+  {
+    "timestamp": "2026-02-09T09:05:06.607550+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "image_tag": "previous"
+  },
+  {
+    "timestamp": "2026-02-09T09:44:17.852410+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "image_tag": "previous"
+  },
+  {
+    "timestamp": "2026-02-09T12:46:55.568493+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "image_tag": "previous"
   }
 ]

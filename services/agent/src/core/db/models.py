@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -81,6 +81,8 @@ class Conversation(Base):
     context = relationship("Context", back_populates="conversations")
     sessions = relationship("Session", back_populates="conversation", cascade="all, delete-orphan")
 
+    __table_args__ = (Index("ix_conversation_platform_lookup", "platform", "platform_id"),)
+
 
 class Session(Base):
     """Agent execution session within a conversation.
@@ -132,6 +134,8 @@ class Message(Base):
     trace_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     session = relationship("Session", back_populates="messages")
+
+    __table_args__ = (Index("ix_message_session_created", "session_id", "created_at"),)
 
 
 class User(Base):

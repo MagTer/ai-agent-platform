@@ -318,7 +318,7 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                         <td>${{meta}}</td>
                         <td>${{created}}</td>
                         <td>
-                            <button class="btn btn-danger btn-sm" onclick="deleteCredential('${{c.id}}', '${{escapeHtml(c.credential_type)}}')">Delete</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteCredential(this, '${{c.id}}', '${{escapeHtml(c.credential_type)}}')">Delete</button>
                         </td>
                     </tr>
                 `;
@@ -372,6 +372,9 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
 
         async function submitCredential(e) {{
             e.preventDefault();
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            const originalText = submitBtn.textContent;
+
             const userId = document.getElementById('userId').value;
             const credType = document.getElementById('credType').value;
             const credValue = document.getElementById('credValue').value;
@@ -425,6 +428,9 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                 return;
             }}
 
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Saving...';
+
             try {{
                 const res = await fetch('/platformadmin/credentials/create', {{
                     method: 'POST',
@@ -447,11 +453,18 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                 }}
             }} catch (e) {{
                 showToast('Network error', 'error');
+            }} finally {{
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
             }}
         }}
 
-        async function deleteCredential(credId, credType) {{
+        async function deleteCredential(btn, credId, credType) {{
             if (!confirm(`Delete this ${{credType}} credential? This cannot be undone.`)) return;
+
+            const originalText = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Deleting...';
 
             try {{
                 const res = await fetch(`/platformadmin/credentials/${{credId}}`, {{ method: 'DELETE' }});
@@ -465,6 +478,9 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                 }}
             }} catch (e) {{
                 showToast('Network error', 'error');
+            }} finally {{
+                btn.disabled = false;
+                btn.textContent = originalText;
             }}
         }}
 

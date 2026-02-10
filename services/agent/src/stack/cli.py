@@ -11,6 +11,7 @@ from typing import TypedDict
 import httpx
 import typer
 from rich.console import Console
+from rich.prompt import Confirm
 from rich.table import Table
 
 from stack import auth, checks, compose, health, qdrant, tooling, utils
@@ -949,9 +950,7 @@ def deploy(
     if not skip_checks:
         console.print("[bold cyan]Running quality checks…[/bold cyan]")
         try:
-            # Skip architecture check for now due to existing violations
-            # TODO: Fix architecture violations and remove skip_architecture=True
-            _run_quality_checks(repo_root, skip_architecture=True)
+            _run_quality_checks(repo_root, skip_architecture=False)
             console.print("[bold green]✓ All checks passed[/bold green]")
         except Exception as exc:
             console.print(f"[bold red]✗ Quality checks failed: {exc}[/bold red]")
@@ -1308,9 +1307,7 @@ def repo_publish(
 
     repo_root = _repo_root()
     if not skip_checks:
-        # Skip architecture check for now due to existing violations
-        # TODO: Fix architecture violations and remove skip_architecture=True
-        _run_quality_checks(repo_root, skip_architecture=True)
+        _run_quality_checks(repo_root, skip_architecture=False)
 
     repo_save(message=message, branch=branch)
     repo_push(remote=remote, set_upstream=set_upstream)
@@ -1318,7 +1315,10 @@ def repo_publish(
 
 
 def _run_quality_checks(repo_root: Path, *, skip_architecture: bool = False) -> None:
-    msg = "Running local quality checks (architecture, ruff, black, mypy, pytest)..."
+    if skip_architecture:
+        msg = "Running local quality checks (ruff, black, mypy, pytest)..."
+    else:
+        msg = "Running local quality checks (architecture, ruff, black, mypy, pytest)..."
     console.print(f"[cyan]{msg}[/cyan]")
     checks.ensure_dependencies()
     results = checks.run_all_checks(
@@ -1417,6 +1417,13 @@ def n8n_import(
     flows_dir: Path = typer.Option(Path("flows"), help="Source directory for imports."),
 ) -> None:
     """Import workflows from the repository into the running n8n container."""
+
+    if not Confirm.ask(
+        "[yellow]This will import workflows into n8n. Continue?[/yellow]",
+        default=False,
+    ):
+        console.print("[dim]Import cancelled.[/dim]")
+        return
 
     repo_root = _repo_root()
     tooling.ensure_container_exists(container)
@@ -1530,6 +1537,13 @@ def openwebui_import(
     ),
 ) -> None:
     """Restore the Open WebUI SQLite database inside the container."""
+
+    if not Confirm.ask(
+        "[yellow]This will REPLACE the current Open WebUI database. Continue?[/yellow]",
+        default=False,
+    ):
+        console.print("[dim]Import cancelled.[/dim]")
+        return
 
     tooling.ensure_docker()
     repo_root = _repo_root()

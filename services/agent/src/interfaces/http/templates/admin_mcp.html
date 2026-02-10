@@ -237,12 +237,12 @@ function renderServers(servers) {
         const ctx = escapeHtml(s.context_name || s.context_id.slice(0, 8) + '...');
         const enabledIcon = s.is_enabled ? '' : ' <span title="Disabled" style="opacity: 0.5;">(off)</span>';
 
-        let actions = '<button class="btn btn-sm" onclick="testServer(\'' + s.id + '\')">Test</button> ';
+        let actions = '<button class="btn btn-sm" onclick="testServer(this, \'' + s.id + '\')">Test</button> ';
         if (s.auth_type === 'oauth' && s.has_oauth_config) {
-            actions += '<button class="btn btn-sm btn-primary" onclick="startOAuth(\'' + s.id + '\')">Auth</button> ';
+            actions += '<button class="btn btn-sm btn-primary" onclick="startOAuth(this, \'' + s.id + '\')">Auth</button> ';
         }
         actions += '<button class="btn btn-sm" onclick="editServer(\'' + s.id + '\')">Edit</button> ';
-        actions += '<button class="btn btn-sm btn-danger" onclick="deleteServer(\'' + s.id + '\', \'' + escapeHtml(s.name) + '\')">Del</button>';
+        actions += '<button class="btn btn-sm btn-danger" onclick="deleteServer(this, \'' + s.id + '\', \'' + escapeHtml(s.name) + '\')">Del</button>';
 
         return '<tr>' +
             '<td>' + escapeHtml(s.name) + enabledIcon + '</td>' +
@@ -301,15 +301,17 @@ function editServer(serverId) {
     document.getElementById('submitBtn').textContent = 'Update Server';
     loadContexts();
 
-    // Pre-fill fields after contexts load
-    setTimeout(() => {
-        document.getElementById('contextId').value = server.context_id;
-        document.getElementById('serverName').value = server.name;
-        document.getElementById('serverUrl').value = server.url;
-        document.getElementById('transport').value = server.transport;
-        document.getElementById('authType').value = server.auth_type;
-        toggleAuthFields();
-    }, 300);
+    // Pre-fill fields after contexts load - use double rAF for guaranteed DOM paint
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            document.getElementById('contextId').value = server.context_id;
+            document.getElementById('serverName').value = server.name;
+            document.getElementById('serverUrl').value = server.url;
+            document.getElementById('transport').value = server.transport;
+            document.getElementById('authType').value = server.auth_type;
+            toggleAuthFields();
+        });
+    });
 
     document.getElementById('serverModal').classList.add('active');
 }
@@ -321,6 +323,9 @@ function closeModal() {
 
 async function submitServer(e) {
     e.preventDefault();
+    const submitBtn = document.getElementById('submitBtn');
+    const originalText = submitBtn.textContent;
+
     const serverId = document.getElementById('editServerId').value;
     const isEdit = !!serverId;
 
@@ -351,6 +356,9 @@ async function submitServer(e) {
         if (scopes) body.oauth_scopes = scopes;
     }
 
+    submitBtn.disabled = true;
+    submitBtn.textContent = isEdit ? 'Updating...' : 'Creating...';
+
     try {
         const url = isEdit ? '/platformadmin/mcp/servers/' + serverId : '/platformadmin/mcp/servers';
         const method = isEdit ? 'PUT' : 'POST';
@@ -369,11 +377,18 @@ async function submitServer(e) {
         }
     } catch (err) {
         showToast('Network error', 'error');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
-async function deleteServer(serverId, serverName) {
+async function deleteServer(btn, serverId, serverName) {
     if (!confirm('Delete MCP server "' + serverName + '"? This cannot be undone.')) return;
+
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Deleting...';
 
     try {
         const res = await fetch('/platformadmin/mcp/servers/' + serverId, { method: 'DELETE' });
@@ -386,10 +401,17 @@ async function deleteServer(serverId, serverName) {
         }
     } catch (err) {
         showToast('Network error', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
     }
 }
 
-async function testServer(serverId) {
+async function testServer(btn, serverId) {
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Testing...';
+
     document.getElementById('testResult').innerHTML = '<div class="loading">Testing connection...</div>';
     document.getElementById('testModal').classList.add('active');
 
@@ -425,6 +447,9 @@ async function testServer(serverId) {
     } catch (err) {
         document.getElementById('testResult').innerHTML =
             '<div style="text-align: center; padding: 12px; color: var(--error);">Network error during test</div>';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
     }
 }
 
@@ -432,7 +457,11 @@ function closeTestModal() {
     document.getElementById('testModal').classList.remove('active');
 }
 
-async function startOAuth(serverId) {
+async function startOAuth(btn, serverId) {
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+
     try {
         const res = await fetch('/platformadmin/mcp/servers/' + serverId + '/oauth/start', { method: 'POST' });
         const data = await res.json();
@@ -444,6 +473,9 @@ async function startOAuth(serverId) {
         }
     } catch (err) {
         showToast('Network error', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
     }
 }
 

@@ -10,6 +10,16 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     networks:
       - default
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   agent:
     build:
@@ -66,8 +76,19 @@ services:
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 10s
-      timeout: 5s
+      timeout: 10s
       retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     labels:
       # Traefik disabled by default - enabled in environment-specific overrides
       # This prevents router conflicts when running multiple environments
@@ -91,6 +112,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   qdrant:
     image: qdrant/qdrant:latest
@@ -106,6 +137,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   searxng:
     image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
@@ -124,6 +165,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
 
   open-webui:
     image: ghcr.io/open-webui/open-webui:0.7.2
@@ -151,6 +202,16 @@ services:
       - ./data/openwebui:/app/backend/data
     depends_on:
       - agent
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
     labels:
       # Traefik disabled by default - enabled in environment-specific overrides
       # This prevents router conflicts when running multiple environments
