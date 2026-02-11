@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import sys
 import time
 import traceback
 import uuid
@@ -122,7 +123,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     """
 
     settings = settings or get_settings()
-    setup_logging(level=settings.log_level)
+    setup_logging(level=settings.log_level, log_to_file="pytest" not in sys.modules)
     configure_tracing(
         settings.app_name,
         span_log_path=str(settings.trace_span_log_path or "data/spans.jsonl"),
