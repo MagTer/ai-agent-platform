@@ -1,0 +1,348 @@
+<div style="display: flex; align-items: center; gap: 16px; margin-bottom: 24px;">
+    <a href="/platformadmin/contexts/" class="btn btn-sm">&larr; All Contexts</a>
+    <h1 class="page-title" style="margin-bottom: 0;" id="contextTitle">Loading...</h1>
+    <span class="badge" id="contextType"></span>
+</div>
+
+<div class="tab-bar">
+    <button class="tab active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
+    <button class="tab" data-tab="permissions" onclick="switchTab('permissions')">Permissions</button>
+    <button class="tab" data-tab="workspaces" onclick="switchTab('workspaces')">Workspaces</button>
+    <button class="tab" data-tab="mcp" onclick="switchTab('mcp')">MCP Servers</button>
+    <button class="tab" data-tab="oauth" onclick="switchTab('oauth')">OAuth Tokens</button>
+    <button class="tab" data-tab="conversations" onclick="switchTab('conversations')">Conversations</button>
+</div>
+
+<div id="tab-overview" class="tab-content active">
+    <div class="card" id="overviewCard">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<div id="tab-permissions" class="tab-content" style="display:none;">
+    <div class="card" id="permissionsCard">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<div id="tab-workspaces" class="tab-content" style="display:none;">
+    <div class="card" id="workspacesCard">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<div id="tab-mcp" class="tab-content" style="display:none;">
+    <div class="card" id="mcpCard">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<div id="tab-oauth" class="tab-content" style="display:none;">
+    <div class="card" id="oauthCard">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<div id="tab-conversations" class="tab-content" style="display:none;">
+    <div class="card" id="conversationsCard">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<!-- SECTION_SEPARATOR -->
+.tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 24px; }
+.tab { padding: 12px 20px; border: none; background: none; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.detail-grid { display: grid; grid-template-columns: 160px 1fr; gap: 8px 16px; font-size: 14px; }
+.detail-label { font-weight: 500; color: var(--text-muted); }
+.detail-value { color: var(--text); }
+.config-pre { background: var(--bg); padding: 12px; border-radius: 4px; font-family: monospace; font-size: 13px; white-space: pre-wrap; overflow-x: auto; max-height: 200px; }
+.member-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.member-row:last-child { border-bottom: none; }
+.perm-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.perm-row:last-child { border-bottom: none; }
+.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #e2e8f0; transition: 0.2s; border-radius: 24px; }
+.toggle-slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: 0.2s; border-radius: 50%; }
+input:checked + .toggle-slider { background-color: var(--success); }
+input:checked + .toggle-slider:before { transform: translateX(20px); }
+.ws-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.ws-row:last-child { border-bottom: none; }
+.ws-name { font-weight: 500; }
+.ws-url { font-size: 12px; color: var(--text-muted); font-family: monospace; }
+.conv-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.conv-table th { text-align: left; padding: 8px; border-bottom: 2px solid var(--border); font-weight: 500; color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
+.conv-table td { padding: 8px; border-bottom: 1px solid var(--border); }
+.token-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.token-row:last-child { border-bottom: none; }
+.mcp-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.mcp-row:last-child { border-bottom: none; }
+.empty-state { padding: 24px; text-align: center; color: var(--text-muted); font-size: 14px; }
+
+<!-- SECTION_SEPARATOR -->
+const CONTEXT_ID = '__CONTEXT_ID__';
+const loadedTabs = {};
+
+function switchTab(tab) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => { t.style.display = 'none'; t.classList.remove('active'); });
+    document.querySelector('[data-tab="' + tab + '"]').classList.add('active');
+    const content = document.getElementById('tab-' + tab);
+    content.style.display = 'block';
+    content.classList.add('active');
+    window.location.hash = tab;
+    if (!loadedTabs[tab]) {
+        loadedTabs[tab] = true;
+        if (tab === 'overview') loadOverview();
+        else if (tab === 'permissions') loadPermissions();
+        else if (tab === 'workspaces') loadWorkspaces();
+        else if (tab === 'mcp') loadMcpServers();
+        else if (tab === 'oauth') loadOAuthTokens();
+        else if (tab === 'conversations') loadConversations();
+    }
+}
+
+function escapeHtml(str) {
+    if (!str) return '';
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// --- Overview Tab ---
+async function loadOverview() {
+    const card = document.getElementById('overviewCard');
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID);
+    if (!res) { card.innerHTML = '<div class="empty-state">Failed to load</div>'; return; }
+    const ctx = await res.json();
+
+    document.getElementById('contextTitle').textContent = ctx.name;
+    const typeEl = document.getElementById('contextType');
+    typeEl.textContent = ctx.type;
+    typeEl.className = 'badge badge-info';
+
+    let html = '<div class="card-header"><span class="card-title">Context Details</span></div>';
+    html += '<div class="detail-grid">';
+    html += '<div class="detail-label">ID</div><div class="detail-value" style="font-family: monospace; font-size: 12px;">' + CONTEXT_ID + '</div>';
+    html += '<div class="detail-label">Name</div><div class="detail-value">' + escapeHtml(ctx.name) + '</div>';
+    html += '<div class="detail-label">Type</div><div class="detail-value">' + escapeHtml(ctx.type) + '</div>';
+    html += '<div class="detail-label">Default CWD</div><div class="detail-value" style="font-family: monospace;">' + escapeHtml(ctx.default_cwd) + '</div>';
+    if (ctx.pinned_files && ctx.pinned_files.length > 0) {
+        html += '<div class="detail-label">Pinned Files</div><div class="detail-value">' + ctx.pinned_files.map(f => '<div style="font-family: monospace; font-size: 12px;">' + escapeHtml(f) + '</div>').join('') + '</div>';
+    }
+    html += '<div class="detail-label">Config</div><div class="detail-value"><pre class="config-pre">' + escapeHtml(JSON.stringify(ctx.config, null, 2)) + '</pre></div>';
+    html += '</div>';
+
+    // Load members
+    const membersRes = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/members');
+    if (membersRes) {
+        const membersData = await membersRes.json();
+        html += '<div style="margin-top: 24px;"><div class="card-header"><span class="card-title">Members (' + membersData.total + ')</span></div>';
+        if (membersData.members.length === 0) {
+            html += '<div class="empty-state">No members linked to this context</div>';
+        } else {
+            html += membersData.members.map(m =>
+                '<div class="member-row">' +
+                '<span>' + escapeHtml(m.display_name) + ' (' + escapeHtml(m.email) + ')</span>' +
+                '<span class="badge badge-info">' + m.role + '</span>' +
+                (m.is_default ? '<span class="badge badge-success">default</span>' : '') +
+                '</div>'
+            ).join('');
+        }
+        html += '</div>';
+    }
+
+    card.innerHTML = html;
+}
+
+// --- Permissions Tab ---
+async function loadPermissions() {
+    const card = document.getElementById('permissionsCard');
+    const res = await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + CONTEXT_ID);
+    if (!res) { card.innerHTML = '<div class="empty-state">Failed to load permissions</div>'; return; }
+    const data = await res.json();
+    const tools = data.tools || [];
+
+    let html = '<div class="card-header"><span class="card-title">Tool Permissions (' + tools.length + ')</span>';
+    html += '<div style="display: flex; gap: 8px;">';
+    html += '<button class="btn btn-sm" onclick="bulkPermissions(true)">Allow All</button>';
+    html += '<button class="btn btn-sm" onclick="bulkPermissions(false)">Deny All</button>';
+    html += '</div></div>';
+
+    if (tools.length === 0) {
+        html += '<div class="empty-state">No tools configured</div>';
+    } else {
+        html += tools.map(t =>
+            '<div class="perm-row">' +
+            '<div><span style="font-weight: 500;">' + escapeHtml(t.tool_name) + '</span>' +
+            (t.description ? '<div style="font-size: 12px; color: var(--text-muted);">' + escapeHtml(t.description) + '</div>' : '') +
+            '</div>' +
+            '<label class="toggle-switch">' +
+            '<input type="checkbox" ' + (t.allowed ? 'checked' : '') + ' onchange="togglePermission(\'' + t.tool_name + '\', this.checked)">' +
+            '<span class="toggle-slider"></span></label></div>'
+        ).join('');
+    }
+    card.innerHTML = html;
+}
+
+async function togglePermission(toolName, allowed) {
+    await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + CONTEXT_ID + '/tools/' + toolName, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowed: allowed })
+    });
+}
+
+async function bulkPermissions(allowed) {
+    await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + CONTEXT_ID + '/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allowed: allowed })
+    });
+    loadedTabs['permissions'] = false;
+    loadPermissions();
+}
+
+// --- Workspaces Tab ---
+async function loadWorkspaces() {
+    const card = document.getElementById('workspacesCard');
+    const res = await fetchWithErrorHandling('/platformadmin/workspaces/list?context_id=' + CONTEXT_ID);
+    if (!res) { card.innerHTML = '<div class="empty-state">Failed to load workspaces</div>'; return; }
+    const data = await res.json();
+    const workspaces = data.workspaces || [];
+
+    let html = '<div class="card-header"><span class="card-title">Workspaces (' + workspaces.length + ')</span></div>';
+
+    if (workspaces.length === 0) {
+        html += '<div class="empty-state">No workspaces configured for this context</div>';
+    } else {
+        html += workspaces.map(w =>
+            '<div class="ws-row"><div>' +
+            '<div class="ws-name">' + escapeHtml(w.name || w.repo_url.split('/').pop()) + '</div>' +
+            '<div class="ws-url">' + escapeHtml(w.repo_url) + '</div>' +
+            '<div style="font-size: 11px; color: var(--text-muted);">Status: <span class="badge badge-' + (w.status === 'cloned' ? 'success' : 'info') + '">' + w.status + '</span></div>' +
+            '</div><div style="display: flex; gap: 8px;">' +
+            '<button class="btn btn-sm" onclick="syncWorkspace(\'' + w.id + '\')">Sync</button>' +
+            '<button class="btn btn-sm btn-danger" onclick="deleteWorkspace(\'' + w.id + '\')">Delete</button>' +
+            '</div></div>'
+        ).join('');
+    }
+    card.innerHTML = html;
+}
+
+async function syncWorkspace(id) {
+    await fetchWithErrorHandling('/platformadmin/workspaces/' + id + '/sync', { method: 'POST' });
+    showToast('Sync started', 'success');
+}
+
+async function deleteWorkspace(id) {
+    if (!confirm('Delete this workspace?')) return;
+    await fetchWithErrorHandling('/platformadmin/workspaces/' + id, { method: 'DELETE' });
+    loadedTabs['workspaces'] = false;
+    loadWorkspaces();
+}
+
+// --- MCP Servers Tab ---
+async function loadMcpServers() {
+    const card = document.getElementById('mcpCard');
+    const res = await fetchWithErrorHandling('/platformadmin/mcp/servers?context_id=' + CONTEXT_ID);
+    if (!res) { card.innerHTML = '<div class="empty-state">Failed to load MCP servers</div>'; return; }
+    const data = await res.json();
+    const servers = data.servers || [];
+
+    let html = '<div class="card-header"><span class="card-title">MCP Servers (' + servers.length + ')</span></div>';
+
+    if (servers.length === 0) {
+        html += '<div class="empty-state">No MCP servers configured for this context</div>';
+    } else {
+        html += servers.map(s =>
+            '<div class="mcp-row"><div>' +
+            '<div style="font-weight: 500;">' + escapeHtml(s.name) + '</div>' +
+            '<div style="font-size: 12px; color: var(--text-muted); font-family: monospace;">' + escapeHtml(s.url) + '</div>' +
+            '<div style="font-size: 11px; margin-top: 4px;">Status: <span class="badge badge-' + (s.status === 'connected' ? 'success' : s.status === 'error' ? 'error' : 'info') + '">' + s.status + '</span>' +
+            ' Transport: ' + s.transport + ' Auth: ' + s.auth_type + '</div>' +
+            '</div><div>' +
+            '<button class="btn btn-sm" onclick="testMcpServer(\'' + s.id + '\')">Test</button>' +
+            '</div></div>'
+        ).join('');
+    }
+    card.innerHTML = html;
+}
+
+async function testMcpServer(id) {
+    const res = await fetchWithErrorHandling('/platformadmin/mcp/servers/' + id + '/test', { method: 'POST' });
+    if (res) {
+        const data = await res.json();
+        showToast(data.status === 'connected' ? 'Connection successful' : 'Connection failed: ' + (data.error || 'unknown'), data.status === 'connected' ? 'success' : 'error');
+        loadedTabs['mcp'] = false;
+        loadMcpServers();
+    }
+}
+
+// --- OAuth Tokens Tab ---
+async function loadOAuthTokens() {
+    const card = document.getElementById('oauthCard');
+    const res = await fetchWithErrorHandling('/platformadmin/oauth/tokens?context_id=' + CONTEXT_ID);
+    if (!res) { card.innerHTML = '<div class="empty-state">Failed to load OAuth tokens</div>'; return; }
+    const data = await res.json();
+    const tokens = data.tokens || [];
+
+    let html = '<div class="card-header"><span class="card-title">OAuth Tokens (' + tokens.length + ')</span></div>';
+
+    if (tokens.length === 0) {
+        html += '<div class="empty-state">No OAuth tokens for this context</div>';
+    } else {
+        html += tokens.map(t =>
+            '<div class="token-row"><div>' +
+            '<div style="font-weight: 500;">' + escapeHtml(t.provider) + '</div>' +
+            '<div style="font-size: 12px; color: var(--text-muted);">Type: ' + t.token_type +
+            ' | Expires: ' + (t.expires_at || 'N/A') +
+            ' | <span style="color: ' + (t.is_expired ? 'var(--error)' : 'var(--success)') + ';">' + (t.is_expired ? 'Expired' : 'Valid') + '</span></div>' +
+            (t.scope ? '<div style="font-size: 11px; color: var(--text-muted);">Scope: ' + escapeHtml(t.scope) + '</div>' : '') +
+            '</div><div>' +
+            '<button class="btn btn-sm btn-danger" onclick="revokeToken(\'' + t.id + '\')">Revoke</button>' +
+            '</div></div>'
+        ).join('');
+    }
+    card.innerHTML = html;
+}
+
+async function revokeToken(id) {
+    if (!confirm('Revoke this OAuth token?')) return;
+    await fetchWithErrorHandling('/platformadmin/oauth/tokens/' + id, { method: 'DELETE' });
+    loadedTabs['oauth'] = false;
+    loadOAuthTokens();
+}
+
+// --- Conversations Tab ---
+async function loadConversations() {
+    const card = document.getElementById('conversationsCard');
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID);
+    if (!res) { card.innerHTML = '<div class="empty-state">Failed to load conversations</div>'; return; }
+    const data = await res.json();
+    const convs = data.conversations || [];
+
+    let html = '<div class="card-header"><span class="card-title">Conversations (' + convs.length + ')</span></div>';
+
+    if (convs.length === 0) {
+        html += '<div class="empty-state">No conversations in this context</div>';
+    } else {
+        html += '<table class="conv-table"><thead><tr><th>ID</th><th>Platform</th><th>CWD</th><th>Created</th></tr></thead><tbody>';
+        html += convs.map(c =>
+            '<tr><td style="font-family: monospace; font-size: 11px;">' + c.id.substring(0, 8) + '...</td>' +
+            '<td>' + escapeHtml(c.platform) + '</td>' +
+            '<td style="font-family: monospace; font-size: 12px;">' + escapeHtml(c.current_cwd || '-') + '</td>' +
+            '<td>' + (c.created_at ? new Date(c.created_at).toLocaleString() : '-') + '</td></tr>'
+        ).join('');
+        html += '</tbody></table>';
+    }
+    card.innerHTML = html;
+}
+
+// Initialize: read hash from URL on page load
+const initialTab = window.location.hash.replace('#', '') || 'overview';
+switchTab(initialTab);

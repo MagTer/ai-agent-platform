@@ -45,6 +45,7 @@ async def test_resolve_for_authenticated_user_existing_context(
     """Authenticated user with existing default context returns that context."""
     fake_user = MagicMock()
     fake_user.email = "test@example.com"
+    fake_user.active_context_id = None
     fake_context = MagicMock()
     fake_context.id = uuid.uuid4()
 
@@ -72,6 +73,7 @@ async def test_resolve_for_authenticated_user_missing_context_creates_one(
     fake_user = MagicMock()
     fake_user.id = uuid.uuid4()
     fake_user.email = "test@example.com"
+    fake_user.active_context_id = None
 
     with (
         patch("core.context.service.get_or_create_user", new_callable=AsyncMock) as mock_get_user,

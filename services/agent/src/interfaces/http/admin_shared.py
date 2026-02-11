@@ -30,14 +30,10 @@ ADMIN_NAV_ITEMS: list[NavItem] = [
     NavItem("Dashboard", "/platformadmin/", "&#127968;", "home"),
     NavItem("Diagnostics", "/platformadmin/diagnostics/", "&#128200;", "monitoring"),
     NavItem("Debug Logs", "/platformadmin/debug/", "&#128270;", "monitoring"),
+    NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "features"),
     NavItem("Users", "/platformadmin/users/", "&#128100;", "users"),
     NavItem("Credentials", "/platformadmin/credentials/", "&#128273;", "users"),
     NavItem("Price Tracker", "/platformadmin/price-tracker/", "&#128181;", "features"),
-    NavItem("MCP Integrations", "/platformadmin/mcp/", "&#128268;", "features"),
-    NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "features"),
-    NavItem("Permissions", "/platformadmin/permissions/", "&#128737;", "features"),
-    NavItem("Workspaces", "/platformadmin/workspaces/", "&#128193;", "features"),
-    NavItem("OAuth Settings", "/platformadmin/oauth/", "&#128274;", "features"),
     NavItem("Chat", "/", "&#128172;", "external"),
     NavItem("Open WebUI Admin", "/admin/", "&#128279;", "external"),
 ]
@@ -471,11 +467,22 @@ def get_admin_sidebar_html(active_page: str) -> str:
                 nav_html.append(f'<div class="nav-section">{sections[item.section]}</div>')
 
         # Determine if this is the active item
-        is_active = (
-            item.href.rstrip("/").endswith(active_page.rstrip("/"))
-            if active_page != "/"
-            else item.href == "/platformadmin/"
-        )
+        is_active = False
+        if active_page == "/":
+            is_active = item.href == "/platformadmin/"
+        elif (
+            active_page.startswith("/platformadmin/contexts/")
+            and item.href == "/platformadmin/contexts/"
+        ):
+            # Context detail pages highlight the Contexts nav item
+            is_active = True
+        elif (
+            active_page.startswith("/platformadmin/users/") and item.href == "/platformadmin/users/"
+        ):
+            # User detail pages highlight the Users nav item
+            is_active = True
+        else:
+            is_active = item.href.rstrip("/").endswith(active_page.rstrip("/"))
         active_class = " active" if is_active else ""
 
         nav_html.append(

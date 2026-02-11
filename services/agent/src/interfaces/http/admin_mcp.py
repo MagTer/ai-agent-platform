@@ -136,6 +136,7 @@ class McpServerListResponse(BaseModel):
     dependencies=[Depends(verify_admin_user)],
 )
 async def list_mcp_servers(
+    context_id: UUID | None = None,
     session: AsyncSession = Depends(get_db),
 ) -> McpServerListResponse:
     """List all user-defined MCP servers across all contexts."""
@@ -144,6 +145,8 @@ async def list_mcp_servers(
         .join(Context, McpServer.context_id == Context.id)
         .order_by(Context.name, McpServer.name)
     )
+    if context_id:
+        stmt = stmt.where(McpServer.context_id == context_id)
     result = await session.execute(stmt)
     rows = result.all()
 

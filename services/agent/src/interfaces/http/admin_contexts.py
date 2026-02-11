@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -14,7 +15,15 @@ from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
-from core.db.models import Context, Conversation, ToolPermission
+from core.db.models import (
+    Context,
+    Conversation,
+    McpServer,
+    ToolPermission,
+    User,
+    UserContext,
+    Workspace,
+)
 from core.db.oauth_models import OAuthToken
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
@@ -36,64 +45,205 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
         Requires admin role via Entra ID authentication.
     """
     content = """
-        <h1 class="page-title">Contexts</h1>
+    <h1 class="page-title">Contexts</h1>
 
-        <div class="card">
-            <div class="card-header">
-                <span>All Contexts <span id="count" class="badge badge-info">0</span></span>
+    <div class="stats-grid">
+        <div class="stat-box">
+            <div class="stat-value" id="totalContexts">0</div>
+            <div class="stat-label">Total Contexts</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value" id="personalContexts">0</div>
+            <div class="stat-label">Personal</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-value" id="virtualContexts">0</div>
+            <div class="stat-label">Virtual</div>
+        </div>
+    </div>
+
+    <!-- Active Context Switcher -->
+    <div class="card" style="margin-bottom: 16px;">
+        <div class="card-header">
+            <span class="card-title">Active Chat Context</span>
+        </div>
+        <div style="padding: 0 0 4px 0;">
+            <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+                Select which context to use when chatting via OpenWebUI.
+            </p>
+            <select id="activeContextSelect" onchange="switchActiveContext(this.value)" style="padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; min-width: 300px;">
+                <option value="">Loading...</option>
+            </select>
+            <span id="switchStatus" style="margin-left: 12px; font-size: 13px;"></span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <span>All Contexts <span id="count" class="badge badge-info">0</span></span>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-primary" onclick="showCreateModal()">+ Create Context</button>
                 <button class="btn" onclick="loadContexts()">Refresh</button>
             </div>
-            <div class="context-list" id="contexts">
-                <div class="loading">Loading...</div>
-            </div>
         </div>
-    """
+        <div id="contexts">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+
+    <!-- Create Context Modal -->
+    <div id="createModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Create Context</h3>
+            <form id="createForm" onsubmit="createContext(event)">
+                <div class="form-group">
+                    <label>Name</label>
+                    <input type="text" id="ctxName" required placeholder="e.g., project-backend">
+                </div>
+                <div class="form-group">
+                    <label>Type</label>
+                    <select id="ctxType">
+                        <option value="personal">Personal</option>
+                        <option value="virtual">Virtual</option>
+                        <option value="git_repo">Git Repo</option>
+                        <option value="devops">DevOps</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="hideCreateModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create</button>
+                </div>
+            </form>
+        </div>
+    </div>
+"""
 
     extra_css = """
-        .context { padding: 16px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; }
-        .context-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
-        .context-meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 16px; margin-top: 8px; }
-        .context-id { font-family: monospace; font-size: 11px; color: var(--text-muted); }
-    """
+    .context-card { display: block; padding: 16px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; text-decoration: none; color: inherit; transition: all 0.15s; }
+    .context-card:hover { border-color: var(--primary); background: #f8faff; }
+    .context-header { display: flex; justify-content: space-between; align-items: flex-start; }
+    .context-name { font-weight: 600; font-size: 15px; margin-bottom: 4px; color: var(--text); }
+    .context-id { font-family: monospace; font-size: 11px; color: var(--text-muted); }
+    .context-meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+    .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-content { background: var(--bg-card); padding: 24px; border-radius: 8px; width: 100%; max-width: 480px; }
+    .modal-content h3 { margin: 0 0 16px 0; }
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 500; }
+    .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; background: var(--bg); color: var(--text); }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    .badge-type-personal { background: #dbeafe; color: #1e40af; }
+    .badge-type-virtual { background: #e5e7eb; color: #374151; }
+    .badge-type-git_repo { background: #d1fae5; color: #065f46; }
+    .badge-type-devops { background: #ede9fe; color: #6d28d9; }
+"""
 
     extra_js = """
-        async function loadContexts() {
-            const res = await fetchWithErrorHandling('/platformadmin/contexts');
-            if (!res) {
-                document.getElementById('contexts').innerHTML = '<div style="color: var(--error)">Failed to load contexts</div>';
-                return;
-            }
+    async function loadContexts() {
+        const res = await fetchWithErrorHandling('/platformadmin/contexts');
+        if (!res) {
+            document.getElementById('contexts').innerHTML = '<div style="color: var(--error)">Failed to load</div>';
+            return;
+        }
+        const data = await res.json();
+        renderContexts(data);
+    }
+
+    function renderContexts(data) {
+        const contexts = data.contexts || [];
+        document.getElementById('count').textContent = data.total || 0;
+        document.getElementById('totalContexts').textContent = data.total || 0;
+        document.getElementById('personalContexts').textContent = contexts.filter(c => c.type === 'personal').length;
+        document.getElementById('virtualContexts').textContent = contexts.filter(c => c.type === 'virtual').length;
+
+        const el = document.getElementById('contexts');
+        if (contexts.length === 0) {
+            el.innerHTML = '<div class="empty-state">No contexts found</div>';
+            return;
+        }
+        el.innerHTML = contexts.map(c => {
+            const typeBadge = '<span class="badge badge-type-' + c.type + '">' + c.type + '</span>';
+            return '<a href="/platformadmin/contexts/' + c.id + '/" class="context-card">' +
+                '<div class="context-header"><div>' +
+                '<div class="context-name">' + escapeHtml(c.name) + ' ' + typeBadge + '</div>' +
+                '<div class="context-id">' + c.id + '</div>' +
+                '</div></div>' +
+                '<div class="context-meta">' +
+                '<span>Conversations: ' + c.conversation_count + '</span>' +
+                '<span>OAuth: ' + c.oauth_token_count + '</span>' +
+                '<span>Permissions: ' + c.tool_permission_count + '</span>' +
+                '<span>Workspaces: ' + c.workspace_count + '</span>' +
+                '<span>MCP: ' + c.mcp_server_count + '</span>' +
+                '</div></a>';
+        }).join('');
+    }
+
+    async function loadMyContexts() {
+        const res = await fetchWithErrorHandling('/platformadmin/users/me/contexts');
+        if (!res) return;
+        const data = await res.json();
+        const select = document.getElementById('activeContextSelect');
+        const contexts = data.contexts || [];
+        if (contexts.length === 0) {
+            select.innerHTML = '<option value="">No contexts available</option>';
+            return;
+        }
+        select.innerHTML = contexts.map(c => {
+            const label = c.name + (c.is_default ? ' (personal)' : '') + ' [' + c.role + ']';
+            return '<option value="' + c.id + '"' + (c.is_active ? ' selected' : '') + '>' + escapeHtml(label) + '</option>';
+        }).join('');
+    }
+
+    async function switchActiveContext(contextId) {
+        const statusEl = document.getElementById('switchStatus');
+        statusEl.textContent = 'Switching...';
+        statusEl.style.color = 'var(--text-muted)';
+        const res = await fetchWithErrorHandling('/platformadmin/users/me/active-context', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context_id: contextId || null })
+        });
+        if (res) {
             const data = await res.json();
-            renderContexts(data);
+            statusEl.textContent = data.message || 'Done';
+            statusEl.style.color = 'var(--success)';
+            setTimeout(() => { statusEl.textContent = ''; }, 3000);
+        } else {
+            statusEl.textContent = 'Failed';
+            statusEl.style.color = 'var(--error)';
         }
-        function renderContexts(data) {
-            document.getElementById('count').textContent = data.total || 0;
-            const el = document.getElementById('contexts');
-            if (!data.contexts || data.contexts.length === 0) {
-                el.innerHTML = '<div class="loading">No contexts found</div>';
-                return;
-            }
-            el.innerHTML = data.contexts.map(c => `
-                <div class="context">
-                    <div class="context-name">${escapeHtml(c.name)}</div>
-                    <div class="context-id">${c.id}</div>
-                    <div class="context-meta">
-                        <span>Type: <span class="badge badge-info">${c.type}</span></span>
-                        <span>Conversations: ${c.conversation_count}</span>
-                        <span>OAuth tokens: ${c.oauth_token_count}</span>
-                        <span>Tool permissions: ${c.tool_permission_count}</span>
-                    </div>
-                </div>
-            `).join('');
+    }
+
+    function showCreateModal() { document.getElementById('createModal').style.display = 'flex'; }
+    function hideCreateModal() { document.getElementById('createModal').style.display = 'none'; document.getElementById('createForm').reset(); }
+
+    async function createContext(e) {
+        e.preventDefault();
+        const name = document.getElementById('ctxName').value;
+        const type = document.getElementById('ctxType').value;
+        const res = await fetchWithErrorHandling('/platformadmin/contexts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, type: type })
+        });
+        if (res) {
+            showToast('Context created', 'success');
+            hideCreateModal();
+            loadContexts();
+            loadMyContexts();
         }
-        function escapeHtml(str) {
-            if (!str) return '';
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
-        loadContexts();
-    """
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    loadContexts();
+    loadMyContexts();
+"""
 
     return render_admin_page(
         title="Contexts",
@@ -119,6 +269,8 @@ class ContextInfo(BaseModel):
     conversation_count: int
     oauth_token_count: int
     tool_permission_count: int
+    workspace_count: int
+    mcp_server_count: int
 
 
 class ContextList(BaseModel):
@@ -193,10 +345,14 @@ async def list_contexts(
             func.count(distinct(Conversation.id)).label("conv_count"),
             func.count(distinct(OAuthToken.id)).label("oauth_count"),
             func.count(distinct(ToolPermission.id)).label("perm_count"),
+            func.count(distinct(Workspace.id)).label("ws_count"),
+            func.count(distinct(McpServer.id)).label("mcp_count"),
         )
         .outerjoin(Conversation, Conversation.context_id == Context.id)
         .outerjoin(OAuthToken, OAuthToken.context_id == Context.id)
         .outerjoin(ToolPermission, ToolPermission.context_id == Context.id)
+        .outerjoin(Workspace, Workspace.context_id == Context.id)
+        .outerjoin(McpServer, McpServer.context_id == Context.id)
         .group_by(Context.id)
         .order_by(Context.name)
     )
@@ -208,7 +364,7 @@ async def list_contexts(
     rows = result.all()
 
     context_infos = []
-    for ctx, conv_count, oauth_count, perm_count in rows:
+    for ctx, conv_count, oauth_count, perm_count, ws_count, mcp_count in rows:
         context_infos.append(
             ContextInfo(
                 id=ctx.id,
@@ -220,6 +376,8 @@ async def list_contexts(
                 conversation_count=conv_count,
                 oauth_token_count=oauth_count,
                 tool_permission_count=perm_count,
+                workspace_count=ws_count,
+                mcp_server_count=mcp_count,
             )
         )
 
@@ -316,6 +474,77 @@ async def get_context_details(
             for perm in tool_permissions
         ],
     )
+
+
+@router.get("/{context_id}/", response_class=UTF8HTMLResponse)
+async def context_detail_page(
+    context_id: UUID,
+    admin: AdminUser = Depends(require_admin_or_redirect),
+    session: AsyncSession = Depends(get_db),
+) -> str:
+    """Context detail page with tabbed sub-views."""
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    ctx = result.scalar_one_or_none()
+
+    if not ctx:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Context {context_id} not found",
+        )
+
+    template_path = Path(__file__).parent / "templates" / "admin_context_detail.html"
+    parts = template_path.read_text(encoding="utf-8").split("<!-- SECTION_SEPARATOR -->")
+
+    content = (parts[0] if len(parts) > 0 else "").replace("__CONTEXT_ID__", str(context_id))
+    extra_css = parts[1] if len(parts) > 1 else ""
+    extra_js = (parts[2] if len(parts) > 2 else "").replace("__CONTEXT_ID__", str(context_id))
+
+    return render_admin_page(
+        title=f"Context: {ctx.name}",
+        active_page=f"/platformadmin/contexts/{context_id}/",
+        content=content,
+        user_name=admin.display_name or admin.email.split("@")[0],
+        user_email=admin.email,
+        breadcrumbs=[
+            ("Contexts", "/platformadmin/contexts/"),
+            (ctx.name, "#"),
+        ],
+        extra_css=extra_css,
+        extra_js=extra_js,
+    )
+
+
+@router.get(
+    "/{context_id}/members",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def get_context_members(
+    context_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Get users linked to a context."""
+    stmt = (
+        select(User.id, User.email, User.display_name, UserContext.role, UserContext.is_default)
+        .join(UserContext, User.id == UserContext.user_id)
+        .where(UserContext.context_id == context_id)
+        .order_by(UserContext.role, User.display_name)
+    )
+    result = await session.execute(stmt)
+    rows = result.all()
+
+    members = [
+        {
+            "user_id": str(uid),
+            "email": email,
+            "display_name": display_name or email.split("@")[0],
+            "role": role,
+            "is_default": is_default,
+        }
+        for uid, email, display_name, role, is_default in rows
+    ]
+
+    return {"members": members, "total": len(members)}
 
 
 @router.post(

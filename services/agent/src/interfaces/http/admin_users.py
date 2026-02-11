@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
-from core.db.models import User, UserContext
+from core.db.models import Context, User, UserContext
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_api_key
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 from interfaces.http.csrf import require_csrf
@@ -44,6 +44,12 @@ class UserUpdateRequest(BaseModel):
 
     role: str | None = None
     is_active: bool | None = None
+
+
+class SetActiveContextRequest(BaseModel):
+    """Request to set the active context for the current user."""
+
+    context_id: str | None  # UUID string or null to clear
 
 
 # --- HTML Dashboard ---
@@ -370,6 +376,111 @@ async def delete_user(
     LOGGER.info("Deleted user %s", sanitize_log(user_id))
 
     return {"status": "deleted", "user_id": str(user_id)}
+
+
+@router.put("/me/active-context", dependencies=[Depends(require_csrf)])
+async def set_active_context(
+    request: SetActiveContextRequest,
+    admin: AdminUser = Depends(verify_admin_api_key),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, str | bool]:
+    """Set the active context for the current user."""
+    user_stmt = select(User).where(User.id == admin.user_id)
+    user_result = await session.execute(user_stmt)
+    user = user_result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if request.context_id is None:
+        user.active_context_id = None
+        await session.commit()
+        return {
+            "success": True,
+            "message": "Active context cleared. Using default personal context.",
+        }
+
+    try:
+        ctx_uuid = UUID(request.context_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="Invalid context_id format") from e
+
+    ctx_stmt = select(Context).where(Context.id == ctx_uuid)
+    ctx_result = await session.execute(ctx_stmt)
+    ctx = ctx_result.scalar_one_or_none()
+
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Context not found")
+
+    access_stmt = select(UserContext).where(
+        UserContext.user_id == admin.user_id,
+        UserContext.context_id == ctx_uuid,
+    )
+    access_result = await session.execute(access_stmt)
+    if not access_result.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="You do not have access to this context")
+
+    user.active_context_id = ctx_uuid
+    await session.commit()
+
+    LOGGER.info(
+        "User %s set active context to %s (%s)",
+        sanitize_log(admin.email),
+        sanitize_log(ctx_uuid),
+        sanitize_log(ctx.name),
+    )
+
+    return {
+        "success": True,
+        "message": f"Active context set to '{ctx.name}'",
+        "context_id": str(ctx_uuid),
+        "context_name": ctx.name,
+    }
+
+
+@router.get("/me/contexts")
+async def get_my_contexts(
+    admin: AdminUser = Depends(verify_admin_api_key),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Get the current user's accessible contexts with active context indicator."""
+    user_stmt = select(User).where(User.id == admin.user_id)
+    user_result = await session.execute(user_stmt)
+    user = user_result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    ctx_stmt = (
+        select(Context, UserContext.role, UserContext.is_default)
+        .join(UserContext, UserContext.context_id == Context.id)
+        .where(UserContext.user_id == admin.user_id)
+        .order_by(UserContext.is_default.desc(), Context.name)
+    )
+    ctx_result = await session.execute(ctx_stmt)
+    rows = ctx_result.all()
+
+    contexts = []
+    for ctx, role, is_default in rows:
+        contexts.append(
+            {
+                "id": str(ctx.id),
+                "name": ctx.name,
+                "type": ctx.type,
+                "role": role,
+                "is_default": is_default,
+                "is_active": (
+                    str(ctx.id) == str(user.active_context_id)
+                    if user.active_context_id
+                    else is_default
+                ),
+            }
+        )
+
+    return {
+        "contexts": contexts,
+        "active_context_id": str(user.active_context_id) if user.active_context_id else None,
+    }
 
 
 __all__ = ["router"]
