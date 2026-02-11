@@ -55,8 +55,9 @@ services:
       # External URL for OAuth callbacks - defaults to localhost for local dev
       # When DOMAIN_DEV is set, uses https://DOMAIN_DEV
       - WEBUI_URL=http${DOMAIN_DEV:+s}://${DOMAIN_DEV:-localhost:3001}
-      # Disable automatic signup - admin creates users manually
-      - ENABLE_OAUTH_SIGNUP=false
+      # Allow OAuth login (required for Entra ID to work at all in OpenWebUI).
+      # Restrict access via Entra ID app assignments instead.
+      - ENABLE_OAUTH_SIGNUP=true
     labels:
       # Enable Traefik routing for dev when DOMAIN_DEV is set
       - "traefik.enable=${DOMAIN_DEV:+true}"

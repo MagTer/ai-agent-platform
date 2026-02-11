@@ -217,6 +217,26 @@ class Dispatcher:
                         conv_uuid = None
 
                     if conv_uuid:
+                        # Ensure Conversation row exists (may be missing when
+                        # platform_id is None, e.g. OpenWebUI adapter)
+                        conv_stmt = select(Conversation).where(Conversation.id == conv_uuid)
+                        conv_result = await db_session.execute(conv_stmt)
+                        if not conv_result.scalar_one_or_none():
+                            ctx_stmt = select(Context).where(Context.name == "default")
+                            ctx_res = await db_session.execute(ctx_stmt)
+                            context = ctx_res.scalar_one_or_none()
+                            db_session.add(
+                                Conversation(
+                                    id=conv_uuid,
+                                    platform=platform,
+                                    platform_id=None,
+                                    context_id=context.id if context else None,
+                                    current_cwd=context.default_cwd if context else None,
+                                    conversation_metadata={},
+                                )
+                            )
+                            await db_session.flush()
+
                         stmt = select(Session).where(
                             Session.conversation_id == conv_uuid,
                             Session.active.is_(True),
