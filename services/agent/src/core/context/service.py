@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.header_auth import UserIdentity
 from core.auth.user_service import get_or_create_user, get_user_default_context
-from core.db.models import Context, Conversation
+from core.db.models import Context, Conversation, UserContext
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,18 +25,47 @@ class ContextService:
 
     @staticmethod
     async def resolve_for_authenticated_user(identity: UserIdentity, session: AsyncSession) -> UUID:
-        """Resolve context for an authenticated user (e.g. OpenWebUI with headers).
+        """Resolve context for an authenticated user.
 
-        Flow: get_or_create_user -> get_user_default_context -> fallback create.
-        Preserves naming: ``personal_{user_id}``.
+        Priority:
+        1. User's active_context_id (if set and user has access)
+        2. User's default (personal) context
+        3. Fallback: create personal context
         """
         user = await get_or_create_user(identity, session)
+
+        # Check active context first
+        if user.active_context_id:
+            # Verify user still has access to this context
+            access_stmt = select(UserContext).where(
+                UserContext.user_id == user.id,
+                UserContext.context_id == user.active_context_id,
+            )
+            access_result = await session.execute(access_stmt)
+            if access_result.scalar_one_or_none():
+                LOGGER.debug(
+                    "Using active context %s for user %s",
+                    user.active_context_id,
+                    user.email,
+                )
+                return user.active_context_id
+
+            # Active context no longer accessible -- clear it
+            LOGGER.warning(
+                "User %s active_context_id %s no longer accessible, clearing",
+                user.email,
+                user.active_context_id,
+            )
+            user.active_context_id = None
+            await session.flush()
+
+        # Fall back to default context
         context = await get_user_default_context(user, session)
         if context:
             LOGGER.debug("Using personal context %s for user %s", context.id, user.email)
             return context.id
 
-        # Fallback: create context if somehow missing (shouldn't happen)
+        # Fallback: create context if somehow missing
         LOGGER.warning("User %s has no default context, creating one", user.email)
         context = Context(
             name=f"personal_{user.id}",

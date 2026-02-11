@@ -79,13 +79,7 @@ async def admin_portal(admin: AdminUser = Depends(require_admin_or_redirect)) ->
             <a href="/platformadmin/contexts/" class="portal-card">
                 <div class="card-icon orange">&#128451;</div>
                 <h2>Contexts</h2>
-                <p>Manage conversation contexts and associated resources.</p>
-            </a>
-
-            <a href="/platformadmin/oauth/" class="portal-card">
-                <div class="card-icon pink">&#128274;</div>
-                <h2>OAuth Settings</h2>
-                <p>Configure OAuth providers and manage authentication tokens.</p>
+                <p>Manage contexts with permissions, workspaces, MCP servers, and OAuth tokens.</p>
             </a>
         </div>
     """

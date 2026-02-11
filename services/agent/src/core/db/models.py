@@ -152,6 +152,9 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     last_login_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+    active_context_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("contexts.id", ondelete="SET NULL"), nullable=True
+    )
 
     # Relationships
     user_contexts = relationship("UserContext", back_populates="user", cascade="all, delete-orphan")
