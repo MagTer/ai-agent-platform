@@ -122,7 +122,7 @@ async def test_resolve_for_platform_new_conversation(mock_session: AsyncMock) ->
     mock_session.add.assert_called_once()
     added_context = mock_session.add.call_args[0][0]
     assert added_context.name == "telegram_99999"
-    assert added_context.type == "virtual"
+    assert added_context.type == "shared"
     assert isinstance(result, uuid.UUID)
 
 
@@ -226,5 +226,5 @@ async def test_resolve_anonymous(mock_session: AsyncMock) -> None:
     mock_session.add.assert_called_once()
     added_context = mock_session.add.call_args[0][0]
     assert added_context.name.startswith("openwebui_")
-    assert added_context.type == "virtual"
+    assert added_context.type == "shared"
     assert isinstance(result, uuid.UUID)

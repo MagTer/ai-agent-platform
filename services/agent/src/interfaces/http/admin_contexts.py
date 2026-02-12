@@ -57,8 +57,8 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
             <div class="stat-label">Personal</div>
         </div>
         <div class="stat-box">
-            <div class="stat-value" id="virtualContexts">0</div>
-            <div class="stat-label">Virtual</div>
+            <div class="stat-value" id="sharedContexts">0</div>
+            <div class="stat-label">Shared</div>
         </div>
     </div>
 
@@ -103,10 +103,8 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
                 <div class="form-group">
                     <label>Type</label>
                     <select id="ctxType">
+                        <option value="shared">Shared</option>
                         <option value="personal">Personal</option>
-                        <option value="virtual">Virtual</option>
-                        <option value="git_repo">Git Repo</option>
-                        <option value="devops">DevOps</option>
                     </select>
                 </div>
                 <div class="modal-actions">
@@ -133,9 +131,7 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
     .form-group input, .form-group select { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; background: var(--bg); color: var(--text); }
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
     .badge-type-personal { background: #dbeafe; color: #1e40af; }
-    .badge-type-virtual { background: #e5e7eb; color: #374151; }
-    .badge-type-git_repo { background: #d1fae5; color: #065f46; }
-    .badge-type-devops { background: #ede9fe; color: #6d28d9; }
+    .badge-type-shared { background: #e5e7eb; color: #374151; }
 """
 
     extra_js = """
@@ -154,7 +150,7 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
         document.getElementById('count').textContent = data.total || 0;
         document.getElementById('totalContexts').textContent = data.total || 0;
         document.getElementById('personalContexts').textContent = contexts.filter(c => c.type === 'personal').length;
-        document.getElementById('virtualContexts').textContent = contexts.filter(c => c.type === 'virtual').length;
+        document.getElementById('sharedContexts').textContent = contexts.filter(c => c.type === 'shared').length;
 
         const el = document.getElementById('contexts');
         if (contexts.length === 0) {
@@ -163,12 +159,16 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
         }
         el.innerHTML = contexts.map(c => {
             const typeBadge = '<span class="badge badge-type-' + c.type + '">' + c.type + '</span>';
+            const ownerLine = c.owner_email
+                ? '<span style="font-weight:500;">Owner: ' + escapeHtml(c.owner_email) + '</span>'
+                : '<span style="color:var(--text-muted);font-style:italic;">No owner</span>';
             return '<a href="/platformadmin/contexts/' + c.id + '/" class="context-card">' +
                 '<div class="context-header"><div>' +
                 '<div class="context-name">' + escapeHtml(c.name) + ' ' + typeBadge + '</div>' +
                 '<div class="context-id">' + c.id + '</div>' +
                 '</div></div>' +
                 '<div class="context-meta">' +
+                ownerLine +
                 '<span>Conversations: ' + c.conversation_count + '</span>' +
                 '<span>OAuth: ' + c.oauth_token_count + '</span>' +
                 '<span>Permissions: ' + c.tool_permission_count + '</span>' +
@@ -266,6 +266,7 @@ class ContextInfo(BaseModel):
     config: dict[str, Any]
     pinned_files: list[str]
     default_cwd: str
+    owner_email: str | None
     conversation_count: int
     oauth_token_count: int
     tool_permission_count: int
@@ -298,7 +299,7 @@ class CreateContextRequest(BaseModel):
     """Request to create a new context."""
 
     name: str
-    type: str = "virtual"
+    type: str = "shared"
     config: dict[str, Any] = {}
     pinned_files: list[str] = []
     default_cwd: str = "/tmp"  # noqa: S108
@@ -337,6 +338,15 @@ async def list_contexts(
     Security:
         Requires admin role via Entra ID authentication.
     """
+    # Subquery: owner email per context (role='owner')
+    owner_subq = (
+        select(UserContext.context_id, func.min(User.email).label("owner_email"))
+        .join(User, User.id == UserContext.user_id)
+        .where(UserContext.role == "owner")
+        .group_by(UserContext.context_id)
+        .subquery()
+    )
+
     # Single query with LEFT JOINs to avoid N+1 pattern
     # For N contexts, this runs 1 query instead of 1 + 3N queries
     stmt = (
@@ -347,13 +357,15 @@ async def list_contexts(
             func.count(distinct(ToolPermission.id)).label("perm_count"),
             func.count(distinct(Workspace.id)).label("ws_count"),
             func.count(distinct(McpServer.id)).label("mcp_count"),
+            owner_subq.c.owner_email,
         )
         .outerjoin(Conversation, Conversation.context_id == Context.id)
         .outerjoin(OAuthToken, OAuthToken.context_id == Context.id)
         .outerjoin(ToolPermission, ToolPermission.context_id == Context.id)
         .outerjoin(Workspace, Workspace.context_id == Context.id)
         .outerjoin(McpServer, McpServer.context_id == Context.id)
-        .group_by(Context.id)
+        .outerjoin(owner_subq, owner_subq.c.context_id == Context.id)
+        .group_by(Context.id, owner_subq.c.owner_email)
         .order_by(Context.name)
     )
 
@@ -364,7 +376,7 @@ async def list_contexts(
     rows = result.all()
 
     context_infos = []
-    for ctx, conv_count, oauth_count, perm_count, ws_count, mcp_count in rows:
+    for ctx, conv_count, oauth_count, perm_count, ws_count, mcp_count, owner_email in rows:
         context_infos.append(
             ContextInfo(
                 id=ctx.id,
@@ -373,6 +385,7 @@ async def list_contexts(
                 config=ctx.config,
                 pinned_files=ctx.pinned_files,
                 default_cwd=ctx.default_cwd,
+                owner_email=owner_email,
                 conversation_count=conv_count,
                 oauth_token_count=oauth_count,
                 tool_permission_count=perm_count,

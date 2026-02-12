@@ -34,9 +34,15 @@ from interfaces.http.schemas.price_tracker import (
     ProductUpdate,
     StoreResponse,
 )
-from modules.price_tracker.models import PricePoint, PriceWatch, Product, ProductStore, Store
-from modules.price_tracker.parser import PriceParser
-from modules.price_tracker.service import PriceTrackerService
+from orchestrator.price_tracker import (
+    PriceParser,
+    PricePoint,
+    PriceTrackerService,
+    PriceWatch,
+    Product,
+    ProductStore,
+    Store,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -212,7 +218,6 @@ async def list_products(
             stores_data: list[dict[str, str | int | None | float]] = []
             for ps, store in ps_rows:
                 # Get latest price point for this product-store
-                from modules.price_tracker.models import PricePoint
 
                 price_stmt = (
                     select(PricePoint)
@@ -368,8 +373,6 @@ async def get_product(
         stores_data: list[dict[str, str | int | None | float]] = []
         for ps, store in ps_rows:
             # Get latest price point for this product-store
-            from modules.price_tracker.models import PricePoint
-
             price_stmt = (
                 select(PricePoint)
                 .where(PricePoint.product_store_id == ps.id)
@@ -732,8 +735,6 @@ async def get_price_history(
     try:
         from datetime import timedelta
 
-        from modules.price_tracker.models import PricePoint
-
         cutoff_date = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
 
         stmt = (
@@ -909,8 +910,6 @@ async def get_current_deals(
     """
     try:
         from datetime import timedelta
-
-        from modules.price_tracker.models import PricePoint
 
         # Get deals from last 24 hours
         cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=1)

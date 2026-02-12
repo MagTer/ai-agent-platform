@@ -381,45 +381,11 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         import asyncio
 
         # --- STARTUP ---
-        # Dependency Injection: Register module implementations
-        # This is the ONLY place where modules are wired to core protocols.
-        from core.providers import (
-            get_fetcher,
-            set_code_indexer_factory,
-            set_embedder,
-            set_fetcher,
-            set_rag_manager,
-            set_token_manager,
-        )
-        from modules.embedder import LiteLLMEmbedder
-        from modules.fetcher import WebFetcher
-        from modules.indexer import CodeIndexer
-        from modules.rag import RAGManager
-
-        # Register providers (dependency injection order matters)
-        # 1. Create embedder (LiteLLM proxy -> OpenRouter, 4096-dim qwen3-embedding-8b)
-        embedder = LiteLLMEmbedder(litellm_client)
-        set_embedder(embedder)
-
-        # 2. Create RAG manager with embedder
-        rag_manager = RAGManager(embedder=embedder)
-        set_rag_manager(rag_manager)
-
-        # 3. Create fetcher with RAG manager
-        fetcher = WebFetcher(rag_manager=rag_manager)
-        set_fetcher(fetcher)
-
-        # 4. Register indexer factory (receives embedder on instantiation)
-        set_code_indexer_factory(CodeIndexer)
-
-        # Register OAuth TokenManager
-        from core.auth.token_manager import TokenManager
+        # Dependency Injection: Register module implementations via orchestrator
         from core.db.engine import AsyncSessionLocal
+        from orchestrator.startup import create_email_service, register_providers, start_schedulers
 
-        token_manager = TokenManager(AsyncSessionLocal, settings)
-        set_token_manager(token_manager)
-
-        LOGGER.info("Dependency providers registered")
+        token_manager = await register_providers(settings, litellm_client)
 
         # Initialize model capability registry
         from core.core.model_registry import ModelCapabilityRegistry
@@ -472,7 +438,6 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         # Database retention cleanup - runs on startup and daily
         async def retention_cleanup_loop() -> None:
             """Run retention cleanup on startup, then daily."""
-            from core.db.engine import AsyncSessionLocal
             from core.db.retention import run_retention_cleanup
 
             # Initial cleanup on startup (after short delay)
@@ -492,40 +457,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         asyncio.create_task(retention_cleanup_loop())
         LOGGER.info("Retention cleanup scheduled (startup + daily)")
 
-        # Email Service - platform-wide email capability
-        from core.providers import set_email_service
-        from modules.email.service import EmailConfig, ResendEmailService
-
-        email_service = None
-        if settings.resend_api_key:
-            email_config = EmailConfig(
-                api_key=settings.resend_api_key,
-                from_email=settings.email_from_address,
-            )
-            email_service = ResendEmailService(email_config)
-            set_email_service(email_service)
-            LOGGER.info("Email service initialized")
-
-        # Price Tracker Scheduler - runs background price checks
-        from modules.price_tracker.scheduler import PriceCheckScheduler
-
-        # Create and start scheduler (pass email service directly)
-        scheduler = PriceCheckScheduler(
-            session_factory=AsyncSessionLocal,
-            fetcher=get_fetcher(),
-            email_service=email_service,
-        )
-        await scheduler.start()
-        LOGGER.info("Price check scheduler started")
-
-        # Homey Device Sync Scheduler - nightly cache refresh
-        from modules.homey.scheduler import HomeyDeviceSyncScheduler
-
-        homey_scheduler = HomeyDeviceSyncScheduler(
-            session_factory=AsyncSessionLocal,
-        )
-        await homey_scheduler.start()
-        LOGGER.info("Homey device sync scheduler started")
+        # Email service + background schedulers (via orchestrator)
+        email_service = create_email_service(settings)
+        scheduler, homey_scheduler = await start_schedulers(email_service)
 
         yield  # Application runs here
 
@@ -595,7 +529,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         if not context:
             context = Context(
                 name="default_api",
-                type="virtual",
+                type="shared",
                 config={},
                 default_cwd="/tmp",  # noqa: S108
             )

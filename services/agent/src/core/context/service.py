@@ -101,7 +101,7 @@ class ContextService:
 
         context = Context(
             name=f"{platform}_{platform_id}",
-            type="virtual",
+            type="shared",
             config={"platform": platform, "chat_id": platform_id},
             default_cwd="/tmp",  # noqa: S108
         )
@@ -150,7 +150,7 @@ class ContextService:
         if not context:
             context = Context(
                 name=ctx_name,
-                type="virtual",
+                type="shared",
                 config={"platform": platform, "conversation_id": str(conversation_uuid)},
                 default_cwd="/tmp",  # noqa: S108
             )
@@ -174,7 +174,7 @@ class ContextService:
         """
         context = Context(
             name=f"{platform}_{uuid4()}",
-            type="virtual",
+            type="shared",
             config={},
             default_cwd="/tmp",  # noqa: S108
         )
