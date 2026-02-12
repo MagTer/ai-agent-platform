@@ -381,24 +381,8 @@ class StepExecutorAgent:
                     if has_user_email or has_kwargs:
                         final_args["user_email"] = user_email
 
-            # Inject user_id and session for tools that need credential lookup
-            if step.tool in ("azure_devops",):
-                user_id_str = (request.metadata or {}).get("user_id")
-                db_session = (request.metadata or {}).get("_db_session")
-                if user_id_str and db_session:
-                    from uuid import UUID
-
-                    sig = inspect.signature(tool.run)
-                    has_user_id = "user_id" in sig.parameters
-                    has_session = "session" in sig.parameters
-                    has_kwargs = any(p.kind == p.VAR_KEYWORD for p in sig.parameters.values())
-                    if has_user_id or has_kwargs:
-                        final_args["user_id"] = UUID(user_id_str)
-                    if has_session or has_kwargs:
-                        final_args["session"] = db_session
-
             # Inject context_id for tools that need OAuth token lookup or context isolation
-            if step.tool in ("homey", "git_clone"):
+            if step.tool in ("homey", "git_clone", "azure_devops"):
                 context_id_str = (request.metadata or {}).get("context_id")
                 if context_id_str:
                     from uuid import UUID
@@ -410,7 +394,7 @@ class StepExecutorAgent:
                         final_args["context_id"] = UUID(context_id_str)
 
             # Inject session for tools that need database access for context-specific data
-            if step.tool in ("git_clone",):
+            if step.tool in ("git_clone", "azure_devops"):
                 db_session = (request.metadata or {}).get("_db_session")
                 if db_session:
                     sig = inspect.signature(tool.run)

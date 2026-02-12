@@ -647,10 +647,9 @@ class SkillExecutor:
 
                             # Inject context into tool args
                             tool_args = fargs.copy()
-                            if context_id and fname in ("homey",):
+                            if context_id and fname in ("homey", "azure_devops"):
                                 tool_args["context_id"] = context_id
-                            if user_id and session and fname in ("azure_devops",):
-                                tool_args["user_id"] = user_id
+                            if context_id and session and fname in ("azure_devops",):
                                 tool_args["session"] = session
 
                             try:

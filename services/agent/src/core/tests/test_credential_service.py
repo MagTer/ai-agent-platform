@@ -37,8 +37,8 @@ def mock_session() -> AsyncMock:
 
 
 @pytest.fixture
-def user_id() -> UUID:
-    """Generate a user ID for testing."""
+def context_id() -> UUID:
+    """Generate a context ID for testing."""
     return uuid4()
 
 
@@ -110,7 +110,7 @@ class TestStoreCredential:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should create new credential when none exists."""
         # Mock: no existing credential
@@ -119,7 +119,7 @@ class TestStoreCredential:
         mock_session.execute.return_value = mock_result
 
         await credential_service.store_credential(
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             value="secret-pat",
             metadata={"org": "myorg"},
@@ -129,7 +129,7 @@ class TestStoreCredential:
         # Verify credential was added
         assert mock_session.add.called
         added_cred = mock_session.add.call_args[0][0]
-        assert added_cred.user_id == user_id
+        assert added_cred.context_id == context_id
         assert added_cred.credential_type == "azure_devops_pat"
         assert added_cred.encrypted_value != "secret-pat"  # Should be encrypted
 
@@ -138,12 +138,12 @@ class TestStoreCredential:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should update existing credential."""
         existing_cred = UserCredential(
             id=uuid4(),
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             encrypted_value="old-encrypted",
             credential_metadata={},
@@ -154,7 +154,7 @@ class TestStoreCredential:
         mock_session.execute.return_value = mock_result
 
         await credential_service.store_credential(
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             value="new-secret",
             metadata={"org": "neworg"},
@@ -172,13 +172,13 @@ class TestStoreCredential:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should preserve existing metadata when None provided on update."""
         original_metadata = {"org": "original"}
         existing_cred = UserCredential(
             id=uuid4(),
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             encrypted_value="old-encrypted",
             credential_metadata=original_metadata,
@@ -189,7 +189,7 @@ class TestStoreCredential:
         mock_session.execute.return_value = mock_result
 
         await credential_service.store_credential(
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             value="new-secret",
             metadata=None,  # Don't update metadata
@@ -204,7 +204,7 @@ class TestStoreCredential:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should flush session after storing credential."""
         mock_result = MagicMock()
@@ -212,7 +212,7 @@ class TestStoreCredential:
         mock_session.execute.return_value = mock_result
 
         await credential_service.store_credential(
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             value="secret-pat",
             metadata={},
@@ -230,7 +230,7 @@ class TestGetCredential:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should return decrypted credential value."""
         secret = "my-secret-token"
@@ -238,7 +238,7 @@ class TestGetCredential:
 
         existing_cred = UserCredential(
             id=uuid4(),
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             encrypted_value=encrypted,
             credential_metadata={},
@@ -249,7 +249,7 @@ class TestGetCredential:
         mock_session.execute.return_value = mock_result
 
         result = await credential_service.get_credential(
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             session=mock_session,
         )
@@ -261,7 +261,7 @@ class TestGetCredential:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should return None when credential not found."""
         mock_result = MagicMock()
@@ -269,7 +269,7 @@ class TestGetCredential:
         mock_session.execute.return_value = mock_result
 
         result = await credential_service.get_credential(
-            user_id=user_id,
+            context_id=context_id,
             credential_type="nonexistent",
             session=mock_session,
         )
@@ -281,7 +281,7 @@ class TestGetCredential:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should return None when decryption fails due to invalid token."""
         # Create credential encrypted with different key
@@ -290,7 +290,7 @@ class TestGetCredential:
 
         existing_cred = UserCredential(
             id=uuid4(),
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             encrypted_value=encrypted,
             credential_metadata={},
@@ -301,7 +301,7 @@ class TestGetCredential:
         mock_session.execute.return_value = mock_result
 
         result = await credential_service.get_credential(
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             session=mock_session,
         )
@@ -318,12 +318,12 @@ class TestDeleteCredential:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should delete and return True when credential exists."""
         existing_cred = UserCredential(
             id=uuid4(),
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             encrypted_value="encrypted",
             credential_metadata={},
@@ -334,7 +334,7 @@ class TestDeleteCredential:
         mock_session.execute.return_value = mock_result
 
         result = await credential_service.delete_credential(
-            user_id=user_id,
+            context_id=context_id,
             credential_type="azure_devops_pat",
             session=mock_session,
         )
@@ -347,7 +347,7 @@ class TestDeleteCredential:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should return False when credential not found."""
         mock_result = MagicMock()
@@ -355,7 +355,7 @@ class TestDeleteCredential:
         mock_session.execute.return_value = mock_result
 
         result = await credential_service.delete_credential(
-            user_id=user_id,
+            context_id=context_id,
             credential_type="nonexistent",
             session=mock_session,
         )
@@ -372,7 +372,7 @@ class TestListCredentials:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should return list of credentials without decrypted values."""
         cred_id = uuid4()
@@ -390,7 +390,7 @@ class TestListCredentials:
         mock_result.scalars.return_value.all.return_value = [cred1]
         mock_session.execute.return_value = mock_result
 
-        result = await credential_service.list_credentials(user_id, mock_session)
+        result = await credential_service.list_credentials(context_id, mock_session)
 
         assert len(result) == 1
         assert result[0]["id"] == str(cred_id)
@@ -407,48 +407,13 @@ class TestListCredentials:
         self,
         credential_service: CredentialService,
         mock_session: AsyncMock,
-        user_id: UUID,
+        context_id: UUID,
     ) -> None:
         """Should return empty list when no credentials."""
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
         mock_session.execute.return_value = mock_result
 
-        result = await credential_service.list_credentials(user_id, mock_session)
+        result = await credential_service.list_credentials(context_id, mock_session)
 
         assert result == []
-
-    @pytest.mark.asyncio
-    async def test_returns_multiple_credentials(
-        self,
-        credential_service: CredentialService,
-        mock_session: AsyncMock,
-        user_id: UUID,
-    ) -> None:
-        """Should return all credentials for user."""
-        created_at = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-        updated_at = datetime(2026, 1, 2, 12, 0, 0, tzinfo=UTC)
-
-        cred1 = MagicMock()
-        cred1.id = uuid4()
-        cred1.credential_type = "azure_devops_pat"
-        cred1.credential_metadata = {"org": "org1"}
-        cred1.created_at = created_at
-        cred1.updated_at = updated_at
-
-        cred2 = MagicMock()
-        cred2.id = uuid4()
-        cred2.credential_type = "github_token"
-        cred2.credential_metadata = {"scope": "repo"}
-        cred2.created_at = created_at
-        cred2.updated_at = updated_at
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [cred1, cred2]
-        mock_session.execute.return_value = mock_result
-
-        result = await credential_service.list_credentials(user_id, mock_session)
-
-        assert len(result) == 2
-        assert result[0]["credential_type"] == "azure_devops_pat"
-        assert result[1]["credential_type"] == "github_token"

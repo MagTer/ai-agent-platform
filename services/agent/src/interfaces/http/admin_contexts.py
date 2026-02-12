@@ -22,6 +22,7 @@ from core.db.models import (
     ToolPermission,
     User,
     UserContext,
+    UserCredential,
     Workspace,
 )
 from core.db.oauth_models import OAuthToken
@@ -174,6 +175,7 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
                 '<span>Permissions: ' + c.tool_permission_count + '</span>' +
                 '<span>Workspaces: ' + c.workspace_count + '</span>' +
                 '<span>MCP: ' + c.mcp_server_count + '</span>' +
+                '<span>Credentials: ' + c.credential_count + '</span>' +
                 '</div></a>';
         }).join('');
     }
@@ -272,6 +274,7 @@ class ContextInfo(BaseModel):
     tool_permission_count: int
     workspace_count: int
     mcp_server_count: int
+    credential_count: int
 
 
 class ContextList(BaseModel):
@@ -293,6 +296,7 @@ class ContextDetailResponse(BaseModel):
     conversations: list[dict[str, Any]]
     oauth_tokens: list[dict[str, Any]]
     tool_permissions: list[dict[str, Any]]
+    credentials: list[dict[str, Any]]
 
 
 class CreateContextRequest(BaseModel):
@@ -357,6 +361,7 @@ async def list_contexts(
             func.count(distinct(ToolPermission.id)).label("perm_count"),
             func.count(distinct(Workspace.id)).label("ws_count"),
             func.count(distinct(McpServer.id)).label("mcp_count"),
+            func.count(distinct(UserCredential.id)).label("cred_count"),
             owner_subq.c.owner_email,
         )
         .outerjoin(Conversation, Conversation.context_id == Context.id)
@@ -364,6 +369,7 @@ async def list_contexts(
         .outerjoin(ToolPermission, ToolPermission.context_id == Context.id)
         .outerjoin(Workspace, Workspace.context_id == Context.id)
         .outerjoin(McpServer, McpServer.context_id == Context.id)
+        .outerjoin(UserCredential, UserCredential.context_id == Context.id)
         .outerjoin(owner_subq, owner_subq.c.context_id == Context.id)
         .group_by(Context.id, owner_subq.c.owner_email)
         .order_by(Context.name)
@@ -376,7 +382,16 @@ async def list_contexts(
     rows = result.all()
 
     context_infos = []
-    for ctx, conv_count, oauth_count, perm_count, ws_count, mcp_count, owner_email in rows:
+    for (
+        ctx,
+        conv_count,
+        oauth_count,
+        perm_count,
+        ws_count,
+        mcp_count,
+        cred_count,
+        owner_email,
+    ) in rows:
         context_infos.append(
             ContextInfo(
                 id=ctx.id,
@@ -391,6 +406,7 @@ async def list_contexts(
                 tool_permission_count=perm_count,
                 workspace_count=ws_count,
                 mcp_server_count=mcp_count,
+                credential_count=cred_count,
             )
         )
 
@@ -445,6 +461,11 @@ async def get_context_details(
     perm_result = await session.execute(perm_stmt)
     tool_permissions = perm_result.scalars().all()
 
+    # Get credentials (without decrypted values)
+    cred_stmt = select(UserCredential).where(UserCredential.context_id == context_id)
+    cred_result = await session.execute(cred_stmt)
+    credentials = cred_result.scalars().all()
+
     now = datetime.now(UTC).replace(tzinfo=None)
 
     return ContextDetailResponse(
@@ -474,6 +495,7 @@ async def get_context_details(
                 "has_refresh_token": token.has_refresh_token(),
                 "scope": token.scope,
                 "created_at": token.created_at.isoformat(),
+                "updated_at": token.updated_at.isoformat(),
             }
             for token in oauth_tokens
         ],
@@ -485,6 +507,16 @@ async def get_context_details(
                 "created_at": perm.created_at.isoformat(),
             }
             for perm in tool_permissions
+        ],
+        credentials=[
+            {
+                "id": str(cred.id),
+                "credential_type": cred.credential_type,
+                "metadata": cred.credential_metadata or {},
+                "created_at": cred.created_at.isoformat(),
+                "updated_at": cred.updated_at.isoformat(),
+            }
+            for cred in credentials
         ],
     )
 
@@ -672,6 +704,100 @@ async def delete_context(
         message=f"Deleted context '{context_name}' and all related data",
         deleted_context_id=context_id,
     )
+
+
+@router.get(
+    "/{context_id}/credentials",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def get_context_credentials(
+    context_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Get credentials for a context (without decrypted values)."""
+    stmt = select(UserCredential).where(UserCredential.context_id == context_id)
+    result = await session.execute(stmt)
+    credentials = result.scalars().all()
+
+    return {
+        "credentials": [
+            {
+                "id": str(cred.id),
+                "credential_type": cred.credential_type,
+                "metadata": cred.credential_metadata or {},
+                "created_at": cred.created_at.isoformat(),
+                "updated_at": cred.updated_at.isoformat(),
+            }
+            for cred in credentials
+        ],
+        "total": len(credentials),
+    }
+
+
+@router.post(
+    "/{context_id}/credentials",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def create_context_credential(
+    context_id: UUID,
+    request: dict[str, Any],
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Create a credential for a context."""
+    from core.auth.credential_service import CredentialService
+    from core.core.config import get_settings
+
+    settings = get_settings()
+    if not settings.credential_encryption_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Credential encryption not configured",
+        )
+
+    # Verify context exists
+    ctx_stmt = select(Context).where(Context.id == context_id)
+    ctx_result = await session.execute(ctx_stmt)
+    ctx = ctx_result.scalar_one_or_none()
+    if not ctx:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    cred_service = CredentialService(settings.credential_encryption_key)
+    credential = await cred_service.store_credential(
+        context_id=context_id,
+        credential_type=request.get("credential_type", "azure_devops_pat"),
+        value=request.get("value", ""),
+        metadata=request.get("metadata"),
+        session=session,
+    )
+    await session.commit()
+
+    return {"success": True, "credential_id": str(credential.id)}
+
+
+@router.delete(
+    "/{context_id}/credentials/{credential_id}",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def delete_context_credential(
+    context_id: UUID,
+    credential_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Delete a credential from a context."""
+    stmt = select(UserCredential).where(
+        UserCredential.id == credential_id,
+        UserCredential.context_id == context_id,
+    )
+    result = await session.execute(stmt)
+    credential = result.scalar_one_or_none()
+
+    if not credential:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+
+    await session.delete(credential)
+    await session.commit()
+
+    return {"success": True, "message": f"Deleted {credential.credential_type} credential"}
 
 
 __all__ = ["router"]

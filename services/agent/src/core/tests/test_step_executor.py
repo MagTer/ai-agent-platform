@@ -395,18 +395,18 @@ class TestContextInjection:
         assert call_args.kwargs["context_id"] == UUID(context_id)
 
     @pytest.mark.asyncio
-    async def test_user_id_injected_for_azure_devops_tool(
+    async def test_context_id_injected_for_azure_devops_tool(
         self,
         executor: StepExecutorAgent,
         mock_tool_registry: tuple[MagicMock, MagicMock],
     ) -> None:
-        """Test user_id and session are injected for azure_devops tool."""
+        """Test context_id and session are injected for azure_devops tool."""
         registry, tool = mock_tool_registry
         registry.get.return_value = tool
 
         def mock_signature(*args: Any, **kwargs: Any) -> MagicMock:
             sig = MagicMock()
-            sig.parameters = {"user_id": MagicMock(), "session": MagicMock()}
+            sig.parameters = {"context_id": MagicMock(), "session": MagicMock()}
             return sig
 
         step = PlanStep(
@@ -417,11 +417,11 @@ class TestContextInjection:
             tool="azure_devops",
             args={"action": "list_items"},
         )
-        user_id = str(uuid4())
+        context_id = str(uuid4())
         mock_session = MagicMock()
         request = AgentRequest(
             prompt="test",
-            metadata={"user_id": user_id, "_db_session": mock_session},
+            metadata={"context_id": context_id, "_db_session": mock_session},
         )
 
         with (
@@ -438,11 +438,11 @@ class TestContextInjection:
             )
 
         call_args = tool.run.call_args
-        assert "user_id" in call_args.kwargs
+        assert "context_id" in call_args.kwargs
         assert "session" in call_args.kwargs
         from uuid import UUID
 
-        assert call_args.kwargs["user_id"] == UUID(user_id)
+        assert call_args.kwargs["context_id"] == UUID(context_id)
         assert call_args.kwargs["session"] == mock_session
 
     @pytest.mark.asyncio

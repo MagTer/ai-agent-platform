@@ -283,15 +283,15 @@ class AzureDevOpsTool(Tool):
         # If no match, assume it's already just the org URL
         return url, None
 
-    async def _get_credentials_for_user(
+    async def _get_credentials_for_context(
         self,
-        user_id: UUID | None,
+        context_id: UUID | None,
         session: AsyncSession | None,
     ) -> tuple[str, str, str | None] | None:
-        """Get Azure DevOps credentials for user from database.
+        """Get Azure DevOps credentials for context from database.
 
         Args:
-            user_id: User ID to get credential for.
+            context_id: Context ID to get credential for.
             session: Database session for credential lookup.
 
         Returns:
@@ -299,8 +299,8 @@ class AzureDevOpsTool(Tool):
             No environment variable fallback - credentials must be configured
             via platformadmin.
         """
-        if not user_id or not session:
-            LOGGER.warning("Azure DevOps: No user_id or session provided")
+        if not context_id or not session:
+            LOGGER.warning("Azure DevOps: No context_id or session provided")
             return None
 
         settings = get_settings()
@@ -311,27 +311,27 @@ class AzureDevOpsTool(Tool):
         cred_service = CredentialService(settings.credential_encryption_key)
         try:
             result = await cred_service.get_credential_with_metadata(
-                user_id=user_id,
+                context_id=context_id,
                 credential_type="azure_devops_pat",
                 session=session,
             )
             if not result:
-                LOGGER.debug(f"No Azure DevOps credentials found for user {user_id}")
+                LOGGER.debug(f"No Azure DevOps credentials found for context {context_id}")
                 return None
 
             pat, metadata = result
             org_url_raw = metadata.get("organization_url", "")
 
             if not org_url_raw:
-                LOGGER.warning(f"Azure DevOps credential missing organization_url: {user_id}")
+                LOGGER.warning(f"Azure DevOps credential missing organization_url: {context_id}")
                 return None
 
             org_url, project = self._parse_org_url(org_url_raw)
-            LOGGER.debug(f"Using Azure DevOps creds for {user_id}: {org_url}")
+            LOGGER.debug(f"Using Azure DevOps creds for context {context_id}: {org_url}")
             return pat, org_url, project
 
         except Exception as e:
-            LOGGER.warning(f"Failed to get Azure DevOps credentials for {user_id}: {e}")
+            LOGGER.warning(f"Failed to get Azure DevOps credentials for context {context_id}: {e}")
             return None
 
     async def run(
@@ -351,7 +351,7 @@ class AzureDevOpsTool(Tool):
         state: str | None = None,
         query: str | None = None,
         top: int = 20,
-        user_id: UUID | None = None,
+        context_id: UUID | None = None,
         session: AsyncSession | None = None,
         **kwargs: Any,
     ) -> str:
@@ -376,11 +376,11 @@ class AzureDevOpsTool(Tool):
             state: Filter by state: 'New', 'Active', 'Closed' (for list).
             query: Search text for WIQL query (for search action).
             top: Max results to return (default 20, for list/search).
-            user_id: Optional user ID for per-user PAT lookup.
+            context_id: Optional context ID for credential lookup.
             session: Optional database session for credential lookup.
         """
-        # Get credentials from user's stored credentials (no .env fallback)
-        creds = await self._get_credentials_for_user(user_id, session)
+        # Get credentials from context's stored credentials (no .env fallback)
+        creds = await self._get_credentials_for_context(context_id, session)
         if not creds:
             return (
                 "❌ Error: Azure DevOps credentials not configured.\n\n"

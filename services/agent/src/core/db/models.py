@@ -205,15 +205,14 @@ class ToolPermission(Base):
 
 
 class UserCredential(Base):
-    """Encrypted credential storage per user."""
+    """Encrypted credential storage per context."""
 
     __tablename__ = "user_credentials"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
     )
-    # Type: 'azure_devops_pat', 'github_token', etc.
     credential_type: Mapped[str] = mapped_column(String, index=True)
     encrypted_value: Mapped[str] = mapped_column(String)  # Fernet encrypted
     # Non-sensitive metadata (org URL, etc.)
@@ -221,10 +220,10 @@ class UserCredential(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
-    user = relationship("User")
+    context = relationship("Context")
 
     __table_args__ = (
-        UniqueConstraint("user_id", "credential_type", name="uq_user_credential_type"),
+        UniqueConstraint("context_id", "credential_type", name="uq_context_credential_type"),
     )
 
 
