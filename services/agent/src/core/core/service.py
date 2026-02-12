@@ -1844,9 +1844,7 @@ class AgentService:
 
         if not db_context:
             # Bootstrap default context
-            db_context = await self.context_manager.create_context(
-                session, "default", "virtual", {}
-            )
+            db_context = await self.context_manager.create_context(session, "default", "shared", {})
 
         db_conversation = Conversation(
             id=conversation_id,

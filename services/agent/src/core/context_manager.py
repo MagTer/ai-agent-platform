@@ -102,7 +102,7 @@ class ContextManager:
             # OR we symlink it so it appears managed.
             # Let's just point to it for now.
 
-        elif type == "virtual":
+        elif type in ("virtual", "shared"):
             # Clean empty directory
             context_path.mkdir(parents=True, exist_ok=True)
 
