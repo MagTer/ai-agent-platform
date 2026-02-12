@@ -7,6 +7,7 @@
 <div class="tab-bar">
     <button class="tab active" data-tab="overview" onclick="switchTab('overview')">Overview</button>
     <button class="tab" data-tab="permissions" onclick="switchTab('permissions')">Permissions</button>
+    <button class="tab" data-tab="credentials" onclick="switchTab('credentials')">Credentials</button>
     <button class="tab" data-tab="workspaces" onclick="switchTab('workspaces')">Workspaces</button>
     <button class="tab" data-tab="mcp" onclick="switchTab('mcp')">MCP Servers</button>
     <button class="tab" data-tab="oauth" onclick="switchTab('oauth')">OAuth Tokens</button>
@@ -21,6 +22,12 @@
 
 <div id="tab-permissions" class="tab-content" style="display:none;">
     <div class="card" id="permissionsCard">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<div id="tab-credentials" class="tab-content" style="display:none;">
+    <div class="card" id="credentialsCard">
         <div class="loading">Loading...</div>
     </div>
 </div>
@@ -46,6 +53,29 @@
 <div id="tab-conversations" class="tab-content" style="display:none;">
     <div class="card" id="conversationsCard">
         <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<!-- Add Credential Modal -->
+<div id="addCredModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Add Azure DevOps PAT</h3>
+        <form id="addCredForm" onsubmit="submitCredential(event)">
+            <div class="form-group">
+                <label>PAT Value</label>
+                <textarea id="credValue" required placeholder="Enter your Azure DevOps PAT (will be encrypted)" style="min-height: 80px; font-family: monospace;"></textarea>
+                <small style="color: var(--text-muted); font-size: 12px;">Encrypted at rest using Fernet encryption.</small>
+            </div>
+            <div class="form-group">
+                <label>DevOps URL (including project) *</label>
+                <input type="text" id="credOrgUrl" required placeholder="https://dev.azure.com/YourOrg/YourProject" pattern="^https://dev\.azure\.com/[^/]+(/[^/]+)?/?$">
+                <small style="color: var(--text-muted); font-size: 12px;">e.g., https://dev.azure.com/Org/Project</small>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="hideCredModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Credential</button>
+            </div>
+        </form>
     </div>
 </div>
 
@@ -81,7 +111,17 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .token-row:last-child { border-bottom: none; }
 .mcp-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
 .mcp-row:last-child { border-bottom: none; }
+.cred-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.cred-row:last-child { border-bottom: none; }
+.meta-tag { display: inline-block; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; font-size: 11px; margin-right: 4px; }
 .empty-state { padding: 24px; text-align: center; color: var(--text-muted); font-size: 14px; }
+.modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal-content { background: var(--bg-card); padding: 24px; border-radius: 8px; width: 100%; max-width: 480px; }
+.modal-content h3 { margin: 0 0 16px 0; }
+.form-group { margin-bottom: 16px; }
+.form-group label { display: block; margin-bottom: 4px; font-size: 13px; font-weight: 500; }
+.form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; background: var(--bg); color: var(--text); box-sizing: border-box; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
 <!-- SECTION_SEPARATOR -->
 const CONTEXT_ID = '__CONTEXT_ID__';
@@ -99,6 +139,7 @@ function switchTab(tab) {
         loadedTabs[tab] = true;
         if (tab === 'overview') loadOverview();
         else if (tab === 'permissions') loadPermissions();
+        else if (tab === 'credentials') loadCredentials();
         else if (tab === 'workspaces') loadWorkspaces();
         else if (tab === 'mcp') loadMcpServers();
         else if (tab === 'oauth') loadOAuthTokens();
@@ -134,26 +175,30 @@ async function loadOverview() {
     if (ctx.pinned_files && ctx.pinned_files.length > 0) {
         html += '<div class="detail-label">Pinned Files</div><div class="detail-value">' + ctx.pinned_files.map(f => '<div style="font-family: monospace; font-size: 12px;">' + escapeHtml(f) + '</div>').join('') + '</div>';
     }
-    html += '<div class="detail-label">Config</div><div class="detail-value"><pre class="config-pre">' + escapeHtml(JSON.stringify(ctx.config, null, 2)) + '</pre></div>';
+    if (ctx.config && Object.keys(ctx.config).length > 0) {
+        html += '<div class="detail-label">Config</div><div class="detail-value"><pre class="config-pre">' + escapeHtml(JSON.stringify(ctx.config, null, 2)) + '</pre></div>';
+    }
     html += '</div>';
 
-    // Load members
-    const membersRes = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/members');
-    if (membersRes) {
-        const membersData = await membersRes.json();
-        html += '<div style="margin-top: 24px;"><div class="card-header"><span class="card-title">Members (' + membersData.total + ')</span></div>';
-        if (membersData.members.length === 0) {
-            html += '<div class="empty-state">No members linked to this context</div>';
-        } else {
-            html += membersData.members.map(m =>
-                '<div class="member-row">' +
-                '<span>' + escapeHtml(m.display_name) + ' (' + escapeHtml(m.email) + ')</span>' +
-                '<span class="badge badge-info">' + m.role + '</span>' +
-                (m.is_default ? '<span class="badge badge-success">default</span>' : '') +
-                '</div>'
-            ).join('');
+    // Load members (only for shared contexts)
+    if (ctx.type === 'shared') {
+        const membersRes = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/members');
+        if (membersRes) {
+            const membersData = await membersRes.json();
+            html += '<div style="margin-top: 24px;"><div class="card-header"><span class="card-title">Members (' + membersData.total + ')</span></div>';
+            if (membersData.members.length === 0) {
+                html += '<div class="empty-state">No members linked to this context</div>';
+            } else {
+                html += membersData.members.map(m =>
+                    '<div class="member-row">' +
+                    '<span>' + escapeHtml(m.display_name) + ' (' + escapeHtml(m.email) + ')</span>' +
+                    '<span class="badge badge-info">' + m.role + '</span>' +
+                    (m.is_default ? '<span class="badge badge-success">default</span>' : '') +
+                    '</div>'
+                ).join('');
+            }
+            html += '</div>';
         }
-        html += '</div>';
     }
 
     card.innerHTML = html;
@@ -205,6 +250,73 @@ async function bulkPermissions(allowed) {
     });
     loadedTabs['permissions'] = false;
     loadPermissions();
+}
+
+// --- Credentials Tab ---
+async function loadCredentials() {
+    const card = document.getElementById('credentialsCard');
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/credentials');
+    if (!res) { card.innerHTML = '<div class="empty-state">Failed to load credentials</div>'; return; }
+    const data = await res.json();
+    const creds = data.credentials || [];
+
+    let html = '<div class="card-header"><span class="card-title">Credentials (' + creds.length + ')</span>';
+    html += '<button class="btn btn-sm btn-primary" onclick="showCredModal()">+ Add Credential</button>';
+    html += '</div>';
+
+    if (creds.length === 0) {
+        html += '<div class="empty-state">No credentials configured for this context</div>';
+    } else {
+        html += creds.map(c => {
+            const meta = Object.entries(c.metadata || {})
+                .map(function(entry) { return '<span class="meta-tag">' + escapeHtml(entry[0]) + ': ' + escapeHtml(entry[1]) + '</span>'; })
+                .join('') || '-';
+            const typeName = c.credential_type === 'azure_devops_pat' ? 'Azure DevOps PAT' : c.credential_type;
+            return '<div class="cred-row"><div>' +
+                '<div style="font-weight: 500;">' + escapeHtml(typeName) + '</div>' +
+                '<div style="font-size: 12px; color: var(--text-muted);">' + meta + '</div>' +
+                '<div style="font-size: 11px; color: var(--text-muted);">Updated: ' + (c.updated_at ? new Date(c.updated_at).toLocaleString() : '-') + '</div>' +
+                '</div><div>' +
+                '<button class="btn btn-sm btn-danger" onclick="deleteCredential(\'' + c.id + '\', \'' + escapeHtml(c.credential_type) + '\')">Delete</button>' +
+                '</div></div>';
+        }).join('');
+    }
+    card.innerHTML = html;
+}
+
+function showCredModal() { document.getElementById('addCredModal').style.display = 'flex'; }
+function hideCredModal() { document.getElementById('addCredModal').style.display = 'none'; document.getElementById('addCredForm').reset(); }
+
+async function submitCredential(e) {
+    e.preventDefault();
+    const value = document.getElementById('credValue').value;
+    const orgUrl = document.getElementById('credOrgUrl').value;
+
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            credential_type: 'azure_devops_pat',
+            value: value,
+            metadata: { organization_url: orgUrl }
+        })
+    });
+    if (res) {
+        showToast('Credential saved', 'success');
+        hideCredModal();
+        loadedTabs['credentials'] = false;
+        loadCredentials();
+    }
+}
+
+async function deleteCredential(credId, credType) {
+    if (!confirm('Delete this ' + credType + ' credential? This cannot be undone.')) return;
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/credentials/' + credId, { method: 'DELETE' });
+    if (res) {
+        showToast('Credential deleted', 'success');
+        loadedTabs['credentials'] = false;
+        loadCredentials();
+    }
 }
 
 // --- Workspaces Tab ---
@@ -300,8 +412,8 @@ async function loadOAuthTokens() {
             '<div class="token-row"><div>' +
             '<div style="font-weight: 500;">' + escapeHtml(t.provider) + '</div>' +
             '<div style="font-size: 12px; color: var(--text-muted);">Type: ' + t.token_type +
-            ' | Expires: ' + (t.expires_at || 'N/A') +
-            ' | <span style="color: ' + (t.is_expired ? 'var(--error)' : 'var(--success)') + ';">' + (t.is_expired ? 'Expired' : 'Valid') + '</span></div>' +
+            ' | ' + (t.has_refresh_token ? 'Last refreshed: ' + (t.updated_at ? new Date(t.updated_at).toLocaleString() : 'N/A') : 'Expires: ' + (t.expires_at || 'N/A')) +
+            ' | <span style="color: ' + (t.is_expired && !t.has_refresh_token ? 'var(--error)' : 'var(--success)') + ';">' + (t.is_expired ? (t.has_refresh_token ? 'Auto-refreshes' : 'Expired') : 'Valid') + '</span></div>' +
             (t.scope ? '<div style="font-size: 11px; color: var(--text-muted);">Scope: ' + escapeHtml(t.scope) + '</div>' : '') +
             '</div><div>' +
             '<button class="btn btn-sm btn-danger" onclick="revokeToken(\'' + t.id + '\')">Revoke</button>' +

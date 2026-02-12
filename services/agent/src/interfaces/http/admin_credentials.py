@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-"""Admin endpoints for user credential management."""
+"""Admin endpoints for credential management (context-scoped)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.credential_service import CredentialService
 from core.core.config import Settings, get_settings
 from core.db.engine import get_db
-from core.db.models import User, UserCredential
+from core.db.models import Context, UserCredential
 from core.observability.security_logger import (
     CREDENTIAL_CREATED,
     CREDENTIAL_DELETED,
@@ -36,9 +36,6 @@ router = APIRouter(
 )
 
 # Supported credential types with display info
-# metadata_fields can be either:
-# - A string (field name, auto-generates label from name)
-# - A dict with: name, label, placeholder, pattern (optional regex), required (bool)
 CREDENTIAL_TYPES: dict[str, dict[str, Any]] = {
     "azure_devops_pat": {
         "name": "Azure DevOps PAT",
@@ -53,44 +50,6 @@ CREDENTIAL_TYPES: dict[str, dict[str, Any]] = {
                 "pattern_error": "Must be a valid Azure DevOps URL (e.g., https://dev.azure.com/Org/Project)",
                 "required": True,
             }
-        ],
-    },
-    "github_token": {
-        "name": "GitHub Token",
-        "description": "Personal Access Token for GitHub",
-        "placeholder": "ghp_xxxxxxxxxxxx",
-        "metadata_fields": [],
-    },
-    "gitlab_token": {
-        "name": "GitLab Token",
-        "description": "Personal Access Token for GitLab",
-        "placeholder": "glpat-xxxxxxxxxxxx",
-        "metadata_fields": [
-            {
-                "name": "gitlab_url",
-                "label": "GitLab URL",
-                "placeholder": "https://gitlab.com",
-                "required": False,
-            }
-        ],
-    },
-    "jira_api_token": {
-        "name": "Jira API Token",
-        "description": "API Token for Jira/Atlassian",
-        "placeholder": "Enter your Jira API token",
-        "metadata_fields": [
-            {
-                "name": "jira_url",
-                "label": "Jira URL",
-                "placeholder": "https://yourcompany.atlassian.net",
-                "required": True,
-            },
-            {
-                "name": "jira_email",
-                "label": "Jira Email",
-                "placeholder": "your@email.com",
-                "required": True,
-            },
         ],
     },
 }
@@ -115,8 +74,8 @@ class CredentialInfo(BaseModel):
     """Credential information (without decrypted value)."""
 
     id: str
-    user_id: str
-    user_email: str
+    context_id: str
+    context_name: str
     credential_type: str
     credential_type_name: str
     metadata: dict
@@ -124,21 +83,10 @@ class CredentialInfo(BaseModel):
     updated_at: str
 
 
-class UserWithCredentials(BaseModel):
-    """User with their credentials."""
-
-    user_id: str
-    email: str
-    display_name: str | None
-    role: str
-    credential_count: int
-    credentials: list[CredentialInfo]
-
-
 class CredentialCreateRequest(BaseModel):
     """Request to create a credential."""
 
-    user_id: str
+    context_id: str
     credential_type: str
     value: str
     metadata: dict | None = None
@@ -164,20 +112,19 @@ class CredentialDeleteResponse(BaseModel):
 
 @router.get("/", response_class=UTF8HTMLResponse)
 async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
-    """User credential management dashboard."""
+    """Credential management dashboard."""
     # Generate credential type options for the form
     type_options = "".join(
         f'<option value="{key}">{info["name"]}</option>' for key, info in CREDENTIAL_TYPES.items()
     )
 
-    # Build content with embedded type_options
     content = f"""
-        <h1 class="page-title">User Credentials</h1>
+        <h1 class="page-title">Credentials</h1>
 
         <div class="stats-grid" style="margin-bottom: 24px;">
             <div class="stat-box">
-                <div class="stat-value" id="totalUsers">0</div>
-                <div class="stat-label">Users with Credentials</div>
+                <div class="stat-value" id="totalContexts">0</div>
+                <div class="stat-label">Contexts with Credentials</div>
             </div>
             <div class="stat-box">
                 <div class="stat-value" id="totalCredentials">0</div>
@@ -196,7 +143,7 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             <table id="credentialsTable">
                 <thead>
                     <tr>
-                        <th>User</th>
+                        <th>Context</th>
                         <th>Type</th>
                         <th>Metadata</th>
                         <th>Created</th>
@@ -218,9 +165,9 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                 </div>
                 <form id="addForm" onsubmit="submitCredential(event)">
                     <div class="form-group">
-                        <label for="userId">User</label>
-                        <select id="userId" required>
-                            <option value="">Select user...</option>
+                        <label for="contextId">Context</label>
+                        <select id="contextId" required>
+                            <option value="">Select context...</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -274,20 +221,21 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             renderCredentials(data);
         }}
 
-        async function loadUsers() {{
-            const res = await fetchWithErrorHandling('/platformadmin/users/list');
+        async function loadContexts() {{
+            const res = await fetchWithErrorHandling('/platformadmin/contexts');
             if (!res) {{
-                console.error('Failed to load users');
+                console.error('Failed to load contexts');
                 return;
             }}
-            const users = await res.json();
-            const select = document.getElementById('userId');
-            select.innerHTML = '<option value="">Select user...</option>' +
-                users.map(u => `<option value="${{u.id}}">${{escapeHtml(u.email)}} (${{escapeHtml(u.display_name || 'No name')}})</option>`).join('');
+            const data = await res.json();
+            const contexts = data.contexts || [];
+            const select = document.getElementById('contextId');
+            select.innerHTML = '<option value="">Select context...</option>' +
+                contexts.map(c => `<option value="${{c.id}}">${{escapeHtml(c.name)}} (${{c.type}})</option>`).join('');
         }}
 
         function renderCredentials(data) {{
-            document.getElementById('totalUsers').textContent = data.users_with_credentials || 0;
+            document.getElementById('totalContexts').textContent = data.contexts_with_credentials || 0;
             document.getElementById('totalCredentials').textContent = data.total_credentials || 0;
 
             const tbody = document.getElementById('credentialsBody');
@@ -307,7 +255,7 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                 return `
                     <tr>
                         <td>
-                            <div>${{escapeHtml(c.user_email)}}</div>
+                            <div>${{escapeHtml(c.context_name)}}</div>
                         </td>
                         <td><span class="badge badge-type">${{escapeHtml(c.credential_type_name)}}</span></td>
                         <td>${{meta}}</td>
@@ -321,7 +269,7 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
         }}
 
         function openAddModal() {{
-            loadUsers();
+            loadContexts();
             document.getElementById('addModal').classList.add('active');
         }}
 
@@ -339,7 +287,6 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             if (type && CREDENTIAL_TYPES[type]) {{
                 const fields = CREDENTIAL_TYPES[type].metadata_fields || [];
                 fields.forEach(fieldDef => {{
-                    // Support both string (legacy) and object field definitions
                     const name = typeof fieldDef === 'string' ? fieldDef : fieldDef.name;
                     const label = typeof fieldDef === 'string'
                         ? fieldDef.replace('_', ' ').replace(/\\b\\w/g, l => l.toUpperCase())
@@ -370,7 +317,7 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             const submitBtn = e.target.querySelector('button[type="submit"]');
             const originalText = submitBtn.textContent;
 
-            const userId = document.getElementById('userId').value;
+            const contextId = document.getElementById('contextId').value;
             const credType = document.getElementById('credType').value;
             const credValue = document.getElementById('credValue').value;
 
@@ -430,7 +377,7 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
                 body: JSON.stringify({{
-                    user_id: userId,
+                    context_id: contextId,
                     credential_type: credType,
                     value: credValue,
                     metadata: Object.keys(metadata).length > 0 ? metadata : null
@@ -488,9 +435,6 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
     )
 
 
-# Old template code removed (deprecated)
-
-
 # --- API Endpoints ---
 
 
@@ -499,28 +443,28 @@ async def list_all_credentials(
     admin: AdminUser = Depends(verify_admin_user),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
-    """List all user credentials (admin only).
+    """List all credentials (admin only).
 
-    Returns credentials grouped by user with masked values.
+    Returns credentials with context info.
     """
-    # Get all credentials with user info
+    # Get all credentials with context info
     stmt = (
-        select(UserCredential, User)
-        .join(User, UserCredential.user_id == User.id)
-        .order_by(User.email, UserCredential.credential_type)
+        select(UserCredential, Context)
+        .join(Context, UserCredential.context_id == Context.id)
+        .order_by(Context.name, UserCredential.credential_type)
     )
     result = await session.execute(stmt)
     rows = result.all()
 
     credentials = []
-    user_ids = set()
-    for cred, user in rows:
-        user_ids.add(str(user.id))
+    context_ids = set()
+    for cred, ctx in rows:
+        context_ids.add(str(ctx.id))
         credentials.append(
             CredentialInfo(
                 id=str(cred.id),
-                user_id=str(user.id),
-                user_email=user.email,
+                context_id=str(ctx.id),
+                context_name=ctx.name,
                 credential_type=cred.credential_type,
                 credential_type_name=CREDENTIAL_TYPES.get(cred.credential_type, {}).get(
                     "name", cred.credential_type
@@ -534,44 +478,7 @@ async def list_all_credentials(
     return {
         "credentials": [c.model_dump() for c in credentials],
         "total_credentials": len(credentials),
-        "users_with_credentials": len(user_ids),
-    }
-
-
-@router.get("/user/{user_id}")
-async def get_user_credentials(
-    user_id: UUID,
-    admin: AdminUser = Depends(verify_admin_user),
-    session: AsyncSession = Depends(get_db),
-    cred_service: CredentialService = Depends(_get_credential_service),
-) -> dict:
-    """Get credentials for a specific user."""
-    # Verify user exists
-    user_stmt = select(User).where(User.id == user_id)
-    user_result = await session.execute(user_stmt)
-    user = user_result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User {user_id} not found",
-        )
-
-    # Get credentials
-    credentials = await cred_service.list_credentials(user_id, session)
-
-    return {
-        "user_id": str(user_id),
-        "user_email": user.email,
-        "credentials": [
-            {
-                **cred,
-                "credential_type_name": CREDENTIAL_TYPES.get(cred["credential_type"], {}).get(
-                    "name", cred["credential_type"]
-                ),
-            }
-            for cred in credentials
-        ],
+        "contexts_with_credentials": len(context_ids),
     }
 
 
@@ -593,10 +500,7 @@ async def create_credential(
     session: AsyncSession = Depends(get_db),
     cred_service: CredentialService = Depends(_get_credential_service),
 ) -> CredentialCreateResponse:
-    """Create or update a credential for a user.
-
-    Admin can create credentials for any user.
-    """
+    """Create or update a credential for a context."""
     # Validate credential type
     if request.credential_type not in CREDENTIAL_TYPES:
         valid_types = ", ".join(CREDENTIAL_TYPES.keys())
@@ -605,29 +509,29 @@ async def create_credential(
             detail=f"Invalid credential type. Valid types: {valid_types}",
         )
 
-    # Parse user_id
+    # Parse context_id
     try:
-        user_uuid = UUID(request.user_id)
+        context_uuid = UUID(request.context_id)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid user_id format",
+            detail="Invalid context_id format",
         ) from e
 
-    # Verify user exists
-    user_stmt = select(User).where(User.id == user_uuid)
-    user_result = await session.execute(user_stmt)
-    user = user_result.scalar_one_or_none()
+    # Verify context exists
+    ctx_stmt = select(Context).where(Context.id == context_uuid)
+    ctx_result = await session.execute(ctx_stmt)
+    ctx = ctx_result.scalar_one_or_none()
 
-    if not user:
+    if not ctx:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"User {request.user_id} not found",
+            detail=f"Context {request.context_id} not found",
         )
 
     # Store credential (encrypts automatically)
     credential = await cred_service.store_credential(
-        user_id=user_uuid,
+        context_id=context_uuid,
         credential_type=request.credential_type,
         value=request.value,
         metadata=request.metadata,
@@ -637,10 +541,10 @@ async def create_credential(
     await session.commit()
 
     LOGGER.info(
-        "Admin %s created %s credential for user %s",
+        "Admin %s created %s credential for context %s",
         sanitize_log(admin.email),
         sanitize_log(request.credential_type),
-        sanitize_log(user.email),
+        sanitize_log(ctx.name),
     )
 
     # Log security event
@@ -652,15 +556,15 @@ async def create_credential(
         endpoint="/platformadmin/credentials/create",
         details={
             "credential_type": request.credential_type,
-            "target_user_email": user.email,
-            "target_user_id": str(user_uuid),
+            "target_context_name": ctx.name,
+            "target_context_id": str(context_uuid),
         },
         severity="INFO",
     )
 
     return CredentialCreateResponse(
         success=True,
-        message=f"Credential {request.credential_type} saved for {user.email}",
+        message=f"Credential {request.credential_type} saved for context {ctx.name}",
         credential_id=str(credential.id),
     )
 
@@ -688,11 +592,11 @@ async def delete_credential(
             detail=f"Credential {credential_id} not found",
         )
 
-    # Get user email for logging
-    user_stmt = select(User).where(User.id == credential.user_id)
-    user_result = await session.execute(user_stmt)
-    user = user_result.scalar_one_or_none()
-    user_email = user.email if user else "unknown"
+    # Get context name for logging
+    ctx_stmt = select(Context).where(Context.id == credential.context_id)
+    ctx_result = await session.execute(ctx_stmt)
+    ctx = ctx_result.scalar_one_or_none()
+    context_name = ctx.name if ctx else "unknown"
 
     cred_type = credential.credential_type
 
@@ -700,7 +604,7 @@ async def delete_credential(
     await session.delete(credential)
     await session.commit()
 
-    LOGGER.info(f"Admin {admin.email} deleted {cred_type} credential for user {user_email}")
+    LOGGER.info(f"Admin {admin.email} deleted {cred_type} credential for context {context_name}")
 
     # Log security event
     log_security_event(
@@ -711,15 +615,15 @@ async def delete_credential(
         endpoint=f"/platformadmin/credentials/{credential_id}",
         details={
             "credential_type": cred_type,
-            "target_user_email": user_email,
-            "target_user_id": str(credential.user_id),
+            "target_context_name": context_name,
+            "target_context_id": str(credential.context_id),
         },
         severity="INFO",
     )
 
     return CredentialDeleteResponse(
         success=True,
-        message=f"Deleted {cred_type} credential for {user_email}",
+        message=f"Deleted {cred_type} credential for context {context_name}",
     )
 
 

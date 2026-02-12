@@ -229,7 +229,7 @@ class TestTeamAwareQuerying:
         with patch("core.tools.azure_devops._load_ado_mappings", return_value=mock_mappings):
             tool = AzureDevOpsTool()
             # Mock credentials to return test values
-            tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
+            tool._get_credentials_for_context = AsyncMock(  # type: ignore[method-assign]
                 return_value=("fake_pat", "https://dev.azure.com/test", "TestProject")
             )
             return tool
@@ -340,7 +340,7 @@ class TestGetTeamsAction:
         with patch("core.tools.azure_devops._load_ado_mappings", return_value=mock_mappings):
             tool = AzureDevOpsTool()
             # Mock credentials to return test values
-            tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
+            tool._get_credentials_for_context = AsyncMock(  # type: ignore[method-assign]
                 return_value=("fake_pat", "https://dev.azure.com/test", "TestProject")
             )
             return tool
@@ -394,7 +394,7 @@ class TestGetTeamsAction:
         with patch("core.tools.azure_devops._load_ado_mappings", return_value=empty_mappings):
             tool = AzureDevOpsTool()
             # Mock credentials to return test values
-            tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
+            tool._get_credentials_for_context = AsyncMock(  # type: ignore[method-assign]
                 return_value=("fake_pat", "https://dev.azure.com/test", "TestProject")
             )
             # Mock Connection to prevent actual API calls
@@ -428,7 +428,7 @@ class TestBackwardsCompatibility:
         with patch("core.tools.azure_devops._load_ado_mappings", return_value=mock_mappings):
             tool = AzureDevOpsTool()
             # Mock credentials to return test values
-            tool._get_credentials_for_user = AsyncMock(  # type: ignore[method-assign]
+            tool._get_credentials_for_context = AsyncMock(  # type: ignore[method-assign]
                 return_value=("fake_pat", "https://dev.azure.com/test", "TestProject")
             )
             return tool

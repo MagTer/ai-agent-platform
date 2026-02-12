@@ -104,7 +104,9 @@ async def oauth_dashboard(admin: AdminUser = Depends(require_admin_or_redirect))
                 const isExpired = t.is_expired;
                 const expiresIn = Math.round((expiry - now) / (1000 * 60 * 60));
                 let badge = '<span class="badge badge-ok">Valid</span>';
-                if (isExpired) {
+                if (isExpired && t.has_refresh_token) {
+                    badge = '<span class="badge badge-ok">Auto-refreshes</span>';
+                } else if (isExpired) {
                     badge = '<span class="badge badge-err">Expired</span>';
                 } else if (expiresIn < 24) {
                     badge = '<span class="badge badge-warn">Expires soon</span>';
@@ -117,8 +119,7 @@ async def oauth_dashboard(admin: AdminUser = Depends(require_admin_or_redirect))
                         <div class="token-meta">
                             Type: ${t.token_type} |
                             Scope: ${t.scope || 'N/A'} |
-                            Refresh: ${t.has_refresh_token ? 'Yes' : 'No'} |
-                            Expires: ${expiry.toLocaleString()}
+                            ${t.has_refresh_token ? 'Last refreshed: ' + new Date(t.updated_at).toLocaleString() : 'Expires: ' + expiry.toLocaleString()}
                         </div>
                     </div>
                     ${badge}
