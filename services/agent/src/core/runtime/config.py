@@ -194,6 +194,12 @@ class Settings(BaseModel):
         description="Comma-separated list of allowed CORS origins. Empty list disables CORS.",
     )
 
+    # Telegram Bot
+    telegram_bot_token: str | None = Field(  # noqa: S105
+        default=None,
+        description="Telegram bot token for notifications and adapter.",
+    )
+
     # Email Service Settings
     resend_api_key: str | None = Field(
         default=None,

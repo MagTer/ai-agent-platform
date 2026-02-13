@@ -48,6 +48,7 @@ class Context(Base):
     )
     oauth_tokens = relationship("OAuthToken", cascade="all, delete-orphan")
     tool_permissions = relationship("ToolPermission", cascade="all, delete-orphan")
+    scheduled_jobs = relationship("ScheduledJob", cascade="all, delete-orphan")
 
 
 class Conversation(Base):
@@ -378,6 +379,71 @@ class McpServer(Base):
         from core.db.oauth_models import decrypt_token
 
         return decrypt_token(self.oauth_client_secret_encrypted)
+
+
+class ScheduledJob(Base):
+    """Cron-scheduled job definition scoped to a context.
+
+    Each job triggers a skill execution via AgentService at the
+    configured cron schedule. Results are stored in conversation
+    history and optionally sent via notification channel.
+
+    Attributes:
+        id: Unique job identifier.
+        context_id: Parent context for multi-tenant isolation.
+        name: Human-readable job name (unique per context).
+        description: Optional description of what the job does.
+        cron_expression: Standard 5-field cron expression (minute hour day month weekday).
+        skill_prompt: The prompt to send to AgentService (e.g., "Check server status").
+        is_enabled: Whether the job is active.
+        status: Current status (active, paused, error).
+        notification_channel: Optional notification channel (telegram, email, none).
+        notification_target: Channel-specific target (chat_id for telegram, email for email).
+        last_run_at: Timestamp of last execution.
+        last_run_status: Status of last execution (success, error).
+        last_run_result: Summary of last execution result.
+        last_run_duration_ms: Duration of last execution in milliseconds.
+        next_run_at: Computed next execution time.
+        run_count: Total number of executions.
+        error_count: Total number of failed executions.
+        max_retries: Number of retries on failure (default 0).
+        timeout_seconds: Maximum execution time before timeout (default 300).
+        created_at: Job creation timestamp.
+        updated_at: Last update timestamp.
+    """
+
+    __tablename__ = "scheduled_jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String, index=True)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+    cron_expression: Mapped[str] = mapped_column(String)
+    skill_prompt: Mapped[str] = mapped_column(String)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # active, paused, error, running
+    status: Mapped[str] = mapped_column(String, default="active")
+    # telegram, email, none
+    notification_channel: Mapped[str | None] = mapped_column(String, nullable=True)
+    notification_target: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_run_status: Mapped[str | None] = mapped_column(String, nullable=True)  # success, error
+    last_run_result: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_run_duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    run_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_retries: Mapped[int] = mapped_column(Integer, default=0)
+    timeout_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    # Relationships
+    context = relationship("Context", overlaps="scheduled_jobs")
+
+    __table_args__ = (UniqueConstraint("context_id", "name", name="uq_context_scheduled_job_name"),)
 
 
 class SystemConfig(Base):

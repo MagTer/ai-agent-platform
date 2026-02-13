@@ -448,6 +448,8 @@ if step.tool == "my_integration":
         ├── http/
         │   ├── admin_*.py        # Admin portal modules
         │   └── templates/        # HTML templates (40KB+ files)
+        ├── scheduler/
+        │   └── adapter.py        # SchedulerAdapter (cron-based job execution)
         └── telegram/
             └── adapter.py        # Telegram adapter (uses ContextService + ChunkFilter)
 ```
@@ -694,6 +696,7 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 - `services/agent/src/core/context/service.py` - ContextService (shared context resolution)
 - `services/agent/src/core/runtime/service.py` - AgentService (main runtime orchestrator)
 - `services/agent/src/core/runtime/persistence.py` - DB CRUD (conversations, sessions, messages)
+- `services/agent/src/interfaces/scheduler/adapter.py` - SchedulerAdapter (cron-based jobs)
 - `services/agent/src/core/runtime/hitl.py` - Human-in-the-loop coordinator
 - `services/agent/src/core/runtime/config.py` - RuntimeConfig (all runtime settings)
 - `services/agent/src/core/agents/planner.py` - PlannerAgent (generates plans)
@@ -731,6 +734,7 @@ interfaces/http/
 ├── admin_oauth.py            # OAuth provider management
 ├── admin_permissions.py      # Tool permissions per context
 ├── admin_price_tracker.py    # Price tracker management
+├── admin_scheduler.py        # Scheduled job management
 ├── admin_sessions.py         # Session management
 ├── admin_users.py            # User management
 ├── admin_workspaces.py       # Git repository workspaces
