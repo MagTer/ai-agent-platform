@@ -55,11 +55,6 @@ async def admin_portal(admin: AdminUser = Depends(require_admin_or_redirect)) ->
                 <p>Manage user accounts, roles, and permissions across the platform.</p>
             </a>
 
-            <a href="/platformadmin/credentials/" class="portal-card">
-                <div class="card-icon purple">&#128273;</div>
-                <h2>Credentials</h2>
-                <p>Manage encrypted credentials (PATs, API tokens) for users.</p>
-            </a>
         </div>
 
         <div class="section-title">Feature Management</div>
@@ -537,12 +532,6 @@ def _get_admin_portal_template() -> str:
                 <div class="endpoint">/platformadmin/users/</div>
             </a>
 
-            <a href="/platformadmin/credentials/" class="card">
-                <div class="card-icon purple">&#128273;</div>
-                <h2>Credentials</h2>
-                <p>Manage encrypted credentials (PATs, API tokens) for users.</p>
-                <div class="endpoint">/platformadmin/credentials/</div>
-            </a>
         </div>
 
         <div class="section-title">Feature Management</div>

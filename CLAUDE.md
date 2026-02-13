@@ -727,7 +727,6 @@ interfaces/http/
 ├── admin_portal.py           # Main dashboard
 ├── admin_api.py              # Diagnostic API (machine-readable endpoints)
 ├── admin_contexts.py         # Context management (primary management unit)
-├── admin_credentials.py      # Credential management (context-scoped)
 ├── admin_debug.py            # Debug log viewer
 ├── admin_diagnostics.py      # Diagnostics dashboard
 ├── admin_mcp.py              # MCP server management (user-defined connections)
