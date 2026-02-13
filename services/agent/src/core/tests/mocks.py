@@ -15,10 +15,13 @@ class MockLLMClient(LiteLLMClient):
     A mock LLM client that returns deterministic responses for testing.
     """
 
+    responses: list[str | dict[str, Any]]
+    call_history: list[list[AgentMessage]]
+
     def __init__(self, responses: list[str | dict[str, Any]] | None = None) -> None:
         # We don't call super().__init__ because we don't want a real httpx client
         self.responses = responses or []
-        self.call_history: list[list[AgentMessage]] = []
+        self.call_history = []
         self._response_index = 0
 
     async def aclose(self) -> None:

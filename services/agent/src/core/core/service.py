@@ -5,7 +5,6 @@ import contextlib
 import logging
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime
 from typing import Any
 
 from shared.models import (
@@ -20,7 +19,6 @@ from shared.models import (
     StepOutcome,
     StepResult,
 )
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.agents import (
@@ -36,7 +34,7 @@ from core.core.litellm_client import LiteLLMClient
 from core.core.memory import MemoryRecord, MemoryStore
 from core.db import Context, Conversation, Message, Session
 from core.debug import DebugLogger
-from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
+from core.models.pydantic_schemas import SupervisorDecision, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import (
     current_trace_ids,
@@ -44,6 +42,10 @@ from core.observability.tracing import (
     set_span_status,
     start_span,
 )
+from core.runtime.context_injector import ContextInjector
+from core.runtime.hitl import HITLCoordinator
+from core.runtime.persistence import ConversationPersistence
+from core.runtime.tool_runner import ToolRunner
 from core.skills import SkillExecutor, SkillRegistry
 from core.system_commands import handle_system_command
 from core.tools import ToolRegistry
@@ -81,6 +83,12 @@ class AgentService:
     _skill_registry: SkillRegistry | None
     context_manager: ContextManager
 
+    # Extracted modules
+    _persistence: ConversationPersistence
+    _context_injector: ContextInjector
+    _tool_runner: ToolRunner
+    _hitl_coordinator: HITLCoordinator
+
     def __init__(
         self,
         settings: Settings,
@@ -106,6 +114,22 @@ class AgentService:
 
         self.context_manager = ContextManager(settings)
 
+        # Initialize extracted modules
+        self._persistence = ConversationPersistence(
+            context_manager=self.context_manager,
+            memory=memory,
+        )
+        self._context_injector = ContextInjector()
+        self._tool_runner = ToolRunner(
+            tool_registry=self._tool_registry,
+            settings=settings,
+        )
+        self._hitl_coordinator = HITLCoordinator(
+            skill_registry=skill_registry,
+            tool_registry=self._tool_registry,
+            litellm=litellm,
+        )
+
     # ────────────────────────────────────────────────────────────────────────────
     # Extracted methods from execute_stream for better testability
     # ────────────────────────────────────────────────────────────────────────────
@@ -127,13 +151,16 @@ class AgentService:
             Tuple of (Conversation, Context, Session)
         """
         # Create/get conversation
-        db_conversation = await self._ensure_conversation_exists(session, conversation_id, request)
+        request_metadata = request.metadata or {}
+        db_conversation = await self._persistence._ensure_conversation_exists(
+            session, conversation_id, request_metadata
+        )
 
         # Resolve active context
         db_context = await session.get(Context, db_conversation.context_id)
 
         # Create session for this request
-        db_session = await self._get_or_create_session(session, conversation_id)
+        db_session = await self._persistence._get_or_create_session(session, conversation_id)
 
         return db_conversation, db_context, db_session
 
@@ -167,7 +194,7 @@ class AgentService:
                 [(m.role, (m.content or "")[:50]) for m in history],
             )
         else:
-            history = await self._load_conversation_history(session, db_session)
+            history = await self._persistence._load_conversation_history(session, db_session)
             history_source = "database"
             LOGGER.info("Loaded %d messages from database", len(history))
 
@@ -180,11 +207,13 @@ class AgentService:
 
         # Inject pinned files
         if db_context:
-            await self._inject_pinned_files(history, db_context.pinned_files)
+            await self._context_injector._inject_pinned_files(history, db_context.pinned_files)
 
         # Inject workspace rules
         if db_conversation.current_cwd:
-            await self._inject_workspace_rules(history, db_conversation.current_cwd)
+            await self._context_injector._inject_workspace_rules(
+                history, db_conversation.current_cwd
+            )
 
         return history, history_source
 
@@ -858,7 +887,7 @@ class AgentService:
             return
 
         # Detect work items for language preservation
-        work_item_detected = self._detect_work_items(prompt_history)
+        work_item_detected = self._hitl_coordinator._detect_work_items(prompt_history)
 
         if work_item_detected:
             LOGGER.info("Work item draft detected. Injecting language preservation instruction.")
@@ -1024,7 +1053,7 @@ class AgentService:
 
         # Execute metadata tools
         request_metadata = request.metadata or {}
-        metadata_tool_results = await self._execute_tools(request_metadata)
+        metadata_tool_results = await self._tool_runner._execute_tools(request_metadata)
         for tool_res in metadata_tool_results:
             yield {
                 "type": "tool_output",
@@ -1042,13 +1071,13 @@ class AgentService:
                 history_with_tools.append(AgentMessage(role="system", content=msg_content))
 
         # Prepare tool descriptions for planning
-        allowlist = self._parse_tool_allowlist(request_metadata.get("tools"))
+        allowlist = self._tool_runner._parse_tool_allowlist(request_metadata.get("tools"))
         target_tools = allowlist or {
             t.name
             for t in self._tool_registry.list_tools()
             if getattr(t, "category", "domain") == "orchestration"
         }
-        tool_descriptions = self._describe_tools(target_tools)
+        tool_descriptions = self._tool_runner._describe_tools(target_tools)
         available_skills_text = get_registry_index()
 
         # Initialize adaptive execution state
@@ -1154,7 +1183,7 @@ class AgentService:
                     elif event["type"] == "awaiting_input":
                         # HITL: Store state for resume and mark execution complete
                         meta = event.get("metadata") or {}
-                        await self._store_pending_hitl(session, db_conversation, meta)
+                        await self._persistence._store_pending_hitl(session, db_conversation, meta)
                         awaiting_input_request = AwaitingInputRequest(
                             category=AwaitingInputCategory(meta.get("category", "clarification")),
                             prompt=meta.get("prompt", ""),
@@ -1309,7 +1338,7 @@ class AgentService:
                 yield event
 
         # Finalize and persist
-        async for event in self._finalize_and_persist(
+        async for event in self._persistence._finalize_and_persist(
             session,
             db_session,
             conversation_id,
@@ -1368,7 +1397,7 @@ class AgentService:
                         "conversation_id": conversation_id,
                     }
 
-                    async for event in self._resume_hitl(
+                    async for event in self._hitl_coordinator._resume_hitl(
                         request,
                         session,
                         db_session,
@@ -1481,7 +1510,11 @@ class AgentService:
                     yield event
 
             except Exception as e:
+                from core.observability.error_codes import classify_exception
+
+                error_code = classify_exception(e)
                 set_span_status("ERROR", str(e))
+                set_span_attributes({"error_code": error_code.value})
                 raise e
 
     async def handle_request(self, request: AgentRequest, session: AsyncSession) -> AgentResponse:
@@ -1587,7 +1620,7 @@ class AgentService:
             # Try DB fetch (might fail in mocks, so catch generic)
             # Try DB fetch (might fail in mocks, so catch generic)
             with contextlib.suppress(Exception):
-                messages = await self.get_history(conversation_id, session)
+                messages = await self._persistence.get_history(conversation_id, session)
 
         # Add trace_id to metadata for debugging/observability
         trace_ids = current_trace_ids()
@@ -1630,59 +1663,12 @@ class AgentService:
         Returns:
             List of messages in chronological order.
         """
-        stmt = (
-            select(Message)
-            .join(Session)
-            .where(Session.conversation_id == conversation_id)
-            .order_by(Message.created_at.asc())
-        )
-        result = await session.execute(stmt)
-        db_messages = result.scalars().all()
+        return await self._persistence.get_history(conversation_id, session)
 
-        return [AgentMessage(role=msg.role, content=msg.content) for msg in db_messages]
-
+    # Tool execution - delegated to ToolRunner
     async def _execute_tools(self, metadata: dict[str, Any] | None) -> list[dict[str, Any]]:
-        """Execute requested tools and return a structured result list."""
-
-        if not metadata:
-            return []
-
-        allowlist = self._parse_tool_allowlist(metadata.get("tools"))
-        raw_calls = metadata.get("tool_calls")
-        if not raw_calls:
-            return []
-        if isinstance(raw_calls, dict):
-            call_items = [raw_calls]
-        elif isinstance(raw_calls, list):
-            call_items = list(raw_calls)
-        else:
-            LOGGER.warning("Ignoring tool_calls because it is not a list or dict")
-            return []
-
-        results: list[dict[str, Any]] = []
-        for entry in call_items:
-            tool_name: str | None = None
-            call_args: dict[str, Any] = {}
-            if isinstance(entry, str):
-                tool_name = entry
-            elif isinstance(entry, dict):
-                tool_name = entry.get("name")
-                args_field = entry.get("args")
-                if isinstance(args_field, dict):
-                    call_args = args_field
-                elif args_field:
-                    LOGGER.warning("Ignoring non-dict args for tool %s", tool_name)
-            else:  # pragma: no cover - defensive path for unexpected structures
-                LOGGER.warning("Skipping malformed tool call entry: %s", entry)
-                continue
-
-            if not tool_name:
-                LOGGER.warning("Encountered tool call without a name; skipping")
-                continue
-
-            result = await self._run_tool_call(str(tool_name), call_args, allowlist=allowlist)
-            results.append(result)
-        return results
+        """Execute requested tools and return a structured result list. Delegates to ToolRunner."""
+        return await self._tool_runner._execute_tools(metadata)
 
     async def _run_tool_call(
         self,
@@ -1691,85 +1677,21 @@ class AgentService:
         *,
         allowlist: set[str] | None = None,
     ) -> dict[str, Any]:
-        """Run a single tool invocation while normalizing the output."""
-
-        result: dict[str, Any] = {"name": tool_name}
-        if allowlist is not None and tool_name not in allowlist:
-            result.update({"status": "skipped", "reason": "not-allowed"})
-            return result
-
-        if not tool_name:
-            result.update({"status": "error", "error": "missing tool name"})
-            return result
-
-        tool = self._tool_registry.get(tool_name) if self._tool_registry else None
-        if not tool:
-            LOGGER.warning("Requested tool %s is not registered", tool_name)
-            result.update({"status": "missing"})
-            return result
-
-        sanitized_args = call_args if isinstance(call_args, dict) else {}
-        with start_span(f"tool.call.{tool_name}"):
-            # Observability: Capture arguments
-            set_span_attributes({"args": str(sanitized_args)})
-
-            try:
-                output = await tool.run(**sanitized_args)
-                status = "ok"
-                set_span_status("OK")
-            except Exception as exc:  # pragma: no cover - depends on tool implementation
-                LOGGER.exception("Tool %s execution failed", tool_name)
-                # Observability: Capture failure
-                set_span_status("ERROR", str(exc))
-
-                result.update({"status": "error", "error": str(exc)})
-                status = "error"
-                log_event(
-                    ToolCallEvent(
-                        name=tool_name,
-                        args=sanitized_args,
-                        status=status,
-                        output_preview=str(exc),
-                        trace=TraceContext(**current_trace_ids()),
-                    )
-                )
-                return result
-
-        output_text = str(output)
-        trimmed_output = output_text[: self._settings.tool_result_max_chars]
-        result.update(
-            {
-                "status": status,
-                "output": trimmed_output,
-            }
-        )
-        log_event(
-            ToolCallEvent(
-                name=tool_name,
-                args=sanitized_args,
-                status=status,
-                output_preview=trimmed_output,
-                trace=TraceContext(**current_trace_ids()),
-            )
-        )
-        return result
+        """Run a single tool invocation. Delegates to ToolRunner."""
+        return await self._tool_runner._run_tool_call(tool_name, call_args, allowlist=allowlist)
 
     def _tool_result_entry(self, result: dict[str, Any], *, source: str = "plan") -> dict[str, Any]:
-        """Turn a tool result into a structured step entry."""
+        """Turn a tool result into a structured step entry. Delegates to ToolRunner."""
+        return self._tool_runner._tool_result_entry(result, source=source)
 
-        entry: dict[str, Any] = {
-            "type": "tool",
-            "source": source,
-            "name": result.get("name"),
-            "status": result.get("status"),
-        }
-        output = result.get("output")
-        if output:
-            entry["output"] = output
-        reason = result.get("reason") or result.get("error")
-        if reason:
-            entry["reason"] = reason
-        return entry
+    @staticmethod
+    def _parse_tool_allowlist(raw: Any) -> set[str] | None:
+        """Parse tool allowlist from metadata. Delegates to ToolRunner."""
+        return ToolRunner._parse_tool_allowlist(raw)
+
+    def _describe_tools(self, allowlist: set[str] | None = None) -> list[dict[str, Any]]:
+        """Generate tool descriptions for LLM. Delegates to ToolRunner."""
+        return self._tool_runner._describe_tools(allowlist)
 
     def _fallback_plan(self, prompt: str) -> Plan:
         return Plan(
@@ -1792,699 +1714,6 @@ class AgentService:
             ],
             description="Fallback plan generated when the planner response was invalid.",
         )
-
-    def _describe_tools(self, allowlist: set[str] | None = None) -> list[dict[str, Any]]:
-        tool_list = []
-
-        # 1. Registry Tools
-        if self._tool_registry:
-            for tool in self._tool_registry.list_tools():
-                if allowlist is not None and tool.name not in allowlist:
-                    continue
-                info = {
-                    "name": tool.name,
-                    "description": getattr(tool, "description", tool.__class__.__name__),
-                }
-                if hasattr(tool, "parameters"):
-                    info["parameters"] = tool.parameters
-                elif hasattr(tool, "schema"):
-                    info["schema"] = tool.schema
-                tool_list.append(info)
-
-        return tool_list
-
-    # ────────────────────────────────────────────────────────────────────────────
-    # Helper methods extracted from execute_stream to improve readability
-    # ────────────────────────────────────────────────────────────────────────────
-
-    async def _ensure_conversation_exists(
-        self,
-        session: AsyncSession,
-        conversation_id: str,
-        request: AgentRequest,
-    ) -> Conversation:
-        """Ensure a Conversation exists, creating one if needed.
-
-        Args:
-            session: Database session
-            conversation_id: UUID for the conversation
-            request: The incoming agent request
-
-        Returns:
-            The existing or newly created Conversation
-        """
-        db_conversation = await session.get(Conversation, conversation_id)
-        if db_conversation:
-            return db_conversation
-
-        # Auto-create attached to 'default' context if new
-        stmt = select(Context).where(Context.name == "default")
-        result = await session.execute(stmt)
-        db_context = result.scalar_one_or_none()
-
-        if not db_context:
-            # Bootstrap default context
-            db_context = await self.context_manager.create_context(session, "default", "shared", {})
-
-        db_conversation = Conversation(
-            id=conversation_id,
-            platform=(request.metadata or {}).get("platform", "api"),
-            platform_id=(request.metadata or {}).get("platform_id", "generic"),
-            context_id=db_context.id,
-            current_cwd=db_context.default_cwd,
-        )
-        session.add(db_conversation)
-        await session.flush()
-        return db_conversation
-
-    async def _get_or_create_session(
-        self,
-        session: AsyncSession,
-        conversation_id: str,
-    ) -> Session:
-        """Get active session or create a new one.
-
-        Args:
-            session: Database session
-            conversation_id: UUID for the conversation
-
-        Returns:
-            The active Session for this conversation
-        """
-        session_stmt = select(Session).where(
-            Session.conversation_id == conversation_id, Session.active.is_(True)
-        )
-        session_result = await session.execute(session_stmt)
-        db_session = session_result.scalar_one_or_none()
-
-        if not db_session:
-            db_session = Session(conversation_id=conversation_id, active=True)
-            session.add(db_session)
-            await session.flush()
-
-        return db_session
-
-    async def _load_conversation_history(
-        self,
-        session: AsyncSession,
-        db_session: Session,
-    ) -> list[AgentMessage]:
-        """Load message history for a session.
-
-        Args:
-            session: Database session
-            db_session: The active Session
-
-        Returns:
-            List of AgentMessage objects representing conversation history
-        """
-        history_stmt = (
-            select(Message)
-            .where(Message.session_id == db_session.id)
-            .order_by(Message.created_at.asc())
-        )
-        history_result = await session.execute(history_stmt)
-        db_messages = history_result.scalars().all()
-
-        history = [AgentMessage(role=msg.role, content=msg.content) for msg in db_messages]
-
-        # Inject current date as system context
-        current_date_str = datetime.now().strftime("%Y-%m-%d")
-        history.insert(
-            0,
-            AgentMessage(role="system", content=f"Current Date: {current_date_str}"),
-        )
-
-        return history
-
-    def _is_path_safe(self, file_path: str, allowed_bases: list[str]) -> bool:
-        """Check if a file path is safe to read (no path traversal).
-
-        SECURITY: Prevents reading sensitive files outside allowed directories.
-
-        Args:
-            file_path: The file path to validate
-            allowed_bases: List of allowed base directories
-
-        Returns:
-            True if path is within an allowed directory, False otherwise
-        """
-        from pathlib import Path
-
-        try:
-            resolved = Path(file_path).resolve()
-            for base in allowed_bases:
-                base_resolved = Path(base).resolve()
-                # Check if the resolved path starts with the allowed base
-                if str(resolved).startswith(str(base_resolved) + "/"):
-                    return True
-                if resolved == base_resolved:
-                    return True
-            return False
-        except Exception:
-            LOGGER.debug(
-                "Path resolution failed during sandbox check for %s (allowed: %s), "
-                "assuming not sandboxed",
-                file_path,
-                allowed_bases,
-                exc_info=True,
-            )
-            return False
-
-    async def _inject_pinned_files(
-        self,
-        history: list[AgentMessage],
-        pinned_files: list[str] | None,
-        workspace_path: str | None = None,
-    ) -> None:
-        """Inject pinned file contents into the conversation history.
-
-        Args:
-            history: The conversation history to modify in-place
-            pinned_files: List of file paths to inject
-            workspace_path: Optional workspace path for path validation
-        """
-        if not pinned_files:
-            return
-
-        from pathlib import Path
-
-        # SECURITY: Define allowed base directories for pinned files
-        allowed_bases: list[str] = []
-        if workspace_path:
-            allowed_bases.append(workspace_path)
-        # Also allow user's home directory as a reasonable default
-        home = Path.home()
-        if await asyncio.to_thread(home.exists):
-            allowed_bases.append(str(home))
-
-        async def _read_pinned_file(pf: str) -> str | None:
-            """Read a single pinned file asynchronously."""
-            try:
-                # SECURITY: Validate path is within allowed directories
-                if allowed_bases and not self._is_path_safe(pf, allowed_bases):
-                    LOGGER.warning(f"Blocked pinned file outside allowed paths: {pf}")
-                    return None
-
-                p = Path(pf)
-                if await asyncio.to_thread(p.exists) and await asyncio.to_thread(p.is_file):
-                    file_content = await asyncio.to_thread(p.read_text, encoding="utf-8")
-                    return f"### FILE: {pf}\n{file_content}"
-                return None
-            except Exception as e:
-                LOGGER.warning(f"Failed to read pinned file {pf}: {e}")
-                return None
-
-        # Read all pinned files in parallel
-        results = await asyncio.gather(
-            *[_read_pinned_file(pf) for pf in pinned_files],
-            return_exceptions=True,
-        )
-
-        pinned_content: list[str] = []
-        for result in results:
-            if isinstance(result, BaseException):
-                LOGGER.warning(f"Failed to read pinned file: {result}")
-            elif result is not None:
-                pinned_content.append(result)
-
-        if pinned_content:
-            combined_pinned = "\n\n".join(pinned_content)
-            history.append(
-                AgentMessage(
-                    role="system",
-                    content=(
-                        f"## PINNED FILES (Active Context)\n"
-                        f"The following files are pinned to your context:\n\n{combined_pinned}"
-                    ),
-                )
-            )
-
-    async def _inject_workspace_rules(
-        self,
-        history: list[AgentMessage],
-        workspace_path: str,
-    ) -> None:
-        """Inject workspace rules from .agent/rules.md into the conversation history.
-
-        Args:
-            history: The conversation history to modify in-place
-            workspace_path: Path to the workspace directory
-        """
-        from pathlib import Path
-
-        # SECURITY: Validate workspace_path and ensure rules file stays within it
-        try:
-            workspace_resolved = Path(workspace_path).resolve()
-        except Exception:
-            LOGGER.warning("Invalid workspace path: %s", workspace_path, exc_info=True)
-            return
-
-        rules_path = Path(workspace_path) / ".agent" / "rules.md"
-
-        # SECURITY: Ensure resolved rules_path is within workspace
-        try:
-            rules_resolved = rules_path.resolve()
-            if not str(rules_resolved).startswith(str(workspace_resolved) + "/"):
-                LOGGER.warning(f"Blocked rules path traversal: {rules_path}")
-                return
-        except Exception:
-            LOGGER.warning("Failed to validate rules path: %s", rules_path, exc_info=True)
-            return
-
-        if not await asyncio.to_thread(rules_path.exists) or not await asyncio.to_thread(
-            rules_path.is_file
-        ):
-            return
-
-        try:
-            rules_content = await asyncio.to_thread(rules_path.read_text, encoding="utf-8")
-            rules_content = rules_content.strip()
-            if not rules_content:
-                return
-
-            # Insert at the beginning of history as a system message
-            history.insert(
-                0,
-                AgentMessage(
-                    role="system",
-                    content=(
-                        f"## WORKSPACE RULES\n"
-                        f"These rules apply to this workspace and must be followed:\n\n"
-                        f"{rules_content}"
-                    ),
-                ),
-            )
-            LOGGER.info(f"Injected workspace rules from {rules_path}")
-        except Exception as e:
-            LOGGER.warning(f"Failed to read workspace rules from {rules_path}: {e}")
-
-    @staticmethod
-    def _parse_tool_allowlist(raw: Any) -> set[str] | None:
-        if raw is None:
-            return None
-        if isinstance(raw, list | tuple | set):
-            return {str(item) for item in raw if isinstance(item, str)}
-        return None
-
-    def _detect_work_items(self, prompt_history: list[AgentMessage]) -> bool:
-        """Detect work item drafts in conversation history.
-
-        Heuristic: Look for common work item markers in the last few messages.
-
-        Args:
-            prompt_history: The conversation history
-
-        Returns:
-            True if work item detected, False otherwise
-        """
-        for msg in reversed(prompt_history[-5:]):  # Check last 5 messages
-            content = str(msg.content or "")
-            if (
-                "User Story" in content
-                or "Feature" in content
-                or "TYPE:" in content
-                or "TITLE:" in content
-            ) and ("Acceptance Criteria" in content or "Success Metrics" in content):
-                return True
-        return False
-
-    async def _store_pending_hitl(
-        self,
-        session: AsyncSession,
-        db_conversation: Conversation,
-        hitl_metadata: dict[str, Any],
-    ) -> None:
-        """Store HITL state in conversation metadata for resume.
-
-        Args:
-            session: Database session
-            db_conversation: The conversation to update
-            hitl_metadata: HITL metadata including skill_messages, step, etc.
-        """
-        # Update conversation_metadata with pending_hitl
-        current_meta = dict(db_conversation.conversation_metadata or {})
-        current_meta["pending_hitl"] = hitl_metadata
-        db_conversation.conversation_metadata = current_meta
-        await session.flush()
-        LOGGER.info(
-            "Stored pending HITL for conversation %s: %s",
-            db_conversation.id,
-            hitl_metadata.get("skill_name"),
-        )
-
-    async def _clear_pending_hitl(
-        self,
-        session: AsyncSession,
-        db_conversation: Conversation,
-    ) -> None:
-        """Clear pending HITL state after resume.
-
-        Args:
-            session: Database session
-            db_conversation: The conversation to update
-        """
-        current_meta = dict(db_conversation.conversation_metadata or {})
-        if "pending_hitl" in current_meta:
-            del current_meta["pending_hitl"]
-            db_conversation.conversation_metadata = current_meta
-            await session.flush()
-            LOGGER.info("Cleared pending HITL for conversation %s", db_conversation.id)
-
-    async def _resume_hitl(
-        self,
-        request: AgentRequest,
-        session: AsyncSession,
-        db_session: Session,
-        db_conversation: Conversation,
-        pending_hitl: dict[str, Any],
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        """Resume a skill execution after user provides HITL input.
-
-        Args:
-            request: The new request containing user's input
-            session: Database session
-            db_session: The active Session
-            db_conversation: The conversation with pending HITL
-            pending_hitl: The stored HITL state
-
-        Yields:
-            Event dictionaries for the resumed execution
-        """
-        skill_name = pending_hitl.get("skill_name", "unknown")
-        skill_messages = pending_hitl.get("skill_messages", [])
-        step_data = pending_hitl.get("step", {})
-        tool_call_id = pending_hitl.get("tool_call_id", "")
-        category = pending_hitl.get("category", "")
-        trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
-
-        LOGGER.info(
-            "Resuming HITL for skill %s (category=%s) with user input: %s",
-            skill_name,
-            category,
-            request.prompt[:100],
-        )
-
-        # Record user message
-        session.add(
-            Message(
-                session_id=db_session.id,
-                role="user",
-                content=request.prompt,
-                trace_id=trace_id,
-            )
-        )
-
-        # Clear pending HITL now that we're resuming
-        await self._clear_pending_hitl(session, db_conversation)
-
-        # Check for handoff: requirements_drafter confirmation -> requirements_writer
-        user_response_lower = request.prompt.lower().strip()
-        is_approval = "approve" in user_response_lower or user_response_lower in ("yes", "ja", "ok")
-
-        if skill_name == "requirements_drafter" and category == "confirmation" and is_approval:
-            LOGGER.info("HITL handoff: requirements_drafter -> requirements_writer")
-            yield {
-                "type": "thinking",
-                "content": "Creating work item in Azure DevOps...",
-                "metadata": {"role": "Executor", "hitl_handoff": True},
-            }
-
-            # Extract draft data from skill messages
-            draft_data = self._extract_draft_from_messages(skill_messages)
-
-            if not draft_data:
-                yield {
-                    "type": "error",
-                    "content": "Could not extract draft data from conversation.",
-                }
-                return
-
-            # Execute requirements_writer with draft data
-            async for event in self._execute_requirements_writer(
-                draft_data, request, session, db_session, trace_id
-            ):
-                yield event
-            return
-
-        # Normal HITL resume - continue the original skill
-        yield {
-            "type": "thinking",
-            "content": f"Resuming {skill_name} with your input...",
-            "metadata": {"role": "Executor", "hitl_resume": True},
-        }
-
-        # Reconstruct skill messages and add user response as tool result
-        messages: list[AgentMessage] = [AgentMessage(**msg) for msg in skill_messages]
-
-        # Add user's response as tool result for request_user_input
-        messages.append(
-            AgentMessage(
-                role="tool",
-                tool_call_id=tool_call_id,
-                name="request_user_input",
-                content=f"User response: {request.prompt}",
-            )
-        )
-
-        # Reconstruct the step
-        step = PlanStep(**step_data)
-
-        # Get skill executor
-        if not self._skill_registry:
-            yield {"type": "error", "content": "Skill registry not available"}
-            return
-
-        skill_executor = SkillExecutor(
-            skill_registry=self._skill_registry,
-            tool_registry=self._tool_registry,
-            litellm=self._litellm,
-        )
-
-        # Continue skill execution by calling LLM with updated messages
-        # We need to pass the messages to the skill executor via request metadata
-        resume_request = AgentRequest(
-            prompt=request.prompt,
-            conversation_id=request.conversation_id,
-            metadata={
-                **(request.metadata or {}),
-                "_hitl_resume_messages": [m.model_dump() for m in messages],
-            },
-        )
-
-        # Execute the skill continuation
-        completion_text = ""
-        async for event in skill_executor.execute_stream(
-            step,
-            request=resume_request,
-        ):
-            if event["type"] == "content":
-                content = event.get("content", "")
-                yield {"type": "content", "content": content, "metadata": event.get("metadata")}
-                completion_text += content
-            elif event["type"] == "awaiting_input":
-                # Another HITL request - store and yield
-                meta = event.get("metadata") or {}
-                await self._store_pending_hitl(session, db_conversation, meta)
-                yield event
-                return
-            elif event["type"] == "thinking":
-                yield event
-            elif event["type"] == "skill_activity":
-                yield event
-            elif event["type"] == "result":
-                # Skill completed
-                step_result = event.get("result")
-                if step_result and step_result.result:
-                    output = step_result.result.get("output", "")
-                    if output and not completion_text:
-                        completion_text = output
-                        yield {"type": "content", "content": output}
-
-        # Record assistant response
-        if completion_text:
-            session.add(
-                Message(
-                    session_id=db_session.id,
-                    role="assistant",
-                    content=completion_text,
-                    trace_id=trace_id,
-                )
-            )
-
-        await session.commit()
-        LOGGER.info("HITL resume completed for skill %s", skill_name)
-
-    def _extract_draft_from_messages(
-        self, skill_messages: list[dict[str, Any]]
-    ) -> dict[str, Any] | None:
-        """Extract draft data from requirements_drafter skill messages.
-
-        Parses the conversation to find the draft structure including:
-        - type (User Story, Feature, Bug)
-        - team
-        - title
-        - description
-        - acceptance_criteria
-        - tags
-
-        Args:
-            skill_messages: List of message dicts from the skill execution
-
-        Returns:
-            Dict with draft fields, or None if extraction fails
-        """
-        import re
-
-        # Look for assistant messages containing the draft
-        for msg in reversed(skill_messages):
-            content = msg.get("content", "")
-            if not content:
-                continue
-
-            # Look for draft markers
-            if "DRAFT READY" not in content and "Type:" not in content:
-                continue
-
-            draft: dict[str, Any] = {}
-
-            # Extract Type
-            type_match = re.search(r"Type:\s*(.+?)(?:\n|$)", content)
-            if type_match:
-                draft["type"] = type_match.group(1).strip()
-
-            # Extract Team
-            team_match = re.search(r"Team:\s*(.+?)(?:\n|$)", content)
-            if team_match:
-                draft["team_alias"] = team_match.group(1).strip()
-
-            # Extract Title
-            title_match = re.search(r"Title:\s*(.+?)(?:\n|$)", content)
-            if title_match:
-                draft["title"] = title_match.group(1).strip()
-
-            # Extract Description (multi-line)
-            desc_match = re.search(
-                r"Description:\s*\n(.*?)(?=\n(?:Acceptance Criteria|Tags|={3,})|$)",
-                content,
-                re.DOTALL,
-            )
-            if desc_match:
-                draft["description"] = desc_match.group(1).strip()
-
-            # Extract Acceptance Criteria (multi-line)
-            ac_match = re.search(
-                r"Acceptance Criteria:?\s*(?:\(if applicable\))?\s*\n(.*?)(?=\n(?:Tags|={3,})|$)",
-                content,
-                re.DOTALL,
-            )
-            if ac_match:
-                draft["acceptance_criteria"] = ac_match.group(1).strip()
-
-            # Extract Tags
-            tags_match = re.search(r"Tags:\s*(.+?)(?:\n|$)", content)
-            if tags_match:
-                tags_str = tags_match.group(1).strip()
-                # Parse comma or semicolon separated tags
-                draft["tags"] = [t.strip() for t in re.split(r"[,;]", tags_str) if t.strip()]
-
-            # Validate minimum required fields
-            if draft.get("title") and draft.get("team_alias"):
-                LOGGER.info("Extracted draft: %s", draft)
-                return draft
-
-        LOGGER.warning("Could not extract draft from skill messages")
-        return None
-
-    async def _execute_requirements_writer(
-        self,
-        draft_data: dict[str, Any],
-        request: AgentRequest,
-        session: AsyncSession,
-        db_session: Session,
-        trace_id: str,
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute requirements_writer to create the work item.
-
-        Args:
-            draft_data: Extracted draft data from drafter
-            request: Original request
-            session: Database session
-            db_session: The active Session
-            trace_id: Current trace ID
-
-        Yields:
-            Event dictionaries for the execution
-        """
-        if not self._skill_registry:
-            yield {"type": "error", "content": "Skill registry not available"}
-            return
-
-        # Create a step for requirements_writer
-        writer_step = PlanStep(
-            id=str(uuid.uuid4()),
-            label="Create work item in Azure DevOps",
-            executor="skill",
-            action="skill",
-            tool="requirements_writer",
-            args={
-                "goal": (
-                    f"Create a {draft_data.get('type', 'work item')} " "with the following details"
-                ),
-                **draft_data,
-            },
-        )
-
-        skill_executor = SkillExecutor(
-            skill_registry=self._skill_registry,
-            tool_registry=self._tool_registry,
-            litellm=self._litellm,
-        )
-
-        # Build the writer request with draft data in metadata
-        writer_request = AgentRequest(
-            prompt=f"Create work item: {draft_data.get('title', '')}",
-            conversation_id=request.conversation_id,
-            metadata={
-                **(request.metadata or {}),
-                "draft_data": draft_data,
-            },
-        )
-
-        completion_text = ""
-        async for event in skill_executor.execute_stream(
-            writer_step,
-            request=writer_request,
-        ):
-            if event["type"] == "content":
-                content = event.get("content", "")
-                yield {"type": "content", "content": content, "metadata": event.get("metadata")}
-                completion_text += content
-            elif event["type"] == "thinking":
-                yield event
-            elif event["type"] == "skill_activity":
-                yield event
-            elif event["type"] == "result":
-                step_result = event.get("result")
-                if step_result and step_result.result:
-                    output = step_result.result.get("output", "")
-                    if output and not completion_text:
-                        completion_text = output
-                        yield {"type": "content", "content": output}
-
-        # Record assistant response
-        if completion_text:
-            session.add(
-                Message(
-                    session_id=db_session.id,
-                    role="assistant",
-                    content=completion_text,
-                    trace_id=trace_id,
-                )
-            )
-
-        await session.commit()
-        LOGGER.info("Requirements writer completed")
 
     @staticmethod
     def _coerce_tool_call_args(raw_args: dict[str, Any]) -> dict[str, Any]:

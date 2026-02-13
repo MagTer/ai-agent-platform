@@ -65,6 +65,36 @@ class DiagnosticsService:
         with self._trace_log_path.open("r", encoding="utf-8") as f:
             return deque(f, maxlen=3000)
 
+    def _calculate_percentiles(self, durations: list[float]) -> dict[str, float]:
+        """Calculate p50, p95, p99 latency percentiles from duration list.
+
+        Args:
+            durations: List of duration values in milliseconds.
+
+        Returns:
+            Dictionary with p50, p95, p99 keys (rounded to 1 decimal).
+        """
+        if not durations:
+            return {"p50": 0.0, "p95": 0.0, "p99": 0.0}
+
+        sorted_durations = sorted(durations)
+        count = len(sorted_durations)
+
+        def percentile(p: float) -> float:
+            """Calculate percentile value."""
+            k = (count - 1) * p
+            f = int(k)
+            c = k - f
+            if f + 1 < count:
+                return sorted_durations[f] * (1 - c) + sorted_durations[f + 1] * c
+            return sorted_durations[f]
+
+        return {
+            "p50": round(percentile(0.50), 1),
+            "p95": round(percentile(0.95), 1),
+            "p99": round(percentile(0.99), 1),
+        }
+
     async def get_system_health_metrics(self, window: int = 60) -> dict[str, Any]:
         """
         Analyze recent traces to determine system health.
@@ -79,6 +109,7 @@ class DiagnosticsService:
             "total_requests": 0,
             "error_rate": 0.0,
             "hotspots": {},
+            "latency_percentiles": {"p50": 0.0, "p95": 0.0, "p99": 0.0},
         }
 
         if not self._trace_log_path.exists():
@@ -127,12 +158,19 @@ class DiagnosticsService:
 
         # Analyze traces
         total_requests = len(recent_traces)
+        trace_durations: list[float] = []
 
         for trace_id, spans in recent_traces.items():
             has_error = False
+            trace_duration_ms = 0.0
+
             for span in spans:
                 status = span.get("status", "UNSET")
                 name = span.get("name", "unknown")
+                duration_ms = span.get("duration_ms", 0.0)
+
+                # Track total trace duration (sum of all spans)
+                trace_duration_ms += duration_ms
 
                 # Check for error status
                 if status in ("ERROR", "fail"):
@@ -156,8 +194,14 @@ class DiagnosticsService:
             if has_error:
                 error_traces.add(trace_id)
 
+            if trace_duration_ms > 0:
+                trace_durations.append(trace_duration_ms)
+
         error_count = len(error_traces)
         error_rate = (error_count / total_requests) if total_requests > 0 else 0.0
+
+        # Calculate latency percentiles
+        latency_percentiles = self._calculate_percentiles(trace_durations)
 
         status = "HEALTHY"
         if error_rate > 0.1:
@@ -179,6 +223,7 @@ class DiagnosticsService:
                 "total_requests": total_requests,
                 "error_rate": round(error_rate, 2),
                 "error_count": error_count,
+                "latency_percentiles": latency_percentiles,
             },
             "hotspots": dict(hotspot_counts.most_common(5)),
             "insights": {"hotspots": insights_hotspots},
