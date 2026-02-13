@@ -18,10 +18,10 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import select
 
-from core.core.memory import MemoryRecord, MemoryStore
-from core.core.service_factory import ServiceFactory
 from core.db.models import Context, Conversation, ToolPermission
 from core.db.oauth_models import OAuthToken
+from core.runtime.memory import MemoryRecord, MemoryStore
+from core.runtime.service_factory import ServiceFactory
 
 
 @pytest.mark.asyncio
@@ -374,6 +374,6 @@ class TestContextIsolation:
 @pytest.fixture
 def litellm_client(settings):
     """Create a LiteLLM client for testing."""
-    from core.core.litellm_client import LiteLLMClient
+    from core.runtime.litellm_client import LiteLLMClient
 
     return LiteLLMClient(settings)

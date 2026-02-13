@@ -64,7 +64,7 @@ def mock_settings() -> object:
     """Create mock settings with a tools_config_path."""
     from pathlib import Path
 
-    from core.core.config import Settings
+    from core.runtime.config import Settings
 
     return Settings(
         litellm_model="mock-model",

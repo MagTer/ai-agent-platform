@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from core.core.config import Settings
 from core.diagnostics.service import DiagnosticsService
+from core.runtime.config import Settings
 
 
 @pytest.mark.asyncio

@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 from shared.models import AgentMessage
 
-from core.core.litellm_client import LiteLLMClient
+from core.runtime.litellm_client import LiteLLMClient
 
 
 class MockLLMClient(LiteLLMClient):

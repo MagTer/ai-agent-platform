@@ -13,10 +13,10 @@ import orjson
 from shared.content_classifier import contains_raw_model_tokens, strip_raw_tokens
 from shared.streaming import AgentChunk
 
-from core.core.config import Settings
-from core.core.model_registry import ModelCapabilityRegistry, ReasoningMode
-from core.core.models import AgentMessage
 from core.observability.tracing import add_span_event, set_span_attributes
+from core.runtime.config import Settings
+from core.runtime.model_registry import ModelCapabilityRegistry, ReasoningMode
+from core.runtime.models import AgentMessage
 
 LOGGER = logging.getLogger(__name__)
 

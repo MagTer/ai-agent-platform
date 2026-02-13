@@ -1,5 +1,8 @@
 services:
   litellm:
+    # TODO: Pin to SHA digest instead of mutable tag for supply chain security
+    # Example: ghcr.io/berriai/litellm@sha256:abc123...
+    # Get digest: docker pull ghcr.io/berriai/litellm:main-latest && docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/berriai/litellm:main-latest
     image: ghcr.io/berriai/litellm:main-latest
     expose:
       - "4000"
@@ -124,6 +127,9 @@ services:
         max-file: "5"
 
   qdrant:
+    # TODO: Pin to SHA digest instead of mutable tag for supply chain security
+    # Example: qdrant/qdrant@sha256:def456...
+    # Get digest: docker pull qdrant/qdrant:latest && docker inspect --format='{{index .RepoDigests 0}}' qdrant/qdrant:latest
     image: qdrant/qdrant:latest
     # Internal only - uncomment for local debugging
     # ports:

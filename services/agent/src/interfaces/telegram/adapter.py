@@ -8,8 +8,8 @@ from shared.chunk_filter import ChunkFilter
 from shared.streaming import VerbosityLevel
 
 from core.context import ContextService
-from core.core.service_factory import ServiceFactory
 from core.db.engine import AsyncSessionLocal
+from core.runtime.service_factory import ServiceFactory
 from interfaces.base import PlatformAdapter
 from orchestrator.dispatcher import Dispatcher as AgentDispatcher
 

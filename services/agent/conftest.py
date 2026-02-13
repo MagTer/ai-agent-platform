@@ -11,9 +11,9 @@ if str(SRC) not in sys.path:
 
 import pytest
 
-from core.core.config import Settings
-from core.core.memory import MemoryStore
-from core.core.service import AgentService
+from core.runtime.config import Settings
+from core.runtime.memory import MemoryStore
+from core.runtime.service import AgentService
 from core.tests.mocks import MockLLMClient
 
 

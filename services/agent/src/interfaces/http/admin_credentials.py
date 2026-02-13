@@ -15,7 +15,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.credential_service import CredentialService
-from core.core.config import Settings, get_settings
 from core.db.engine import get_db
 from core.db.models import Context, UserCredential
 from core.observability.security_logger import (
@@ -24,6 +23,7 @@ from core.observability.security_logger import (
     get_client_ip,
     log_security_event,
 )
+from core.runtime.config import Settings, get_settings
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 from interfaces.http.csrf import require_csrf

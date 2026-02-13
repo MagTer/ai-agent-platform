@@ -9,9 +9,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.core.service_factory import ServiceFactory
 from core.db.models import Context, ToolPermission
 from core.db.oauth_models import OAuthToken
+from core.runtime.service_factory import ServiceFactory
 
 
 @pytest.mark.asyncio
@@ -29,7 +29,7 @@ class TestServiceFactory:
 
     async def test_base_tool_registry_cached(self, settings, litellm_client):
         """Test that base tool registry is loaded once and cached."""
-        with patch("core.core.service_factory.load_tool_registry") as mock_load:
+        with patch("core.runtime.service_factory.load_tool_registry") as mock_load:
             mock_registry = MagicMock()
             mock_registry.list_tools.return_value = ["tool1", "tool2"]
             mock_load.return_value = mock_registry
@@ -161,7 +161,7 @@ class TestServiceFactory:
         factory = ServiceFactory(settings=settings, litellm_client=litellm_client)
 
         # Mock MCP loading
-        with patch("core.core.service_factory.load_mcp_tools_for_context") as mock_load_mcp:
+        with patch("core.runtime.service_factory.load_mcp_tools_for_context") as mock_load_mcp:
             await factory.create_service(context.id, async_session)
 
             # Verify MCP loader was called
@@ -186,7 +186,7 @@ class TestServiceFactory:
 
         # Mock MCP loading to fail
         with patch(
-            "core.core.service_factory.load_mcp_tools_for_context",
+            "core.runtime.service_factory.load_mcp_tools_for_context",
             side_effect=RuntimeError("MCP connection failed"),
         ):
             # Should not raise - service creation continues
@@ -251,6 +251,6 @@ class TestServiceFactory:
 @pytest.fixture
 def litellm_client(settings):
     """Create a LiteLLM client for testing."""
-    from core.core.litellm_client import LiteLLMClient
+    from core.runtime.litellm_client import LiteLLMClient
 
     return LiteLLMClient(settings)

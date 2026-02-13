@@ -764,7 +764,7 @@ async def start_mcp_oauth(
     """
     from core.auth.models import OAuthProviderConfig
     from core.auth.oauth_client import OAuthClient
-    from core.core.config import get_settings
+    from core.runtime.config import get_settings
     from core.db.engine import AsyncSessionLocal
 
     stmt = select(McpServer).where(McpServer.id == server_id)
@@ -840,7 +840,7 @@ async def _get_provider_config_dynamic(self, provider: str, session: AsyncSessio
     # Fall back to McpServer table for dynamic providers (mcp_*)
     if provider.startswith("mcp_"):
         from core.db.models import McpServer
-        from core.core.config import get_settings
+        from core.runtime.config import get_settings
 
         stmt = select(McpServer).where(McpServer.oauth_provider_name == provider)
         result = await session.execute(stmt)
@@ -909,7 +909,7 @@ if server.auth_type == "oauth" and server.oauth_provider_name:
     try:
         from core.providers import get_token_manager
         from core.auth.models import OAuthProviderConfig
-        from core.core.config import get_settings
+        from core.runtime.config import get_settings
 
         settings = self._settings
         if settings.oauth_redirect_uri:

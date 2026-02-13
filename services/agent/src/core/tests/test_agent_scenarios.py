@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 from shared.models import AgentRequest
 
-from core.core.service import AgentService
+from core.runtime.service import AgentService
 from core.tests.mocks import MockLLMClient
 
 

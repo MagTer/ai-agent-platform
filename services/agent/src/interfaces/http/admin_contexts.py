@@ -745,7 +745,7 @@ async def create_context_credential(
 ) -> dict[str, object]:
     """Create a credential for a context."""
     from core.auth.credential_service import CredentialService
-    from core.core.config import get_settings
+    from core.runtime.config import get_settings
 
     settings = get_settings()
     if not settings.credential_encryption_key:

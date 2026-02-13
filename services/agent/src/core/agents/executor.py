@@ -12,8 +12,6 @@ from typing import Any, Literal, cast
 from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
 
 from core.command_loader import load_command
-from core.core.litellm_client import LiteLLMClient
-from core.core.memory import MemoryStore
 from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import (
@@ -22,6 +20,8 @@ from core.observability.tracing import (
     set_span_status,
     start_span,
 )
+from core.runtime.litellm_client import LiteLLMClient
+from core.runtime.memory import MemoryStore
 from core.tools import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)

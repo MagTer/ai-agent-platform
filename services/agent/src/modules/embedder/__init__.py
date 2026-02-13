@@ -6,7 +6,7 @@ using qwen/qwen3-embedding-8b which produces 4096-dimensional vectors.
 
 import logging
 
-from core.core.litellm_client import LiteLLMClient
+from core.runtime.litellm_client import LiteLLMClient
 
 logger = logging.getLogger(__name__)
 

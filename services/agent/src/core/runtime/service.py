@@ -31,9 +31,6 @@ from core.agents import (
 )
 from core.command_loader import get_available_skill_names, get_registry_index
 from core.context_manager import ContextManager
-from core.core.config import Settings
-from core.core.litellm_client import LiteLLMClient
-from core.core.memory import MemoryRecord, MemoryStore
 from core.db import Context, Conversation, Message, Session
 from core.debug import DebugLogger
 from core.models.pydantic_schemas import SupervisorDecision, ToolCallEvent, TraceContext
@@ -44,6 +41,9 @@ from core.observability.tracing import (
     set_span_status,
     start_span,
 )
+from core.runtime.config import Settings
+from core.runtime.litellm_client import LiteLLMClient
+from core.runtime.memory import MemoryRecord, MemoryStore
 from core.skills import SkillExecutor, SkillRegistry
 from core.system_commands import handle_system_command
 from core.tools import ToolRegistry

@@ -23,8 +23,8 @@ from qdrant_client.models import (
     VectorParams,
 )
 
-from core.core.config import Settings
 from core.providers import get_embedder
+from core.runtime.config import Settings
 
 LOGGER = logging.getLogger(__name__)
 

@@ -32,7 +32,7 @@ from core.tools.activity_hints import build_activity_message
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from core.core.litellm_client import LiteLLMClient
+    from core.runtime.litellm_client import LiteLLMClient
     from core.tools import ToolRegistry
     from core.tools.base import Tool
 

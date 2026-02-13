@@ -9,10 +9,10 @@ import pytest
 from shared.models import AgentMessage, Plan, PlanStep, RoutingDecision
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.litellm_client import LiteLLMClient
-from core.core.service import AgentService
 from core.db.models import Context, Conversation, Session
 from core.routing.unified_orchestrator import OrchestrationResult
+from core.runtime.litellm_client import LiteLLMClient
+from core.runtime.service import AgentService
 from core.skills.registry import Skill, SkillRegistry
 from orchestrator.dispatcher import Dispatcher
 
@@ -345,7 +345,7 @@ class TestFastPathRouting:
             "args": {"param": "value"},
         }
 
-        with patch("core.core.routing.registry.get_match", return_value=(mock_path, None)):
+        with patch("core.runtime.routing.registry.get_match", return_value=(mock_path, None)):
             chunks = []
             async for chunk in dispatcher.stream_message(
                 session_id="test-session",
@@ -384,7 +384,7 @@ class TestFastPathRouting:
             "arg_mapper": arg_mapper,
         }
 
-        with patch("core.core.routing.registry.get_match", return_value=(mock_path, mock_match)):
+        with patch("core.runtime.routing.registry.get_match", return_value=(mock_path, mock_match)):
             chunks = []
             async for chunk in dispatcher.stream_message(
                 session_id="test-session",

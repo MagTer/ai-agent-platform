@@ -19,10 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.auth.header_auth import extract_user_from_headers
 from core.auth.user_service import get_or_create_user
 from core.context import ContextService
-from core.core.config import Settings, get_settings
-from core.core.service import AgentService
-from core.core.service_factory import ServiceFactory
 from core.db.engine import get_db
+from core.runtime.config import Settings, get_settings
+from core.runtime.service import AgentService
+from core.runtime.service_factory import ServiceFactory
 from interfaces.base import PlatformAdapter
 from orchestrator.dispatcher import Dispatcher
 

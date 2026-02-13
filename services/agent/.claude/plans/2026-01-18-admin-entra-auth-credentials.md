@@ -230,7 +230,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.credential_service import CredentialService
-from core.core.config import Settings, get_settings
+from core.runtime.config import Settings, get_settings
 from core.db.engine import get_db
 from core.db.models import User, UserCredential
 from interfaces.http.admin_auth import AdminUser, verify_admin_user

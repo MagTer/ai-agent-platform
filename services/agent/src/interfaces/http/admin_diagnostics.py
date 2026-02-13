@@ -10,8 +10,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 
-from core.core.config import Settings, get_settings
 from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
+from core.runtime.config import Settings, get_settings
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 from interfaces.http.csrf import require_csrf
@@ -318,7 +318,7 @@ async def get_application_logs(
     Args:
         limit: Maximum number of log entries to return (default 500).
         level: Filter by log level (WARNING, ERROR, CRITICAL).
-        logger_name: Filter by logger name (e.g., "core.core.service").
+        logger_name: Filter by logger name (e.g., "core.runtime.service").
         search: Search in log message text.
 
     Returns:
