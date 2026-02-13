@@ -89,7 +89,7 @@ class DummyMemory:
 
 @pytest.mark.asyncio
 async def test_agent_service_roundtrip(tmp_path: Path) -> None:
-    settings = Settings(sqlite_state_path=tmp_path / "state.sqlite")
+    settings = Settings()
     service = AgentService(
         settings=settings,
         litellm=cast(LiteLLMClient, MockLiteLLMClient()),
@@ -179,7 +179,7 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
             },
         ],
     }
-    settings = Settings(sqlite_state_path=tmp_path / "state.sqlite")
+    settings = Settings()
     registry = ToolRegistry([DummyTool()])
     service = AgentService(
         settings=settings,
@@ -226,7 +226,7 @@ async def test_should_auto_replan_patterns(tmp_path: Path) -> None:
     """Test the auto-replan detection logic for various failure patterns."""
     from shared.models import PlanStep, StepResult
 
-    settings = Settings(sqlite_state_path=tmp_path / "state.sqlite")
+    settings = Settings()
     service = AgentService(
         settings=settings,
         litellm=cast(LiteLLMClient, MockLiteLLMClient()),

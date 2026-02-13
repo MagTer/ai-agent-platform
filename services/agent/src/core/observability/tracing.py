@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import os
+import threading
 from collections import deque
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -133,17 +134,22 @@ class _NoOpTraceAPI:
 
 
 class _FileSpanExporter(SpanExporter):
-    """JSONL file exporter for spans with async write batching.
+    """JSONL file exporter for spans with async write batching and rotation.
 
     Uses asyncio.to_thread() to offload file I/O when an event loop is available.
     Falls back to synchronous writes when called outside an async context.
+
+    Rotation: When the file exceeds max_size_mb, rotates to .1, .2, etc.
     """
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, max_size_mb: int = 10, max_files: int = 3) -> None:
         self._path = Path(path)
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._queue: deque[dict[str, Any]] = deque()
         self._write_task: asyncio.Task[None] | None = None
+        self._max_size_bytes = max_size_mb * 1024 * 1024
+        self._max_files = max_files
+        self._rotation_lock = threading.Lock()
 
     def export(self, spans: Sequence[Any]) -> Any:
         """Export spans to file. Batches writes when async context is available."""
@@ -224,9 +230,53 @@ class _FileSpanExporter(SpanExporter):
             # Small delay to allow more records to accumulate
             await asyncio.sleep(0.05)
 
+    def _rotate_if_needed(self) -> None:
+        """Rotate log file if it exceeds size threshold.
+
+        Thread-safe rotation using file locking. Rotates spans.jsonl to spans.jsonl.1,
+        spans.jsonl.1 to spans.jsonl.2, etc. Deletes oldest file if max_files exceeded.
+        """
+        with self._rotation_lock:
+            # Check if rotation needed
+            if not self._path.exists():
+                return
+
+            try:
+                file_size = self._path.stat().st_size
+                if file_size < self._max_size_bytes:
+                    return
+
+                # Rotate existing files: .2 -> .3, .1 -> .2, etc.
+                for i in range(self._max_files - 1, 0, -1):
+                    old_file = Path(f"{self._path}.{i}")
+                    new_file = Path(f"{self._path}.{i + 1}")
+
+                    if old_file.exists():
+                        if i + 1 > self._max_files:
+                            # Delete oldest file
+                            old_file.unlink()
+                            logger.info(f"Deleted oldest span log: {old_file}")
+                        else:
+                            # Rename to next number
+                            old_file.rename(new_file)
+
+                # Rotate current file to .1
+                rotated_path = Path(f"{self._path}.1")
+                self._path.rename(rotated_path)
+                logger.info(
+                    f"Rotated span log: {self._path} -> {rotated_path} "
+                    f"(size: {file_size / 1024 / 1024:.2f} MB)"
+                )
+
+            except Exception as e:
+                logger.warning(f"Failed to rotate span log {self._path}: {e}")
+
     def _write_batch_sync(self, records: list[dict[str, Any]]) -> None:
         """Synchronous write of a batch of records."""
         try:
+            # Check if rotation needed before writing
+            self._rotate_if_needed()
+
             with self._path.open("a", encoding="utf-8") as fp:
                 for record in records:
                     fp.write(json.dumps(record) + "\n")
@@ -246,9 +296,21 @@ class _FileSpanExporter(SpanExporter):
             self._write_sync()
 
 
-def configure_tracing(service_name: str, *, span_log_path: str | None = None) -> None:
-    """Initialise the tracer provider with OTLP, console, and file exporters if available."""
+def configure_tracing(
+    service_name: str,
+    *,
+    span_log_path: str | None = None,
+    span_log_max_size_mb: int = 10,
+    span_log_max_files: int = 3,
+) -> None:
+    """Initialise the tracer provider with OTLP, console, and file exporters if available.
 
+    Args:
+        service_name: Name of the service for tracing
+        span_log_path: Optional path to write spans (JSONL format)
+        span_log_max_size_mb: Maximum size of span log before rotation (default: 10MB)
+        span_log_max_files: Maximum number of rotated files to keep (default: 3)
+    """
     if not _OTEL_AVAILABLE:
         logger.info("OpenTelemetry not available; using no-op tracer")
         return
@@ -262,10 +324,15 @@ def configure_tracing(service_name: str, *, span_log_path: str | None = None) ->
     if not otlp_endpoint or os.getenv("FORCE_CONSOLE_TRACES", "false").lower() == "true":
         provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
 
-    # 2. File Exporter (Batch)
+    # 2. File Exporter (Batch) with rotation
     span_log_file = span_log_path or os.getenv("SPAN_LOG_PATH")
     if span_log_file:
-        provider.add_span_processor(BatchSpanProcessor(_FileSpanExporter(span_log_file)))
+        exporter = _FileSpanExporter(
+            span_log_file,
+            max_size_mb=span_log_max_size_mb,
+            max_files=span_log_max_files,
+        )
+        provider.add_span_processor(BatchSpanProcessor(exporter))
 
     # 3. OTLP Exporter (Batch) - Phoenix
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
