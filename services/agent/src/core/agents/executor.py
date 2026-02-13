@@ -161,10 +161,16 @@ class StepExecutorAgent:
                     yield {"type": "result", "result": step_res}
 
             except Exception as exc:
+                from core.observability.error_codes import classify_exception
                 from core.tools.base import ToolConfirmationError
 
                 if isinstance(exc, ToolConfirmationError):
                     raise exc
+
+                error_code = classify_exception(exc)
+                set_span_status("ERROR", str(exc))
+                set_span_attributes({"error_code": error_code.value})
+
                 result = {"error": str(exc)}
                 status = "error"
                 step_res = StepResult(step=step, status=status, result=result, messages=[])
@@ -291,7 +297,13 @@ class StepExecutorAgent:
                         # Fall through to return missing if not found
                         pass
                     except Exception as e:
+                        from core.observability.error_codes import classify_exception
+
                         LOGGER.error(f"Skill execution exception: {e}", exc_info=True)
+                        error_code = classify_exception(e)
+                        set_span_status("ERROR", str(e))
+                        set_span_attributes({"error_code": error_code.value})
+
                         yield {
                             "type": "final",
                             "data": (
@@ -544,7 +556,15 @@ class StepExecutorAgent:
             }
 
         except BaseException as e:
+            from core.observability.error_codes import classify_exception
+
             LOGGER.critical(f"CRITICAL FAILURE in _run_tool_gen: {e}", exc_info=True)
+
+            if isinstance(e, Exception):
+                error_code = classify_exception(e)
+                set_span_status("ERROR", str(e))
+                set_span_attributes({"error_code": error_code.value})
+
             yield {
                 "type": "final",
                 "data": (

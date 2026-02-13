@@ -25,7 +25,11 @@ from shared.models import (
     StepResult,
 )
 
-from core.observability.tracing import set_span_attributes, start_span
+from core.observability.tracing import (
+    set_span_attributes,
+    set_span_status,
+    start_span,
+)
 from core.skills.registry import SkillRegistry
 from core.tools.activity_hints import build_activity_message
 
@@ -453,7 +457,13 @@ class SkillExecutor:
                                 return
 
                     except Exception as e:
+                        from core.observability.error_codes import classify_exception
+
                         LOGGER.error("%s Stream error: %s", logger_prefix, e, exc_info=True)
+                        error_code = classify_exception(e)
+                        set_span_status("ERROR", str(e))
+                        set_span_attributes({"error_code": error_code.value})
+
                         yield {
                             "type": "result",
                             "result": StepResult(
@@ -665,6 +675,8 @@ class SkillExecutor:
                                         }
                                     )
                             except Exception as e:
+                                from core.observability.error_codes import classify_exception
+
                                 output_str = f"Error: {e}"
                                 LOGGER.error(
                                     "%s Tool %s failed: %s",
@@ -672,6 +684,9 @@ class SkillExecutor:
                                     fname,
                                     e,
                                 )
+                                error_code = classify_exception(e)
+                                set_span_status("ERROR", str(e))
+                                set_span_attributes({"error_code": error_code.value})
 
                         # Add tool result to messages
                         messages.append(

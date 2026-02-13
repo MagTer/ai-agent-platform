@@ -178,8 +178,12 @@ class StepSupervisorAgent:
                 return outcome, reason, suggested_fix
 
             except Exception as exc:
+                from core.observability.error_codes import classify_exception
+
                 LOGGER.exception("Supervisor review failed for step '%s'", step_label)
+                error_code = classify_exception(exc)
                 span.set_attribute("error", str(exc))
+                span.set_attribute("error_code", error_code.value)
                 # On failure, be conservative - suggest retry first, then replan
                 # This ensures failures are surfaced but gives transient errors a chance.
                 if retry_count < 1:

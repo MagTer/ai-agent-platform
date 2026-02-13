@@ -88,7 +88,7 @@ async def verify_api_key_or_admin(
         admin = await get_admin_user(
             # Create a minimal request object - this is a workaround
             # In practice, the dependency injection will handle this
-            request=None,  # type: ignore
+            request=None,  # type: ignore[arg-type]
             session=session,
         )
         return admin
@@ -832,6 +832,7 @@ async def get_request_stats(
 
     cutoff = datetime.now(UTC) - timedelta(hours=hours)
     endpoint_stats: dict[str, dict[str, Any]] = {}
+    endpoint_durations: dict[str, list[float]] = {}
 
     try:
         for line in spans_file.read_text().splitlines():
@@ -872,11 +873,13 @@ async def get_request_stats(
                     "max_duration_ms": 0.0,
                     "total_duration_ms": 0.0,
                 }
+                endpoint_durations[route] = []
 
             stats = endpoint_stats[route]
             stats["count"] += 1
             stats["total_duration_ms"] += duration
             stats["max_duration_ms"] = max(stats["max_duration_ms"], duration)
+            endpoint_durations[route].append(duration)
 
     except Exception:
         LOGGER.exception("Error reading spans file")
@@ -887,11 +890,20 @@ async def get_request_stats(
             "error": "Failed to read spans data",
         }
 
-    # Calculate averages
-    for stats in endpoint_stats.values():
+    # Calculate averages and percentiles
+    for route, stats in endpoint_stats.items():
         if stats["count"] > 0:
             stats["avg_duration_ms"] = round(stats["total_duration_ms"] / stats["count"], 1)
         stats["total_duration_ms"] = round(stats["total_duration_ms"], 1)
+
+        # Add percentiles
+        durations = endpoint_durations.get(route, [])
+        if durations:
+            settings = get_settings()
+            diagnostics = DiagnosticsService(settings)
+            stats["latency_percentiles"] = diagnostics._calculate_percentiles(durations)
+        else:
+            stats["latency_percentiles"] = {"p50": 0.0, "p95": 0.0, "p99": 0.0}
 
     return {
         "period_hours": hours,
