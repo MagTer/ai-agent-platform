@@ -9,8 +9,10 @@ from typing import Any
 from urllib.parse import unquote, urlencode
 
 import httpx
+import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse, RedirectResponse
+from jwt import PyJWKClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,6 +41,77 @@ router = APIRouter(
 
 # State cookie for CSRF protection
 STATE_COOKIE_NAME = "oauth_state"
+
+# JWKS client cache - one per tenant
+_jwks_clients: dict[str, PyJWKClient] = {}
+
+
+def _get_jwks_client(tenant_id: str) -> PyJWKClient:
+    """Get or create a cached JWKS client for the given tenant.
+
+    The PyJWKClient handles JWKS caching internally with a default TTL.
+    We cache the client instance itself to avoid creating new clients for each request.
+
+    Args:
+        tenant_id: The Entra ID tenant ID
+
+    Returns:
+        PyJWKClient configured for the tenant
+    """
+    if tenant_id not in _jwks_clients:
+        jwks_url = f"https://login.microsoftonline.com/{tenant_id}/discovery/v2.0/keys"
+        _jwks_clients[tenant_id] = PyJWKClient(jwks_url, cache_keys=True)
+    return _jwks_clients[tenant_id]
+
+
+async def verify_entra_id_token(
+    id_token: str,
+    client_id: str,
+    tenant_id: str,
+) -> dict[str, Any]:
+    """Verify an Entra ID token's signature and claims.
+
+    Uses Microsoft's JWKS to verify the token signature, then validates:
+    - aud (audience) matches the client ID
+    - iss (issuer) matches the expected Microsoft issuer
+    - exp (expiration) is not in the past
+
+    Args:
+        id_token: The JWT ID token from Entra ID
+        client_id: The application's client ID (expected audience)
+        tenant_id: The Entra ID tenant ID
+
+    Returns:
+        dict: The verified token claims
+
+    Raises:
+        jwt.InvalidTokenError: If verification fails
+    """
+    # Get JWKS client (fetches signing keys from Microsoft)
+    jwks_client = _get_jwks_client(tenant_id)
+
+    # Get the signing key for this token
+    # PyJWKClient handles the JWKS fetch and caching
+    signing_key = jwks_client.get_signing_key_from_jwt(id_token)
+
+    # Verify signature and claims
+    # RS256 is the algorithm Microsoft uses for ID tokens
+    issuer = f"https://login.microsoftonline.com/{tenant_id}/v2.0"
+    claims = jwt.decode(
+        id_token,
+        signing_key.key,
+        algorithms=["RS256"],
+        audience=client_id,
+        issuer=issuer,
+        options={
+            "verify_signature": True,
+            "verify_aud": True,
+            "verify_iss": True,
+            "verify_exp": True,
+        },
+    )
+
+    return claims
 
 
 @router.get("/login")
@@ -237,7 +310,7 @@ async def oauth_callback(
             detail="Failed to exchange authorization code for tokens",
         ) from e
 
-    # Decode ID token (no verification needed - tokens come directly from Microsoft)
+    # Decode ID token with signature verification
     id_token = tokens.get("id_token")
     if not id_token:
         log_security_event(
@@ -252,23 +325,25 @@ async def oauth_callback(
             detail="No ID token received from Entra ID",
         )
 
-    # Decode without verification (we trust the response from Microsoft's token endpoint)
-    import jwt
-
+    # Verify ID token signature using Microsoft's JWKS
     try:
-        id_claims = jwt.decode(id_token, options={"verify_signature": False})
+        id_claims = await verify_entra_id_token(
+            id_token=id_token,
+            client_id=settings.entra_client_id,
+            tenant_id=settings.entra_tenant_id,
+        )
     except Exception as e:
-        LOGGER.error(f"Failed to decode ID token: {e}")
+        LOGGER.error(f"Failed to verify ID token: {e}")
         log_security_event(
             event_type=AUTH_FAILURE,
             ip_address=client_ip,
             endpoint=request.url.path,
-            details={"reason": "Failed to decode ID token", "error": str(e)},
+            details={"reason": "Failed to verify ID token", "error": str(e)},
             severity="ERROR",
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to decode ID token",
+            detail="Failed to verify ID token",
         ) from e
 
     # Extract user info from ID token

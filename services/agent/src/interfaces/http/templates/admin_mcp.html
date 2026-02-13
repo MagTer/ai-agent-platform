@@ -466,14 +466,6 @@ async function startOAuth(btn, serverId) {
     }
 }
 
-
-function escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 // Initial load
 loadServers();
 loadActivity();

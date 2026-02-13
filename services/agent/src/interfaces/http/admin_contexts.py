@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -236,13 +236,6 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
         }
     }
 
-    function escapeHtml(str) {
-        if (!str) return '';
-        const div = document.createElement('div');
-        div.textContent = str;
-        return div.innerHTML;
-    }
-
     loadContexts();
     loadMyContexts();
 """
@@ -302,11 +295,35 @@ class ContextDetailResponse(BaseModel):
 class CreateContextRequest(BaseModel):
     """Request to create a new context."""
 
-    name: str
-    type: str = "shared"
-    config: dict[str, Any] = {}
-    pinned_files: list[str] = []
-    default_cwd: str = "/tmp"  # noqa: S108
+    name: str = Field(..., min_length=1, max_length=255, description="Context name")
+    type: str = Field(default="shared", description="Context type")
+    config: dict[str, Any] = Field(default_factory=dict, description="Context configuration")
+    pinned_files: list[str] = Field(default_factory=list, description="Pinned files")
+    default_cwd: str = Field(default="/tmp", description="Default working directory")  # noqa: S108
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        """Validate context name format."""
+        if not v.strip():
+            raise ValueError("Context name cannot be empty or whitespace only")
+        # Only allow alphanumeric, underscore, hyphen, and space
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9_\- ]+$", v):
+            raise ValueError(
+                "Context name can only contain letters, numbers, spaces, hyphens, and underscores"
+            )
+        return v.strip()
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: str) -> str:
+        """Validate context type."""
+        valid_types = {"personal", "shared", "virtual", "git_repo", "devops"}
+        if v not in valid_types:
+            raise ValueError(f"Invalid context type. Must be one of: {', '.join(valid_types)}")
+        return v
 
 
 class CreateContextResponse(BaseModel):
@@ -323,6 +340,30 @@ class DeleteContextResponse(BaseModel):
     success: bool
     message: str
     deleted_context_id: UUID
+
+
+class CreateCredentialRequest(BaseModel):
+    """Request to create a credential for a context."""
+
+    credential_type: str = Field(..., min_length=1, max_length=100, description="Credential type")
+    value: str = Field(..., min_length=1, description="Credential value (will be encrypted)")
+    metadata: dict[str, Any] | None = Field(default=None, description="Optional metadata")
+
+    @field_validator("credential_type")
+    @classmethod
+    def validate_credential_type(cls, v: str) -> str:
+        """Validate credential type format."""
+        if not v.strip():
+            raise ValueError("Credential type cannot be empty")
+        return v.strip()
+
+    @field_validator("value")
+    @classmethod
+    def validate_value(cls, v: str) -> str:
+        """Validate credential value is not empty."""
+        if not v.strip():
+            raise ValueError("Credential value cannot be empty")
+        return v
 
 
 @router.get("", response_model=ContextList, dependencies=[Depends(verify_admin_user)])
@@ -418,16 +459,20 @@ async def list_contexts(
 )
 async def get_context_details(
     context_id: UUID,
+    limit: int = 50,
+    offset: int = 0,
     session: AsyncSession = Depends(get_db),
 ) -> ContextDetailResponse:
     """Get detailed information about a specific context.
 
     Args:
         context_id: Context UUID
+        limit: Maximum number of conversations to return (default 50)
+        offset: Number of conversations to skip (default 0)
         session: Database session
 
     Returns:
-        Detailed context information including all related entities
+        Detailed context information including paginated conversations
 
     Raises:
         HTTPException: 404 if context not found
@@ -435,6 +480,18 @@ async def get_context_details(
     Security:
         Requires admin role via Entra ID authentication.
     """
+    # Validate pagination parameters
+    if limit < 1 or limit > 500:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Limit must be between 1 and 500",
+        )
+    if offset < 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Offset must be non-negative",
+        )
+
     # Get context
     stmt = select(Context).where(Context.id == context_id)
     result = await session.execute(stmt)
@@ -446,8 +503,14 @@ async def get_context_details(
             detail=f"Context {context_id} not found",
         )
 
-    # Get conversations
-    conv_stmt = select(Conversation).where(Conversation.context_id == context_id)
+    # Get conversations with pagination
+    conv_stmt = (
+        select(Conversation)
+        .where(Conversation.context_id == context_id)
+        .order_by(Conversation.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     conv_result = await session.execute(conv_stmt)
     conversations = conv_result.scalars().all()
 
@@ -740,10 +803,27 @@ async def get_context_credentials(
 )
 async def create_context_credential(
     context_id: UUID,
-    request: dict[str, Any],
+    request: CreateCredentialRequest,
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, object]:
-    """Create a credential for a context."""
+    """Create a credential for a context.
+
+    Args:
+        context_id: Context UUID
+        request: Credential creation request with validation
+        session: Database session
+
+    Returns:
+        Created credential ID
+
+    Raises:
+        HTTPException: 404 if context not found
+        HTTPException: 503 if encryption not configured
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Credential value is encrypted before storage.
+    """
     from core.auth.credential_service import CredentialService
     from core.runtime.config import get_settings
 
@@ -764,9 +844,9 @@ async def create_context_credential(
     cred_service = CredentialService(settings.credential_encryption_key)
     credential = await cred_service.store_credential(
         context_id=context_id,
-        credential_type=request.get("credential_type", "azure_devops_pat"),
-        value=request.get("value", ""),
-        metadata=request.get("metadata"),
+        credential_type=request.credential_type,
+        value=request.value,
+        metadata=request.metadata,
         session=session,
     )
     await session.commit()

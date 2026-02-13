@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -62,6 +63,9 @@ from interfaces.http.oauth_webui import router as oauth_webui_router
 from interfaces.http.openwebui_adapter import router as openwebui_router
 
 LOGGER = logging.getLogger(__name__)
+
+# Shared httpx client for readiness checks (reuse across requests)
+_READINESS_HTTP_CLIENT: httpx.AsyncClient | None = None
 
 
 def verify_internal_api_key(
@@ -178,11 +182,17 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
             span.set_attribute("error.type", type(exc).__name__)
             span.set_attribute("error.message", str(exc)[:1000])  # Truncate long messages
 
-        # Write to crash log
+        # Write to crash log asynchronously
         try:
+            import asyncio
+
             log_path = Path("data/crash.log")
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(error_msg)
+
+            def _write_crash_log() -> None:
+                with open(log_path, "a", encoding="utf-8") as f:
+                    f.write(error_msg)
+
+            await asyncio.to_thread(_write_crash_log)
         except Exception as log_exc:
             LOGGER.error(f"Failed to write to crash log: {log_exc}")
 
@@ -380,7 +390,12 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         """Manage application startup and shutdown lifecycle."""
         import asyncio
 
+        global _READINESS_HTTP_CLIENT
+
         # --- STARTUP ---
+        # Initialize shared HTTP client for readiness checks
+        _READINESS_HTTP_CLIENT = httpx.AsyncClient(timeout=3.0)
+
         # Dependency Injection: Register module implementations via orchestrator
         from core.db.engine import AsyncSessionLocal
         from orchestrator.startup import create_email_service, register_providers, start_schedulers
@@ -474,6 +489,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         await token_manager.shutdown()
         # Close shared Qdrant client in ServiceFactory
         await service_factory.close()
+        # Close shared HTTP client
+        if _READINESS_HTTP_CLIENT is not None:
+            await _READINESS_HTTP_CLIENT.aclose()
 
     # Assign lifespan to app
     app.router.lifespan_context = lifespan
@@ -553,8 +571,6 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         """
         import asyncio
 
-        import httpx
-
         checks: dict[str, dict[str, Any]] = {}
         all_ready = True
 
@@ -607,16 +623,17 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         async def check_litellm() -> dict[str, Any]:
             try:
                 start = time.perf_counter()
-                async with httpx.AsyncClient(timeout=3.0) as client:
-                    litellm_url = str(settings.litellm_api_base).rstrip("/")
-                    response = await client.get(f"{litellm_url}/health/liveliness")
-                    latency = (time.perf_counter() - start) * 1000
-                    if response.status_code == 200:
-                        return {"status": "ok", "latency_ms": round(latency, 1)}
-                    return {
-                        "status": "error",
-                        "error": f"HTTP {response.status_code}",
-                    }
+                if _READINESS_HTTP_CLIENT is None:
+                    return {"status": "error", "error": "http client not initialized"}
+                litellm_url = str(settings.litellm_api_base).rstrip("/")
+                response = await _READINESS_HTTP_CLIENT.get(f"{litellm_url}/health/liveliness")
+                latency = (time.perf_counter() - start) * 1000
+                if response.status_code == 200:
+                    return {"status": "ok", "latency_ms": round(latency, 1)}
+                return {
+                    "status": "error",
+                    "error": f"HTTP {response.status_code}",
+                }
             except (TimeoutError, httpx.TimeoutException):
                 return {"status": "error", "error": "timeout"}
             except Exception as e:

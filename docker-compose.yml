@@ -13,6 +13,12 @@ services:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
     networks:
       - default
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     deploy:
       resources:
         limits:
@@ -208,6 +214,12 @@ services:
       - ./data/openwebui:/app/backend/data
     depends_on:
       - agent
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:

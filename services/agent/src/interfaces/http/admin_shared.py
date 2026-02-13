@@ -587,6 +587,14 @@ def render_admin_page(
 
     # CSRF protection and error handling JavaScript utilities
     csrf_js = """
+        // HTML escaping utility (prevents XSS)
+        function escapeHtml(str) {
+            if (!str) return '';
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
         // CSRF token utilities
         function getCsrfToken() {
             const cookies = document.cookie.split(';');

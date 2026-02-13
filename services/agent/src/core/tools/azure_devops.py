@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,11 @@ from core.runtime.config import get_settings
 from core.tools.base import Tool
 
 LOGGER = logging.getLogger(__name__)
+
+# Connection cache: maps context_id -> (Connection, creation_timestamp)
+_connection_cache: dict[str, tuple[Connection, float]] = {}
+CONNECTION_CACHE_TTL = 300  # 5 minutes
+CONNECTION_CACHE_MAX_SIZE = 50  # Limit cache size to prevent unbounded growth
 
 
 @lru_cache(maxsize=1)
@@ -64,6 +70,86 @@ def _sanitize_wiql_value(value: str) -> str:
         return value
     # Escape single quotes by doubling them
     return value.replace("'", "''")
+
+
+def _evict_expired_connections() -> None:
+    """Remove expired connections from cache to prevent unbounded growth.
+
+    Eviction strategy:
+    1. Remove all entries older than TTL
+    2. If cache still exceeds max size, remove oldest entries
+    """
+    now = time.time()
+
+    # Remove expired entries
+    expired_keys = [
+        key
+        for key, (_, created_at) in _connection_cache.items()
+        if now - created_at > CONNECTION_CACHE_TTL
+    ]
+    for key in expired_keys:
+        del _connection_cache[key]
+
+    # If still too large, evict oldest entries
+    if len(_connection_cache) > CONNECTION_CACHE_MAX_SIZE:
+        # Sort by creation time, oldest first
+        sorted_entries = sorted(_connection_cache.items(), key=lambda x: x[1][1])
+        # Remove oldest entries to get back to max size
+        entries_to_remove = len(_connection_cache) - CONNECTION_CACHE_MAX_SIZE
+        for key, _ in sorted_entries[:entries_to_remove]:
+            del _connection_cache[key]
+
+        LOGGER.debug(
+            f"Evicted {entries_to_remove} old connections from cache "
+            f"(size: {len(_connection_cache)}/{CONNECTION_CACHE_MAX_SIZE})"
+        )
+
+
+def _get_or_create_connection(
+    context_id: UUID,
+    org_url: str,
+    pat: str,
+) -> Connection:
+    """Get cached connection or create new one.
+
+    Args:
+        context_id: Context ID for cache key isolation.
+        org_url: Azure DevOps organization URL.
+        pat: Personal Access Token for authentication.
+
+    Returns:
+        Connection object (cached or newly created).
+    """
+    cache_key = f"{context_id}:{org_url}"
+    now = time.time()
+
+    # Check cache first
+    if cache_key in _connection_cache:
+        conn, created_at = _connection_cache[cache_key]
+        if now - created_at < CONNECTION_CACHE_TTL:
+            LOGGER.debug(f"Using cached connection for context {context_id}")
+            return conn
+        else:
+            # Expired - remove it
+            del _connection_cache[cache_key]
+            LOGGER.debug(f"Connection expired for context {context_id}, creating new")
+
+    # Create new connection
+    credentials = BasicAuthentication("", pat)
+    connection = Connection(base_url=org_url, creds=credentials)
+
+    # Store in cache
+    _connection_cache[cache_key] = (connection, now)
+
+    # Evict expired/old entries to prevent unbounded growth
+    _evict_expired_connections()
+
+    LOGGER.debug(
+        f"Created new connection for context {context_id} "
+        f"(cache size: {len(_connection_cache)}/{CONNECTION_CACHE_MAX_SIZE})"
+    )
+
+    return connection
 
 
 def _find_similar(target: str, candidates: list[str], max_suggestions: int = 3) -> list[str]:
@@ -393,8 +479,15 @@ class AzureDevOpsTool(Tool):
         pat, org_url, cred_project = creds
 
         try:
-            credentials = BasicAuthentication("", pat)
-            connection = Connection(base_url=org_url, creds=credentials)
+            # Use cached connection if available (with TTL and size limits)
+            # If context_id is None, create uncached connection (fallback)
+            if context_id:
+                connection = _get_or_create_connection(context_id, org_url, pat)
+            else:
+                LOGGER.warning("No context_id provided, creating uncached connection")
+                credentials = BasicAuthentication("", pat)
+                connection = Connection(base_url=org_url, creds=credentials)
+
             wit_client = await asyncio.to_thread(connection.clients.get_work_item_tracking_client)
 
             # Project priority: explicit param > credential metadata
