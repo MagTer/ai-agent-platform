@@ -131,6 +131,8 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     configure_tracing(
         settings.app_name,
         span_log_path=str(settings.trace_span_log_path or "data/spans.jsonl"),
+        span_log_max_size_mb=settings.trace_span_log_max_size_mb,
+        span_log_max_files=settings.trace_span_log_max_files,
     )
 
     app = FastAPI(title=settings.app_name)

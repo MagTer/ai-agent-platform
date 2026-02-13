@@ -113,7 +113,6 @@ def test_load_tool_registry_handles_missing_file(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_agent_service_executes_tool(tmp_path: Path) -> None:
     settings = Settings(
-        sqlite_state_path=tmp_path / "state.sqlite",
         tools_config_path=tmp_path / "unused.yaml",
         tool_result_max_chars=100,
     )

@@ -74,11 +74,6 @@ class Settings(BaseModel):
         description="Base URL for the SearXNG search engine.",
     )
 
-    sqlite_state_path: Path = Field(
-        default=Path("data/agent_state.sqlite"),
-        description="Path to the SQLite database used for metadata.",
-    )
-
     contexts_dir: Path = Field(
         default=Path("contexts"),
         description="Root directory where agent contexts (projects) are stored.",
@@ -181,6 +176,14 @@ class Settings(BaseModel):
     trace_span_log_path: Path | None = Field(
         default=None,
         description="Optional file path for writing span telemetry (JSONL).",
+    )
+    trace_span_log_max_size_mb: int = Field(
+        default=10,
+        description="Maximum size of span log file in MB before rotation.",
+    )
+    trace_span_log_max_files: int = Field(
+        default=3,
+        description="Maximum number of rotated span log files to keep.",
     )
 
     log_level: str = Field(default="INFO", description="Python logging level for the service.")

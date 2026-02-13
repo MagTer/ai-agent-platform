@@ -75,10 +75,11 @@ Context -> Conversation -> Session -> Message
 
 ## Testing Strategy (3-Layer Pyramid)
 
-**Layer 1: Unit Tests** (Fast, Mocked)
+**Layer 1: Unit Tests** (Fast, Mocked) -- `src/core/tests/`, `src/core/observability/tests/`
 - Use `tmp_path` for file operations
 - Use `MockLLMClient` from `core/tests/mocks.py`
 - Use `InMemoryAsyncSession` for database tests
+- New tests go in `src/*/tests/` near source code, NOT in `tests/` root dirs
 
 **Layer 2: Integration Tests** (Real DB, Mocked LLM)
 - Test full request flows
@@ -112,15 +113,18 @@ When troubleshooting runtime issues, use the diagnostics APIs:
 - `GET /platformadmin/api/traces/search` - Search OpenTelemetry traces
 - `GET /platformadmin/api/traces/{trace_id}` - Get full trace detail with all spans
 
-Crash logs: `services/agent/last_crash.log` (access via API, not file system)
+Crash logs: Written async to configured path (default: `services/agent/last_crash.log`)
 
 ## Important Paths
 
 | Path | Purpose |
 |------|---------|
+| `core/runtime/` | Agent runtime (service, persistence, hitl, config) |
+| `core/agents/` | LLM agents (planner, executor, supervisors) |
+| `core/auth/` | Authentication and credential service |
 | `core/protocols/` | Protocol definitions for DI |
 | `core/providers.py` | Implementation providers |
-| `core/observability/error_codes.py` | Structured error codes |
+| `core/observability/` | Tracing (with span rotation) and error codes |
 | `core/tests/mocks.py` | Test mocks (MockLLMClient, InMemoryAsyncSession) |
 | `./stack` | Quality assurance CLI (check, lint, typecheck, test) |
 | `skills/` | Platform's agent skills (NOT Claude Code skills) |
