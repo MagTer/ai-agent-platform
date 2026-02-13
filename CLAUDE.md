@@ -244,18 +244,26 @@ Task(
 - 4-layer modular monolith: `interfaces/ → orchestrator/ → modules/ → core/`
 - Modules CANNOT import other modules (use Protocol-based DI)
 - Core NEVER imports upward
+- State hierarchy: `Context -> Conversation -> Session -> Message` (all in PostgreSQL)
+- Every Agent request MUST resolve to an active Session
 
 **Code Standards:**
 - Lowercase generic types: `list[str]`, `dict[str, int]` (NOT `List`, `Dict`)
 - Never use `Any` - always specify concrete types
 - Async-first: all I/O must be async
 - Absolute imports only (no relative imports)
+- McCabe complexity < 18
+
+**Safety:**
+- Never output API keys or credentials in responses
+- Do NOT edit `docker-compose.yml` without explicit user approval
+- Do NOT add new pip dependencies without checking if stdlib alternative exists
 
 **Language:**
-- English for EVERYTHING: conversation, code, web content, UI text, config, comments, docs, plans, commit messages
+- English for ALL code, GUI, config, admin interfaces, comments, docs, plans, commit messages
+- Swedish only for end-user chat responses (bot messages to users)
 - Respond in English regardless of what language the user writes in
 - ASCII-safe punctuation (no emojis or smart quotes)
-- Copy/pasteable examples
 
 **HTML Templates:**
 - Separate HTML from Python when file exceeds 500 lines of HTML OR 40KB total
@@ -670,11 +678,10 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 ## Important Files
 
 **Project Configuration:**
-- `.clinerules` - Project-wide standards (auto-loaded)
+- `CLAUDE.md` - This file (entry point for Claude Code sessions)
 - `.claude/agents/*.md` - Agent configurations with embedded instructions
 - `.claude/commands/*.md` - Slash commands (`/plan`, `/build`, `/ops`) that delegate to agents
 - `.claude/plans/*.md` - Implementation plans created by Architect
-- `CLAUDE.md` - This file (entry point for Claude Code sessions)
 
 **Documentation:**
 - `docs/ARCHITECTURE.md` - Full architecture documentation
@@ -879,6 +886,14 @@ curl -H "X-API-Key: $KEY" "https://your-domain/platformadmin/api/traces/search?s
 
 ## Testing Guidelines
 
+### Testing Strategy (3-Layer Pyramid)
+
+- **Layer 1: Unit Tests** (fast, mocked) -- Use `MockLLMClient` and `InMemoryAsyncSession` from `core/tests/mocks.py`
+- **Layer 2: Integration Tests** (real DB, mocked LLM) -- Full request flows
+- **Layer 3: Semantic Tests** (slow, real LLM) -- Golden queries in `tests/semantic/golden_queries.yaml`
+
+Every feature flow needs a scenario test in `src/core/tests/test_agent_scenarios.py`.
+
 ### Test Structure
 
 New tests go in `src/*/tests/` near source code (NOT in `tests/` root dirs).
@@ -997,4 +1012,8 @@ def test_execute_step_returns_retry_on_timeout():
 
 ---
 
-**Remember:** The workflow is optimized for autonomy and cost-efficiency. Use the right agent for each task.
+**Remember:**
+- The workflow is optimized for autonomy and cost-efficiency. Use the right agent for each task.
+- Platform skills in `skills/` are the application's domain logic (not instructions for Claude Code).
+- Claude Code agent configs live in `.claude/agents/` (separate from platform skills).
+- Surgical edits: preserve comments and existing functionality unless explicitly asked to change.
