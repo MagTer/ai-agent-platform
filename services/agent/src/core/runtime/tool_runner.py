@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from core.core.config import Settings
 from core.models.pydantic_schemas import ToolCallEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import (
@@ -14,6 +13,7 @@ from core.observability.tracing import (
     set_span_status,
     start_span,
 )
+from core.runtime.config import Settings
 from core.tools import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)

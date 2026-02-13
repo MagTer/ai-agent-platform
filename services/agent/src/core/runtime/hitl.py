@@ -11,9 +11,9 @@ from typing import Any
 from shared.models import AgentMessage, AgentRequest, PlanStep
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.litellm_client import LiteLLMClient
 from core.db import Conversation, Message, Session
 from core.observability.tracing import current_trace_ids
+from core.runtime.litellm_client import LiteLLMClient
 from core.skills import SkillExecutor, SkillRegistry
 from core.tools import ToolRegistry
 

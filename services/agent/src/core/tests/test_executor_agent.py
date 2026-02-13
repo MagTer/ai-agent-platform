@@ -13,7 +13,7 @@ import pytest
 from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
 
 from core.agents.executor import StepExecutorAgent
-from core.core.memory import MemoryStore
+from core.runtime.memory import MemoryStore
 from core.tests.mocks import MockLLMClient
 from core.tools.base import Tool
 
