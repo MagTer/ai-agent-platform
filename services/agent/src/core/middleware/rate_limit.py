@@ -51,7 +51,7 @@ def create_rate_limiter() -> Limiter:
     Returns:
         Configured Limiter instance with IP-based rate limiting.
     """
-    return Limiter(key_func=get_remote_address, default_limits=[_dynamic_limit_key])
+    return Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 
 async def rate_limit_exceeded_handler(request: Request, exc: Exception) -> Response:
