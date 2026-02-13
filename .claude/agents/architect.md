@@ -59,7 +59,7 @@ core/           (Layer 4) - DB, Models, Config, Observability
 | **core**      | ✅   | ❌      | ❌           | ❌         |
 | **modules**   | ✅   | ❌      | ❌           | ❌         |
 | **orchestrator** | ✅ | ✅     | ✅           | ❌         |
-| **interfaces**| ✅   | ✅      | ✅           | ✅         |
+| **interfaces**| ✅   | ❌      | ✅           | ✅         |
 
 **Critical Rules:**
 - Modules CANNOT import other modules (use Protocol-based DI via core)

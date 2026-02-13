@@ -79,7 +79,7 @@ async def get_admin_user(
     # If no headers, try JWT cookie (direct OAuth)
     if not identity:
         from core.auth.admin_session import get_jwt_from_request, verify_admin_jwt
-        from core.core.config import get_settings
+        from core.runtime.config import get_settings
 
         settings = get_settings()
         if settings.admin_jwt_secret:
@@ -221,7 +221,7 @@ async def get_admin_user_or_redirect(
     # If no headers, try JWT cookie (direct OAuth)
     if not identity:
         from core.auth.admin_session import get_jwt_from_request, verify_admin_jwt
-        from core.core.config import get_settings
+        from core.runtime.config import get_settings
 
         settings = get_settings()
         if settings.admin_jwt_secret:

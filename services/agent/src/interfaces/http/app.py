@@ -24,9 +24,14 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import Settings, get_settings
-from core.core.litellm_client import LiteLLMClient, LiteLLMError
-from core.core.models import (
+from core.db.engine import get_db
+from core.db.models import Context
+from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
+from core.observability.logging import setup_logging
+from core.observability.tracing import configure_tracing
+from core.runtime.config import Settings, get_settings
+from core.runtime.litellm_client import LiteLLMClient, LiteLLMError
+from core.runtime.models import (
     AgentMessage,
     AgentRequest,
     AgentResponse,
@@ -35,13 +40,8 @@ from core.core.models import (
     ChatCompletionResponse,
     HealthStatus,
 )
-from core.core.service import AgentService
-from core.core.service_factory import ServiceFactory
-from core.db.engine import get_db
-from core.db.models import Context
-from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
-from core.observability.logging import setup_logging
-from core.observability.tracing import configure_tracing
+from core.runtime.service import AgentService
+from core.runtime.service_factory import ServiceFactory
 from core.tools.mcp_loader import set_mcp_client_pool
 from interfaces.http.admin_api import router as admin_api_router
 from interfaces.http.admin_auth import AuthRedirectError
@@ -388,7 +388,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         token_manager = await register_providers(settings, litellm_client)
 
         # Initialize model capability registry
-        from core.core.model_registry import ModelCapabilityRegistry
+        from core.runtime.model_registry import ModelCapabilityRegistry
 
         ModelCapabilityRegistry.get_instance()
         LOGGER.info("Model capability registry initialized")
@@ -415,7 +415,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         )
 
         # Create ServiceFactory for context-aware service creation
-        from core.core.service_factory import ServiceFactory
+        from core.runtime.service_factory import ServiceFactory
 
         service_factory = ServiceFactory(
             settings=settings,

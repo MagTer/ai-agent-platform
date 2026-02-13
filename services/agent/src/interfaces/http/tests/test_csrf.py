@@ -326,7 +326,7 @@ class TestRequireCSRF:
         """Should skip CSRF checks when environment=test."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "test"
             mock_settings.return_value = settings
@@ -339,7 +339,7 @@ class TestRequireCSRF:
         """Should raise 500 when admin_jwt_secret is not set."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = None
@@ -356,7 +356,7 @@ class TestRequireCSRF:
         """Should raise 403 when CSRF cookie is missing."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"
@@ -373,7 +373,7 @@ class TestRequireCSRF:
         """Should raise 403 when CSRF header is missing."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"
@@ -394,7 +394,7 @@ class TestRequireCSRF:
         """Should raise 403 when cookie has invalid signature."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"
@@ -414,7 +414,7 @@ class TestRequireCSRF:
         """Should raise 403 when cookie and header don't match."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"
@@ -436,7 +436,7 @@ class TestRequireCSRF:
         """Should accept when cookie and header match and are valid."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"
@@ -454,7 +454,7 @@ class TestRequireCSRF:
         """Should log client IP when validation fails."""
         request = self._mock_request(client_ip="192.168.1.100")
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"
@@ -472,7 +472,7 @@ class TestRequireCSRF:
         mock_request = MagicMock(spec=Request)
         mock_request.client = None  # No client info
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"
@@ -489,7 +489,7 @@ class TestRequireCSRF:
         """Should use constant-time comparison for cookie/header match."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"
@@ -514,7 +514,7 @@ class TestRequireCSRF:
         """Should reject empty string cookie."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"
@@ -530,7 +530,7 @@ class TestRequireCSRF:
         """Should reject empty string header."""
         request = self._mock_request()
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             settings = MagicMock()
             settings.environment = "production"
             settings.admin_jwt_secret = "test-secret"

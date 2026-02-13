@@ -1,0 +1,130 @@
+[
+  {
+    "timestamp": "2026-02-09T11:53:05.615577+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-09T11:55:01.385766+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-09T12:07:07.284387+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-09T21:09:25.016641+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-09T21:16:54.027646+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-09T22:56:18.354047+00:00",
+    "branch": "feat/user-managed-mcp-connections",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-10T09:04:53.561651+00:00",
+    "branch": "feat/cost-optimize-slash-commands",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-10T10:42:05.139108+00:00",
+    "branch": "fix/diagnostics-admin-js-error",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-10T12:00:25.503045+00:00",
+    "branch": "fix/diagnostics-admin-js-error",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-11T22:37:38.823251+00:00",
+    "branch": "feat/context-centric-admin",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-11T22:43:55.728380+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-12T06:40:51.588703+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-12T06:55:13.950269+00:00",
+    "branch": "fix/architecture-violations",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-12T21:39:55.243641+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-12T21:48:12.402789+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-12T22:33:59.639401+00:00",
+    "branch": "feat/context-scoped-credentials",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  }
+]

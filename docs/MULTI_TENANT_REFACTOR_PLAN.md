@@ -348,10 +348,10 @@ async def _handle_message(self, message: Message):
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import Settings
-from core.core.litellm_client import LiteLLMClient
-from core.core.memory import MemoryStore
-from core.core.service import AgentService
+from core.runtime.config import Settings
+from core.runtime.litellm_client import LiteLLMClient
+from core.runtime.memory import MemoryStore
+from core.runtime.service import AgentService
 from core.tools.registry import ToolRegistry
 from core.tools.loader import load_tool_registry
 from core.tools.mcp_loader import load_mcp_tools_for_context
@@ -415,7 +415,7 @@ class ServiceFactory:
 # app.state.service = service_instance  # DELETE THIS
 
 # Add service factory
-from core.core.service_factory import ServiceFactory
+from core.runtime.service_factory import ServiceFactory
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
@@ -539,7 +539,7 @@ from uuid import UUID
 from qdrant_client import QdrantClient
 from sqlalchemy import select
 
-from core.core.config import get_settings
+from core.runtime.config import get_settings
 from core.db.engine import AsyncSessionLocal
 from core.db.models import Conversation
 
@@ -787,7 +787,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import Settings
+from core.runtime.config import Settings
 from core.db.oauth_models import OAuthToken
 from core.mcp.client import McpClient
 from core.providers import get_token_manager
@@ -1079,7 +1079,7 @@ pytest tests/core/mcp/test_context_oauth_integration.py
 from fastapi import Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import Settings, get_settings
+from core.runtime.config import Settings, get_settings
 from core.db.engine import get_db
 
 

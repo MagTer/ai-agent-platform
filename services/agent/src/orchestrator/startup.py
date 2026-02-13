@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from shared.litellm_client import LiteLLMClient
 
     from core.auth.token_manager import TokenManager as TokenManagerType
-    from core.core.config import Settings
+    from core.runtime.config import Settings
 
 LOGGER = logging.getLogger(__name__)
 

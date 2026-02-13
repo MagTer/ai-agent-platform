@@ -20,7 +20,7 @@ from pydantic import HttpUrl
 
 from core.auth.models import OAuthError
 from core.auth.token_manager import TokenManager
-from core.core.config import Settings
+from core.runtime.config import Settings
 
 
 @pytest.fixture

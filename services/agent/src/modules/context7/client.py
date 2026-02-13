@@ -9,9 +9,9 @@ from typing import Any
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
-from core.core.config import get_settings
 from core.models.mcp import McpTool
 from core.observability.tracing import start_span
+from core.runtime.config import get_settings
 
 LOGGER = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
 
 if TYPE_CHECKING:
-    from core.core.litellm_client import LiteLLMClient
+    from core.runtime.litellm_client import LiteLLMClient
     from core.tools import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)

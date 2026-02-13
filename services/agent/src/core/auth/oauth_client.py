@@ -92,8 +92,8 @@ class OAuthClient:
 
         # Fall back to McpServer table for dynamic mcp_ providers
         if provider.startswith("mcp_"):
-            from core.core.config import get_settings
             from core.db.models import McpServer
+            from core.runtime.config import get_settings
 
             stmt = select(McpServer).where(McpServer.oauth_provider_name == provider)
             result = await session.execute(stmt)

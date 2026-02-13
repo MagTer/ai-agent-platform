@@ -15,9 +15,9 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from core.core.config import Settings
 from core.db.models import Context, Conversation, Workspace
 from core.db.oauth_models import OAuthToken
+from core.runtime.config import Settings
 from interfaces.http.app import create_app
 
 

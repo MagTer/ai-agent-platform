@@ -502,8 +502,8 @@ async def start_mcp_oauth(
     """Start OAuth authorization flow for an MCP server."""
     from core.auth.models import OAuthProviderConfig
     from core.auth.oauth_client import OAuthClient
-    from core.core.config import get_settings
     from core.providers import get_token_manager
+    from core.runtime.config import get_settings
 
     result = await session.execute(select(McpServer).where(McpServer.id == server_id))
     server = result.scalar_one_or_none()

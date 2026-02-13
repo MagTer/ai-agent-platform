@@ -56,7 +56,7 @@ def _get_encryption_key() -> str | None:
     Returns:
         Encryption key or None if not configured (dev mode).
     """
-    from core.core.config import get_settings
+    from core.runtime.config import get_settings
 
     key = get_settings().credential_encryption_key
     return key if key else None

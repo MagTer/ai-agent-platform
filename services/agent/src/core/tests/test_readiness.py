@@ -6,8 +6,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import Settings
-from core.core.service import AgentService
+from core.runtime.config import Settings
+from core.runtime.service import AgentService
 from interfaces.http.app import create_app
 
 

@@ -46,8 +46,8 @@ async def setup_token_manager() -> None:
     from sqlalchemy.orm import sessionmaker
 
     from core.auth.token_manager import TokenManager
-    from core.core.config import get_settings
     from core.providers import set_token_manager
+    from core.runtime.config import get_settings
 
     db_url = os.getenv(
         "POSTGRES_URL",

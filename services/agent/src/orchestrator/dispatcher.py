@@ -12,11 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from utils.template import substitute_variables
 
 from core.command_loader import get_registry_index
-from core.core.litellm_client import LiteLLMClient
-from core.core.routing import registry
-from core.core.service import AgentService
 from core.db.models import Context, Conversation, Message, Session
 from core.routing.unified_orchestrator import UnifiedOrchestrator
+from core.runtime.litellm_client import LiteLLMClient
+from core.runtime.routing import registry
+from core.runtime.service import AgentService
 from core.skills.registry import SkillRegistry
 
 LOGGER = logging.getLogger(__name__)

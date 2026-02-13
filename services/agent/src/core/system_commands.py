@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.models import Conversation, Session
 
 if TYPE_CHECKING:
-    from core.core.service import AgentService
+    from core.runtime.service import AgentService
 
 LOGGER = logging.getLogger(__name__)
 

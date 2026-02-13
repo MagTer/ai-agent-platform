@@ -10,8 +10,8 @@ import pytest
 import pytest_asyncio
 from qdrant_client import AsyncQdrantClient  # Changed to AsyncQdrantClient
 
-from core.core.config import Settings
-from core.core.memory import MemoryRecord, MemoryStore
+from core.runtime.config import Settings
+from core.runtime.memory import MemoryRecord, MemoryStore
 
 
 @dataclass
@@ -84,7 +84,7 @@ async def test_add_records_generates_unique_point_ids(
     def _uuid_factory() -> SimpleNamespace:
         return SimpleNamespace(hex=f"uuid-{next(counter)}")
 
-    monkeypatch.setattr("core.core.memory.uuid4", _uuid_factory)
+    monkeypatch.setattr("core.runtime.memory.uuid4", _uuid_factory)
 
     await store.add_records(
         [

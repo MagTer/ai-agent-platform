@@ -14,9 +14,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import get_settings
 from core.db.engine import AsyncSessionLocal
 from core.db.models import Context, ToolPermission
+from core.runtime.config import get_settings
 from core.tools.loader import load_tool_registry
 
 

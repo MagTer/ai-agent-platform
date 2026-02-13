@@ -12,11 +12,11 @@ from qdrant_client import AsyncQdrantClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import Settings
-from core.core.litellm_client import LiteLLMClient
-from core.core.memory import MemoryStore
-from core.core.service import AgentService
 from core.db.models import ToolPermission
+from core.runtime.config import Settings
+from core.runtime.litellm_client import LiteLLMClient
+from core.runtime.memory import MemoryStore
+from core.runtime.service import AgentService
 from core.tools.loader import load_tool_registry
 
 if TYPE_CHECKING:

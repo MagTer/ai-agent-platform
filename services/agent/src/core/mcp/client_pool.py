@@ -21,10 +21,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import Settings
 from core.db.models import DebugLog
 from core.db.oauth_models import OAuthToken
 from core.mcp.client import McpClient
+from core.runtime.config import Settings
 
 LOGGER = logging.getLogger(__name__)
 
