@@ -79,17 +79,23 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
         </div>
     </div>
 
-    <div class="card">
+    <div style="display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 16px;">
+        <button class="btn btn-primary" onclick="showCreateModal()">+ Create Context</button>
+        <button class="btn" onclick="loadContexts()">Refresh</button>
+    </div>
+
+    <div class="card" id="personalSection" style="display:none;">
         <div class="card-header">
-            <span>All Contexts <span id="count" class="badge badge-info">0</span></span>
-            <div style="display: flex; gap: 8px;">
-                <button class="btn btn-primary" onclick="showCreateModal()">+ Create Context</button>
-                <button class="btn" onclick="loadContexts()">Refresh</button>
-            </div>
+            <span class="card-title">Personal Contexts <span id="personalCount" class="badge badge-info">0</span></span>
         </div>
-        <div id="contexts">
-            <div class="loading">Loading...</div>
+        <div id="personalList"></div>
+    </div>
+
+    <div class="card" id="sharedSection" style="display:none;">
+        <div class="card-header">
+            <span class="card-title">Shared Contexts <span id="sharedCount" class="badge badge-info">0</span></span>
         </div>
+        <div id="sharedList"></div>
     </div>
 
     <!-- Create Context Modal -->
@@ -146,38 +152,58 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
         renderContexts(data);
     }
 
+    function renderContextCard(c) {
+        const ownerLine = c.owner_email
+            ? '<span style="font-weight:500;">Owner: ' + escapeHtml(c.owner_email) + '</span>'
+            : '<span style="color:var(--text-muted);font-style:italic;">No owner</span>';
+        return '<a href="/platformadmin/contexts/' + c.id + '/" class="context-card">' +
+            '<div class="context-header"><div>' +
+            '<div class="context-name">' + escapeHtml(c.name) + '</div>' +
+            '<div class="context-id">' + c.id + '</div>' +
+            '</div></div>' +
+            '<div class="context-meta">' +
+            ownerLine +
+            '<span>Conversations: ' + c.conversation_count + '</span>' +
+            '<span>OAuth: ' + c.oauth_token_count + '</span>' +
+            '<span>Permissions: ' + c.tool_permission_count + '</span>' +
+            '<span>Workspaces: ' + c.workspace_count + '</span>' +
+            '<span>MCP: ' + c.mcp_server_count + '</span>' +
+            '<span>Credentials: ' + c.credential_count + '</span>' +
+            '</div></a>';
+    }
+
     function renderContexts(data) {
         const contexts = data.contexts || [];
-        document.getElementById('count').textContent = data.total || 0;
-        document.getElementById('totalContexts').textContent = data.total || 0;
-        document.getElementById('personalContexts').textContent = contexts.filter(c => c.type === 'personal').length;
-        document.getElementById('sharedContexts').textContent = contexts.filter(c => c.type === 'shared').length;
+        const personal = contexts.filter(c => c.type === 'personal');
+        const shared = contexts.filter(c => c.type !== 'personal');
 
-        const el = document.getElementById('contexts');
-        if (contexts.length === 0) {
-            el.innerHTML = '<div class="empty-state">No contexts found</div>';
-            return;
+        document.getElementById('totalContexts').textContent = data.total || 0;
+        document.getElementById('personalContexts').textContent = personal.length;
+        document.getElementById('sharedContexts').textContent = shared.length;
+
+        const personalSection = document.getElementById('personalSection');
+        const sharedSection = document.getElementById('sharedSection');
+
+        if (personal.length > 0) {
+            personalSection.style.display = '';
+            document.getElementById('personalCount').textContent = personal.length;
+            document.getElementById('personalList').innerHTML = personal.map(renderContextCard).join('');
+        } else {
+            personalSection.style.display = 'none';
         }
-        el.innerHTML = contexts.map(c => {
-            const typeBadge = '<span class="badge badge-type-' + c.type + '">' + c.type + '</span>';
-            const ownerLine = c.owner_email
-                ? '<span style="font-weight:500;">Owner: ' + escapeHtml(c.owner_email) + '</span>'
-                : '<span style="color:var(--text-muted);font-style:italic;">No owner</span>';
-            return '<a href="/platformadmin/contexts/' + c.id + '/" class="context-card">' +
-                '<div class="context-header"><div>' +
-                '<div class="context-name">' + escapeHtml(c.name) + ' ' + typeBadge + '</div>' +
-                '<div class="context-id">' + c.id + '</div>' +
-                '</div></div>' +
-                '<div class="context-meta">' +
-                ownerLine +
-                '<span>Conversations: ' + c.conversation_count + '</span>' +
-                '<span>OAuth: ' + c.oauth_token_count + '</span>' +
-                '<span>Permissions: ' + c.tool_permission_count + '</span>' +
-                '<span>Workspaces: ' + c.workspace_count + '</span>' +
-                '<span>MCP: ' + c.mcp_server_count + '</span>' +
-                '<span>Credentials: ' + c.credential_count + '</span>' +
-                '</div></a>';
-        }).join('');
+
+        if (shared.length > 0) {
+            sharedSection.style.display = '';
+            document.getElementById('sharedCount').textContent = shared.length;
+            document.getElementById('sharedList').innerHTML = shared.map(renderContextCard).join('');
+        } else {
+            sharedSection.style.display = 'none';
+        }
+
+        if (contexts.length === 0) {
+            sharedSection.style.display = '';
+            document.getElementById('sharedList').innerHTML = '<div class="empty-state">No contexts found</div>';
+        }
     }
 
     async function loadMyContexts() {

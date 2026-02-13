@@ -48,7 +48,6 @@ from interfaces.http.admin_api import router as admin_api_router
 from interfaces.http.admin_auth import AuthRedirectError
 from interfaces.http.admin_auth_oauth import router as admin_auth_oauth_router
 from interfaces.http.admin_contexts import router as admin_contexts_router
-from interfaces.http.admin_credentials import router as admin_credentials_router
 from interfaces.http.admin_debug import router as admin_debug_router
 from interfaces.http.admin_diagnostics import router as admin_diagnostics_router
 from interfaces.http.admin_mcp import router as admin_mcp_router
@@ -866,7 +865,6 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     app.include_router(admin_portal_router)
     app.include_router(admin_contexts_router)
     app.include_router(admin_workspaces_router)
-    app.include_router(admin_credentials_router)
     app.include_router(admin_oauth_router)
     app.include_router(admin_mcp_router)
     app.include_router(admin_diagnostics_router)
