@@ -68,7 +68,7 @@ Ranked by risk (security exposure, data loss potential, production impact) and e
 | A1 | HIGH | `AgentService` god class: 2514 lines, 30+ methods, 5+ responsibility clusters | `core/core/service.py` |
 | A2 | HIGH | Azure DevOps tool uses synchronous `msrest` HTTP in async context, blocks event loop | `core/tools/azure_devops.py:10-11` |
 | A3 | MEDIUM | `admin_price_tracker.py` bypasses orchestrator layer (6 direct module imports) | `interfaces/http/admin_price_tracker.py:36-38` |
-| A4 | MEDIUM | `core/core/` double-nesting creates awkward imports (74 occurrences of `from core.core.`) | `core/core/` directory |
+| A4 | MEDIUM | `core/runtime/` double-nesting creates awkward imports (74 occurrences of `from core.runtime.`) | `core/runtime/` directory |
 | A5 | MEDIUM | `GitHubTool` HTTP client created but never explicitly closed | `core/tools/github.py` |
 | A6 | MEDIUM | `GeminiCLIModel` uses synchronous `subprocess.run()` | `core/models/gemini_cli.py:28-30` |
 | A7 | MEDIUM | 2 httpx clients missing constructor-level timeouts (per-request only) | `admin_auth_oauth.py:216`, `oauth_client.py:387` |

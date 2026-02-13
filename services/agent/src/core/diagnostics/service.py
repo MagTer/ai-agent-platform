@@ -17,9 +17,9 @@ from cryptography.fernet import Fernet
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from core.core.config import Settings
 from core.db.engine import engine
 from core.providers import get_embedder
+from core.runtime.config import Settings
 
 LOGGER = logging.getLogger(__name__)
 

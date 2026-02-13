@@ -13,8 +13,8 @@ sys.path.append(str(project_root / "services" / "agent" / "src"))
 from colorama import Fore, Style, init  # noqa: E402
 from qdrant_client.http import models  # noqa: E402
 
-from core.core.config import Settings  # noqa: E402
-from core.core.litellm_client import LiteLLMClient  # noqa: E402
+from core.runtime.config import Settings  # noqa: E402
+from core.runtime.litellm_client import LiteLLMClient  # noqa: E402
 from modules.embedder import LiteLLMEmbedder  # noqa: E402
 from modules.rag import RAGManager  # noqa: E402
 

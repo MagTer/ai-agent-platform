@@ -5,7 +5,7 @@ import pytest
 from shared.models import AgentRequest
 
 from core.agents.planner import PlannerAgent
-from core.core.litellm_client import LiteLLMClient
+from core.runtime.litellm_client import LiteLLMClient
 
 
 @pytest.fixture

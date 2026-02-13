@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from shared.models import AgentMessage, Plan, PlanStep
 
 if TYPE_CHECKING:
-    from core.core.litellm_client import LiteLLMClient
+    from core.runtime.litellm_client import LiteLLMClient
 
 LOGGER = logging.getLogger(__name__)
 

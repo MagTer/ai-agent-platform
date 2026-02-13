@@ -8,9 +8,9 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import Settings
 from core.mcp.client import McpClient
 from core.models.mcp import McpTool
+from core.runtime.config import Settings
 from core.tools.base import Tool
 from core.tools.registry import ToolRegistry
 

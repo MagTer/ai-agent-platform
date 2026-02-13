@@ -27,18 +27,31 @@ def get_rate_limit_for_path(path: str) -> str:
         return "60/minute"
 
 
+def _dynamic_limit_key(request: Request) -> str:
+    """Get dynamic rate limit based on request path.
+
+    Args:
+        request: The FastAPI request.
+
+    Returns:
+        Rate limit string for the path.
+    """
+    return get_rate_limit_for_path(request.url.path)
+
+
 def create_rate_limiter() -> Limiter:
     """Create and configure a rate limiter instance.
 
-    Uses a simple fixed rate limit to avoid compatibility issues
-    with slowapi's callable handling.
+    Uses dynamic rate limits based on request path:
+    - /admin endpoints: 10/minute
+    - /auth/oauth, /webui/oauth: 5/minute
+    - /v1/chat: 30/minute
+    - Default: 60/minute
 
     Returns:
         Configured Limiter instance with IP-based rate limiting.
     """
-    # Use a simple fixed rate limit for general requests
-    # Specific endpoints can use @limiter.limit() decorator for custom limits
-    return Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+    return Limiter(key_func=get_remote_address, default_limits=[_dynamic_limit_key])
 
 
 async def rate_limit_exceeded_handler(request: Request, exc: Exception) -> Response:

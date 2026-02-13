@@ -221,6 +221,31 @@ class ArchitectureValidator:
                     )
                 )
 
+    def _check_orchestrator_imports(self, file_path: Path) -> None:
+        """Check that orchestrator/ cannot import from interfaces/.
+
+        Args:
+            file_path: Path to Python file in orchestrator/
+        """
+        imports = self._extract_imports(file_path)
+
+        for module, line in imports:
+            if not self._is_first_party_import(module):
+                continue
+
+            # Orchestrator should not import from interfaces (higher layer)
+            if module.startswith("interfaces."):
+                description = "orchestrator/ cannot import from interfaces/ (upward dependency)"
+                self.violations.append(
+                    Violation(
+                        file=file_path.relative_to(self.src_root),
+                        line=line,
+                        import_stmt=module,
+                        rule="Orchestrator layer isolation",
+                        description=description,
+                    )
+                )
+
     def validate_file(self, file_path: Path) -> None:
         """Validate a single Python file.
 
@@ -240,6 +265,8 @@ class ArchitectureValidator:
             self._check_module_imports(file_path)
         elif layer == "interfaces":
             self._check_interface_imports(file_path)
+        elif layer == "orchestrator":
+            self._check_orchestrator_imports(file_path)
 
     def validate_directory(self, directory: Path) -> None:
         """Recursively validate all Python files in a directory.

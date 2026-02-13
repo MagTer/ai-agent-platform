@@ -18,9 +18,9 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
 from sqlalchemy import select
 
-from core.core.config import get_settings
 from core.db.engine import AsyncSessionLocal
 from core.db.models import Conversation
+from core.runtime.config import get_settings
 
 
 async def migrate_memory_contexts() -> None:

@@ -151,8 +151,8 @@ class TestLoadUserMcpServers:
         self, context_id: UUID, mock_session: AsyncMock
     ) -> None:
         """Returns False when no user-defined servers exist."""
-        from core.core.config import Settings
         from core.mcp.client_pool import McpClientPool
+        from core.runtime.config import Settings
 
         # Mock empty result
         mock_result = MagicMock()
@@ -173,8 +173,8 @@ class TestLoadUserMcpServers:
         self, context_id: UUID, mock_session: AsyncMock
     ) -> None:
         """Disabled servers (is_enabled=False) should not be loaded."""
-        from core.core.config import Settings
         from core.mcp.client_pool import McpClientPool
+        from core.runtime.config import Settings
 
         # The query filters by is_enabled=True, so disabled servers
         # should not appear in results at all
@@ -194,8 +194,8 @@ class TestLoadUserMcpServers:
         self, context_id: UUID, mock_session: AsyncMock
     ) -> None:
         """Bearer-authenticated servers should pass decrypted token to McpClient."""
-        from core.core.config import Settings
         from core.mcp.client_pool import McpClientPool
+        from core.runtime.config import Settings
 
         server = McpServer(
             id=uuid4(),
@@ -239,8 +239,8 @@ class TestLoadUserMcpServers:
         self, context_id: UUID, mock_session: AsyncMock
     ) -> None:
         """Connection errors should update server status to 'error'."""
-        from core.core.config import Settings
         from core.mcp.client_pool import McpClientPool
+        from core.runtime.config import Settings
 
         server = McpServer(
             id=uuid4(),
@@ -520,7 +520,7 @@ class TestOAuthProviderConfigDbFallback:
         session_factory = MagicMock()
         client = OAuthClient(session_factory, {})
 
-        with patch("core.core.config.get_settings") as mock_settings:
+        with patch("core.runtime.config.get_settings") as mock_settings:
             from pydantic import HttpUrl
 
             mock_settings.return_value.oauth_redirect_uri = HttpUrl("https://example.com/callback")

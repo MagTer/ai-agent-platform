@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.models import OAuthProviderConfig
 from core.auth.oauth_client import OAuthClient
-from core.core.config import Settings
+from core.runtime.config import Settings
 
 LOGGER = logging.getLogger(__name__)
 

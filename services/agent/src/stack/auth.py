@@ -13,6 +13,25 @@ console = Console()
 app = typer.Typer(help="Manage authentication for stack services.")
 
 
+def sanitize_env_value(value: str) -> str:
+    """Sanitize a value before writing to .env file.
+
+    Escapes quotes and removes shell metacharacters and newlines
+    to prevent command injection.
+
+    Args:
+        value: The value to sanitize.
+
+    Returns:
+        Sanitized value safe for .env file.
+    """
+    # Remove newlines and shell metacharacters
+    value = value.replace("\n", "").replace("\r", "")
+    # Escape quotes
+    value = value.replace('"', '\\"')
+    return value
+
+
 @app.command("homey")
 def login_homey(
     token: str = typer.Option(
@@ -39,10 +58,13 @@ def login_homey(
 
     content = env_path.read_text()
 
+    # Sanitize token to prevent command injection
+    sanitized_token = sanitize_env_value(token)
+
     # Regex to replace existing token
     # Handles quoted and unquoted values
     pattern = r"^HOMEY_API_TOKEN=(.*)$\n"
-    replacement = f'HOMEY_API_TOKEN="{token}"'
+    replacement = f'HOMEY_API_TOKEN="{sanitized_token}"'
 
     match = re.search(pattern, content, re.MULTILINE)
     if match:

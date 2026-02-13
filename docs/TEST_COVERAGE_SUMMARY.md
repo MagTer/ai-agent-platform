@@ -172,7 +172,7 @@ pytest tests/interfaces/http/test_admin_auth.py -v
 pytest tests/interfaces/http/test_admin_endpoints.py -v
 
 # Run with coverage
-pytest --cov=core.core.service_factory \
+pytest --cov=core.runtime.service_factory \
        --cov=core.mcp.client_pool \
        --cov=core.tools.registry \
        --cov=interfaces.http.admin_auth \

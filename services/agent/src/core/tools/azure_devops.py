@@ -13,7 +13,7 @@ from msrest.authentication import BasicAuthentication
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.credential_service import CredentialService
-from core.core.config import get_settings
+from core.runtime.config import get_settings
 from core.tools.base import Tool
 
 LOGGER = logging.getLogger(__name__)

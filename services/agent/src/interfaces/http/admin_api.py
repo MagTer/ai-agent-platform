@@ -19,7 +19,6 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.core.config import get_settings
 from core.db.engine import get_db
 from core.db.models import Conversation, DebugLog, Message, Session, SystemConfig
 from core.diagnostics.service import DiagnosticsService
@@ -29,6 +28,7 @@ from core.observability.security_logger import (
     get_client_ip,
     log_security_event,
 )
+from core.runtime.config import get_settings
 from interfaces.http.admin_auth import AdminUser, get_admin_user
 
 LOGGER = logging.getLogger(__name__)

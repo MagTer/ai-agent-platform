@@ -113,7 +113,7 @@ async def require_csrf(
     Raises:
         HTTPException: If CSRF validation fails
     """
-    from core.core.config import get_settings
+    from core.runtime.config import get_settings
 
     settings = get_settings()
 

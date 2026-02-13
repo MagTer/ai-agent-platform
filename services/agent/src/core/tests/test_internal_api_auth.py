@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from core.core.config import Settings
+from core.runtime.config import Settings
 from interfaces.http.app import verify_internal_api_key
 
 

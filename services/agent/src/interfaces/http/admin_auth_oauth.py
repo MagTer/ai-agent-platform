@@ -20,7 +20,6 @@ from core.auth.admin_session import (
     get_jwt_from_request,
     verify_admin_jwt,
 )
-from core.core.config import Settings, get_settings
 from core.db.engine import get_db
 from core.db.models import User
 from core.observability.security_logger import (
@@ -29,6 +28,7 @@ from core.observability.security_logger import (
     get_client_ip,
     log_security_event,
 )
+from core.runtime.config import Settings, get_settings
 
 LOGGER = logging.getLogger(__name__)
 

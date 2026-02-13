@@ -306,7 +306,7 @@ async def test_require_csrf_succeeds_with_valid_tokens() -> None:
     mock_settings.environment = "production"
     mock_settings.admin_jwt_secret = secret
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         # Should not raise
         await require_csrf(request, csrf_cookie=token, csrf_header=token)
 
@@ -320,7 +320,7 @@ async def test_require_csrf_skips_validation_in_test_environment() -> None:
 
     request = MagicMock(spec=Request)
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         # Should not raise even with invalid tokens
         await require_csrf(request, csrf_cookie=None, csrf_header=None)
 
@@ -335,7 +335,7 @@ async def test_require_csrf_raises_500_when_secret_not_configured() -> None:
 
     request = MagicMock(spec=Request)
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         with pytest.raises(HTTPException) as exc_info:
             await require_csrf(request, csrf_cookie="token", csrf_header="token")
 
@@ -357,7 +357,7 @@ async def test_require_csrf_raises_403_when_cookie_missing() -> None:
     mock_settings.environment = "production"
     mock_settings.admin_jwt_secret = secret
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         with pytest.raises(HTTPException) as exc_info:
             await require_csrf(request, csrf_cookie=None, csrf_header=token)
 
@@ -379,7 +379,7 @@ async def test_require_csrf_raises_403_when_header_missing() -> None:
     mock_settings.environment = "production"
     mock_settings.admin_jwt_secret = secret
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         with pytest.raises(HTTPException) as exc_info:
             await require_csrf(request, csrf_cookie=token, csrf_header=None)
 
@@ -405,7 +405,7 @@ async def test_require_csrf_raises_403_when_cookie_signature_invalid() -> None:
     mock_settings.environment = "production"
     mock_settings.admin_jwt_secret = secret
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         with pytest.raises(HTTPException) as exc_info:
             await require_csrf(request, csrf_cookie=tampered_token, csrf_header=tampered_token)
 
@@ -428,7 +428,7 @@ async def test_require_csrf_raises_403_when_cookie_and_header_mismatch() -> None
     mock_settings.environment = "production"
     mock_settings.admin_jwt_secret = secret
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         with pytest.raises(HTTPException) as exc_info:
             await require_csrf(request, csrf_cookie=token1, csrf_header=token2)
 
@@ -450,7 +450,7 @@ async def test_require_csrf_raises_403_when_empty_cookie() -> None:
     mock_settings.environment = "production"
     mock_settings.admin_jwt_secret = secret
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         with pytest.raises(HTTPException) as exc_info:
             await require_csrf(request, csrf_cookie="", csrf_header=token)
 
@@ -471,7 +471,7 @@ async def test_require_csrf_raises_403_when_empty_header() -> None:
     mock_settings.environment = "production"
     mock_settings.admin_jwt_secret = secret
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         with pytest.raises(HTTPException) as exc_info:
             await require_csrf(request, csrf_cookie=token, csrf_header="")
 
@@ -492,7 +492,7 @@ async def test_require_csrf_handles_missing_client_info() -> None:
     mock_settings.environment = "production"
     mock_settings.admin_jwt_secret = secret
 
-    with patch("core.core.config.get_settings", return_value=mock_settings):
+    with patch("core.runtime.config.get_settings", return_value=mock_settings):
         with pytest.raises(HTTPException) as exc_info:
             await require_csrf(request, csrf_cookie=None, csrf_header=token)
 
