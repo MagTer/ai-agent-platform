@@ -2,7 +2,7 @@
 
 **Purpose:** Entry point for Claude Code sessions. Defines the multi-agent workflow.
 
-**Last Updated:** 2026-02-07
+**Last Updated:** 2026-02-13
 
 ---
 
@@ -397,10 +397,28 @@ if step.tool == "my_integration":
 ├── config/tools.yaml      # Tool registration
 └── src/
     ├── core/
+    │   ├── agents/        # LLM agent implementations
+    │   │   ├── planner.py        # PlannerAgent (generates plans)
+    │   │   ├── executor.py       # StepExecutorAgent (runs plan steps)
+    │   │   └── supervisors.py    # StepSupervisorAgent (evaluates outcomes)
+    │   ├── auth/          # Authentication and credentials
+    │   │   └── credential_service.py  # CredentialService (context-scoped)
     │   ├── context/       # Shared context resolution
     │   │   └── service.py        # ContextService (all adapters use this)
+    │   ├── runtime/       # Agent runtime (decomposed from AgentService)
+    │   │   ├── service.py        # AgentService (main orchestrator)
+    │   │   ├── persistence.py    # DB CRUD for conversations/sessions/messages
+    │   │   ├── context_injector.py  # File/workspace injection with security
+    │   │   ├── tool_runner.py    # Tool invocation and schema generation
+    │   │   ├── hitl.py           # Human-in-the-loop workflow coordinator
+    │   │   ├── config.py         # RuntimeConfig (all runtime settings)
+    │   │   └── litellm_client.py # LiteLLM client wrapper
+    │   ├── observability/ # Tracing and monitoring
+    │   │   ├── tracing.py        # Span export with size-based rotation
+    │   │   └── error_codes.py    # Structured error codes
     │   ├── tools/         # Tool implementations
     │   │   ├── base.py
+    │   │   ├── azure_devops.py   # Azure DevOps work items (context-scoped)
     │   │   ├── homey.py
     │   │   ├── git_clone.py      # Clone repos to workspace
     │   │   ├── claude_code.py    # Claude Code subprocess wrapper
@@ -408,14 +426,20 @@ if step.tool == "my_integration":
     │   ├── skills/        # Skill infrastructure
     │   │   ├── registry.py       # SkillRegistry (startup validation)
     │   │   └── executor.py       # SkillExecutor (scoped execution)
-    │   └── db/
-    │       └── models.py  # Database models (Context, Workspace, etc.)
+    │   ├── db/
+    │   │   └── models.py  # Database models (Context, Workspace, etc.)
+    │   └── tests/         # Unit tests (37+ files, 890+ tests)
+    │       ├── mocks.py          # MockLLMClient, test fixtures
+    │       ├── test_planner_agent.py
+    │       ├── test_executor_agent.py
+    │       └── ...
     ├── shared/
     │   └── chunk_filter.py       # ChunkFilter (verbosity + safety filtering)
     └── interfaces/
         ├── base.py               # PlatformAdapter ABC (platform_name)
         ├── http/
-        │   └── admin_*.py        # Admin portal modules
+        │   ├── admin_*.py        # Admin portal modules
+        │   └── templates/        # HTML templates (40KB+ files)
         └── telegram/
             └── adapter.py        # Telegram adapter (uses ContextService + ChunkFilter)
 ```
@@ -465,9 +489,9 @@ max_turns: 5                 # Max tool-calling iterations
 3. User authorizes via Admin Portal -> OAuth
 
 **Credential-based integrations** (like Azure DevOps):
-1. Tool uses `CredentialService` to get per-user credentials
-2. Credentials stored encrypted in database
-3. User enters credentials via Admin Portal -> Credentials
+1. Tool uses `CredentialService` to get per-context credentials
+2. Credentials stored encrypted in database, scoped to `context_id`
+3. User enters credentials via Admin Portal -> Context Detail -> Credentials tab
 
 **Development workflow tools** (git_clone, claude_code, github_pr):
 1. `git_clone` clones repo to context-isolated workspace
@@ -481,12 +505,12 @@ Some tools need `context_id` or `session` injected at runtime. This is done in `
 
 ```python
 # In _run_tool_gen():
-if step.tool in ("homey", "git_clone"):
+if step.tool in ("homey", "git_clone", "azure_devops"):
     context_id_str = (request.metadata or {}).get("context_id")
     if context_id_str:
         final_args["context_id"] = UUID(context_id_str)
 
-if step.tool in ("git_clone",):
+if step.tool in ("git_clone", "azure_devops"):
     db_session = (request.metadata or {}).get("_db_session")
     if db_session:
         final_args["session"] = db_session
@@ -661,8 +685,15 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 - `services/agent/config/tools.yaml` - Tool registration
 - `services/agent/src/core/db/models.py` - Database models
 - `services/agent/src/core/context/service.py` - ContextService (shared context resolution)
+- `services/agent/src/core/runtime/service.py` - AgentService (main runtime orchestrator)
+- `services/agent/src/core/runtime/persistence.py` - DB CRUD (conversations, sessions, messages)
+- `services/agent/src/core/runtime/hitl.py` - Human-in-the-loop coordinator
+- `services/agent/src/core/runtime/config.py` - RuntimeConfig (all runtime settings)
+- `services/agent/src/core/agents/planner.py` - PlannerAgent (generates plans)
+- `services/agent/src/core/agents/executor.py` - StepExecutorAgent (runs plan steps)
 - `services/agent/src/core/skills/registry.py` - Skill validation
-- `services/agent/src/core/skills/executor.py` - Skill execution
+- `services/agent/src/core/skills/executor.py` - SkillExecutor (scoped execution)
+- `services/agent/src/core/auth/credential_service.py` - CredentialService (context-scoped)
 - `services/agent/src/shared/models.py` - Shared Pydantic models (StepOutcome, etc.)
 - `services/agent/src/shared/chunk_filter.py` - ChunkFilter (verbosity + safety filtering)
 - `services/agent/src/interfaces/base.py` - PlatformAdapter ABC
@@ -684,12 +715,22 @@ interfaces/http/
 ├── app.py                    # FastAPI app, router registration
 ├── admin_shared.py           # Navigation, shared components
 ├── admin_portal.py           # Main dashboard
-├── admin_oauth.py            # OAuth provider management
-├── admin_credentials.py      # User credential management
-├── admin_contexts.py         # Context (workspace) management
-├── admin_workspaces.py       # Git repository workspaces
+├── admin_api.py              # Diagnostic API (machine-readable endpoints)
+├── admin_contexts.py         # Context management (primary management unit)
+├── admin_credentials.py      # Credential management (context-scoped)
+├── admin_debug.py            # Debug log viewer
+├── admin_diagnostics.py      # Diagnostics dashboard
 ├── admin_mcp.py              # MCP server management (user-defined connections)
+├── admin_oauth.py            # OAuth provider management
+├── admin_permissions.py      # Tool permissions per context
+├── admin_price_tracker.py    # Price tracker management
+├── admin_sessions.py         # Session management
+├── admin_users.py            # User management
+├── admin_workspaces.py       # Git repository workspaces
 └── templates/                # Large HTML templates (40KB+)
+    ├── admin_context_detail.html  # Context detail with tabbed sub-views
+    ├── admin_mcp.html             # MCP server management
+    └── admin_price_tracker.html   # Price tracker dashboard
 ```
 
 ### Navigation System
@@ -840,16 +881,25 @@ curl -H "X-API-Key: $KEY" "https://your-domain/platformadmin/api/traces/search?s
 
 ### Test Structure
 
+New tests go in `src/*/tests/` near source code (NOT in `tests/` root dirs).
+
 ```
 services/agent/
 ├── src/
-│   └── core/
-│       └── tests/            # Unit tests near source code
-│           ├── test_service.py
-│           ├── test_supervisors.py
-│           └── test_skill_registry.py
-└── tests/                    # Integration tests
-    └── test_integration.py
+│   ├── core/
+│   │   ├── tests/            # Core unit tests (37+ files, 890+ tests)
+│   │   │   ├── mocks.py              # MockLLMClient, test fixtures
+│   │   │   ├── test_planner_agent.py  # PlannerAgent tests
+│   │   │   ├── test_executor_agent.py # StepExecutorAgent tests
+│   │   │   ├── test_service.py        # AgentService tests
+│   │   │   ├── test_skill_executor.py # SkillExecutor tests
+│   │   │   └── ...
+│   │   └── observability/
+│   │       └── tests/         # Observability tests
+│   │           └── test_span_rotation.py
+│   └── stack/
+│       └── tests/             # Stack CLI tests
+└── tests/                     # Legacy integration tests (NOT for new tests)
 ```
 
 ### Running Tests
