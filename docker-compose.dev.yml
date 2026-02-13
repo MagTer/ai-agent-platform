@@ -58,6 +58,12 @@ services:
       # Allow OAuth login (required for Entra ID to work at all in OpenWebUI).
       # Restrict access via Entra ID app assignments instead.
       - ENABLE_OAUTH_SIGNUP=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     labels:
       # Enable Traefik routing for dev when DOMAIN_DEV is set
       - "traefik.enable=${DOMAIN_DEV:+true}"
@@ -98,6 +104,12 @@ services:
   litellm:
     ports:
       - "4001:4000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # SearxNG with dev port
   searxng:

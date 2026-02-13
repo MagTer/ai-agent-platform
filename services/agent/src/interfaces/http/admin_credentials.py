@@ -412,13 +412,6 @@ async def credentials_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             }}
         }}
 
-        function escapeHtml(str) {{
-            if (!str) return '';
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }}
-
         // Initial load
         loadCredentials();
     """

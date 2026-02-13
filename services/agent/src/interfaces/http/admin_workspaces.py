@@ -214,13 +214,6 @@ async def workspaces_dashboard(admin: AdminUser = Depends(require_admin_or_redir
             }
         }
 
-        function escapeHtml(str) {
-            if (!str) return '';
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
-
         loadWorkspaces();
         loadContexts();
     """

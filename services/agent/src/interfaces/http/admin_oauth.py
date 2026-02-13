@@ -126,12 +126,6 @@ async def oauth_dashboard(admin: AdminUser = Depends(require_admin_or_redirect))
                 </div>`;
             }).join('');
         }
-        function escapeHtml(str) {
-            if (!str) return '';
-            const div = document.createElement('div');
-            div.textContent = str;
-            return div.innerHTML;
-        }
         loadTokens();
     """
 

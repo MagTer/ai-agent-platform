@@ -35,6 +35,10 @@ router = APIRouter(
 VALID_TRANSPORTS = {"auto", "sse", "streamable_http"}
 VALID_AUTH_TYPES = {"none", "bearer", "oauth"}
 
+# Cache template at module level to avoid I/O on every request
+_TEMPLATE_PATH = Path(__file__).parent / "templates" / "admin_mcp.html"
+_TEMPLATE_PARTS = _TEMPLATE_PATH.read_text(encoding="utf-8").split("<!-- SECTION_SEPARATOR -->")
+
 
 # -- Dashboard --
 
@@ -46,12 +50,10 @@ async def mcp_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -
     Security:
         Requires admin role via Entra ID authentication.
     """
-    template_path = Path(__file__).parent / "templates" / "admin_mcp.html"
-    parts = template_path.read_text(encoding="utf-8").split("<!-- SECTION_SEPARATOR -->")
-
-    content = parts[0] if len(parts) > 0 else ""
-    extra_css = parts[1] if len(parts) > 1 else ""
-    extra_js = parts[2] if len(parts) > 2 else ""
+    # Use cached template parts instead of reading file on every request
+    content = _TEMPLATE_PARTS[0] if len(_TEMPLATE_PARTS) > 0 else ""
+    extra_css = _TEMPLATE_PARTS[1] if len(_TEMPLATE_PARTS) > 1 else ""
+    extra_js = _TEMPLATE_PARTS[2] if len(_TEMPLATE_PARTS) > 2 else ""
 
     return render_admin_page(
         title="MCP Servers",

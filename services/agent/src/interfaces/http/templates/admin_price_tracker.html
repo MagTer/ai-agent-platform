@@ -796,13 +796,6 @@ async function showStoresView() {
     }
 }
 
-function escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 // Export/Import functions
 async function exportData() {
     const includeHistory = confirm('Include price history? (This makes the file larger but includes all historical price data)');

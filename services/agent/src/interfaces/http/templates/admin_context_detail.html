@@ -147,13 +147,6 @@ function switchTab(tab) {
     }
 }
 
-function escapeHtml(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-}
-
 // --- Overview Tab ---
 async function loadOverview() {
     const card = document.getElementById('overviewCard');

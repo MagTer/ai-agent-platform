@@ -1475,11 +1475,6 @@ def _get_diagnostics_js() -> str:
             }
             return span.name;
         }
-
-        function escapeHtml(str) {
-            if (!str) return '';
-            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        }
     """
 
 
