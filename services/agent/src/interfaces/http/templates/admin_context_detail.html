@@ -132,6 +132,153 @@
     </div>
 </div>
 
+<!-- Edit Context Modal -->
+<div id="editContextModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Edit Context</h3>
+        <form id="editContextForm" onsubmit="submitEditContext(event)">
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" id="editCtxName" required>
+            </div>
+            <div class="form-group">
+                <label>Type</label>
+                <select id="editCtxType">
+                    <option value="personal">Personal</option>
+                    <option value="shared">Shared</option>
+                    <option value="virtual">Virtual</option>
+                    <option value="git_repo">Git Repo</option>
+                    <option value="devops">DevOps</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Default CWD</label>
+                <input type="text" id="editCtxCwd">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="hideEditContextModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add Member Modal -->
+<div id="addMemberModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Add Member</h3>
+        <form id="addMemberForm" onsubmit="submitAddMember(event)">
+            <div class="form-group">
+                <label>User Email</label>
+                <input type="email" id="memberEmail" required placeholder="user@example.com">
+            </div>
+            <div class="form-group">
+                <label>Role</label>
+                <select id="memberRole">
+                    <option value="member">Member</option>
+                    <option value="viewer">Viewer</option>
+                    <option value="owner">Owner</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="hideAddMemberModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Member</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add Workspace Modal -->
+<div id="addWorkspaceModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Clone Repository</h3>
+        <form id="addWorkspaceForm" onsubmit="submitAddWorkspace(event)">
+            <div class="form-group">
+                <label>Repository URL *</label>
+                <input type="url" id="wsRepoUrl" required placeholder="https://github.com/org/repo.git">
+            </div>
+            <div class="form-group">
+                <label>Name (optional)</label>
+                <input type="text" id="wsName" placeholder="Derived from URL if empty">
+            </div>
+            <div class="form-group">
+                <label>Branch (optional)</label>
+                <input type="text" id="wsBranch" placeholder="main">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="hideWorkspaceModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Clone</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Add MCP Server Modal -->
+<div id="addMcpModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3 id="mcpModalTitle">Add MCP Server</h3>
+        <form id="addMcpForm" onsubmit="submitMcpServer(event)">
+            <input type="hidden" id="mcpEditId" value="">
+            <div class="form-group">
+                <label>Name *</label>
+                <input type="text" id="mcpName" required placeholder="e.g., my-mcp-server">
+            </div>
+            <div class="form-group">
+                <label>URL *</label>
+                <input type="url" id="mcpUrl" required placeholder="https://mcp.example.com/sse">
+            </div>
+            <div class="form-group">
+                <label>Transport</label>
+                <select id="mcpTransport">
+                    <option value="auto">Auto</option>
+                    <option value="sse">SSE</option>
+                    <option value="streamable_http">Streamable HTTP</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Auth Type</label>
+                <select id="mcpAuthType" onchange="toggleMcpAuthFields()">
+                    <option value="none">None</option>
+                    <option value="bearer">Bearer Token</option>
+                    <option value="oauth">OAuth 2.0</option>
+                </select>
+            </div>
+            <div id="mcpBearerFields" style="display:none;">
+                <div class="form-group">
+                    <label>Bearer Token</label>
+                    <input type="password" id="mcpAuthToken" placeholder="Token (encrypted at rest)">
+                </div>
+            </div>
+            <div id="mcpOAuthFields" style="display:none;">
+                <div class="form-group">
+                    <label>Authorization URL</label>
+                    <input type="url" id="mcpOAuthAuthUrl" placeholder="https://provider.com/oauth/authorize">
+                </div>
+                <div class="form-group">
+                    <label>Token URL</label>
+                    <input type="url" id="mcpOAuthTokenUrl" placeholder="https://provider.com/oauth/token">
+                </div>
+                <div class="form-group">
+                    <label>Client ID</label>
+                    <input type="text" id="mcpOAuthClientId">
+                </div>
+                <div class="form-group">
+                    <label>Client Secret</label>
+                    <input type="password" id="mcpOAuthClientSecret">
+                </div>
+                <div class="form-group">
+                    <label>Scopes</label>
+                    <input type="text" id="mcpOAuthScopes" placeholder="scope1 scope2">
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="hideMcpModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- SECTION_SEPARATOR -->
 .tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 24px; }
 .tab { padding: 12px 20px; border: none; background: none; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
@@ -213,42 +360,121 @@ async function loadOverview() {
     typeEl.textContent = ctx.type;
     typeEl.className = 'badge badge-info';
 
-    let html = '<div class="card-header"><span class="card-title">Context Details</span></div>';
+    let html = '<div class="card-header"><span class="card-title">Context Details</span>';
+    html += '<button class="btn btn-sm" onclick="showEditContextModal()">Edit</button></div>';
     html += '<div class="detail-grid">';
     html += '<div class="detail-label">ID</div><div class="detail-value" style="font-family: monospace; font-size: 12px;">' + CONTEXT_ID + '</div>';
     html += '<div class="detail-label">Name</div><div class="detail-value">' + escapeHtml(ctx.name) + '</div>';
     html += '<div class="detail-label">Type</div><div class="detail-value">' + escapeHtml(ctx.type) + '</div>';
     html += '<div class="detail-label">Default CWD</div><div class="detail-value" style="font-family: monospace;">' + escapeHtml(ctx.default_cwd) + '</div>';
     if (ctx.pinned_files && ctx.pinned_files.length > 0) {
-        html += '<div class="detail-label">Pinned Files</div><div class="detail-value">' + ctx.pinned_files.map(f => '<div style="font-family: monospace; font-size: 12px;">' + escapeHtml(f) + '</div>').join('') + '</div>';
+        html += '<div class="detail-label">Pinned Files</div><div class="detail-value">' + ctx.pinned_files.map(function(f) { return '<div style="font-family: monospace; font-size: 12px;">' + escapeHtml(f) + '</div>'; }).join('') + '</div>';
     }
     if (ctx.config && Object.keys(ctx.config).length > 0) {
         html += '<div class="detail-label">Config</div><div class="detail-value"><pre class="config-pre">' + escapeHtml(JSON.stringify(ctx.config, null, 2)) + '</pre></div>';
     }
     html += '</div>';
 
-    // Load members (only for shared contexts)
-    if (ctx.type === 'shared') {
-        const membersRes = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/members');
-        if (membersRes) {
-            const membersData = await membersRes.json();
-            html += '<div style="margin-top: 24px;"><div class="card-header"><span class="card-title">Members (' + membersData.total + ')</span></div>';
-            if (membersData.members.length === 0) {
-                html += '<div class="empty-state">No members linked to this context</div>';
-            } else {
-                html += membersData.members.map(m =>
-                    '<div class="member-row">' +
+    // Store context data for edit modal
+    window._contextData = ctx;
+
+    // Load members for all context types
+    const membersRes = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/members');
+    if (membersRes) {
+        const membersData = await membersRes.json();
+        html += '<div style="margin-top: 24px;"><div class="card-header"><span class="card-title">Members (' + membersData.total + ')</span>';
+        html += '<button class="btn btn-sm btn-primary" onclick="showAddMemberModal()">+ Add Member</button></div>';
+        if (membersData.members.length === 0) {
+            html += '<div class="empty-state">No members linked to this context</div>';
+        } else {
+            html += membersData.members.map(function(m) {
+                return '<div class="member-row">' +
                     '<span>' + escapeHtml(m.display_name) + ' (' + escapeHtml(m.email) + ')</span>' +
-                    '<span class="badge badge-info">' + m.role + '</span>' +
+                    '<div style="display: flex; gap: 8px; align-items: center;">' +
+                    '<select onchange="updateMemberRole(\'' + m.user_id + '\', this.value)" style="padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 12px;">' +
+                    '<option value="owner"' + (m.role === 'owner' ? ' selected' : '') + '>Owner</option>' +
+                    '<option value="member"' + (m.role === 'member' ? ' selected' : '') + '>Member</option>' +
+                    '<option value="viewer"' + (m.role === 'viewer' ? ' selected' : '') + '>Viewer</option>' +
+                    '</select>' +
                     (m.is_default ? '<span class="badge badge-success">default</span>' : '') +
-                    '</div>'
-                ).join('');
-            }
-            html += '</div>';
+                    '<button class="btn btn-sm btn-danger" onclick="removeMember(\'' + m.user_id + '\', \'' + escapeHtml(m.display_name) + '\')">Remove</button>' +
+                    '</div></div>';
+            }).join('');
         }
+        html += '</div>';
     }
 
     card.innerHTML = html;
+}
+
+function showEditContextModal() {
+    const ctx = window._contextData;
+    if (!ctx) return;
+    document.getElementById('editCtxName').value = ctx.name;
+    document.getElementById('editCtxType').value = ctx.type;
+    document.getElementById('editCtxCwd').value = ctx.default_cwd;
+    document.getElementById('editContextModal').style.display = 'flex';
+}
+function hideEditContextModal() { document.getElementById('editContextModal').style.display = 'none'; }
+
+async function submitEditContext(e) {
+    e.preventDefault();
+    const body = {
+        name: document.getElementById('editCtxName').value,
+        type: document.getElementById('editCtxType').value,
+        default_cwd: document.getElementById('editCtxCwd').value
+    };
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    if (res) {
+        showToast('Context updated', 'success');
+        hideEditContextModal();
+        loadedTabs['overview'] = false;
+        loadOverview();
+    }
+}
+
+function showAddMemberModal() { document.getElementById('addMemberModal').style.display = 'flex'; }
+function hideAddMemberModal() { document.getElementById('addMemberModal').style.display = 'none'; document.getElementById('addMemberForm').reset(); }
+
+async function submitAddMember(e) {
+    e.preventDefault();
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            email: document.getElementById('memberEmail').value,
+            role: document.getElementById('memberRole').value
+        })
+    });
+    if (res) {
+        showToast('Member added', 'success');
+        hideAddMemberModal();
+        loadedTabs['overview'] = false;
+        loadOverview();
+    }
+}
+
+async function updateMemberRole(userId, role) {
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/members/' + userId, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: role })
+    });
+    if (res) { showToast('Role updated', 'success'); }
+}
+
+async function removeMember(userId, name) {
+    if (!confirm('Remove ' + name + ' from this context?')) return;
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/members/' + userId, { method: 'DELETE' });
+    if (res) {
+        showToast('Member removed', 'success');
+        loadedTabs['overview'] = false;
+        loadOverview();
+    }
 }
 
 // --- Permissions Tab ---
@@ -374,21 +600,25 @@ async function loadWorkspaces() {
     const data = await res.json();
     const workspaces = data.workspaces || [];
 
-    let html = '<div class="card-header"><span class="card-title">Workspaces (' + workspaces.length + ')</span></div>';
+    let html = '<div class="card-header"><span class="card-title">Workspaces (' + workspaces.length + ')</span>';
+    html += '<button class="btn btn-sm btn-primary" onclick="showWorkspaceModal()">+ Clone Repository</button></div>';
 
     if (workspaces.length === 0) {
         html += '<div class="empty-state">No workspaces configured for this context</div>';
     } else {
-        html += workspaces.map(w =>
-            '<div class="ws-row"><div>' +
-            '<div class="ws-name">' + escapeHtml(w.name || w.repo_url.split('/').pop()) + '</div>' +
-            '<div class="ws-url">' + escapeHtml(w.repo_url) + '</div>' +
-            '<div style="font-size: 11px; color: var(--text-muted);">Status: <span class="badge badge-' + (w.status === 'cloned' ? 'success' : 'info') + '">' + w.status + '</span></div>' +
-            '</div><div style="display: flex; gap: 8px;">' +
-            '<button class="btn btn-sm" onclick="syncWorkspace(\'' + w.id + '\')">Sync</button>' +
-            '<button class="btn btn-sm btn-danger" onclick="deleteWorkspace(\'' + w.id + '\')">Delete</button>' +
-            '</div></div>'
-        ).join('');
+        html += workspaces.map(function(w) {
+            return '<div class="ws-row"><div>' +
+                '<div class="ws-name">' + escapeHtml(w.name || w.repo_url.split('/').pop()) + '</div>' +
+                '<div class="ws-url">' + escapeHtml(w.repo_url) + '</div>' +
+                '<div style="font-size: 11px; color: var(--text-muted);">Status: <span class="badge badge-' + (w.status === 'cloned' ? 'success' : w.status === 'error' ? 'error' : 'info') + '">' + w.status + '</span>' +
+                (w.last_synced_at ? ' | Last synced: ' + new Date(w.last_synced_at).toLocaleString() : '') +
+                (w.sync_error ? ' | <span style="color: var(--error);">' + escapeHtml(w.sync_error) + '</span>' : '') +
+                '</div>' +
+                '</div><div style="display: flex; gap: 8px;">' +
+                '<button class="btn btn-sm" onclick="syncWorkspace(\'' + w.id + '\')">Sync</button>' +
+                '<button class="btn btn-sm btn-danger" onclick="deleteWorkspace(\'' + w.id + '\')">Delete</button>' +
+                '</div></div>';
+        }).join('');
     }
     card.innerHTML = html;
 }
@@ -405,6 +635,30 @@ async function deleteWorkspace(id) {
     loadWorkspaces();
 }
 
+function showWorkspaceModal() { document.getElementById('addWorkspaceModal').style.display = 'flex'; }
+function hideWorkspaceModal() { document.getElementById('addWorkspaceModal').style.display = 'none'; document.getElementById('addWorkspaceForm').reset(); }
+
+async function submitAddWorkspace(e) {
+    e.preventDefault();
+    const body = {
+        context_id: CONTEXT_ID,
+        repo_url: document.getElementById('wsRepoUrl').value,
+        name: document.getElementById('wsName').value || null,
+        branch: document.getElementById('wsBranch').value || null
+    };
+    const res = await fetchWithErrorHandling('/platformadmin/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    if (res) {
+        showToast('Repository cloned', 'success');
+        hideWorkspaceModal();
+        loadedTabs['workspaces'] = false;
+        loadWorkspaces();
+    }
+}
+
 // --- MCP Servers Tab ---
 async function loadMcpServers() {
     const card = document.getElementById('mcpCard');
@@ -413,21 +667,32 @@ async function loadMcpServers() {
     const data = await res.json();
     const servers = data.servers || [];
 
-    let html = '<div class="card-header"><span class="card-title">MCP Servers (' + servers.length + ')</span></div>';
+    let html = '<div class="card-header"><span class="card-title">MCP Servers (' + servers.length + ')</span>';
+    html += '<button class="btn btn-sm btn-primary" onclick="showMcpModal()">+ Add Server</button></div>';
 
     if (servers.length === 0) {
         html += '<div class="empty-state">No MCP servers configured for this context</div>';
     } else {
-        html += servers.map(s =>
-            '<div class="mcp-row"><div>' +
-            '<div style="font-weight: 500;">' + escapeHtml(s.name) + '</div>' +
-            '<div style="font-size: 12px; color: var(--text-muted); font-family: monospace;">' + escapeHtml(s.url) + '</div>' +
-            '<div style="font-size: 11px; margin-top: 4px;">Status: <span class="badge badge-' + (s.status === 'connected' ? 'success' : s.status === 'error' ? 'error' : 'info') + '">' + s.status + '</span>' +
-            ' Transport: ' + s.transport + ' Auth: ' + s.auth_type + '</div>' +
-            '</div><div>' +
-            '<button class="btn btn-sm" onclick="testMcpServer(\'' + s.id + '\')">Test</button>' +
-            '</div></div>'
-        ).join('');
+        html += servers.map(function(s) {
+            var oauthBtn = '';
+            if (s.auth_type === 'oauth' && s.has_oauth_config) {
+                oauthBtn = '<button class="btn btn-sm" onclick="startMcpOAuth(\'' + s.id + '\')">Authorize</button>';
+            }
+            return '<div class="mcp-row"><div>' +
+                '<div style="font-weight: 500;">' + escapeHtml(s.name) + (s.is_enabled ? '' : ' <span class="badge badge-info">disabled</span>') + '</div>' +
+                '<div style="font-size: 12px; color: var(--text-muted); font-family: monospace;">' + escapeHtml(s.url) + '</div>' +
+                '<div style="font-size: 11px; margin-top: 4px;">Status: <span class="badge badge-' + (s.status === 'connected' ? 'success' : s.status === 'error' ? 'error' : 'info') + '">' + s.status + '</span>' +
+                ' | Transport: ' + s.transport + ' | Auth: ' + s.auth_type +
+                (s.tools_count > 0 ? ' | Tools: ' + s.tools_count : '') +
+                (s.last_error ? '<div style="color: var(--error); font-size: 11px; margin-top: 2px;">Error: ' + escapeHtml(s.last_error) + '</div>' : '') +
+                '</div>' +
+                '</div><div style="display: flex; gap: 4px;">' +
+                oauthBtn +
+                '<button class="btn btn-sm" onclick="testMcpServer(\'' + s.id + '\')">Test</button>' +
+                '<button class="btn btn-sm" onclick="editMcpServer(\'' + s.id + '\', ' + escapeHtml(JSON.stringify(JSON.stringify(s))) + ')">Edit</button>' +
+                '<button class="btn btn-sm btn-danger" onclick="deleteMcpServer(\'' + s.id + '\', \'' + escapeHtml(s.name) + '\')">Delete</button>' +
+                '</div></div>';
+        }).join('');
     }
     card.innerHTML = html;
 }
@@ -442,6 +707,100 @@ async function testMcpServer(id) {
     }
 }
 
+function showMcpModal(editData) {
+    document.getElementById('mcpEditId').value = '';
+    document.getElementById('mcpModalTitle').textContent = 'Add MCP Server';
+    document.getElementById('addMcpForm').reset();
+    toggleMcpAuthFields();
+    document.getElementById('addMcpModal').style.display = 'flex';
+}
+function hideMcpModal() { document.getElementById('addMcpModal').style.display = 'none'; document.getElementById('addMcpForm').reset(); toggleMcpAuthFields(); }
+
+function toggleMcpAuthFields() {
+    var authType = document.getElementById('mcpAuthType').value;
+    document.getElementById('mcpBearerFields').style.display = authType === 'bearer' ? 'block' : 'none';
+    document.getElementById('mcpOAuthFields').style.display = authType === 'oauth' ? 'block' : 'none';
+}
+
+function editMcpServer(id, jsonStr) {
+    var s = JSON.parse(jsonStr);
+    document.getElementById('mcpEditId').value = id;
+    document.getElementById('mcpModalTitle').textContent = 'Edit MCP Server';
+    document.getElementById('mcpName').value = s.name || '';
+    document.getElementById('mcpUrl').value = s.url || '';
+    document.getElementById('mcpTransport').value = s.transport || 'auto';
+    document.getElementById('mcpAuthType').value = s.auth_type || 'none';
+    toggleMcpAuthFields();
+    document.getElementById('addMcpModal').style.display = 'flex';
+}
+
+async function submitMcpServer(e) {
+    e.preventDefault();
+    var editId = document.getElementById('mcpEditId').value;
+    var authType = document.getElementById('mcpAuthType').value;
+    var body = {
+        name: document.getElementById('mcpName').value,
+        url: document.getElementById('mcpUrl').value,
+        transport: document.getElementById('mcpTransport').value,
+        auth_type: authType
+    };
+    if (authType === 'bearer') {
+        var token = document.getElementById('mcpAuthToken').value;
+        if (token) body.auth_token = token;
+    }
+    if (authType === 'oauth') {
+        body.oauth_authorize_url = document.getElementById('mcpOAuthAuthUrl').value || null;
+        body.oauth_token_url = document.getElementById('mcpOAuthTokenUrl').value || null;
+        body.oauth_client_id = document.getElementById('mcpOAuthClientId').value || null;
+        var secret = document.getElementById('mcpOAuthClientSecret').value;
+        if (secret) body.oauth_client_secret = secret;
+        body.oauth_scopes = document.getElementById('mcpOAuthScopes').value || null;
+    }
+
+    var url, method;
+    if (editId) {
+        url = '/platformadmin/mcp/servers/' + editId;
+        method = 'PUT';
+    } else {
+        body.context_id = CONTEXT_ID;
+        url = '/platformadmin/mcp/servers';
+        method = 'POST';
+    }
+
+    var res = await fetchWithErrorHandling(url, {
+        method: method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    if (res) {
+        showToast(editId ? 'Server updated' : 'Server added', 'success');
+        hideMcpModal();
+        loadedTabs['mcp'] = false;
+        loadMcpServers();
+    }
+}
+
+async function deleteMcpServer(id, name) {
+    if (!confirm('Delete MCP server "' + name + '"?')) return;
+    var res = await fetchWithErrorHandling('/platformadmin/mcp/servers/' + id, { method: 'DELETE' });
+    if (res) {
+        showToast('Server deleted', 'success');
+        loadedTabs['mcp'] = false;
+        loadMcpServers();
+    }
+}
+
+async function startMcpOAuth(serverId) {
+    var res = await fetchWithErrorHandling('/platformadmin/mcp/servers/' + serverId + '/oauth/start', { method: 'POST' });
+    if (res) {
+        var data = await res.json();
+        if (data.authorization_url) {
+            window.open(data.authorization_url, '_blank');
+            showToast('OAuth authorization started - complete in the new window', 'success');
+        }
+    }
+}
+
 // --- OAuth Tokens Tab ---
 async function loadOAuthTokens() {
     const card = document.getElementById('oauthCard');
@@ -450,22 +809,27 @@ async function loadOAuthTokens() {
     const data = await res.json();
     const tokens = data.tokens || [];
 
-    let html = '<div class="card-header"><span class="card-title">OAuth Tokens (' + tokens.length + ')</span></div>';
+    let html = '<div class="card-header"><span class="card-title">OAuth Tokens (' + tokens.length + ')</span>';
+    html += '<div style="display: flex; gap: 8px;">';
+    html += '<a href="/platformadmin/oauth/initiate/homey?context_id=' + CONTEXT_ID + '" class="btn btn-sm btn-primary" target="_blank">Authorize Homey</a>';
+    html += '</div></div>';
 
     if (tokens.length === 0) {
         html += '<div class="empty-state">No OAuth tokens for this context</div>';
     } else {
-        html += tokens.map(t =>
-            '<div class="token-row"><div>' +
-            '<div style="font-weight: 500;">' + escapeHtml(t.provider) + '</div>' +
-            '<div style="font-size: 12px; color: var(--text-muted);">Type: ' + t.token_type +
-            ' | ' + (t.has_refresh_token ? 'Last refreshed: ' + (t.updated_at ? new Date(t.updated_at).toLocaleString() : 'N/A') : 'Expires: ' + (t.expires_at || 'N/A')) +
-            ' | <span style="color: ' + (t.is_expired && !t.has_refresh_token ? 'var(--error)' : 'var(--success)') + ';">' + (t.is_expired ? (t.has_refresh_token ? 'Auto-refreshes' : 'Expired') : 'Valid') + '</span></div>' +
-            (t.scope ? '<div style="font-size: 11px; color: var(--text-muted);">Scope: ' + escapeHtml(t.scope) + '</div>' : '') +
-            '</div><div>' +
-            '<button class="btn btn-sm btn-danger" onclick="revokeToken(\'' + t.id + '\')">Revoke</button>' +
-            '</div></div>'
-        ).join('');
+        html += tokens.map(function(t) {
+            var statusText = t.is_expired ? (t.has_refresh_token ? 'Auto-refreshes' : 'Expired') : 'Valid';
+            var statusColor = t.is_expired && !t.has_refresh_token ? 'var(--error)' : 'var(--success)';
+            return '<div class="token-row"><div>' +
+                '<div style="font-weight: 500;">' + escapeHtml(t.provider) + '</div>' +
+                '<div style="font-size: 12px; color: var(--text-muted);">Type: ' + t.token_type +
+                ' | ' + (t.has_refresh_token ? 'Last refreshed: ' + (t.updated_at ? new Date(t.updated_at).toLocaleString() : 'N/A') : 'Expires: ' + (t.expires_at || 'N/A')) +
+                ' | <span style="color: ' + statusColor + ';">' + statusText + '</span></div>' +
+                (t.scope ? '<div style="font-size: 11px; color: var(--text-muted);">Scope: ' + escapeHtml(t.scope) + '</div>' : '') +
+                '</div><div>' +
+                '<button class="btn btn-sm btn-danger" onclick="revokeToken(\'' + t.id + '\')">Revoke</button>' +
+                '</div></div>';
+        }).join('');
     }
     card.innerHTML = html;
 }

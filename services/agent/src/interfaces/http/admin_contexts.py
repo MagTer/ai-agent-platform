@@ -795,6 +795,223 @@ async def delete_context(
     )
 
 
+class UpdateContextRequest(BaseModel):
+    """Request to update a context."""
+
+    name: str | None = Field(default=None, max_length=255, description="Context name")
+    type: str | None = Field(default=None, description="Context type")
+    default_cwd: str | None = Field(default=None, description="Default working directory")
+    config: dict[str, Any] | None = Field(default=None, description="Context configuration")
+    pinned_files: list[str] | None = Field(default=None, description="Pinned files")
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not v.strip():
+            raise ValueError("Context name cannot be empty or whitespace only")
+        import re
+
+        if not re.match(r"^[a-zA-Z0-9_\- ]+$", v):
+            raise ValueError(
+                "Context name can only contain letters, numbers, spaces, hyphens, and underscores"
+            )
+        return v.strip()
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        valid_types = {"personal", "shared", "virtual", "git_repo", "devops"}
+        if v not in valid_types:
+            raise ValueError(f"Invalid context type. Must be one of: {', '.join(valid_types)}")
+        return v
+
+
+@router.put(
+    "/{context_id}",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def update_context(
+    context_id: UUID,
+    request: UpdateContextRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Update context details."""
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    ctx = result.scalar_one_or_none()
+    if not ctx:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    if request.name is not None:
+        # Check duplicate name (exclude self)
+        dup_stmt = select(Context).where(Context.name == request.name, Context.id != context_id)
+        dup_result = await session.execute(dup_stmt)
+        if dup_result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Context with name '{request.name}' already exists",
+            )
+        ctx.name = request.name
+    if request.type is not None:
+        ctx.type = request.type
+    if request.default_cwd is not None:
+        ctx.default_cwd = request.default_cwd
+    if request.config is not None:
+        ctx.config = request.config
+    if request.pinned_files is not None:
+        ctx.pinned_files = request.pinned_files
+
+    await session.commit()
+    LOGGER.info("Admin updated context %s", context_id)
+    return {"success": True, "message": f"Context '{ctx.name}' updated"}
+
+
+class AddMemberRequest(BaseModel):
+    """Request to add a member to a context."""
+
+    email: str = Field(..., description="User email address")
+    role: str = Field(default="member", description="Role: owner, member, or viewer")
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        valid_roles = {"owner", "member", "viewer"}
+        if v not in valid_roles:
+            raise ValueError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+        return v
+
+
+@router.post(
+    "/{context_id}/members",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def add_context_member(
+    context_id: UUID,
+    request: AddMemberRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Add a user as a member of a context."""
+    # Verify context exists
+    ctx_stmt = select(Context).where(Context.id == context_id)
+    ctx_result = await session.execute(ctx_stmt)
+    if not ctx_result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    # Find user by email
+    user_stmt = select(User).where(User.email == request.email)
+    user_result = await session.execute(user_stmt)
+    user = user_result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with email '{request.email}' not found",
+        )
+
+    # Check if already a member
+    existing_stmt = select(UserContext).where(
+        UserContext.context_id == context_id,
+        UserContext.user_id == user.id,
+    )
+    existing_result = await session.execute(existing_stmt)
+    if existing_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is already a member of this context",
+        )
+
+    # Add membership
+    user_context = UserContext(
+        user_id=user.id,
+        context_id=context_id,
+        role=request.role,
+        is_default=False,
+    )
+    session.add(user_context)
+    await session.commit()
+
+    LOGGER.info(
+        "Admin added user %s to context %s with role %s", user.email, context_id, request.role
+    )
+    return {"success": True, "message": f"Added {user.email} as {request.role}"}
+
+
+class UpdateMemberRequest(BaseModel):
+    """Request to update a member's role."""
+
+    role: str = Field(..., description="New role: owner, member, or viewer")
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        valid_roles = {"owner", "member", "viewer"}
+        if v not in valid_roles:
+            raise ValueError(f"Invalid role. Must be one of: {', '.join(valid_roles)}")
+        return v
+
+
+@router.put(
+    "/{context_id}/members/{user_id}",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def update_context_member(
+    context_id: UUID,
+    user_id: UUID,
+    request: UpdateMemberRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Update a member's role in a context."""
+    stmt = select(UserContext).where(
+        UserContext.context_id == context_id,
+        UserContext.user_id == user_id,
+    )
+    result = await session.execute(stmt)
+    uc = result.scalar_one_or_none()
+    if not uc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Member not found in this context"
+        )
+
+    uc.role = request.role
+    await session.commit()
+
+    LOGGER.info(
+        "Admin updated member %s role to %s in context %s", user_id, request.role, context_id
+    )
+    return {"success": True, "message": f"Updated role to {request.role}"}
+
+
+@router.delete(
+    "/{context_id}/members/{user_id}",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def remove_context_member(
+    context_id: UUID,
+    user_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Remove a member from a context."""
+    stmt = select(UserContext).where(
+        UserContext.context_id == context_id,
+        UserContext.user_id == user_id,
+    )
+    result = await session.execute(stmt)
+    uc = result.scalar_one_or_none()
+    if not uc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Member not found in this context"
+        )
+
+    await session.delete(uc)
+    await session.commit()
+
+    LOGGER.info("Admin removed member %s from context %s", user_id, context_id)
+    return {"success": True, "message": "Member removed"}
+
+
 @router.get(
     "/{context_id}/credentials",
     dependencies=[Depends(verify_admin_user)],

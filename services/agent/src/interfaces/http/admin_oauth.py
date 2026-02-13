@@ -449,6 +449,7 @@ async def oauth_callback(
 @router.get("/initiate/{provider}")
 async def initiate_oauth(
     provider: str,
+    context_id: UUID | None = None,
     admin: AdminUser = Depends(require_admin_or_redirect),
     session: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
@@ -456,12 +457,13 @@ async def initiate_oauth(
 
     This endpoint:
     1. Gets or creates the admin user in the database
-    2. Gets the user's personal context
+    2. Gets the user's personal context (or specified context)
     3. Generates an OAuth authorization URL
     4. Redirects the user to the provider's authorization page
 
     Args:
         provider: OAuth provider name (e.g., "homey")
+        context_id: Optional context UUID to use instead of user's default context
         admin: Authenticated admin user
         session: Database session
 
@@ -483,7 +485,18 @@ async def initiate_oauth(
     # Get or create user and their personal context
     try:
         user = await get_or_create_user(identity, session)
-        context = await get_user_default_context(user, session)
+
+        if context_id:
+            # Use specified context (admin is authorizing for a specific context)
+            from core.db.models import Context
+
+            ctx_stmt = select(Context).where(Context.id == context_id)
+            ctx_result = await session.execute(ctx_stmt)
+            context = ctx_result.scalar_one_or_none()
+            if not context:
+                raise HTTPException(status_code=404, detail=f"Context {context_id} not found")
+        else:
+            context = await get_user_default_context(user, session)
 
         if not context:
             LOGGER.error(f"No default context found for user {user.email}")
