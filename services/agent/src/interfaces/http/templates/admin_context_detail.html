@@ -12,6 +12,7 @@
     <button class="tab" data-tab="mcp" onclick="switchTab('mcp')">MCP Servers</button>
     <button class="tab" data-tab="oauth" onclick="switchTab('oauth')">OAuth Tokens</button>
     <button class="tab" data-tab="conversations" onclick="switchTab('conversations')">Conversations</button>
+    <button class="tab" data-tab="scheduler" onclick="switchTab('scheduler')">Scheduler</button>
 </div>
 
 <div id="tab-overview" class="tab-content active">
@@ -56,6 +57,12 @@
     </div>
 </div>
 
+<div id="tab-scheduler" class="tab-content" style="display:none;">
+    <div class="card" id="schedulerCard">
+        <div class="loading">Loading...</div>
+    </div>
+</div>
+
 <!-- Add Credential Modal -->
 <div id="addCredModal" class="modal" style="display: none;">
     <div class="modal-content">
@@ -74,6 +81,52 @@
             <div class="modal-actions">
                 <button type="button" class="btn" onclick="hideCredModal()">Cancel</button>
                 <button type="submit" class="btn btn-primary">Save Credential</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Create Scheduled Job Modal -->
+<div id="createJobModal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Create Scheduled Job</h3>
+        <form id="createJobForm" onsubmit="submitJob(event)">
+            <div class="form-group">
+                <label>Name *</label>
+                <input type="text" id="jobName" required placeholder="e.g., daily-report" pattern="^[a-zA-Z0-9_\- ]+$">
+            </div>
+            <div class="form-group">
+                <label>Prompt *</label>
+                <textarea id="jobPrompt" required placeholder="What should the agent do?" style="min-height: 80px;"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Cron Expression *</label>
+                <input type="text" id="jobCron" required placeholder="0 8 * * 1-5 (weekdays at 08:00)">
+                <small style="color: var(--text-muted); font-size: 12px;">Format: minute hour day month weekday. Example: 0 9 * * * = daily at 09:00 UTC</small>
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <input type="text" id="jobDescription" placeholder="Optional description">
+            </div>
+            <div class="form-group">
+                <label>Notification Channel</label>
+                <select id="jobNotifChannel" onchange="toggleNotifTarget()">
+                    <option value="">None</option>
+                    <option value="email">Email</option>
+                    <option value="telegram">Telegram</option>
+                </select>
+            </div>
+            <div class="form-group" id="notifTargetGroup" style="display:none;">
+                <label>Notification Target</label>
+                <input type="text" id="jobNotifTarget" placeholder="Email address or Telegram chat ID">
+            </div>
+            <div class="form-group">
+                <label>Timeout (seconds)</label>
+                <input type="number" id="jobTimeout" value="300" min="30" max="3600">
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="btn" onclick="hideJobModal()">Cancel</button>
+                <button type="submit" class="btn btn-primary">Create Job</button>
             </div>
         </form>
     </div>
@@ -144,6 +197,7 @@ function switchTab(tab) {
         else if (tab === 'mcp') loadMcpServers();
         else if (tab === 'oauth') loadOAuthTokens();
         else if (tab === 'conversations') loadConversations();
+        else if (tab === 'scheduler') loadScheduler();
     }
 }
 
@@ -446,6 +500,113 @@ async function loadConversations() {
         html += '</tbody></table>';
     }
     card.innerHTML = html;
+}
+
+// --- Scheduler Tab ---
+async function loadScheduler() {
+    const card = document.getElementById('schedulerCard');
+    const res = await fetchWithErrorHandling('/platformadmin/scheduler/context/' + CONTEXT_ID + '/jobs');
+    if (!res) { card.innerHTML = '<div class="empty-state">Failed to load scheduler data</div>'; return; }
+    const data = await res.json();
+    const jobs = data.jobs || [];
+
+    let html = '<div class="card-header"><span class="card-title">Scheduled Jobs (' + jobs.length + ')</span>';
+    html += '<button class="btn btn-primary btn-sm" onclick="showJobModal()">+ Create Job</button></div>';
+
+    if (jobs.length === 0) {
+        html += '<div class="empty-state">No scheduled jobs for this context</div>';
+    } else {
+        jobs.forEach(function(j) {
+            const statusClass = j.status === 'active' ? 'badge-success' :
+                               j.status === 'error' ? 'badge-danger' :
+                               j.status === 'running' ? 'badge-warning' : 'badge-info';
+            const nextRun = j.next_run_at ? new Date(j.next_run_at).toLocaleString() : 'N/A';
+            const lastRun = j.last_run_at ? new Date(j.last_run_at).toLocaleString() : 'Never';
+            const lastStatus = j.last_run_status || 'N/A';
+
+            html += '<div class="cred-row" style="flex-direction: column; align-items: flex-start;">';
+            html += '<div style="display:flex;justify-content:space-between;width:100%;align-items:center;">';
+            html += '<div><strong>' + escapeHtml(j.name) + '</strong> <span class="badge ' + statusClass + '">' + j.status + '</span></div>';
+            html += '<div style="display:flex;gap:4px;">';
+            html += '<button class="btn btn-sm" onclick="toggleJob(\'' + j.id + '\')" title="' + (j.is_enabled ? 'Pause' : 'Enable') + '">' + (j.is_enabled ? 'Pause' : 'Enable') + '</button>';
+            html += '<button class="btn btn-sm btn-primary" onclick="runJobNow(\'' + j.id + '\')" ' + (j.is_enabled ? '' : 'disabled') + '>Run Now</button>';
+            html += '<button class="btn btn-sm btn-danger" onclick="deleteJob(\'' + j.id + '\', \'' + escapeHtml(j.name) + '\')">Delete</button>';
+            html += '</div></div>';
+            html += '<div class="job-meta" style="margin-top: 8px; font-size: 12px; color: var(--text-muted); display: flex; gap: 12px; flex-wrap: wrap;">';
+            html += '<span>Cron: <code>' + escapeHtml(j.cron_expression) + '</code></span>';
+            html += '<span>Next: ' + nextRun + '</span>';
+            html += '<span>Last: ' + lastRun + ' (' + lastStatus + ')</span>';
+            html += '<span>Runs: ' + j.run_count + '</span>';
+            if (j.error_count > 0) html += '<span style="color: var(--error);">Errors: ' + j.error_count + '</span>';
+            if (j.notification_channel) html += '<span>Notify: ' + j.notification_channel + '</span>';
+            html += '</div>';
+            if (j.description) {
+                html += '<div style="margin-top: 4px; font-size: 12px; color: var(--text-muted);">' + escapeHtml(j.description) + '</div>';
+            }
+            if (j.last_run_result) {
+                html += '<details style="margin-top: 4px; font-size: 12px;"><summary>Last Result</summary><pre style="white-space: pre-wrap; max-height: 200px; overflow: auto; background: var(--bg); padding: 8px; border-radius: 4px; margin-top: 4px;">' + escapeHtml(j.last_run_result) + '</pre></details>';
+            }
+            html += '</div>';
+        });
+    }
+    card.innerHTML = html;
+}
+
+function showJobModal() { document.getElementById('createJobModal').style.display = 'flex'; }
+function hideJobModal() { document.getElementById('createJobModal').style.display = 'none'; document.getElementById('createJobForm').reset(); document.getElementById('notifTargetGroup').style.display = 'none'; }
+function toggleNotifTarget() {
+    const ch = document.getElementById('jobNotifChannel').value;
+    document.getElementById('notifTargetGroup').style.display = ch ? 'block' : 'none';
+}
+
+async function submitJob(e) {
+    e.preventDefault();
+    const body = {
+        name: document.getElementById('jobName').value,
+        skill_prompt: document.getElementById('jobPrompt').value,
+        cron_expression: document.getElementById('jobCron').value,
+        description: document.getElementById('jobDescription').value || null,
+        notification_channel: document.getElementById('jobNotifChannel').value || null,
+        notification_target: document.getElementById('jobNotifTarget').value || null,
+        timeout_seconds: parseInt(document.getElementById('jobTimeout').value) || 300
+    };
+    const res = await fetchWithErrorHandling('/platformadmin/scheduler/context/' + CONTEXT_ID + '/jobs', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    if (res) {
+        showToast('Job created', 'success');
+        hideJobModal();
+        loadedTabs['scheduler'] = false;
+        loadScheduler();
+    }
+}
+
+async function toggleJob(jobId) {
+    const res = await fetchWithErrorHandling('/platformadmin/scheduler/jobs/' + jobId + '/toggle', { method: 'POST' });
+    if (res) {
+        showToast('Job toggled', 'success');
+        loadedTabs['scheduler'] = false;
+        loadScheduler();
+    }
+}
+
+async function runJobNow(jobId) {
+    const res = await fetchWithErrorHandling('/platformadmin/scheduler/jobs/' + jobId + '/run-now', { method: 'POST' });
+    if (res) {
+        showToast('Job triggered for immediate execution', 'success');
+        loadedTabs['scheduler'] = false;
+        loadScheduler();
+    }
+}
+
+async function deleteJob(jobId, name) {
+    if (!confirm('Delete job "' + name + '"? This cannot be undone.')) return;
+    const res = await fetchWithErrorHandling('/platformadmin/scheduler/jobs/' + jobId, { method: 'DELETE' });
+    if (res) {
+        showToast('Job deleted', 'success');
+        loadedTabs['scheduler'] = false;
+        loadScheduler();
+    }
 }
 
 // Initialize: read hash from URL on page load

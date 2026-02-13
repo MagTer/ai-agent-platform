@@ -33,6 +33,7 @@ ADMIN_NAV_ITEMS: list[NavItem] = [
     NavItem("Users", "/platformadmin/users/", "&#128100;", "users"),
     NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "users"),
     NavItem("Credentials", "/platformadmin/credentials/", "&#128273;", "users"),
+    NavItem("Scheduler", "/platformadmin/scheduler/", "&#128339;", "features"),
     NavItem("Price Tracker", "/platformadmin/price-tracker/", "&#128181;", "features"),
     NavItem("Chat", "/", "&#128172;", "external"),
     NavItem("Open WebUI Admin", "/admin/", "&#128279;", "external"),

@@ -56,6 +56,7 @@ from interfaces.http.admin_oauth import router as admin_oauth_router
 from interfaces.http.admin_permissions import router as admin_permissions_router
 from interfaces.http.admin_portal import router as admin_portal_router
 from interfaces.http.admin_price_tracker import router as admin_price_tracker_router
+from interfaces.http.admin_scheduler import router as admin_scheduler_router
 from interfaces.http.admin_users import router as admin_users_router
 from interfaces.http.admin_workspaces import router as admin_workspaces_router
 from interfaces.http.oauth import router as oauth_router
@@ -478,9 +479,25 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         email_service = create_email_service(settings)
         scheduler, homey_scheduler = await start_schedulers(email_service)
 
+        # Job Scheduler (cron-based skill execution)
+        from interfaces.scheduler.adapter import SchedulerAdapter
+
+        telegram_token = (
+            settings.telegram_bot_token if hasattr(settings, "telegram_bot_token") else None
+        )
+        job_scheduler = SchedulerAdapter(
+            session_factory=AsyncSessionLocal,
+            service_factory=service_factory,
+            telegram_bot_token=telegram_token,
+        )
+        await job_scheduler.initialize_next_run_times()
+        await job_scheduler.start()
+        LOGGER.info("Job scheduler started")
+
         yield  # Application runs here
 
         # --- SHUTDOWN ---
+        await job_scheduler.stop()
         await homey_scheduler.stop()
         await scheduler.stop()
         # Clean up email service
@@ -857,6 +874,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     app.include_router(admin_price_tracker_router)
     app.include_router(admin_permissions_router)
     app.include_router(admin_users_router)
+    app.include_router(admin_scheduler_router)
     app.include_router(admin_api_router)  # Diagnostic API (X-API-Key or Entra ID)
 
     return app
