@@ -73,6 +73,21 @@ async def get_metrics(
     return await service.get_system_health_metrics(window=window)
 
 
+@router.get("/otel-metrics", dependencies=[Depends(verify_admin_user)])
+async def get_otel_metrics() -> dict[str, float]:
+    """Get OpenTelemetry metric snapshot for dashboard display.
+
+    Returns:
+        Raw metric counters from in-memory snapshot.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    from core.observability.metrics import get_metric_snapshot
+
+    return get_metric_snapshot()
+
+
 @router.post(
     "/run",
     response_model=list[TestResult],
@@ -471,7 +486,50 @@ def _get_diagnostics_content() -> str:
         <!-- Metrics Screen -->
         <div class="diag-screen diag-health-screen" id="view-metrics">
             <div style="max-width: 1000px; margin: 0 auto;">
-                <h2 class="diag-section-title">System Metrics (Last 60 Traces)</h2>
+                <h2 class="diag-section-title">Live Platform Metrics (OTel)</h2>
+                <div class="diag-metric-cards" id="otelMetricCards">
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Total Requests</div>
+                        <div class="diag-m-value" id="otelReqTotal">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Error Rate</div>
+                        <div class="diag-m-value" id="otelErrorRate">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Avg Latency</div>
+                        <div class="diag-m-value" id="otelAvgLatency">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">LLM Tokens</div>
+                        <div class="diag-m-value" id="otelLlmTokens">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Tool Errors</div>
+                        <div class="diag-m-value" id="otelToolErrors">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Active Requests</div>
+                        <div class="diag-m-value" id="otelActiveReqs">-</div>
+                    </div>
+                </div>
+
+                <h2 class="diag-section-title" style="margin-top:32px">Recent Errors</h2>
+                <table id="recentErrorsTable" class="diag-table">
+                    <thead>
+                        <tr>
+                            <th style="width:120px">Time</th>
+                            <th style="width:150px">Trace</th>
+                            <th>Error</th>
+                            <th style="width:150px">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentErrorsBody">
+                        <tr><td colspan="4" style="text-align:center; color:#999">Loading...</td></tr>
+                    </tbody>
+                </table>
+
+                <h2 class="diag-section-title" style="margin-top:32px">System Metrics (Last 60 Traces)</h2>
                 <div class="diag-metric-cards">
                     <div class="diag-m-card">
                         <div class="diag-m-title">Total Requests</div>
@@ -1051,6 +1109,13 @@ def _get_diagnostics_js() -> str:
         }
 
         async function loadMetrics() {
+            // Load OTel metrics
+            await loadOtelMetrics();
+
+            // Load recent errors
+            await loadRecentErrors();
+
+            // Load trace-based metrics
             const res = await fetchWithErrorHandling(`${API_BASE}/metrics?window=60`);
             if (!res) return;
 
@@ -1081,6 +1146,63 @@ def _get_diagnostics_js() -> str:
                     tbody.appendChild(tr);
                 });
             }
+        }
+
+        async function loadOtelMetrics() {
+            const res = await fetchWithErrorHandling(`${API_BASE}/otel-metrics`);
+            if (!res) return;
+            const data = await res.json();
+
+            // Computed fields
+            const total = data['requests.total'] || 0;
+            const errors = data['requests.errors'] || 0;
+            const durationSum = data['requests.duration_ms_sum'] || 0;
+            const errorRate = total > 0 ? ((errors / total) * 100).toFixed(1) + '%' : '0%';
+            const avgLatency = total > 0 ? Math.round(durationSum / total) + 'ms' : '-';
+            const tokens = data['llm.tokens.total'] || 0;
+
+            document.getElementById('otelReqTotal').innerText = Math.round(total);
+            document.getElementById('otelErrorRate').innerText = errorRate;
+            document.getElementById('otelAvgLatency').innerText = avgLatency;
+            document.getElementById('otelLlmTokens').innerText = tokens > 1000 ? (tokens/1000).toFixed(1) + 'k' : Math.round(tokens);
+            document.getElementById('otelToolErrors').innerText = Math.round(data['tools.errors'] || 0);
+            document.getElementById('otelActiveReqs').innerText = Math.round(data['requests.active'] || 0);
+        }
+
+        async function loadRecentErrors() {
+            // Fetch error traces from traces endpoint with status filter
+            const res = await fetchWithErrorHandling(`${API_BASE}/traces?limit=100&show_all=false`);
+            if (!res) return;
+            const traces = await res.json();
+
+            // Filter for error traces
+            const errors = traces.filter(t => {
+                return t.spans.some(s => s.status === 'ERROR');
+            }).slice(0, 10);
+
+            const tbody = document.getElementById('recentErrorsBody');
+            if (!errors.length) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No recent errors</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = errors.map(t => {
+                const timestamp = new Date(t.start_time).toLocaleTimeString();
+                const traceIdShort = t.trace_id.slice(0, 12) + '...';
+                const errorSpan = t.spans.find(s => s.status === 'ERROR');
+                const errorMsg = errorSpan ? errorSpan.name : 'Unknown error';
+
+                return `
+                    <tr>
+                        <td>${timestamp}</td>
+                        <td><code><a href="#" onclick="loadTraceDetail('${t.trace_id}'); switchTab('traces'); return false;">${traceIdShort}</a></code></td>
+                        <td>${escapeHtml(errorMsg)}</td>
+                        <td>
+                            <a href="/platformadmin/debug/?trace_id=${t.trace_id}" class="btn btn-sm">Debug Logs</a>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         async function runHealthChecks() {

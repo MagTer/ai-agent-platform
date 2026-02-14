@@ -21,7 +21,6 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.db.models import DebugLog
 from core.db.oauth_models import OAuthToken
 from core.mcp.client import McpClient
 from core.runtime.config import Settings
@@ -166,30 +165,9 @@ class McpClientPool:
                             f"Connected Context7 MCP for context {context_id} "
                             f"(discovered {len(client.tools)} tools)"
                         )
-                        session.add(
-                            DebugLog(
-                                trace_id=str(context_id),
-                                event_type="mcp_connect",
-                                event_data={
-                                    "provider": "Context7",
-                                    "tools_count": len(client.tools),
-                                    "transport": "streamable_http",
-                                },
-                            )
-                        )
                     except Exception as e:
                         LOGGER.error(
                             f"Failed to connect Context7 MCP for context {context_id}: {e}"
-                        )
-                        session.add(
-                            DebugLog(
-                                trace_id=str(context_id),
-                                event_type="mcp_error",
-                                event_data={
-                                    "provider": "Context7",
-                                    "error": str(e),
-                                },
-                            )
                         )
 
             # Load user-defined MCP servers from database
@@ -330,18 +308,6 @@ class McpClientPool:
                     context_id,
                     len(client.tools),
                 )
-                session.add(
-                    DebugLog(
-                        trace_id=str(context_id),
-                        event_type="mcp_connect",
-                        event_data={
-                            "provider": server.name,
-                            "tools_count": len(client.tools),
-                            "transport": server.transport,
-                            "source": "user_defined",
-                        },
-                    )
-                )
 
             except Exception as e:
                 error_msg = str(e)[:500]
@@ -353,17 +319,6 @@ class McpClientPool:
                     server.name,
                     context_id,
                     error_msg,
-                )
-                session.add(
-                    DebugLog(
-                        trace_id=str(context_id),
-                        event_type="mcp_error",
-                        event_data={
-                            "provider": server.name,
-                            "error": error_msg,
-                            "source": "user_defined",
-                        },
-                    )
                 )
 
         return connection_attempted

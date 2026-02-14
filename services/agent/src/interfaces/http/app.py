@@ -28,7 +28,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.engine import get_db
 from core.db.models import Context
 from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
-from core.observability.logging import setup_logging
+from core.observability.debug_logger import configure_debug_log_handler
+from core.observability.logging import setup_logging, setup_otel_log_bridge
+from core.observability.metrics import configure_metrics
 from core.observability.tracing import configure_tracing
 from core.runtime.config import Settings, get_settings
 from core.runtime.litellm_client import LiteLLMClient, LiteLLMError
@@ -134,6 +136,9 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         span_log_max_size_mb=settings.trace_span_log_max_size_mb,
         span_log_max_files=settings.trace_span_log_max_files,
     )
+    configure_metrics(settings.app_name)
+    setup_otel_log_bridge(settings.app_name)
+    configure_debug_log_handler()
 
     app = FastAPI(title=settings.app_name)
 
@@ -364,6 +369,15 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         if span.is_recording():
             span.set_attribute("http.request.duration_ms", round(duration_ms, 1))
             span.set_attribute("http.route", request.url.path)
+
+        # Record OTel metrics for agent API endpoints
+        if request.url.path.startswith(("/v1/agent", "/v1/chat/completions", "/chat/completions")):
+            from core.observability.metrics import request_counter, request_duration_histogram
+
+            status_str = "error" if response.status_code >= 400 else "ok"
+            attrs = {"http.route": request.url.path, "status": status_str}
+            request_counter.add(1, attributes=attrs)
+            request_duration_histogram.record(duration_ms, attributes=attrs)
 
         # Log slow requests (> 5 seconds)
         if duration_ms > 5000:

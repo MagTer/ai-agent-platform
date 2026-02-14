@@ -347,6 +347,20 @@ def configure_tracing(
         logger.info("Instrumenting LiteLLM for OpenInference")
         LiteLLMInstrumentor().instrument(tracer_provider=provider)
 
+    # 5. Instrument SQLAlchemy
+    try:
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
+        SQLAlchemyInstrumentor().instrument(
+            tracer_provider=provider,
+            enable_commenter=True,
+        )
+        logger.info("Instrumenting SQLAlchemy for query tracing")
+    except ImportError:
+        logger.debug("SQLAlchemy instrumentation not available")
+    except Exception as e:
+        logger.warning("Failed to instrument SQLAlchemy: %s", e)
+
 
 def get_tracer() -> Any:
     """Return the global tracer used by internal agents."""

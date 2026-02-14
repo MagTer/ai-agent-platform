@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import AsyncSessionLocal, get_db
-from core.db.models import Context, DebugLog, McpServer
+from core.db.models import Context, McpServer
 from core.db.oauth_models import OAuthToken
 from core.tools.mcp_loader import get_mcp_client_pool, get_mcp_health, get_mcp_stats
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
@@ -670,24 +670,21 @@ async def get_mcp_integrations(
 async def get_mcp_activity(
     session: AsyncSession = Depends(get_db),
 ) -> MCPActivityResponse:
-    """Get recent MCP connection events."""
-    stmt = (
-        select(DebugLog)
-        .where(DebugLog.event_type.in_(["mcp_connect", "mcp_error"]))
-        .order_by(DebugLog.created_at.desc())
-        .limit(50)
-    )
-    result = await session.execute(stmt)
-    logs = result.scalars().all()
+    """Get recent MCP connection events from debug logs (JSONL)."""
+    from core.observability.debug_logger import read_debug_logs
+
+    # Read MCP-related events from JSONL
+    logs = await read_debug_logs(limit=200)
+    mcp_logs = [log for log in logs if log.get("event_type") in ("mcp_connect", "mcp_error")][:50]
 
     events: list[MCPActivityEvent] = []
-    for log in logs:
-        data = log.event_data or {}
-        is_error = log.event_type == "mcp_error"
+    for log in mcp_logs:
+        data = log.get("event_data", {})
+        is_error = log.get("event_type") == "mcp_error"
         events.append(
             MCPActivityEvent(
-                timestamp=log.created_at.isoformat(),
-                context_id=log.trace_id,
+                timestamp=log.get("timestamp", ""),
+                context_id=log.get("trace_id", ""),
                 provider=data.get("provider"),
                 result="error" if is_error else "connected",
                 tools_count=data.get("tools_count"),

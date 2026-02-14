@@ -126,3 +126,49 @@ def log_event(event: LoggableEvent) -> None:
         extra["span_id"] = trace.get("span_id")
 
     logger.info(f"Event: {event.__class__.__name__}", extra=extra)
+
+
+def setup_otel_log_bridge(service_name: str = "agent") -> None:
+    """Bridge Python logging to OpenTelemetry OTLP log export.
+
+    When OTEL_EXPORTER_OTLP_ENDPOINT is set, adds an OTel LoggingHandler
+    to the root logger. This makes Python log records available in the
+    OTLP collector alongside traces and metrics, with trace correlation.
+
+    Must be called AFTER setup_logging() and configure_tracing().
+
+    Args:
+        service_name: Service name for the log resource.
+    """
+    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if not otlp_endpoint:
+        return
+
+    try:
+        from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
+            OTLPLogExporter,
+        )
+        from opentelemetry.sdk._logs import LoggerProvider, LoggingHandler
+        from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+        from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+
+        resource = Resource.create({SERVICE_NAME: service_name})
+        logger_provider = LoggerProvider(resource=resource)
+
+        log_exporter = OTLPLogExporter(endpoint=otlp_endpoint, insecure=True)
+        logger_provider.add_log_record_processor(BatchLogRecordProcessor(log_exporter))
+
+        # Add OTel handler to root logger (WARNING+ to avoid noise)
+        otel_handler = LoggingHandler(
+            level=logging.WARNING,
+            logger_provider=logger_provider,
+        )
+        logging.getLogger().addHandler(otel_handler)
+
+        logging.getLogger(__name__).info("OTel log bridge configured to %s", otlp_endpoint)
+    except ImportError:
+        logging.getLogger(__name__).info(
+            "OTel log export packages not available; skipping log bridge"
+        )
+    except Exception:
+        logging.getLogger(__name__).warning("Failed to configure OTel log bridge", exc_info=True)

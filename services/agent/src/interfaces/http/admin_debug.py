@@ -7,12 +7,10 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
-from core.db.models import DebugLog
-from core.debug import DebugLogger
+from core.observability.debug_logger import DebugLogger, read_debug_logs
 from interfaces.http.admin_auth import AdminUser, get_admin_user_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 from interfaces.http.csrf import require_csrf
@@ -27,17 +25,6 @@ class DebugSettingsResponse(BaseModel):
     log_count: int
     oldest_log: str | None
     newest_log: str | None
-
-
-class DebugLogEntry(BaseModel):
-    """Response model for a debug log entry."""
-
-    id: str
-    trace_id: str
-    conversation_id: str | None
-    event_type: str
-    event_data: dict[str, Any]
-    created_at: str
 
 
 def _event_type_color(event_type: str) -> str:
@@ -67,6 +54,7 @@ def _escape_html(text: str) -> str:
 
 @router.get("/", response_class=UTF8HTMLResponse)
 async def debug_dashboard(
+    trace_id: str | None = Query(None, description="Filter by trace ID"),
     admin_user: AdminUser = Depends(get_admin_user_or_redirect),
     session: AsyncSession = Depends(get_db),
 ) -> UTF8HTMLResponse:
@@ -74,33 +62,39 @@ async def debug_dashboard(
     debug_logger = DebugLogger(session)
     enabled = await debug_logger.is_enabled()
 
-    # Get log stats
-    count_stmt = select(func.count()).select_from(DebugLog)
-    count_result = await session.execute(count_stmt)
-    log_count = count_result.scalar() or 0
+    # Read logs from JSONL file
+    limit = 500 if trace_id else 50  # Show more when filtering
+    logs = await read_debug_logs(trace_id=trace_id, limit=limit)
 
-    # Get recent logs
-    logs_stmt = select(DebugLog).order_by(DebugLog.created_at.desc()).limit(50)
-    logs_result = await session.execute(logs_stmt)
-    logs = list(logs_result.scalars().all())
+    # Get total log count (approximate from file)
+    all_logs = await read_debug_logs(limit=10000)
+    log_count = len(all_logs)
 
     # Build log table rows
     log_rows = ""
-    for log in logs:
+    for idx, log in enumerate(logs):
+        event_data = log.get("event_data", {})
+        event_data_str = str(event_data)
         event_data_preview = (
-            str(log.event_data)[:100] + "..."
-            if len(str(log.event_data)) > 100
-            else str(log.event_data)
+            event_data_str[:100] + "..." if len(event_data_str) > 100 else event_data_str
         )
+
+        # Make trace_id clickable link to diagnostics
+        trace_id_val = log.get("trace_id", "")
+        trace_id_link = (
+            f'<a href="/platformadmin/diagnostics/?trace={trace_id_val}">{trace_id_val[:12]}...</a>'
+        )
+
+        # Use index as "id" for the showLogDetail function
         log_rows += f"""
         <tr>
-            <td><code>{log.trace_id[:12]}...</code></td>
-            <td><span class="badge badge-{_event_type_color(log.event_type)}">{log.event_type}</span></td>
-            <td>{log.conversation_id[:12] + '...' if log.conversation_id else '-'}</td>
-            <td title="{_escape_html(str(log.event_data))}">{_escape_html(event_data_preview)}</td>
-            <td>{log.created_at.strftime('%H:%M:%S')}</td>
+            <td><code>{trace_id_link}</code></td>
+            <td><span class="badge badge-{_event_type_color(log.get('event_type', ''))}">{log.get('event_type', '')}</span></td>
+            <td>{log.get('conversation_id', '')[:12] + '...' if log.get('conversation_id') else '-'}</td>
+            <td title="{_escape_html(event_data_str)}">{_escape_html(event_data_preview)}</td>
+            <td>{log.get('timestamp', '')[-15:-7]}</td>
             <td>
-                <button class="btn btn-sm" onclick="showLogDetail('{log.id}')">View</button>
+                <button class="btn btn-sm" onclick="showLogDetail({idx})">View</button>
             </td>
         </tr>
         """
@@ -252,61 +246,65 @@ async def debug_dashboard(
         }
     """
 
-    extra_js = """
-        async function toggleDebug(enabled) {
-            try {
-                const resp = await fetch('/platformadmin/debug/toggle', {
+    # Store logs in JavaScript for modal viewing
+    import json
+
+    logs_json = json.dumps(logs, default=str)
+
+    extra_js = f"""
+        const ALL_LOGS = {logs_json};
+
+        async function toggleDebug(enabled) {{
+            try {{
+                const resp = await fetch('/platformadmin/debug/toggle', {{
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({enabled})
-                });
-                if (resp.ok) {
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{enabled}})
+                }});
+                if (resp.ok) {{
                     document.querySelector('.toggle-label').textContent = enabled ? 'Enabled' : 'Disabled';
-                } else {
+                }} else {{
                     alert('Failed to toggle debug mode');
                     document.getElementById('debug-toggle').checked = !enabled;
-                }
-            } catch (e) {
+                }}
+            }} catch (e) {{
                 alert('Error: ' + e.message);
                 document.getElementById('debug-toggle').checked = !enabled;
-            }
-        }
+            }}
+        }}
 
-        async function cleanupLogs() {
-            if (!confirm('Delete logs older than 24 hours?')) return;
-            try {
-                const resp = await fetch('/platformadmin/debug/cleanup', {method: 'POST'});
-                const data = await resp.json();
-                alert('Deleted ' + data.deleted + ' logs');
-                location.reload();
-            } catch (e) {
-                alert('Error: ' + e.message);
-            }
-        }
-
-        function refreshLogs() {
+        function refreshLogs() {{
             location.reload();
-        }
+        }}
 
-        async function showLogDetail(logId) {
-            try {
-                const resp = await fetch('/platformadmin/debug/log/' + logId);
-                const data = await resp.json();
-                document.getElementById('log-detail-content').textContent = JSON.stringify(data, null, 2);
-                document.getElementById('log-modal').style.display = 'flex';
-            } catch (e) {
-                alert('Error loading log: ' + e.message);
-            }
-        }
+        function showLogDetail(logIdx) {{
+            const log = ALL_LOGS[logIdx];
+            if (!log) {{
+                alert('Log not found');
+                return;
+            }}
+            document.getElementById('log-detail-content').textContent = JSON.stringify(log, null, 2);
+            document.getElementById('log-modal').style.display = 'flex';
+        }}
 
-        function closeModal() {
+        function closeModal() {{
             document.getElementById('log-modal').style.display = 'none';
-        }
+        }}
 
-        document.getElementById('log-modal').addEventListener('click', function(e) {
+        document.getElementById('log-modal').addEventListener('click', function(e) {{
             if (e.target === this) closeModal();
-        });
+        }});
     """
+
+    # Show filter banner if trace_id is set
+    filter_banner = ""
+    if trace_id:
+        filter_banner = f"""
+        <div class="info-box" style="background: #fef3c7; border-left-color: #f59e0b;">
+            <strong>Filtered by trace:</strong> <code>{trace_id}</code>
+            <a href="/platformadmin/debug/" style="margin-left: 12px; color: #0369a1; text-decoration: none; font-weight: 600;">Show all</a>
+        </div>
+        """
 
     content = f"""
     <h1 class="page-title">Debug Logging</h1>
@@ -328,20 +326,21 @@ async def debug_dashboard(
     <div class="stats-grid">
         <div class="stat-box">
             <div class="stat-value">{log_count}</div>
-            <div class="stat-label">Total Logs</div>
+            <div class="stat-label">Total Logs (approx)</div>
         </div>
         <div class="stat-box">
             <div class="stat-value">{len(logs)}</div>
-            <div class="stat-label">Recent (50)</div>
+            <div class="stat-label">Showing</div>
         </div>
     </div>
 
     <div class="stats-row">
         <div class="actions">
-            <button class="btn" onclick="cleanupLogs()">Cleanup Old Logs</button>
             <button class="btn btn-primary" onclick="refreshLogs()">Refresh</button>
         </div>
     </div>
+
+    {filter_banner}
 
     <div class="info-box">
         <strong>Debug Logging captures:</strong>
@@ -354,7 +353,10 @@ async def debug_dashboard(
             <li><strong>completion_prompt</strong> - Full prompt sent to completion LLM</li>
             <li><strong>completion_response</strong> - LLM response</li>
         </ul>
-        <p style="margin-top: 10px; margin-bottom: 0;">Logs are also added to OpenTelemetry traces (prefix: <code>debug.*</code>)</p>
+        <p style="margin-top: 10px; margin-bottom: 0;">
+            Logs stored in <code>data/debug_logs.jsonl</code> with automatic rotation (10MB max, 3 backups).
+            Also added to OpenTelemetry traces (prefix: <code>debug.*</code>).
+        </p>
     </div>
 
     <div class="card">
@@ -412,45 +414,34 @@ async def toggle_debug(
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
     """Toggle debug logging on/off."""
+    from sqlalchemy import select
+
+    from core.db.models import SystemConfig
+
     enabled = data.get("enabled", False)
-    debug_logger = DebugLogger(session)
-    await debug_logger.set_enabled(enabled)
-    return {"enabled": enabled}
 
-
-@router.post("/cleanup", dependencies=[Depends(verify_admin_user), Depends(require_csrf)])
-async def cleanup_logs(
-    session: AsyncSession = Depends(get_db),
-) -> dict[str, int]:
-    """Cleanup old debug logs."""
-    debug_logger = DebugLogger(session)
-    deleted = await debug_logger.cleanup_old_logs(retention_hours=24)
-    return {"deleted": deleted}
-
-
-@router.get("/log/{log_id}", dependencies=[Depends(verify_admin_user)])
-async def get_log_detail(
-    log_id: str,
-    session: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    """Get full details of a specific log entry."""
-    from uuid import UUID
-
-    stmt = select(DebugLog).where(DebugLog.id == UUID(log_id))
+    # Update or create SystemConfig entry
+    stmt = select(SystemConfig).where(SystemConfig.key == "debug_enabled")
     result = await session.execute(stmt)
-    log = result.scalar_one_or_none()
+    config = result.scalar_one_or_none()
 
-    if not log:
-        return {"error": "Log not found"}
+    if config:
+        config.value = "true" if enabled else "false"  # type: ignore[assignment]  # JSONB accepts any JSON value
+    else:
+        config = SystemConfig(
+            key="debug_enabled",
+            value="true" if enabled else "false",
+            description="Debug logging toggle",
+        )
+        session.add(config)
 
-    return {
-        "id": str(log.id),
-        "trace_id": log.trace_id,
-        "conversation_id": log.conversation_id,
-        "event_type": log.event_type,
-        "event_data": log.event_data,
-        "created_at": log.created_at.isoformat(),
-    }
+    await session.commit()
+
+    # Clear the cache to force reload
+
+    globals()["_debug_enabled_cache"] = None
+
+    return {"enabled": enabled}
 
 
 @router.get("/logs", dependencies=[Depends(verify_admin_user)])
@@ -458,24 +449,11 @@ async def list_logs(
     trace_id: str | None = Query(None),
     event_type: str | None = Query(None),
     limit: int = Query(100, le=500),
-    session: AsyncSession = Depends(get_db),
-) -> list[DebugLogEntry]:
-    """List debug logs with optional filters."""
-    debug_logger = DebugLogger(session)
-    logs = await debug_logger.get_logs(
+) -> list[dict[str, Any]]:
+    """List debug logs with optional filters from JSONL file."""
+    logs = await read_debug_logs(
         trace_id=trace_id,
         event_type=event_type,
         limit=limit,
     )
-
-    return [
-        DebugLogEntry(
-            id=str(log.id),
-            trace_id=log.trace_id,
-            conversation_id=log.conversation_id,
-            event_type=log.event_type,
-            event_data=log.event_data,
-            created_at=log.created_at.isoformat(),
-        )
-        for log in logs
-    ]
+    return logs

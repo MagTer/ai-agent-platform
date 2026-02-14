@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 from core.models.pydantic_schemas import ToolCallEvent, TraceContext
@@ -134,6 +135,7 @@ class ToolRunner:
             return result
 
         sanitized_args = call_args if isinstance(call_args, dict) else {}
+        start_time = time.perf_counter()
         with start_span(f"tool.call.{tool_name}"):
             # Observability: Capture arguments
             set_span_attributes({"args": str(sanitized_args)})
@@ -149,6 +151,13 @@ class ToolRunner:
 
                 result.update({"status": "error", "error": str(exc)})
                 status = "error"
+
+                # Record OTel metrics
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                from core.observability.metrics import record_tool_call
+
+                record_tool_call(tool_name=tool_name, duration_ms=duration_ms, success=False)
+
                 log_event(
                     ToolCallEvent(
                         name=tool_name,
@@ -168,6 +177,13 @@ class ToolRunner:
                 "output": trimmed_output,
             }
         )
+
+        # Record OTel metrics
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        from core.observability.metrics import record_tool_call
+
+        record_tool_call(tool_name=tool_name, duration_ms=duration_ms, success=True)
+
         log_event(
             ToolCallEvent(
                 name=tool_name,

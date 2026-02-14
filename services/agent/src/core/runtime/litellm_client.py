@@ -155,6 +155,17 @@ class LiteLLMClient:
                             if attrs:
                                 set_span_attributes(attrs)
 
+                            # Record OTel metrics
+                            from core.observability.metrics import record_llm_call
+
+                            duration_ms = (time.perf_counter() - start_time) * 1000
+                            record_llm_call(
+                                model=data.get("model", payload.get("model", "unknown")),
+                                duration_ms=duration_ms,
+                                prompt_tokens=usage.get("prompt_tokens", 0),
+                                completion_tokens=usage.get("completion_tokens", 0),
+                            )
+
                         # Handle content
                         if "choices" in data and len(data["choices"]) > 0:
                             choice = data["choices"][0]
@@ -327,6 +338,7 @@ class LiteLLMClient:
             "tool_choice": "auto",
         }
 
+        start_time = time.perf_counter()
         try:
             response = await self._client.post(
                 "/v1/chat/completions",
@@ -335,6 +347,7 @@ class LiteLLMClient:
             )
             response.raise_for_status()
             data = response.json()
+            duration_ms = (time.perf_counter() - start_time) * 1000
 
             # Capture tracing attributes
             trace_attrs: dict[str, Any] = {}
@@ -375,6 +388,16 @@ class LiteLLMClient:
 
             if trace_attrs:
                 set_span_attributes(trace_attrs)
+
+            # Record OTel metrics
+            from core.observability.metrics import record_llm_call
+
+            record_llm_call(
+                model=data.get("model", current_model),
+                duration_ms=duration_ms,
+                prompt_tokens=usage.get("prompt_tokens", 0),
+                completion_tokens=usage.get("completion_tokens", 0),
+            )
 
             message = data["choices"][0]["message"]
 
