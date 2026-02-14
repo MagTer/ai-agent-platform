@@ -20,7 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
-from core.db.models import Conversation, DebugLog, Message, Session, SystemConfig
+from core.db.models import Conversation, Message, Session, SystemConfig
 from core.diagnostics.service import DiagnosticsService
 from core.observability.security_logger import (
     AUTH_FAILURE,
@@ -296,27 +296,25 @@ async def get_system_status(
     # Get diagnostics summary
     summary = await diagnostics.get_diagnostics_summary()
 
-    # Get recent debug log errors
+    # Get recent debug log errors from JSONL
+    from core.observability.debug_logger import read_debug_logs
+
     recent_errors: list[dict[str, Any]] = []
-    stmt = (
-        select(DebugLog)
-        .where(DebugLog.event_type == "supervisor")
-        .order_by(DebugLog.created_at.desc())
-        .limit(10)
-    )
-    result = await session.execute(stmt)
-    for log in result.scalars():
-        event_data = log.event_data or {}
+    supervisor_logs = await read_debug_logs(event_type="supervisor", limit=20)
+    for log in supervisor_logs:
+        event_data = log.get("event_data", {})
         if event_data.get("outcome") in ("ABORT", "REPLAN"):
             recent_errors.append(
                 {
-                    "trace_id": log.trace_id,
-                    "event_type": log.event_type,
+                    "trace_id": log.get("trace_id"),
+                    "event_type": log.get("event_type"),
                     "outcome": event_data.get("outcome"),
                     "reason": event_data.get("reason"),
-                    "created_at": log.created_at.isoformat() if log.created_at else None,
+                    "created_at": log.get("timestamp"),
                 }
             )
+            if len(recent_errors) >= 10:
+                break
 
     return SystemStatusResponse(
         status=summary.get("overall_status", "UNKNOWN"),
@@ -457,73 +455,229 @@ async def get_conversation_messages(
 async def get_debug_stats(
     hours: int = Query(24, le=168, description="Hours of data to analyze"),
     auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
-    session: AsyncSession = Depends(get_db),
 ) -> DebugLogStats:
-    """Get aggregated debug log statistics.
+    """Get aggregated debug log statistics from JSONL file.
 
     Provides counts by event type, hourly distribution, and recent errors.
     """
-    # Use timezone-naive datetime for database comparison
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
+    from collections import defaultdict
 
-    # Total count
-    total_stmt = select(func.count(DebugLog.id)).where(DebugLog.created_at >= cutoff)
-    total_result = await session.execute(total_stmt)
-    total_logs = total_result.scalar() or 0
+    from core.observability.debug_logger import read_debug_logs
+
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+
+    # Read all logs (limited to reasonable number)
+    logs = await read_debug_logs(limit=10000)
+
+    # Filter by time window
+    filtered_logs = []
+    for log in logs:
+        timestamp_str = log.get("timestamp", "")
+        if timestamp_str:
+            try:
+                log_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                if log_time >= cutoff:
+                    filtered_logs.append(log)
+            except ValueError:
+                continue
+
+    total_logs = len(filtered_logs)
 
     # Count by event type
-    type_stmt = (
-        select(DebugLog.event_type, func.count(DebugLog.id))
-        .where(DebugLog.created_at >= cutoff)
-        .group_by(DebugLog.event_type)
-    )
-    type_result = await session.execute(type_stmt)
-    by_event_type = {row[0]: row[1] for row in type_result}
+    by_event_type_dict: dict[str, int] = defaultdict(int)
+    for log in filtered_logs:
+        event_type = log.get("event_type", "unknown")
+        by_event_type_dict[event_type] += 1
 
-    # Hourly distribution (simplified - last 24 hours)
+    # Hourly distribution
     by_hour: list[dict[str, Any]] = []
     for h in range(min(hours, 24)):
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(UTC)
         hour_start = now.replace(minute=0, second=0, microsecond=0) - timedelta(hours=h)
         hour_end = hour_start + timedelta(hours=1)
-        hour_stmt = (
-            select(func.count(DebugLog.id))
-            .where(DebugLog.created_at >= hour_start)
-            .where(DebugLog.created_at < hour_end)
+        count = sum(
+            1
+            for log in filtered_logs
+            if hour_start
+            <= datetime.fromisoformat(log.get("timestamp", "").replace("Z", "+00:00"))
+            < hour_end
         )
-        hour_result = await session.execute(hour_stmt)
-        count = hour_result.scalar() or 0
         by_hour.append({"hour": hour_start.isoformat(), "count": count})
 
     # Recent errors (supervisor with ABORT/REPLAN)
-    error_stmt = (
-        select(DebugLog)
-        .where(DebugLog.created_at >= cutoff)
-        .where(DebugLog.event_type == "supervisor")
-        .order_by(DebugLog.created_at.desc())
-        .limit(20)
-    )
-    error_result = await session.execute(error_stmt)
     recent_errors = []
-    for log in error_result.scalars():
-        event_data = log.event_data or {}
-        if event_data.get("outcome") in ("ABORT", "REPLAN"):
-            recent_errors.append(
-                {
-                    "trace_id": log.trace_id,
-                    "outcome": event_data.get("outcome"),
-                    "reason": event_data.get("reason"),
-                    "step": event_data.get("step_label"),
-                    "created_at": log.created_at.isoformat() if log.created_at else None,
-                }
-            )
+    for log in filtered_logs:
+        if log.get("event_type") == "supervisor":
+            event_data = log.get("event_data", {})
+            outcome = event_data.get("outcome")
+            if outcome in ("ABORT", "REPLAN"):
+                recent_errors.append(
+                    {
+                        "trace_id": log.get("trace_id"),
+                        "outcome": outcome,
+                        "reason": event_data.get("reason"),
+                        "step": event_data.get("step_label"),
+                        "created_at": log.get("timestamp"),
+                    }
+                )
+                if len(recent_errors) >= 20:
+                    break
 
     return DebugLogStats(
         total_logs=total_logs,
-        by_event_type=by_event_type,
+        by_event_type=dict(by_event_type_dict),
         by_hour=by_hour,
         recent_errors=recent_errors,
     )
+
+
+@router.get("/otel-metrics")
+async def get_otel_metrics_api(
+    auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
+) -> dict[str, Any]:
+    """Get OpenTelemetry metrics with computed insights.
+
+    Returns raw counters plus computed fields useful for AI diagnosis:
+    - error_rate_pct: Error rate as percentage
+    - avg_request_duration_ms: Average request latency
+    - avg_llm_duration_ms: Average LLM call latency
+    """
+    from core.observability.metrics import get_metric_snapshot
+
+    snapshot = get_metric_snapshot()
+
+    # Compute derived insights
+    total_req = snapshot.get("requests.total", 0)
+    total_errors = snapshot.get("requests.errors", 0)
+    duration_sum = snapshot.get("requests.duration_ms_sum", 0)
+    llm_calls = snapshot.get("llm.calls.total", 0)
+    llm_duration_sum = snapshot.get("llm.duration_ms_sum", 0)
+
+    return {
+        "counters": snapshot,
+        "insights": {
+            "error_rate_pct": round((total_errors / total_req * 100), 2) if total_req > 0 else 0.0,
+            "avg_request_duration_ms": round(duration_sum / total_req, 1) if total_req > 0 else 0.0,
+            "avg_llm_duration_ms": round(llm_duration_sum / llm_calls, 1) if llm_calls > 0 else 0.0,
+            "total_requests": int(total_req),
+            "total_errors": int(total_errors),
+            "total_llm_tokens": int(snapshot.get("llm.tokens.total", 0)),
+            "total_tool_calls": int(snapshot.get("tools.calls.total", 0)),
+            "total_tool_errors": int(snapshot.get("tools.errors", 0)),
+            "active_requests": int(snapshot.get("requests.active", 0)),
+        },
+    }
+
+
+@router.get("/debug/logs")
+async def get_debug_logs_api(
+    trace_id: str | None = Query(None, description="Filter by trace ID"),
+    event_type: str | None = Query(None, description="Filter by event type"),
+    limit: int = Query(50, le=500, description="Max entries to return"),
+    auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
+) -> list[dict[str, Any]]:
+    """Query debug log entries from JSONL file.
+
+    Returns structured debug events with full event_data.
+    Filter by trace_id to get all events for a specific request,
+    or by event_type to find specific event categories.
+
+    Event types: request, history, plan, tool_call, skill_step,
+    supervisor, completion_prompt, completion_response
+    """
+    from core.observability.debug_logger import read_debug_logs
+
+    return await read_debug_logs(
+        trace_id=trace_id,
+        event_type=event_type,
+        limit=limit,
+    )
+
+
+@router.get("/investigate/{trace_id}")
+async def investigate_trace(
+    trace_id: str,
+    auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
+) -> dict[str, Any]:
+    """Get all observability data for a single trace in one call.
+
+    Returns trace spans, debug log entries, and metrics context
+    for the given trace_id. This is the primary endpoint for
+    AI-driven diagnosis of individual requests.
+
+    Response structure:
+    {
+        "trace_id": "abc123...",
+        "spans": [...],           // All spans in this trace
+        "debug_logs": [...],      // All debug events for this trace
+        "summary": {              // Computed summary
+            "duration_ms": 1234,
+            "span_count": 8,
+            "error_spans": 1,
+            "tools_used": ["search", "homey"],
+            "llm_calls": 2,
+            "outcome": "SUCCESS" | "ABORT" | "REPLAN" | null
+        }
+    }
+    """
+    from core.observability.debug_logger import read_debug_logs
+
+    settings = get_settings()
+    diag_service = DiagnosticsService(settings)
+
+    # Get trace spans
+    traces = await diag_service.get_recent_traces(limit=5000, show_all=True)
+    trace_spans = []
+    for tg in traces:
+        if tg.trace_id == trace_id:
+            trace_spans = [
+                {
+                    "name": s.name,
+                    "duration_ms": s.duration_ms,
+                    "status": s.status,
+                    "attributes": s.attributes,
+                    "start_time": s.start_time,
+                }
+                for s in tg.spans
+            ]
+            break
+
+    # Get debug logs for this trace
+    debug_logs = await read_debug_logs(trace_id=trace_id, limit=500)
+
+    # Compute summary
+    durations = [s.get("duration_ms", 0) for s in trace_spans]
+    total_duration = max((d for d in durations if isinstance(d, (int, float))), default=0)
+    error_spans = sum(1 for s in trace_spans if s.get("status") == "ERROR")
+    tools_used = list(
+        {
+            dl.get("event_data", {}).get("tool_name", "")
+            for dl in debug_logs
+            if dl.get("event_type") == "tool_call"
+        }
+        - {""}
+    )
+    llm_calls = sum(1 for dl in debug_logs if dl.get("event_type") in ("completion_prompt",))
+
+    # Find outcome from supervisor events
+    outcome = None
+    for dl in debug_logs:
+        if dl.get("event_type") == "supervisor":
+            outcome = dl.get("event_data", {}).get("outcome")
+
+    return {
+        "trace_id": trace_id,
+        "spans": trace_spans,
+        "debug_logs": debug_logs,
+        "summary": {
+            "duration_ms": total_duration,
+            "span_count": len(trace_spans),
+            "error_spans": error_spans,
+            "tools_used": tools_used,
+            "llm_calls": llm_calls,
+            "outcome": outcome,
+        },
+    }
 
 
 @router.get("/traces/search", response_model=list[TraceSearchResult])
@@ -671,22 +825,30 @@ async def get_tool_stats(
     Args:
         hours: Number of hours to analyze (1-168).
     """
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
+    from core.observability.debug_logger import read_debug_logs
 
-    # Get all tool_call events
-    stmt = (
-        select(DebugLog)
-        .where(DebugLog.event_type == "tool_call")
-        .where(DebugLog.created_at >= cutoff)
-    )
-    result = await session.execute(stmt)
-    logs = result.scalars().all()
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+
+    # Get all tool_call events from JSONL
+    logs = await read_debug_logs(event_type="tool_call", limit=10000)
+
+    # Filter by time window
+    filtered_logs = []
+    for log in logs:
+        timestamp_str = log.get("timestamp", "")
+        if timestamp_str:
+            try:
+                log_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                if log_time >= cutoff:
+                    filtered_logs.append(log)
+            except ValueError:
+                continue
 
     # Aggregate by tool name
     tool_stats: dict[str, dict[str, Any]] = {}
-    for log in logs:
-        data = log.event_data or {}
-        tool_name = data.get("tool", "unknown")
+    for log in filtered_logs:
+        data = log.get("event_data", {})
+        tool_name = data.get("tool_name", data.get("tool", "unknown"))
         duration = data.get("duration_ms")
 
         if tool_name not in tool_stats:
@@ -738,22 +900,30 @@ async def get_skill_stats(
     Args:
         hours: Number of hours to analyze (1-168).
     """
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
+    from core.observability.debug_logger import read_debug_logs
 
-    # Get all skill_step events
-    stmt = (
-        select(DebugLog)
-        .where(DebugLog.event_type == "skill_step")
-        .where(DebugLog.created_at >= cutoff)
-    )
-    result = await session.execute(stmt)
-    logs = result.scalars().all()
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+
+    # Get all skill_step events from JSONL
+    logs = await read_debug_logs(event_type="skill_step", limit=10000)
+
+    # Filter by time window
+    filtered_logs = []
+    for log in logs:
+        timestamp_str = log.get("timestamp", "")
+        if timestamp_str:
+            try:
+                log_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+                if log_time >= cutoff:
+                    filtered_logs.append(log)
+            except ValueError:
+                continue
 
     # Aggregate by skill name
     skill_stats: dict[str, dict[str, Any]] = {}
-    for log in logs:
-        data = log.event_data or {}
-        skill_name = data.get("skill", "unknown")
+    for log in filtered_logs:
+        data = log.get("event_data", {})
+        skill_name = data.get("skill_name", data.get("skill", "unknown"))
         duration = data.get("duration_ms")
         outcome = data.get("outcome", "unknown")
 

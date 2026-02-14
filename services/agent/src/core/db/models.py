@@ -459,20 +459,3 @@ class SystemConfig(Base):
     value: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
-
-
-class DebugLog(Base):
-    """Debug log entries for request tracing.
-
-    Stores detailed logs when debug mode is enabled.
-    Auto-cleaned after retention period (default 24h).
-    """
-
-    __tablename__ = "debug_logs"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    trace_id: Mapped[str] = mapped_column(String, index=True)
-    conversation_id: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
-    event_type: Mapped[str] = mapped_column(String, index=True)
-    event_data: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, index=True)

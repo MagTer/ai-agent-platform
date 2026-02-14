@@ -30,8 +30,8 @@ from core.agents import (
 from core.command_loader import get_available_skill_names, get_registry_index
 from core.context_manager import ContextManager
 from core.db import Context, Conversation, Message, Session
-from core.debug import DebugLogger
 from core.models.pydantic_schemas import SupervisorDecision, TraceContext
+from core.observability.debug_logger import DebugLogger
 from core.observability.logging import log_event
 from core.observability.tracing import (
     current_trace_ids,
@@ -668,6 +668,15 @@ class AgentService:
                 reason=reason,
                 conversation_id=conversation_id,
             )
+
+            # Record OTel metrics
+            if plan_step.executor == "skill":
+                from core.observability.metrics import record_skill_step
+
+                record_skill_step(
+                    skill_name=plan_step.tool or "unknown",
+                    outcome=outcome.value,
+                )
 
             # Handle outcome
             if outcome == StepOutcome.SUCCESS:

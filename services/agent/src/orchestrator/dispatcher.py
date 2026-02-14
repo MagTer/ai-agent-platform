@@ -13,6 +13,8 @@ from utils.template import substitute_variables
 
 from core.command_loader import get_registry_index
 from core.db.models import Context, Conversation, Message, Session
+from core.observability.debug_logger import DebugLogger
+from core.observability.tracing import current_trace_ids
 from core.routing.unified_orchestrator import UnifiedOrchestrator
 from core.runtime.litellm_client import LiteLLMClient
 from core.runtime.routing import registry
@@ -189,6 +191,32 @@ class Dispatcher:
         if result.is_direct:
             # Direct answer - no plan needed
             LOGGER.info("UnifiedOrchestrator: direct answer")
+
+            # Debug logging for direct answers (bypasses AgentService)
+            if db_session:
+                debug_logger = DebugLogger(db_session)
+                trace_id = current_trace_ids().get("trace_id", "unknown")
+                await debug_logger.log_event(
+                    trace_id=trace_id,
+                    event_type="request",
+                    event_data={
+                        "prompt": stripped_message[:500],
+                        "routing": "direct_answer",
+                        "message_count": len(chat_history),
+                    },
+                    conversation_id=conversation_id,
+                )
+                await debug_logger.log_event(
+                    trace_id=trace_id,
+                    event_type="completion_response",
+                    event_data={
+                        "response": (result.direct_answer or "")[:2000],
+                        "model": "unified_orchestrator",
+                        "routing": "direct_answer",
+                    },
+                    conversation_id=conversation_id,
+                )
+
             yield {
                 "type": "thinking",
                 "content": "Direct answer (no tools needed)",

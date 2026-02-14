@@ -29,7 +29,6 @@ class NavItem:
 ADMIN_NAV_ITEMS: list[NavItem] = [
     NavItem("Dashboard", "/platformadmin/", "&#127968;", "home"),
     NavItem("Diagnostics", "/platformadmin/diagnostics/", "&#128200;", "monitoring"),
-    NavItem("Debug Logs", "/platformadmin/debug/", "&#128270;", "monitoring"),
     NavItem("Users", "/platformadmin/users/", "&#128100;", "users"),
     NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "users"),
     NavItem("Scheduler", "/platformadmin/scheduler/", "&#128339;", "features"),

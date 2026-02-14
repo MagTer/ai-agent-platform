@@ -8,9 +8,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.db.engine import get_db
 from core.diagnostics.service import DiagnosticsService, TestResult, TraceGroup
+from core.observability.debug_logger import DebugLogger, read_debug_logs
 from core.runtime.config import Settings, get_settings
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
@@ -71,6 +74,21 @@ async def get_metrics(
         Requires admin role via Entra ID authentication.
     """
     return await service.get_system_health_metrics(window=window)
+
+
+@router.get("/otel-metrics", dependencies=[Depends(verify_admin_user)])
+async def get_otel_metrics() -> dict[str, float]:
+    """Get OpenTelemetry metric snapshot for dashboard display.
+
+    Returns:
+        Raw metric counters from in-memory snapshot.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    from core.observability.metrics import get_metric_snapshot
+
+    return get_metric_snapshot()
 
 
 @router.post(
@@ -383,6 +401,67 @@ async def get_application_logs(
         }
 
 
+@router.get("/debug-logs", dependencies=[Depends(verify_admin_user)])
+async def get_debug_logs(
+    trace_id: str | None = Query(None),
+    event_type: str | None = Query(None),
+    limit: int = Query(100, le=500),
+) -> list[dict[str, Any]]:
+    """Get debug log entries from JSONL file."""
+    return await read_debug_logs(
+        trace_id=trace_id,
+        event_type=event_type,
+        limit=limit,
+    )
+
+
+@router.post(
+    "/debug-toggle",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def toggle_debug_logging(
+    data: dict[str, bool],
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Toggle debug logging on/off."""
+    from sqlalchemy import select
+
+    from core.db.models import SystemConfig
+
+    enabled = data.get("enabled", False)
+
+    stmt = select(SystemConfig).where(SystemConfig.key == "debug_enabled")
+    result = await session.execute(stmt)
+    config = result.scalar_one_or_none()
+
+    if config:
+        config.value = "true" if enabled else "false"  # type: ignore[assignment]
+    else:
+        config = SystemConfig(
+            key="debug_enabled",
+            value="true" if enabled else "false",
+            description="Debug logging toggle",
+        )
+        session.add(config)
+
+    await session.commit()
+    return {"enabled": enabled}
+
+
+@router.get("/debug-status", dependencies=[Depends(verify_admin_user)])
+async def get_debug_status(
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Get debug logging status and stats."""
+    debug_logger = DebugLogger(session)
+    enabled = await debug_logger.is_enabled()
+
+    all_logs = await read_debug_logs(limit=10000)
+    log_count = len(all_logs)
+
+    return {"enabled": enabled, "log_count": log_count}
+
+
 def _get_diagnostics_content() -> str:
     """Return the main content HTML for the diagnostics dashboard."""
     return """
@@ -471,7 +550,50 @@ def _get_diagnostics_content() -> str:
         <!-- Metrics Screen -->
         <div class="diag-screen diag-health-screen" id="view-metrics">
             <div style="max-width: 1000px; margin: 0 auto;">
-                <h2 class="diag-section-title">System Metrics (Last 60 Traces)</h2>
+                <h2 class="diag-section-title">Live Platform Metrics (OTel)</h2>
+                <div class="diag-metric-cards" id="otelMetricCards">
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Total Requests</div>
+                        <div class="diag-m-value" id="otelReqTotal">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Error Rate</div>
+                        <div class="diag-m-value" id="otelErrorRate">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Avg Latency</div>
+                        <div class="diag-m-value" id="otelAvgLatency">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">LLM Tokens</div>
+                        <div class="diag-m-value" id="otelLlmTokens">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Tool Errors</div>
+                        <div class="diag-m-value" id="otelToolErrors">-</div>
+                    </div>
+                    <div class="diag-m-card">
+                        <div class="diag-m-title">Active Requests</div>
+                        <div class="diag-m-value" id="otelActiveReqs">-</div>
+                    </div>
+                </div>
+
+                <h2 class="diag-section-title" style="margin-top:32px">Recent Errors</h2>
+                <table id="recentErrorsTable" class="diag-table">
+                    <thead>
+                        <tr>
+                            <th style="width:120px">Time</th>
+                            <th style="width:150px">Trace</th>
+                            <th>Error</th>
+                            <th style="width:150px">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentErrorsBody">
+                        <tr><td colspan="4" style="text-align:center; color:#999">Loading...</td></tr>
+                    </tbody>
+                </table>
+
+                <h2 class="diag-section-title" style="margin-top:32px">System Metrics (Last 60 Traces)</h2>
                 <div class="diag-metric-cards">
                     <div class="diag-m-card">
                         <div class="diag-m-title">Total Requests</div>
@@ -506,6 +628,73 @@ def _get_diagnostics_content() -> str:
         <!-- Logs & Events Screen -->
         <div class="diag-screen diag-health-screen" id="view-logs">
             <div style="max-width: 1200px; margin: 0 auto;">
+                <h2 class="diag-section-title">Debug Logs</h2>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px">
+                    <div style="display:flex; gap:16px; align-items:center">
+                        <div class="debug-toggle-container">
+                            <label class="debug-toggle">
+                                <input type="checkbox" id="debugToggle" onchange="toggleDebugLogging(this.checked)">
+                                <span class="debug-toggle-slider"></span>
+                            </label>
+                            <span id="debugToggleLabel" style="font-weight:600; font-size:13px">Loading...</span>
+                        </div>
+                        <span style="font-size:13px; color:var(--text-muted)">Total: <strong id="debugLogCount">-</strong> logs</span>
+                    </div>
+                    <button class="btn" onclick="loadDebugLogs()">Refresh</button>
+                </div>
+
+                <div id="debugTraceFilter" style="display:none; margin-bottom:12px; background:#fef3c7; border-left:4px solid #f59e0b; padding:12px 16px; border-radius:0 8px 8px 0">
+                    <strong>Filtered by trace:</strong> <code id="debugTraceFilterId"></code>
+                    <a href="#" onclick="clearDebugTraceFilter(); return false" style="margin-left:12px; color:#0369a1; text-decoration:none; font-weight:600">Show all</a>
+                </div>
+
+                <div style="overflow-x:auto; margin-bottom:24px">
+                    <table class="diag-table" id="debugLogsTable">
+                        <thead>
+                            <tr>
+                                <th style="width:120px">Trace ID</th>
+                                <th style="width:100px">Event</th>
+                                <th style="width:120px">Conversation</th>
+                                <th>Data Preview</th>
+                                <th style="width:80px">Time</th>
+                                <th style="width:60px">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="debugLogsBody">
+                            <tr><td colspan="6" style="text-align:center; color:#999">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="background:#dbeafe; border-left:4px solid var(--primary); padding:16px; margin-bottom:32px; border-radius:0 8px 8px 0; font-size:13px">
+                    <strong>Debug Logging captures:</strong>
+                    <ul style="margin:10px 0 0; padding-left:20px">
+                        <li><strong>request</strong> - Incoming prompt, messages, metadata</li>
+                        <li><strong>history</strong> - Message history source and contents</li>
+                        <li><strong>plan</strong> - Generated execution plan</li>
+                        <li><strong>tool_call</strong> - Tool executions with args and results</li>
+                        <li><strong>supervisor</strong> - Supervisor decisions (SUCCESS/RETRY/REPLAN/ABORT)</li>
+                        <li><strong>completion_prompt</strong> - Full prompt sent to completion LLM</li>
+                        <li><strong>completion_response</strong> - LLM response</li>
+                    </ul>
+                    <p style="margin-top:10px; margin-bottom:0">
+                        Logs stored in <code>data/debug_logs.jsonl</code> with automatic rotation (10MB max, 3 backups).
+                    </p>
+                </div>
+
+                <!-- Debug Log Detail Modal -->
+                <div class="diag-modal" id="debugLogModal" onclick="if(event.target===this) closeDebugLogModal()">
+                    <div class="diag-modal-content">
+                        <div class="diag-modal-header">
+                            <h3 style="margin:0; font-size:16px; font-weight:600">Debug Log Details</h3>
+                            <div class="diag-close-drawer" onclick="closeDebugLogModal()">&times;</div>
+                        </div>
+                        <div class="diag-modal-body">
+                            <pre class="diag-modal-pre" id="debugLogDetailContent"></pre>
+                        </div>
+                    </div>
+                </div>
+
                 <h2 class="diag-section-title">Application Logs</h2>
                 <div style="margin-bottom:16px; display:flex; gap:12px; align-items:center">
                     <select id="logLevelFilter" onchange="loadLogs()" class="diag-select">
@@ -990,6 +1179,28 @@ def _get_diagnostics_css() -> str:
             font-family: 'Menlo', monospace;
             white-space: pre-wrap;
         }
+
+        /* Debug toggle */
+        .debug-toggle-container { display: flex; align-items: center; gap: 10px; }
+        .debug-toggle { position: relative; display: inline-block; width: 48px; height: 26px; }
+        .debug-toggle input { opacity: 0; width: 0; height: 0; }
+        .debug-toggle-slider {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #ccc; transition: .3s; border-radius: 26px;
+        }
+        .debug-toggle-slider:before {
+            position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px;
+            background-color: white; transition: .3s; border-radius: 50%;
+        }
+        .debug-toggle input:checked + .debug-toggle-slider { background-color: var(--success); }
+        .debug-toggle input:checked + .debug-toggle-slider:before { transform: translateX(22px); }
+
+        /* Debug log badges */
+        .dbg-badge-blue { background: #dbeafe; color: #1e40af; }
+        .dbg-badge-green { background: #d1fae5; color: #065f46; }
+        .dbg-badge-orange { background: #ffedd5; color: #9a3412; }
+        .dbg-badge-purple { background: #f3e8ff; color: #6b21a8; }
+        .dbg-badge-gray { background: #f3f4f6; color: #374151; }
     """
 
 
@@ -1012,6 +1223,11 @@ def _get_diagnostics_js() -> str:
         window.loadEvents = loadEvents;
         window.loadTraces = loadTraces;
         window.onTraceSearchInput = onTraceSearchInput;
+        window.loadDebugLogs = loadDebugLogs;
+        window.toggleDebugLogging = toggleDebugLogging;
+        window.showDebugLogDetail = showDebugLogDetail;
+        window.closeDebugLogModal = closeDebugLogModal;
+        window.clearDebugTraceFilter = clearDebugTraceFilter;
 
         loadTraces();
 
@@ -1031,6 +1247,7 @@ def _get_diagnostics_js() -> str:
                 if (tab === 'metrics') loadMetrics();
                 else if (tab === 'health') loadMcpStatus();
                 else if (tab === 'logs') {
+                    loadDebugLogs();
                     loadLogs();
                     loadEvents();
                 }
@@ -1044,13 +1261,20 @@ def _get_diagnostics_js() -> str:
                 if (currentTab === 'traces') await loadTraces();
                 else if (currentTab === 'metrics') await loadMetrics();
                 else if (currentTab === 'health') await loadMcpStatus();
-                else if (currentTab === 'logs') { await loadLogs(); await loadEvents(); }
+                else if (currentTab === 'logs') { await loadDebugLogs(); await loadLogs(); await loadEvents(); }
             } finally {
                 if (btn) { btn.disabled = false; btn.innerText = 'Refresh'; }
             }
         }
 
         async function loadMetrics() {
+            // Load OTel metrics
+            await loadOtelMetrics();
+
+            // Load recent errors
+            await loadRecentErrors();
+
+            // Load trace-based metrics
             const res = await fetchWithErrorHandling(`${API_BASE}/metrics?window=60`);
             if (!res) return;
 
@@ -1081,6 +1305,63 @@ def _get_diagnostics_js() -> str:
                     tbody.appendChild(tr);
                 });
             }
+        }
+
+        async function loadOtelMetrics() {
+            const res = await fetchWithErrorHandling(`${API_BASE}/otel-metrics`);
+            if (!res) return;
+            const data = await res.json();
+
+            // Computed fields
+            const total = data['requests.total'] || 0;
+            const errors = data['requests.errors'] || 0;
+            const durationSum = data['requests.duration_ms_sum'] || 0;
+            const errorRate = total > 0 ? ((errors / total) * 100).toFixed(1) + '%' : '0%';
+            const avgLatency = total > 0 ? Math.round(durationSum / total) + 'ms' : '-';
+            const tokens = data['llm.tokens.total'] || 0;
+
+            document.getElementById('otelReqTotal').innerText = Math.round(total);
+            document.getElementById('otelErrorRate').innerText = errorRate;
+            document.getElementById('otelAvgLatency').innerText = avgLatency;
+            document.getElementById('otelLlmTokens').innerText = tokens > 1000 ? (tokens/1000).toFixed(1) + 'k' : Math.round(tokens);
+            document.getElementById('otelToolErrors').innerText = Math.round(data['tools.errors'] || 0);
+            document.getElementById('otelActiveReqs').innerText = Math.round(data['requests.active'] || 0);
+        }
+
+        async function loadRecentErrors() {
+            // Fetch error traces from traces endpoint with status filter
+            const res = await fetchWithErrorHandling(`${API_BASE}/traces?limit=100&show_all=false`);
+            if (!res) return;
+            const traces = await res.json();
+
+            // Filter for error traces
+            const errors = traces.filter(t => {
+                return t.spans.some(s => s.status === 'ERROR');
+            }).slice(0, 10);
+
+            const tbody = document.getElementById('recentErrorsBody');
+            if (!errors.length) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No recent errors</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = errors.map(t => {
+                const timestamp = new Date(t.start_time).toLocaleTimeString();
+                const traceIdShort = t.trace_id.slice(0, 12) + '...';
+                const errorSpan = t.spans.find(s => s.status === 'ERROR');
+                const errorMsg = errorSpan ? errorSpan.name : 'Unknown error';
+
+                return `
+                    <tr>
+                        <td>${timestamp}</td>
+                        <td><code><a href="#" onclick="loadTraceDetail('${t.trace_id}'); switchTab('traces'); return false;">${traceIdShort}</a></code></td>
+                        <td>${escapeHtml(errorMsg)}</td>
+                        <td>
+                            <button class="btn btn-sm" onclick="debugTraceFilter='${t.trace_id}'; switchTab('logs'); return false;">Debug Logs</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         async function runHealthChecks() {
@@ -1268,6 +1549,131 @@ def _get_diagnostics_js() -> str:
         }
 
         function closeCrashLogModal() { document.getElementById('crashLogModal').classList.remove('open'); }
+
+        // --- Debug Logs ---
+        let debugLogs = [];
+        let debugTraceFilter = null;
+
+        const DEBUG_EVENT_COLORS = {
+            request: 'dbg-badge-blue',
+            history: 'dbg-badge-purple',
+            plan: 'dbg-badge-green',
+            tool_call: 'dbg-badge-orange',
+            supervisor: 'dbg-badge-gray',
+            completion_prompt: 'dbg-badge-blue',
+            completion_response: 'dbg-badge-green',
+        };
+
+        async function loadDebugLogs() {
+            // Load status first
+            const statusRes = await fetchWithErrorHandling(`${API_BASE}/debug-status`);
+            if (statusRes) {
+                const status = await statusRes.json();
+                document.getElementById('debugToggle').checked = status.enabled;
+                document.getElementById('debugToggleLabel').textContent = status.enabled ? 'Enabled' : 'Disabled';
+                document.getElementById('debugLogCount').textContent = status.log_count;
+            }
+
+            // Load logs
+            let url = `${API_BASE}/debug-logs?limit=50`;
+            if (debugTraceFilter) url = `${API_BASE}/debug-logs?limit=500&trace_id=${encodeURIComponent(debugTraceFilter)}`;
+
+            const res = await fetchWithErrorHandling(url);
+            const tbody = document.getElementById('debugLogsBody');
+            if (!res) {
+                tbody.innerHTML = '<tr><td colspan="6" style="color:red; padding:20px">Failed to load debug logs</td></tr>';
+                return;
+            }
+
+            debugLogs = await res.json();
+
+            // Show/hide trace filter banner
+            const filterEl = document.getElementById('debugTraceFilter');
+            if (debugTraceFilter) {
+                filterEl.style.display = 'block';
+                document.getElementById('debugTraceFilterId').textContent = debugTraceFilter;
+            } else {
+                filterEl.style.display = 'none';
+            }
+
+            tbody.innerHTML = '';
+            if (!debugLogs.length) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#999">No debug logs. Enable debug logging and make a request.</td></tr>';
+                return;
+            }
+
+            debugLogs.forEach((log, idx) => {
+                const tr = document.createElement('tr');
+                const traceId = log.trace_id || '';
+                const traceIdShort = traceId ? traceId.slice(0, 12) + '...' : '-';
+                const eventType = log.event_type || '';
+                const colorClass = DEBUG_EVENT_COLORS[eventType] || 'dbg-badge-gray';
+                const convId = log.conversation_id || '';
+                const convIdShort = convId ? convId.slice(0, 12) + '...' : '-';
+                const eventData = JSON.stringify(log.event_data || {});
+                const preview = eventData.length > 100 ? eventData.slice(0, 100) + '...' : eventData;
+                const timestamp = (log.timestamp || '').slice(-15, -7);
+
+                tr.innerHTML = `
+                    <td><code><a href="#" onclick="loadTraceDetail('${traceId}'); switchTab('traces'); return false;" title="${escapeHtml(traceId)}">${escapeHtml(traceIdShort)}</a></code></td>
+                    <td><span class="badge ${colorClass}">${escapeHtml(eventType)}</span></td>
+                    <td style="font-size:11px">${escapeHtml(convIdShort)}</td>
+                    <td style="font-size:12px" title="${escapeHtml(eventData)}">${escapeHtml(preview)}</td>
+                    <td style="font-family:monospace; font-size:11px">${escapeHtml(timestamp)}</td>
+                    <td><button class="btn btn-sm" onclick="showDebugLogDetail(${idx})">View</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function toggleDebugLogging(enabled) {
+            const res = await fetchWithErrorHandling(`${API_BASE}/debug-toggle`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({enabled})
+            });
+            if (res) {
+                document.getElementById('debugToggleLabel').textContent = enabled ? 'Enabled' : 'Disabled';
+                showToast(enabled ? 'Debug logging enabled' : 'Debug logging disabled', 'success');
+            } else {
+                document.getElementById('debugToggle').checked = !enabled;
+            }
+        }
+
+        function showDebugLogDetail(idx) {
+            const log = debugLogs[idx];
+            if (!log) return;
+            document.getElementById('debugLogDetailContent').textContent = JSON.stringify(log, null, 2);
+            document.getElementById('debugLogModal').classList.add('open');
+        }
+
+        function closeDebugLogModal() {
+            document.getElementById('debugLogModal').classList.remove('open');
+        }
+
+        function clearDebugTraceFilter() {
+            debugTraceFilter = null;
+            loadDebugLogs();
+        }
+
+        function loadTraceDetail(traceId) {
+            // Search for trace and select it
+            const idx = traceGroups.findIndex(g => g.trace_id === traceId);
+            if (idx >= 0) {
+                selectTrace(idx);
+            } else {
+                // Reload traces with search
+                loadTraces(traceId);
+            }
+        }
+
+        // Check URL for trace parameter to auto-filter debug logs
+        const urlParams = new URLSearchParams(window.location.search);
+        const traceParam = urlParams.get('trace');
+        if (traceParam) {
+            // If trace param present, switch to traces tab and select
+            setTimeout(() => loadTraceDetail(traceParam), 500);
+        }
 
         let filteredTraceGroups = [];
 

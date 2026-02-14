@@ -848,35 +848,85 @@ Generate with: `openssl rand -hex 32`
 | Endpoint | Description |
 |----------|-------------|
 | `GET /platformadmin/api/status` | System health status (HEALTHY/DEGRADED/CRITICAL) |
+| `GET /platformadmin/api/otel-metrics` | Live OTel metrics with computed insights (error rate, avg latency, token usage) |
+| `GET /platformadmin/api/investigate/{trace_id}` | Unified view: trace spans + debug logs + summary for one request |
+| `GET /platformadmin/api/debug/logs` | Query debug log entries (filter by trace_id, event_type) |
+| `GET /platformadmin/api/debug/stats` | Debug log statistics by event type |
+| `GET /platformadmin/api/traces/search` | Search OpenTelemetry traces (filter by status, duration, trace_id) |
+| `GET /platformadmin/api/traces/{trace_id}` | Get full trace detail with all spans |
 | `GET /platformadmin/api/conversations` | List conversations with message counts |
 | `GET /platformadmin/api/conversations/{id}/messages` | Get messages for a conversation |
-| `GET /platformadmin/api/debug/stats` | Debug log statistics by event type |
-| `GET /platformadmin/api/traces/search` | Search OpenTelemetry traces |
-| `GET /platformadmin/api/traces/{trace_id}` | Get full trace detail with all spans |
+| `GET /platformadmin/api/tools/stats` | Tool execution statistics |
+| `GET /platformadmin/api/skills/stats` | Skill execution statistics |
+| `GET /platformadmin/api/requests/stats` | HTTP request timing statistics |
 | `GET /platformadmin/api/config` | Get system configuration entries |
 | `GET /platformadmin/api/health` | Simple health check (no auth) |
 
-### Example: AI Self-Diagnosis
+### Troubleshooting Workflow
 
+When diagnosing an issue, follow this sequence:
+
+**Step 1: Check overall health**
 ```bash
-# Get system status
-curl -H "X-API-Key: $KEY" https://your-domain/platformadmin/api/status
+curl -H "X-Api-Key: $KEY" $BASE/status
+```
+Look at `status` (HEALTHY/DEGRADED/CRITICAL), `recent_errors`, and `recommended_actions`.
 
-# Response:
-{
-  "status": "HEALTHY",
-  "timestamp": "2026-01-31T12:00:00Z",
-  "components": ["PostgreSQL", "Qdrant", "LiteLLM", ...],
-  "recent_errors": [],
-  "metrics": {"total_requests": 150, "error_rate": 0.02},
-  "recommended_actions": []
-}
+**Step 2: Check metrics for anomalies**
+```bash
+curl -H "X-Api-Key: $KEY" $BASE/otel-metrics
+```
+Key fields in `insights`:
+- `error_rate_pct` > 5% indicates a problem
+- `avg_request_duration_ms` > 30000 indicates slowness
+- `total_tool_errors` > 0 indicates tool failures
 
-# Get recent debug logs
-curl -H "X-API-Key: $KEY" "https://your-domain/platformadmin/api/debug/stats?hours=24"
+**Step 3: Find error traces**
+```bash
+curl -H "X-Api-Key: $KEY" "$BASE/traces/search?status=ERR&limit=10"
+```
+Returns recent error traces with trace_id, name, duration, and start_time.
 
-# Search traces for errors
-curl -H "X-API-Key: $KEY" "https://your-domain/platformadmin/api/traces/search?status=ERR&limit=10"
+**Step 4: Investigate a specific trace**
+```bash
+curl -H "X-Api-Key: $KEY" $BASE/investigate/{trace_id}
+```
+Returns everything for that request in one call:
+- `spans`: All trace spans (timing, status, attributes)
+- `debug_logs`: All debug events (LLM prompts, tool calls, supervisor decisions)
+- `summary`: Computed overview (duration, error count, tools used, outcome)
+
+**Step 5: Deep-dive into debug logs**
+```bash
+# All debug events for a trace
+curl -H "X-Api-Key: $KEY" "$BASE/debug/logs?trace_id={trace_id}"
+
+# Only supervisor decisions (to find ABORT/REPLAN)
+curl -H "X-Api-Key: $KEY" "$BASE/debug/logs?event_type=supervisor&limit=20"
+
+# Only tool calls (to find failures)
+curl -H "X-Api-Key: $KEY" "$BASE/debug/logs?event_type=tool_call&limit=20"
+```
+
+### Quick Reference for Claude Code Sessions
+
+When troubleshooting the live platform from a Claude Code session:
+```bash
+# Set up (once per session)
+KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
+BASE="http://localhost:8001/platformadmin/api"
+
+# Health check
+curl -s -H "X-Api-Key: $KEY" $BASE/status | python -m json.tool
+
+# Is something broken? Check error rate
+curl -s -H "X-Api-Key: $KEY" $BASE/otel-metrics | python -m json.tool
+
+# Find recent failures
+curl -s -H "X-Api-Key: $KEY" "$BASE/traces/search?status=ERR&limit=5" | python -m json.tool
+
+# Full investigation of a specific request
+curl -s -H "X-Api-Key: $KEY" "$BASE/investigate/TRACE_ID_HERE" | python -m json.tool
 ```
 
 ### Implementation
@@ -884,6 +934,8 @@ curl -H "X-API-Key: $KEY" "https://your-domain/platformadmin/api/traces/search?s
 - **Router:** `services/agent/src/interfaces/http/admin_api.py`
 - **Config:** `AGENT_DIAGNOSTIC_API_KEY` in `.env`
 - Uses `DiagnosticsService` for health checks and trace analysis
+- OTel metrics stored in-memory via `core/observability/metrics.py` (snapshot dict)
+- Debug logs stored in `data/debug_logs.jsonl` (JSONL with rotation, not DB)
 
 ---
 
