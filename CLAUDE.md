@@ -912,9 +912,11 @@ curl -H "X-Api-Key: $KEY" "$BASE/debug/logs?event_type=tool_call&limit=20"
 
 When troubleshooting the live platform from a Claude Code session:
 ```bash
-# Set up (once per session)
+# Set up (once per session) -- all access via Traefik (no direct host ports)
 KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
-BASE="http://localhost:8001/platformadmin/api"
+BASE_DEV="https://agent-dev.falle.se/platformadmin/api"
+BASE_PROD="https://agent.falle.se/platformadmin/api"
+BASE=$BASE_DEV  # Default to dev
 
 # Health check
 curl -s -H "X-Api-Key: $KEY" $BASE/status | python -m json.tool

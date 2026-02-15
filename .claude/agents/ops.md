@@ -230,30 +230,30 @@ All containers must show "running" or "healthy". If any show "exited" or "restar
 
 ### Step 2: Health Check (Liveness)
 ```bash
-# Dev (port 8001) -- verify environment field says "development"
-curl -sf http://localhost:8001/healthz | python3 -c "import sys,json; d=json.load(sys.stdin); print(d); assert d['environment']=='development'"
+# Dev (via docker exec -- no host ports exposed)
+docker exec ai-agent-platform-dev-agent-1 curl -sf http://localhost:8000/healthz | python3 -c "import sys,json; d=json.load(sys.stdin); print(d); assert d['environment']=='development'"
 
-# Prod (port 8000) -- verify environment field says "production"
-curl -sf http://localhost:8000/healthz | python3 -c "import sys,json; d=json.load(sys.stdin); print(d); assert d['environment']=='production'"
+# Prod (via docker exec -- no host ports exposed)
+docker exec ai-agent-platform-prod-agent-1 curl -sf http://localhost:8000/healthz | python3 -c "import sys,json; d=json.load(sys.stdin); print(d); assert d['environment']=='production'"
 ```
 
 ### Step 3: Readiness Check (Dependencies)
 ```bash
-# Dev -- also verify environment field
-curl -sf http://localhost:8001/readyz | python3 -m json.tool
+# Dev
+docker exec ai-agent-platform-dev-agent-1 curl -sf http://localhost:8000/readyz | python3 -m json.tool
 
 # Prod
-curl -sf http://localhost:8000/readyz | python3 -m json.tool
+docker exec ai-agent-platform-prod-agent-1 curl -sf http://localhost:8000/readyz | python3 -m json.tool
 ```
 This checks DB, Qdrant, LiteLLM, and skills. The response includes an `environment` field. Parse the JSON to identify which component failed.
 
 ### Step 4: Platformadmin Check
 ```bash
-# Dev
-curl -sf http://localhost:8001/platformadmin/ -o /dev/null -w "%{http_code}"
+# Dev (via Traefik)
+curl -sf https://agent-dev.falle.se/platformadmin/ -o /dev/null -w "%{http_code}"
 
-# Prod
-curl -sf http://localhost:8000/platformadmin/ -o /dev/null -w "%{http_code}"
+# Prod (via Traefik)
+curl -sf https://agent.falle.se/platformadmin/ -o /dev/null -w "%{http_code}"
 ```
 Expect HTTP 200 (or 302 redirect to login).
 
@@ -269,11 +269,11 @@ If this fails, Open WebUI cannot reach the agent. Fix with `./stack dev deploy -
 
 ### Step 6: API Check
 ```bash
-# Dev (requires AGENT_INTERNAL_API_KEY if set)
-curl -sf http://localhost:8001/v1/models -H "X-API-Key: $AGENT_INTERNAL_API_KEY" -o /dev/null -w "%{http_code}"
+# Dev (via docker exec)
+docker exec ai-agent-platform-dev-agent-1 curl -sf http://localhost:8000/v1/models -H "X-API-Key: $AGENT_INTERNAL_API_KEY" -o /dev/null -w "%{http_code}"
 
-# Prod
-curl -sf http://localhost:8000/v1/models -H "X-API-Key: $AGENT_INTERNAL_API_KEY" -o /dev/null -w "%{http_code}"
+# Prod (via docker exec)
+docker exec ai-agent-platform-prod-agent-1 curl -sf http://localhost:8000/v1/models -H "X-API-Key: $AGENT_INTERNAL_API_KEY" -o /dev/null -w "%{http_code}"
 ```
 Expect HTTP 200. The `/v1/models` endpoint requires `AGENT_INTERNAL_API_KEY` when set (production). If the key is unset, auth is skipped (dev convenience).
 
@@ -339,8 +339,8 @@ docker ps --format "{{.Names}}\t{{.Status}}" | grep postgres
 
 # LiteLLM error: verify litellm proxy
 docker ps --format "{{.Names}}\t{{.Status}}" | grep litellm
-curl -sf http://localhost:4001/health  # Dev
-curl -sf http://localhost:4000/health  # Prod
+docker exec ai-agent-platform-dev-litellm-1 curl -sf http://localhost:4000/health  # Dev
+docker exec ai-agent-platform-prod-litellm-1 curl -sf http://localhost:4000/health  # Prod
 
 # Qdrant error: verify qdrant
 docker ps --format "{{.Names}}\t{{.Status}}" | grep qdrant
@@ -448,8 +448,8 @@ Reason: [Why it's complex]
 | Sync branch | `git pull origin main` |
 | Quality check | `stack check` |
 | Deploy dev | `./stack dev deploy` |
-| Verify deploy (dev) | `curl -sf http://localhost:8001/readyz` |
-| Verify deploy (prod) | `curl -sf http://localhost:8000/readyz` |
+| Verify deploy (dev) | `docker exec ai-agent-platform-dev-agent-1 curl -sf http://localhost:8000/readyz` |
+| Verify deploy (prod) | `docker exec ai-agent-platform-prod-agent-1 curl -sf http://localhost:8000/readyz` |
 | Create PR | `gh pr create ...` |
 | Merge PR | `gh pr merge N --squash` |
 
