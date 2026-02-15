@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -283,6 +283,7 @@ class ContextInfo(BaseModel):
 
     id: UUID
     name: str
+    display_name: str | None
     type: str
     config: dict[str, Any]
     pinned_files: list[str]
@@ -294,6 +295,7 @@ class ContextInfo(BaseModel):
     workspace_count: int
     mcp_server_count: int
     credential_count: int
+    is_personal: bool
 
 
 class ContextList(BaseModel):
@@ -308,6 +310,7 @@ class ContextDetailResponse(BaseModel):
 
     id: UUID
     name: str
+    display_name: str | None
     type: str
     config: dict[str, Any]
     pinned_files: list[str]
@@ -316,6 +319,7 @@ class ContextDetailResponse(BaseModel):
     oauth_tokens: list[dict[str, Any]]
     tool_permissions: list[dict[str, Any]]
     credentials: list[dict[str, Any]]
+    is_personal: bool
 
 
 class CreateContextRequest(BaseModel):
@@ -418,6 +422,14 @@ async def list_contexts(
         .subquery()
     )
 
+    # Subquery: is_personal (context has a default UserContext)
+    personal_subq = (
+        select(UserContext.context_id, func.bool_or(UserContext.is_default).label("is_personal"))
+        .where(UserContext.is_default == True)  # noqa: E712
+        .group_by(UserContext.context_id)
+        .subquery()
+    )
+
     # Single query with LEFT JOINs to avoid N+1 pattern
     # For N contexts, this runs 1 query instead of 1 + 3N queries
     stmt = (
@@ -430,6 +442,7 @@ async def list_contexts(
             func.count(distinct(McpServer.id)).label("mcp_count"),
             func.count(distinct(UserCredential.id)).label("cred_count"),
             owner_subq.c.owner_email,
+            personal_subq.c.is_personal,
         )
         .outerjoin(Conversation, Conversation.context_id == Context.id)
         .outerjoin(OAuthToken, OAuthToken.context_id == Context.id)
@@ -438,7 +451,8 @@ async def list_contexts(
         .outerjoin(McpServer, McpServer.context_id == Context.id)
         .outerjoin(UserCredential, UserCredential.context_id == Context.id)
         .outerjoin(owner_subq, owner_subq.c.context_id == Context.id)
-        .group_by(Context.id, owner_subq.c.owner_email)
+        .outerjoin(personal_subq, personal_subq.c.context_id == Context.id)
+        .group_by(Context.id, owner_subq.c.owner_email, personal_subq.c.is_personal)
         .order_by(Context.name)
     )
 
@@ -458,11 +472,13 @@ async def list_contexts(
         mcp_count,
         cred_count,
         owner_email,
+        is_personal,
     ) in rows:
         context_infos.append(
             ContextInfo(
                 id=ctx.id,
                 name=ctx.name,
+                display_name=ctx.display_name,
                 type=ctx.type,
                 config=ctx.config,
                 pinned_files=ctx.pinned_files,
@@ -474,6 +490,7 @@ async def list_contexts(
                 workspace_count=ws_count,
                 mcp_server_count=mcp_count,
                 credential_count=cred_count,
+                is_personal=bool(is_personal),
             )
         )
 
@@ -555,15 +572,24 @@ async def get_context_details(
     cred_result = await session.execute(cred_stmt)
     credentials = cred_result.scalars().all()
 
+    # Check if this is a personal context (has a default UserContext)
+    personal_check_stmt = select(UserContext).where(
+        UserContext.context_id == context_id, UserContext.is_default == True  # noqa: E712
+    )
+    personal_check_result = await session.execute(personal_check_stmt)
+    is_personal = personal_check_result.scalar_one_or_none() is not None
+
     now = datetime.now(UTC).replace(tzinfo=None)
 
     return ContextDetailResponse(
         id=ctx.id,
         name=ctx.name,
+        display_name=ctx.display_name,
         type=ctx.type,
         config=ctx.config,
         pinned_files=ctx.pinned_files,
         default_cwd=ctx.default_cwd,
+        is_personal=is_personal,
         conversations=[
             {
                 "id": str(conv.id),
@@ -777,13 +803,24 @@ async def delete_context(
             detail=f"Context {context_id} not found",
         )
 
+    # Check if this is a personal/default context - prevent deletion
+    default_check = select(UserContext).where(
+        UserContext.context_id == context_id, UserContext.is_default == True  # noqa: E712
+    )
+    default_result = await session.execute(default_check)
+    if default_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete a personal (default) context",
+        )
+
     context_name = ctx.name
 
     # Delete context (cascade will delete related entities)
     await session.delete(ctx)
     await session.commit()
 
-    LOGGER.info("Admin deleted context (found and removed)")
+    LOGGER.info(f"Admin deleted context {context_id}")
 
     # Note: MCP clients will be automatically cleaned up on next access
     # since the context no longer exists in the database
@@ -799,10 +836,12 @@ class UpdateContextRequest(BaseModel):
     """Request to update a context."""
 
     name: str | None = Field(default=None, max_length=255, description="Context name")
+    display_name: str | None = Field(default=None, description="Friendly display name")
     type: str | None = Field(default=None, description="Context type")
     default_cwd: str | None = Field(default=None, description="Default working directory")
     config: dict[str, Any] | None = Field(default=None, description="Context configuration")
     pinned_files: list[str] | None = Field(default=None, description="Pinned files")
+    memory_file: str | None = Field(default=None, description="Memory file name")
 
     @field_validator("name")
     @classmethod
@@ -856,6 +895,8 @@ async def update_context(
                 detail=f"Context with name '{request.name}' already exists",
             )
         ctx.name = request.name
+    if request.display_name is not None:
+        ctx.display_name = request.display_name
     if request.type is not None:
         ctx.type = request.type
     if request.default_cwd is not None:
@@ -864,6 +905,10 @@ async def update_context(
         ctx.config = request.config
     if request.pinned_files is not None:
         ctx.pinned_files = request.pinned_files
+    if request.memory_file is not None:
+        config = dict(ctx.config) if ctx.config else {}
+        config["memory_file"] = request.memory_file
+        ctx.config = config
 
     await session.commit()
     LOGGER.info("Admin updated context %s", context_id)
@@ -1121,6 +1166,612 @@ async def delete_context_credential(
     await session.commit()
 
     return {"success": True, "message": f"Deleted {credential.credential_type} credential"}
+
+
+# File management endpoints for pinned files
+
+
+@router.get(
+    "/{context_id}/api/files",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def list_context_files(
+    context_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """List all files in the context data directory with pinned status.
+
+    Args:
+        context_id: Context UUID
+        session: Database session
+
+    Returns:
+        List of files with name, size, pinned status, modified time
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    from core.context.files import get_context_dir
+
+    # Get context to check pinned files
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    ctx = result.scalar_one_or_none()
+    if not ctx:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    context_dir = get_context_dir(context_id)
+    files_dir = context_dir / "files"
+
+    # Ensure directory exists
+    files_dir.mkdir(parents=True, exist_ok=True)
+
+    # List files
+    files = []
+    for file_path in files_dir.iterdir():
+        if file_path.is_file():
+            stat = file_path.stat()
+            abs_path = str(file_path.resolve())
+            files.append(
+                {
+                    "name": file_path.name,
+                    "size": stat.st_size,
+                    "modified": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
+                    "pinned": abs_path in ctx.pinned_files,
+                }
+            )
+
+    # Sort by name
+    files.sort(key=lambda f: cast(str, f["name"]))
+
+    return {"files": files, "total": len(files)}
+
+
+@router.get(
+    "/{context_id}/api/files/{file_name}",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def read_context_file(
+    context_id: UUID,
+    file_name: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Read a file from the context data directory.
+
+    Args:
+        context_id: Context UUID
+        file_name: File name (basename only)
+        session: Database session
+
+    Returns:
+        File content as string
+
+    Raises:
+        HTTPException: 404 if context or file not found
+        HTTPException: 400 if file_name contains path traversal
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Path traversal protection (basename only).
+    """
+    from core.context.files import get_context_dir
+
+    # Security: Only allow basename (no path traversal)
+    if "/" in file_name or ".." in file_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file name (path traversal not allowed)",
+        )
+
+    # Verify context exists
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    context_dir = get_context_dir(context_id)
+    file_path = context_dir / "files" / file_name
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="File is not valid UTF-8 text",
+        ) from e
+
+    return {"name": file_name, "content": content}
+
+
+class WriteFileRequest(BaseModel):
+    """Request to write a file."""
+
+    content: str = Field(..., description="File content")
+
+
+@router.put(
+    "/{context_id}/api/files/{file_name}",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def write_context_file(
+    context_id: UUID,
+    file_name: str,
+    request: WriteFileRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Write a file to the context data directory.
+
+    Args:
+        context_id: Context UUID
+        file_name: File name (basename only)
+        request: File content
+        session: Database session
+
+    Returns:
+        Success message with file size
+
+    Raises:
+        HTTPException: 404 if context not found
+        HTTPException: 400 if file_name contains path traversal or invalid characters
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Path traversal protection (basename only).
+    """
+    from core.context.files import ensure_context_directories
+
+    # Security: Only allow basename (no path traversal)
+    if "/" in file_name or ".." in file_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file name (path traversal not allowed)",
+        )
+
+    # Only allow markdown and text files
+    if not file_name.endswith((".md", ".txt")):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .md and .txt files are allowed",
+        )
+
+    # Verify context exists
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    # Ensure directory exists
+    context_dir = ensure_context_directories(context_id)
+    file_path = context_dir / "files" / file_name
+
+    # Write file
+    file_path.write_text(request.content, encoding="utf-8")
+
+    LOGGER.info(
+        f"Admin wrote file {file_name} for context {context_id} ({len(request.content)} bytes)"
+    )
+
+    return {
+        "success": True,
+        "message": f"File '{file_name}' saved",
+        "size": len(request.content.encode("utf-8")),
+    }
+
+
+@router.delete(
+    "/{context_id}/api/files/{file_name}",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def delete_context_file(
+    context_id: UUID,
+    file_name: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Delete a file from the context data directory.
+
+    Automatically unpins the file if it was pinned.
+
+    Args:
+        context_id: Context UUID
+        file_name: File name (basename only)
+        session: Database session
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException: 404 if context or file not found
+        HTTPException: 400 if file_name contains path traversal
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Path traversal protection (basename only).
+    """
+    from core.context.files import get_context_dir
+
+    # Security: Only allow basename (no path traversal)
+    if "/" in file_name or ".." in file_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file name (path traversal not allowed)",
+        )
+
+    # Get context
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    ctx = result.scalar_one_or_none()
+    if not ctx:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    context_dir = get_context_dir(context_id)
+    file_path = context_dir / "files" / file_name
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    # Auto-unpin if pinned
+    abs_path = str(file_path.resolve())
+    if abs_path in ctx.pinned_files:
+        ctx.pinned_files = [p for p in ctx.pinned_files if p != abs_path]
+        await session.commit()
+        LOGGER.info(f"Auto-unpinned file {file_name} for context {context_id}")
+
+    # Delete file
+    file_path.unlink()
+
+    LOGGER.info(f"Admin deleted file {file_name} for context {context_id}")
+
+    return {"success": True, "message": f"File '{file_name}' deleted"}
+
+
+@router.post(
+    "/{context_id}/api/files/{file_name}/pin",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def toggle_pin_context_file(
+    context_id: UUID,
+    file_name: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Toggle pin status for a file.
+
+    Args:
+        context_id: Context UUID
+        file_name: File name (basename only)
+        session: Database session
+
+    Returns:
+        New pin status
+
+    Raises:
+        HTTPException: 404 if context or file not found
+        HTTPException: 400 if file_name contains path traversal
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Path traversal protection (basename only).
+    """
+    from core.context.files import get_context_dir
+
+    # Security: Only allow basename (no path traversal)
+    if "/" in file_name or ".." in file_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file name (path traversal not allowed)",
+        )
+
+    # Get context
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    ctx = result.scalar_one_or_none()
+    if not ctx:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    context_dir = get_context_dir(context_id)
+    file_path = context_dir / "files" / file_name
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    # Toggle pin status (use absolute path)
+    abs_path = str(file_path.resolve())
+    if abs_path in ctx.pinned_files:
+        # Unpin
+        ctx.pinned_files = [p for p in ctx.pinned_files if p != abs_path]
+        await session.commit()
+        LOGGER.info(f"Admin unpinned file {file_name} for context {context_id}")
+        return {"success": True, "pinned": False, "message": f"File '{file_name}' unpinned"}
+    else:
+        # Pin
+        ctx.pinned_files = list(ctx.pinned_files) + [abs_path]
+        await session.commit()
+        LOGGER.info(f"Admin pinned file {file_name} for context {context_id}")
+        return {"success": True, "pinned": True, "message": f"File '{file_name}' pinned"}
+
+
+# Skill management endpoints for per-context skills
+
+
+@router.get(
+    "/{context_id}/api/skills",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def list_context_skills(
+    context_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """List all skill files in the context skills directory.
+
+    Args:
+        context_id: Context UUID
+        session: Database session
+
+    Returns:
+        List of skills with name, size, modified, and parsed frontmatter
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    from core.context.files import get_context_dir
+
+    # Verify context exists
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    context_dir = get_context_dir(context_id)
+    skills_dir = context_dir / "skills"
+
+    # Ensure directory exists
+    skills_dir.mkdir(parents=True, exist_ok=True)
+
+    # List skill files
+    skills = []
+    for file_path in skills_dir.iterdir():
+        if file_path.is_file() and file_path.suffix == ".md":
+            stat = file_path.stat()
+            skill_info: dict[str, object] = {
+                "name": file_path.name,
+                "size": stat.st_size,
+                "modified": datetime.fromtimestamp(stat.st_mtime, UTC).isoformat(),
+            }
+
+            # Try to parse frontmatter
+            try:
+                from core.skills.registry import parse_skill_content
+
+                content = file_path.read_text(encoding="utf-8")
+                skill_obj = parse_skill_content(file_path, content, skills_dir)
+                if skill_obj:
+                    skill_info["description"] = skill_obj.description
+                    skill_info["model"] = skill_obj.model
+                    skill_info["tools"] = skill_obj.tools
+                    skill_info["max_turns"] = skill_obj.max_turns
+            except Exception as e:
+                LOGGER.warning(f"Failed to parse skill {file_path}: {e}")
+                # Still return the file, just without parsed metadata
+
+            skills.append(skill_info)
+
+    # Sort by name
+    skills.sort(key=lambda s: cast(str, s["name"]))
+
+    return {"skills": skills, "total": len(skills)}
+
+
+@router.get(
+    "/{context_id}/api/skills/{file_name}",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def read_context_skill(
+    context_id: UUID,
+    file_name: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Read a skill file from the context skills directory.
+
+    Args:
+        context_id: Context UUID
+        file_name: File name (basename only, must be .md)
+        session: Database session
+
+    Returns:
+        Skill content and parsed frontmatter
+
+    Raises:
+        HTTPException: 404 if context or file not found
+        HTTPException: 400 if file_name contains path traversal
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Path traversal protection (basename only).
+    """
+    from core.context.files import get_context_dir
+
+    # Security: Only allow basename (no path traversal)
+    if "/" in file_name or ".." in file_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file name (path traversal not allowed)",
+        )
+
+    # Only allow .md files
+    if not file_name.endswith(".md"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .md files are allowed",
+        )
+
+    # Verify context exists
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    context_dir = get_context_dir(context_id)
+    file_path = context_dir / "skills" / file_name
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill file not found")
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="File is not valid UTF-8 text",
+        ) from e
+
+    # Parse frontmatter
+    frontmatter: dict[str, object] = {}
+    try:
+        from core.skills.registry import parse_skill_content
+
+        skill_obj = parse_skill_content(file_path, content, context_dir / "skills")
+        if skill_obj:
+            frontmatter = {
+                "name": skill_obj.name,
+                "description": skill_obj.description,
+                "model": skill_obj.model,
+                "tools": skill_obj.tools,
+                "max_turns": skill_obj.max_turns,
+                "variables": skill_obj.variables,
+            }
+    except Exception as e:
+        LOGGER.warning(f"Failed to parse skill frontmatter: {e}")
+
+    return {"name": file_name, "content": content, "frontmatter": frontmatter}
+
+
+@router.put(
+    "/{context_id}/api/skills/{file_name}",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def write_context_skill(
+    context_id: UUID,
+    file_name: str,
+    request: WriteFileRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Write a skill file to the context skills directory.
+
+    Args:
+        context_id: Context UUID
+        file_name: File name (basename only, must be .md)
+        request: File content
+        session: Database session
+
+    Returns:
+        Success message with file size
+
+    Raises:
+        HTTPException: 404 if context not found
+        HTTPException: 400 if file_name contains path traversal or invalid characters
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Path traversal protection (basename only).
+    """
+    from core.context.files import ensure_context_directories
+
+    # Security: Only allow basename (no path traversal)
+    if "/" in file_name or ".." in file_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file name (path traversal not allowed)",
+        )
+
+    # Only allow markdown files
+    if not file_name.endswith(".md"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .md files are allowed",
+        )
+
+    # Verify context exists
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    # Ensure directory exists
+    context_dir = ensure_context_directories(context_id)
+    skills_dir = context_dir / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    file_path = skills_dir / file_name
+
+    # Write file
+    file_path.write_text(request.content, encoding="utf-8")
+
+    LOGGER.info(
+        f"Admin wrote skill {file_name} for context {context_id} ({len(request.content)} bytes)"
+    )
+
+    return {
+        "success": True,
+        "message": f"Skill '{file_name}' saved",
+        "size": len(request.content.encode("utf-8")),
+    }
+
+
+@router.delete(
+    "/{context_id}/api/skills/{file_name}",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def delete_context_skill(
+    context_id: UUID,
+    file_name: str,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Delete a skill file from the context skills directory.
+
+    Args:
+        context_id: Context UUID
+        file_name: File name (basename only)
+        session: Database session
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException: 404 if context or file not found
+        HTTPException: 400 if file_name contains path traversal
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        Path traversal protection (basename only).
+    """
+    from core.context.files import get_context_dir
+
+    # Security: Only allow basename (no path traversal)
+    if "/" in file_name or ".." in file_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file name (path traversal not allowed)",
+        )
+
+    # Verify context exists
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    context_dir = get_context_dir(context_id)
+    file_path = context_dir / "skills" / file_name
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Skill file not found")
+
+    # Delete file
+    file_path.unlink()
+
+    LOGGER.info(f"Admin deleted skill {file_name} for context {context_id}")
+
+    return {"success": True, "message": f"Skill '{file_name}' deleted"}
 
 
 __all__ = ["router"]

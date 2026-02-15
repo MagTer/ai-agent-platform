@@ -19,7 +19,7 @@ from core.routing.unified_orchestrator import UnifiedOrchestrator
 from core.runtime.litellm_client import LiteLLMClient
 from core.runtime.routing import registry
 from core.runtime.service import AgentService
-from core.skills.registry import SkillRegistry
+from core.skills import SkillRegistryProtocol
 
 LOGGER = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class DispatchResult:
 
 
 class Dispatcher:
-    def __init__(self, skill_registry: SkillRegistry, litellm: LiteLLMClient):
+    def __init__(self, skill_registry: SkillRegistryProtocol, litellm: LiteLLMClient):
         self._skill_registry = skill_registry
         self.litellm = litellm
         self._unified_orchestrator = UnifiedOrchestrator(litellm)

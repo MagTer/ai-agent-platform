@@ -62,5 +62,13 @@
       "agent"
     ],
     "image_tag": "previous"
+  },
+  {
+    "timestamp": "2026-02-13T13:59:52.322041+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "image_tag": "previous"
   }
 ]

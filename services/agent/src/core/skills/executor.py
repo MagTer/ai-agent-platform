@@ -30,13 +30,13 @@ from core.observability.tracing import (
     set_span_status,
     start_span,
 )
-from core.skills.registry import SkillRegistry
 from core.tools.activity_hints import build_activity_message
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from core.runtime.litellm_client import LiteLLMClient
+    from core.skills import SkillRegistryProtocol
     from core.tools import ToolRegistry
     from core.tools.base import Tool
 
@@ -60,7 +60,7 @@ class SkillExecutor:
 
     def __init__(
         self,
-        skill_registry: SkillRegistry,
+        skill_registry: SkillRegistryProtocol,
         tool_registry: ToolRegistry,
         litellm: LiteLLMClient,
     ) -> None:

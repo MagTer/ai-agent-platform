@@ -1,69 +1,5 @@
 [
   {
-    "timestamp": "2026-02-09T11:53:05.615577+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-09T11:55:01.385766+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-09T12:07:07.284387+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-09T21:09:25.016641+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-09T21:16:54.027646+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-09T22:56:18.354047+00:00",
-    "branch": "feat/user-managed-mcp-connections",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-10T09:04:53.561651+00:00",
-    "branch": "feat/cost-optimize-slash-commands",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-10T10:42:05.139108+00:00",
-    "branch": "fix/diagnostics-admin-js-error",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
     "timestamp": "2026-02-10T12:00:25.503045+00:00",
     "branch": "fix/diagnostics-admin-js-error",
     "services": [
@@ -122,6 +58,102 @@
   {
     "timestamp": "2026-02-12T22:33:59.639401+00:00",
     "branch": "feat/context-scoped-credentials",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-13T09:56:42.298512+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-13T12:52:49.601683+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-13T13:55:59.079285+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-14T08:20:01.567697+00:00",
+    "branch": "feat/otel-observability-metrics-logs",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-14T09:25:48.139368+00:00",
+    "branch": "feat/otel-observability-metrics-logs",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-14T09:40:01.052688+00:00",
+    "branch": "feat/otel-observability-metrics-logs",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-14T09:42:57.048170+00:00",
+    "branch": "feat/otel-observability-metrics-logs",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-15T16:15:39.160253+00:00",
+    "branch": "feat/otel-observability-metrics-logs",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-15T16:24:32.162605+00:00",
+    "branch": "feat/otel-observability-metrics-logs",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-15T17:24:39.317508+00:00",
+    "branch": "feat/otel-observability-metrics-logs",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-15T17:29:45.427626+00:00",
+    "branch": "feat/otel-observability-metrics-logs",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-15T17:49:36.888256+00:00",
+    "branch": "feat/otel-observability-metrics-logs",
     "services": [
       "agent"
     ],

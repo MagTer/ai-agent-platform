@@ -27,6 +27,54 @@ DEFAULT_SKILLS_PATH = Path(__file__).parent.parent.parent.parent.parent / "skill
 SKILLS_DIR = Path(os.getenv("SKILLS_DIR", str(DEFAULT_SKILLS_PATH)))
 
 
+def parse_skill_content(path: Path, content: str, skills_dir: Path) -> Skill | None:
+    """Parse skill content from markdown (module-level for reuse).
+
+    Args:
+        path: Path to the skill file (for metadata).
+        content: File content to parse.
+        skills_dir: Base skills directory (for relative path calculation).
+
+    Returns:
+        Skill object if valid, None if invalid.
+    """
+    # Parse frontmatter
+    if content.startswith("---"):
+        parts = content.split("---", 2)
+        if len(parts) >= 3:
+            frontmatter_raw = parts[1]
+            body_template = parts[2]
+            metadata = yaml.safe_load(frontmatter_raw) or {}
+        else:
+            # Malformed frontmatter
+            LOGGER.warning("Malformed frontmatter in %s", path)
+            return None
+    else:
+        # No frontmatter
+        metadata = {}
+        body_template = content
+
+    # Extract skill name (required)
+    skill_name = metadata.get("name")
+    if not skill_name:
+        # Use path-based name as fallback
+        relative_path = path.relative_to(skills_dir).with_suffix("")
+        skill_name = str(relative_path).replace("\\", "/")
+
+    # Extract other fields
+    return Skill(
+        name=skill_name,
+        path=path,
+        description=metadata.get("description", ""),
+        tools=metadata.get("tools", []),
+        model=metadata.get("model", "agentchat"),
+        max_turns=metadata.get("max_turns", 10),
+        variables=metadata.get("variables", []),
+        raw_content=content,
+        body_template=body_template,
+    )
+
+
 @dataclass
 class Skill:
     """Validated skill definition loaded from markdown file."""
@@ -101,6 +149,40 @@ class SkillRegistry:
         self._by_path: dict[str, Skill] = {}  # Path-based lookup for compatibility
 
         self._load_and_validate()
+
+    @staticmethod
+    async def load_skills_from_dir(skills_dir: Path) -> dict[str, Skill]:
+        """Load skill files from a directory without mutating registry.
+
+        This is used for loading per-context skills that overlay the global registry.
+
+        Args:
+            skills_dir: Directory containing skill markdown files.
+
+        Returns:
+            Dictionary mapping skill names to Skill objects.
+        """
+        if not skills_dir.exists():
+            return {}
+
+        skills: dict[str, Skill] = {}
+
+        # Find all skill files
+        skill_paths = list(skills_dir.rglob("*.md"))
+
+        # Load and parse all files
+        for path in skill_paths:
+            try:
+                content = await asyncio.to_thread(path.read_text, encoding="utf-8")
+                skill = parse_skill_content(path, content, skills_dir)
+                if skill:
+                    skills[skill.name] = skill
+                else:
+                    LOGGER.warning("Failed to parse skill at %s", path)
+            except Exception as e:
+                LOGGER.warning("Failed to load skill %s: %s", path, e)
+
+        return skills
 
     @classmethod
     async def create_async(
@@ -249,41 +331,8 @@ class SkillRegistry:
         Returns:
             Skill object if valid, None if invalid.
         """
-        # Parse frontmatter
-        if content.startswith("---"):
-            parts = content.split("---", 2)
-            if len(parts) >= 3:
-                frontmatter_raw = parts[1]
-                body_template = parts[2]
-                metadata = yaml.safe_load(frontmatter_raw) or {}
-            else:
-                # Malformed frontmatter
-                LOGGER.warning("Malformed frontmatter in %s", path)
-                return None
-        else:
-            # No frontmatter
-            metadata = {}
-            body_template = content
-
-        # Extract skill name (required)
-        skill_name = metadata.get("name")
-        if not skill_name:
-            # Use path-based name as fallback
-            relative_path = path.relative_to(self._skills_dir).with_suffix("")
-            skill_name = str(relative_path).replace("\\", "/")
-
-        # Extract other fields
-        return Skill(
-            name=skill_name,
-            path=path,
-            description=metadata.get("description", ""),
-            tools=metadata.get("tools", []),
-            model=metadata.get("model", "agentchat"),
-            max_turns=metadata.get("max_turns", 10),
-            variables=metadata.get("variables", []),
-            raw_content=content,
-            body_template=body_template,
-        )
+        # Delegate to module-level function
+        return parse_skill_content(path, content, self._skills_dir)
 
     def _register_skill(self, skill: Skill, tool_warnings: list[str]) -> None:
         """Register a skill in all lookup indexes and validate tool references.

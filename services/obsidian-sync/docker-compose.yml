@@ -1,0 +1,31 @@
+services:
+  couchdb:
+    image: couchdb:3-alpine
+    expose: ["5984"]
+    environment:
+      COUCHDB_USER: ${COUCHDB_USER:-admin}
+      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+    networks:
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.couchdb.rule=Host(`couchdb.${DOMAIN}`)"
+      - "traefik.http.routers.couchdb.tls.certresolver=letsencrypt"
+      - "traefik.http.services.couchdb.loadbalancer.server.port=5984"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits: { memory: 256M, cpus: '0.5' }
+
+volumes:
+  couchdb_data:
+
+networks:
+  proxy:
+    external: true

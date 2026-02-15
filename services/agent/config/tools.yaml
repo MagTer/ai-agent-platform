@@ -60,3 +60,8 @@
   type: core.tools.github_pr.GitHubPRTool
   enabled: true
   description: "Create pull requests on GitHub"
+
+- name: update_memory
+  type: core.tools.memory_writer.MemoryWriterTool
+  enabled: true
+  description: "Append facts or insights to context's persistent memory file"
