@@ -46,7 +46,7 @@ from core.runtime.litellm_client import LiteLLMClient
 from core.runtime.memory import MemoryRecord, MemoryStore
 from core.runtime.persistence import ConversationPersistence
 from core.runtime.tool_runner import ToolRunner
-from core.skills import SkillExecutor, SkillRegistry
+from core.skills import SkillExecutor, SkillRegistryProtocol
 from core.system_commands import handle_system_command
 from core.tools import ToolRegistry
 from core.tools.base import ToolConfirmationError
@@ -80,7 +80,7 @@ class AgentService:
     _litellm: LiteLLMClient
     _memory: MemoryStore
     _tool_registry: ToolRegistry
-    _skill_registry: SkillRegistry | None
+    _skill_registry: SkillRegistryProtocol | None
     context_manager: ContextManager
 
     # Extracted modules
@@ -95,7 +95,7 @@ class AgentService:
         litellm: LiteLLMClient,
         memory: MemoryStore,
         tool_registry: ToolRegistry | None = None,
-        skill_registry: SkillRegistry | None = None,
+        skill_registry: SkillRegistryProtocol | None = None,
     ):
         """Initialize the agent service with required dependencies.
 

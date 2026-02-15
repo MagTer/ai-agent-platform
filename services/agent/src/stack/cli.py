@@ -557,8 +557,8 @@ def dev_up(
 
     Uses docker-compose.yml + docker-compose.dev.yml with isolated:
     - Project name (ai-agent-platform-dev)
-    - Ports (3001, 8001, 5433, 6334, 4001, 8081)
     - Database volumes (postgres_data_dev)
+    - Traefik routing via DOMAIN_DEV (no direct port exposure)
 
     This allows running dev alongside production without conflicts.
     """
@@ -570,10 +570,11 @@ def dev_up(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1) from exc
 
+    domain_dev = env.get("DOMAIN_DEV", "agent-dev.local")
     console.print("[bold cyan]Starting DEVELOPMENT environment…[/bold cyan]")
     console.print("[dim]Project: ai-agent-platform-dev[/dim]")
-    console.print("[dim]Open WebUI: http://localhost:3001[/dim]")
-    console.print("[dim]Agent API:  http://localhost:8001[/dim]")
+    console.print(f"[dim]Open WebUI: https://{domain_dev}[/dim]")
+    console.print(f"[dim]Agent Admin: https://{domain_dev}/platformadmin[/dim]")
     compose.compose_up(detach=True, build=build, dev=True, timeout=600)
 
     # Connect Traefik to dev network for external routing (if Traefik is running)
@@ -696,23 +697,10 @@ def dev_deploy(
     compose.run_compose(args, dev=True, capture_output=False, timeout=600)
     _connect_traefik_to_dev_network()
 
-    # Health checks - use full dev container names for port mapping
+    # Health checks - use docker exec (no host ports exposed, same as prod)
     dev_project = "ai-agent-platform-dev"
     console.print("[cyan]Waiting for services to become healthy...[/cyan]")
-    _wait_for_service(
-        name="agent",
-        container=f"{dev_project}-agent-1",
-        port=8000,
-        path="/healthz",
-        timeout=timeout,
-    )
-    _wait_for_service(
-        name="openwebui",
-        container=f"{dev_project}-open-webui-1",
-        port=8080,
-        path="/",
-        timeout=timeout,
-    )
+    _wait_for_prod_services(dev_project, timeout=timeout)
 
     # Verify Open WebUI -> Agent connectivity
     if _verify_openwebui_to_agent(dev_project):
@@ -987,16 +975,12 @@ def deploy(
     # Timeout: 2 min for container restart
     compose.run_compose(up_args, prod=True, capture_output=False, timeout=120)
 
-    # Step 4.5: Post-deploy health check
+    # Step 4.5: Post-deploy health check (via docker exec -- no host ports exposed)
+    prod_project = "ai-agent-platform-prod"
     console.print("[bold cyan]Verifying deployment health…[/bold cyan]")
-    if not tooling.wait_http_ok("http://localhost:8000/health", timeout=30):
-        console.print("[bold red]⚠ Health check failed after deploy![/bold red]")
-        console.print("[yellow]Service may still be starting. Check: stack logs agent[/yellow]")
-    else:
-        console.print("[bold green]✓ Health check passed[/bold green]")
+    _wait_for_prod_services(prod_project, timeout=30)
 
     # Step 4.6: Verify Open WebUI -> Agent connectivity
-    prod_project = "ai-agent-platform"
     if _verify_openwebui_to_agent(prod_project):
         console.print("[bold green]✓ Open WebUI -> Agent connectivity verified[/bold green]")
     else:

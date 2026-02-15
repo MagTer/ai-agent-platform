@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db import Conversation, Message, Session
 from core.observability.tracing import current_trace_ids
 from core.runtime.litellm_client import LiteLLMClient
-from core.skills import SkillExecutor, SkillRegistry
+from core.skills import SkillExecutor, SkillRegistryProtocol
 from core.tools import ToolRegistry
 
 LOGGER = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class HITLCoordinator:
 
     def __init__(
         self,
-        skill_registry: SkillRegistry | None,
+        skill_registry: SkillRegistryProtocol | None,
         tool_registry: ToolRegistry,
         litellm: LiteLLMClient,
     ):

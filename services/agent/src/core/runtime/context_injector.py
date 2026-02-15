@@ -8,6 +8,8 @@ from pathlib import Path
 
 from shared.models import AgentMessage
 
+from core.context.files import CONTEXT_DATA_BASE
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -70,6 +72,8 @@ class ContextInjector:
         home = Path.home()
         if await asyncio.to_thread(home.exists):
             allowed_bases.append(str(home))
+        # Allow context data directory for per-context pinned files
+        allowed_bases.append(str(CONTEXT_DATA_BASE.resolve()))
 
         async def _read_pinned_file(pf: str) -> str | None:
             """Read a single pinned file asynchronously."""

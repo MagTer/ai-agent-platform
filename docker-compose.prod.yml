@@ -47,6 +47,7 @@ services:
       - ./config/traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
     networks:
       - default
+      - proxy
     deploy:
       resources:
         limits:
@@ -224,3 +225,7 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+networks:
+  proxy:
+    external: true

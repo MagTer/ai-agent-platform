@@ -20,7 +20,7 @@ from core.runtime.service import AgentService
 from core.tools.loader import load_tool_registry
 
 if TYPE_CHECKING:
-    from core.skills import SkillRegistry
+    from core.skills import SkillRegistryProtocol
 
 LOGGER = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class ServiceFactory:
         self,
         settings: Settings,
         litellm_client: LiteLLMClient,
-        skill_registry: SkillRegistry | None = None,
+        skill_registry: SkillRegistryProtocol | None = None,
     ):
         """Initialize the service factory.
 
@@ -82,8 +82,9 @@ class ServiceFactory:
         2. Loads tool permissions for this context
         3. Filters tools by permissions
         4. Loads MCP tools for this context (Phase 3)
-        5. Creates context-scoped MemoryStore
-        6. Returns fully configured AgentService
+        5. Loads per-context skills and creates CompositeSkillRegistry if needed
+        6. Creates context-scoped MemoryStore
+        7. Returns fully configured AgentService
 
         Args:
             context_id: Context UUID for isolation
@@ -150,6 +151,35 @@ class ServiceFactory:
         except RuntimeError:
             pass  # MCP pool not initialized
 
+        # Load per-context skills (if any exist)
+        # Fast path: if no context skills directory exists, skip loading
+        from core.context.files import get_context_dir
+        from core.skills.composite import CompositeSkillRegistry
+        from core.skills.registry import SkillRegistry
+
+        skill_registry_for_context = self._skill_registry  # default: shared global
+        if self._skill_registry:  # Only if global registry exists
+            context_skills_dir = get_context_dir(context_id) / "skills"
+            if context_skills_dir.exists():
+                # Check if directory contains any .md files before loading
+                skill_files = list(context_skills_dir.rglob("*.md"))
+                if skill_files:
+                    LOGGER.debug(
+                        "Loading %d per-context skill files for context %s",
+                        len(skill_files),
+                        context_id,
+                    )
+                    context_skills = await SkillRegistry.load_skills_from_dir(context_skills_dir)
+                    if context_skills:
+                        skill_registry_for_context = CompositeSkillRegistry(
+                            self._skill_registry, context_skills
+                        )
+                        LOGGER.info(
+                            "Created CompositeSkillRegistry with %d context skills for context %s",
+                            len(context_skills),
+                            context_id,
+                        )
+
         # Create context-scoped memory store with shared Qdrant client
         # MemoryStore will filter all searches by this context_id
         memory_store = MemoryStore(
@@ -165,7 +195,7 @@ class ServiceFactory:
             litellm=self._litellm,
             memory=memory_store,
             tool_registry=tool_registry,
-            skill_registry=self._skill_registry,
+            skill_registry=skill_registry_for_context,
         )
 
         LOGGER.info(

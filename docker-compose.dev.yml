@@ -4,35 +4,24 @@
 # Used when running: stack dev up
 #
 # This configuration:
-# - Uses different ports to allow prod to run simultaneously
 # - Uses separate database volumes to isolate dev data from prod
-# - Optionally exposes dev via Traefik when DOMAIN_DEV is set
+# - Routes all traffic through Traefik (same as prod) via DOMAIN_DEV
+# - No direct port exposure -- all access via TLS through Traefik
 #
-# Access points (direct):
-#   Open WebUI:  http://localhost:3001
-#   Agent API:   http://localhost:8001
-#   PostgreSQL:  localhost:5433
-#   Qdrant:      localhost:6334
-#   LiteLLM:     localhost:4001
-#   SearxNG:     localhost:8081
-#
-# Access points (via Traefik, when DOMAIN_DEV is set):
+# Access points (via Traefik, requires DOMAIN_DEV in .env):
 #   Open WebUI:  https://${DOMAIN_DEV}
 #   Agent Admin: https://${DOMAIN_DEV}/platformadmin
 # =============================================================================
 
 services:
-  # Agent with dev port and optional Traefik routing
+  # Agent with dev database and Traefik routing
   agent:
-    ports:
-      - "8001:8000"
     environment:
       AGENT_ENVIRONMENT: development
       # Use dev database (same credentials as prod, different db name)
       POSTGRES_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/agent_db_dev
     labels:
-      # Enable Traefik routing for dev when DOMAIN_DEV is set
-      - "traefik.enable=${DOMAIN_DEV:+true}"
+      - "traefik.enable=true"
       - "traefik.http.routers.agent-admin-dev.rule=Host(`${DOMAIN_DEV:-agent-dev.local}`) && PathPrefix(`/platformadmin`)"
       - "traefik.http.routers.agent-admin-dev.entrypoints=websecure"
       - "traefik.http.routers.agent-admin-dev.tls.certresolver=letsencrypt"
@@ -45,18 +34,12 @@ services:
       - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Role="
       - "traefik.http.routers.agent-admin-dev.middlewares=strip-agent-headers-dev"
 
-  # Open WebUI with dev port, separate data volume, and optional Traefik routing
+  # Open WebUI with separate data volume and Traefik routing
   open-webui:
-    ports:
-      - "3001:8080"
     volumes:
       - ./data/openwebui_dev:/app/backend/data
     environment:
-      # External URL for OAuth callbacks - defaults to localhost for local dev
-      # When DOMAIN_DEV is set, uses https://DOMAIN_DEV
-      - WEBUI_URL=http${DOMAIN_DEV:+s}://${DOMAIN_DEV:-localhost:3001}
-      # Allow OAuth login (required for Entra ID to work at all in OpenWebUI).
-      # Restrict access via Entra ID app assignments instead.
+      - WEBUI_URL=https://${DOMAIN_DEV:-agent-dev.local}
       - ENABLE_OAUTH_SIGNUP=true
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
@@ -65,8 +48,7 @@ services:
       retries: 3
       start_period: 30s
     labels:
-      # Enable Traefik routing for dev when DOMAIN_DEV is set
-      - "traefik.enable=${DOMAIN_DEV:+true}"
+      - "traefik.enable=true"
       - "traefik.http.routers.openwebui-dev.rule=Host(`${DOMAIN_DEV:-agent-dev.local}`)"
       - "traefik.http.routers.openwebui-dev.entrypoints=websecure"
       - "traefik.http.routers.openwebui-dev.tls.certresolver=letsencrypt"
@@ -81,40 +63,28 @@ services:
       - "traefik.http.middlewares.security-dev.headers.stsSeconds=31536000"
       - "traefik.http.routers.openwebui-dev.middlewares=strip-headers-dev,security-dev"
 
-  # PostgreSQL with dev port and separate volume
+  # PostgreSQL with separate volume
   postgres:
-    ports:
-      - "5433:5432"
     environment:
-      # Use same credentials as prod but different database name
       POSTGRES_DB: agent_db_dev
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
     volumes:
       - postgres_data_dev:/var/lib/postgresql/data
 
-  # Qdrant with dev port and separate data
+  # Qdrant with separate data
   qdrant:
-    ports:
-      - "6334:6333"
     volumes:
       - ./data/qdrant_dev:/qdrant/storage
 
-  # LiteLLM with dev port
+  # LiteLLM healthcheck
   litellm:
-    ports:
-      - "4001:4000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 15s
-
-  # SearxNG with dev port
-  searxng:
-    ports:
-      - "8081:8080"
 
 volumes:
   # Separate volume for dev database

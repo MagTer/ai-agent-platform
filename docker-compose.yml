@@ -235,6 +235,26 @@ services:
       # This prevents router conflicts when running multiple environments
       - "traefik.enable=false"
 
+  vault-mcp:
+    build: ./services/vault-mcp
+    expose:
+      - "8090"
+    environment:
+      COUCHDB_URL: https://couchdb.${DOMAIN:-agent.falle.se}
+      COUCHDB_DB: obsidian
+      COUCHDB_USER: ${COUCHDB_USER:-admin}
+      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
 volumes:
   postgres_data:
 

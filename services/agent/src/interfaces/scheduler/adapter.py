@@ -15,7 +15,7 @@ import time
 import uuid
 from datetime import UTC, datetime
 
-from croniter import croniter  # type: ignore[import-untyped]
+from croniter import croniter  # type: ignore
 from shared.models import AgentRequest
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker

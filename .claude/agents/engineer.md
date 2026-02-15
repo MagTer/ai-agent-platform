@@ -554,42 +554,32 @@ async def run_agent(
 
 When implementation fails or debugging is needed, use the diagnostics API.
 
-**Access URLs:**
-- Dev environment: `http://localhost:8001/diagnostics/`
-- Production (via Traefik): `https://$DOMAIN/platformadmin/diagnostics/`
+**Access URLs (all via Traefik -- no direct host ports exposed):**
+- Dev environment: `https://agent-dev.falle.se/platformadmin/diagnostics/`
+- Production: `https://agent.falle.se/platformadmin/diagnostics/`
 
 **Fetch trace by ID (when user reports errors with TraceID):**
 ```bash
-# Dev environment
-curl -s "http://localhost:8001/diagnostics/traces?limit=500&show_all=true" | \
-  jq '.[] | select(.trace_id | contains("TRACE_ID_HERE"))'
+# Dev environment (use Diagnostic API with X-Api-Key)
+KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
+curl -s -H "X-Api-Key: $KEY" "https://agent-dev.falle.se/platformadmin/api/traces/$TRACE_ID" | jq '.'
 ```
 
 **Example trace analysis:**
 ```bash
-# Get trace
-curl -s "http://localhost:8001/diagnostics/traces?limit=500" | \
-  jq '.[] | select(.trace_id | contains("abc123"))' > trace.json
-
-# Inspect which tools were called
-cat trace.json | jq '.spans[] | select(.attributes."tool.name") | {name, status, duration_ms, error: .attributes."tool.error"}'
-
-# Find errors
-cat trace.json | jq '.spans[] | select(.status == "ERROR")'
+KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
+# Full investigation of a specific request
+curl -s -H "X-Api-Key: $KEY" "https://agent-dev.falle.se/platformadmin/api/investigate/$TRACE_ID" | jq '.'
 ```
 
 **Check system health:**
 ```bash
-curl -s http://localhost:8001/diagnostics/summary | jq '.'
-```
-
-**View crash log:**
-```bash
-curl -s http://localhost:8001/diagnostics/crash-log | jq -r '.content'
+KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
+curl -s -H "X-Api-Key: $KEY" https://agent-dev.falle.se/platformadmin/api/status | jq '.'
 ```
 
 **Dashboard (visual debugging):**
-Open: `http://localhost:8001/diagnostics/`
+Open: `https://agent-dev.falle.se/platformadmin/diagnostics/`
 - Waterfall view shows tool execution timeline
 - Click spans to see detailed attributes
 - Search by TraceID
