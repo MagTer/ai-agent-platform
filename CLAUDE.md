@@ -727,14 +727,12 @@ interfaces/http/
 ├── admin_portal.py           # Main dashboard
 ├── admin_api.py              # Diagnostic API (machine-readable endpoints)
 ├── admin_contexts.py         # Context management (primary management unit)
-├── admin_debug.py            # Debug log viewer
 ├── admin_diagnostics.py      # Diagnostics dashboard
 ├── admin_mcp.py              # MCP server management (user-defined connections)
 ├── admin_oauth.py            # OAuth provider management
 ├── admin_permissions.py      # Tool permissions per context
 ├── admin_price_tracker.py    # Price tracker management
 ├── admin_scheduler.py        # Scheduled job management
-├── admin_sessions.py         # Session management
 ├── admin_users.py            # User management
 ├── admin_workspaces.py       # Git repository workspaces
 └── templates/                # Large HTML templates (40KB+)
@@ -748,17 +746,16 @@ interfaces/http/
 Navigation is defined in `admin_shared.py`:
 
 ```python
-# Subset shown -- see admin_shared.py for full list
-ADMIN_NAV_ITEMS = [
+# Actual navigation items from admin_shared.py
+ADMIN_NAV_ITEMS: list[NavItem] = [
     NavItem("Dashboard", "/platformadmin/", "&#127968;", "home"),
     NavItem("Diagnostics", "/platformadmin/diagnostics/", "&#128200;", "monitoring"),
-    NavItem("Debug Logs", "/platformadmin/debug/", "&#128270;", "monitoring"),
     NavItem("Users", "/platformadmin/users/", "&#128100;", "users"),
-    NavItem("Credentials", "/platformadmin/credentials/", "&#128273;", "users"),
+    NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "users"),
+    NavItem("Scheduler", "/platformadmin/scheduler/", "&#128339;", "features"),
     NavItem("Price Tracker", "/platformadmin/price-tracker/", "&#128181;", "features"),
-    NavItem("MCP Integrations", "/platformadmin/mcp/", "&#128268;", "features"),
-    NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "features"),
-    # ... more items
+    NavItem("Chat", "/", "&#128172;", "external"),
+    NavItem("Open WebUI Admin", "/admin/", "&#128279;", "external"),
 ]
 ```
 

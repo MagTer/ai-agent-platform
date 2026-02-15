@@ -144,6 +144,31 @@ class ToolRunner:
                 output = await tool.run(**sanitized_args)
                 status = "ok"
                 set_span_status("OK")
+            except TimeoutError:  # pragma: no cover - depends on configuration
+                LOGGER.exception("Tool %s execution timed out", tool_name)
+                # Observability: Capture timeout specifically
+                set_span_status("ERROR", "TimeoutError")
+                set_span_attributes({"error.type": "TimeoutError"})
+
+                result.update({"status": "error", "error": "Tool execution timed out"})
+                status = "error"
+
+                # Record OTel metrics
+                duration_ms = (time.perf_counter() - start_time) * 1000
+                from core.observability.metrics import record_tool_call
+
+                record_tool_call(tool_name=tool_name, duration_ms=duration_ms, success=False)
+
+                log_event(
+                    ToolCallEvent(
+                        name=tool_name,
+                        args=sanitized_args,
+                        status=status,
+                        output_preview="Tool execution timed out",
+                        trace=TraceContext(**current_trace_ids()),
+                    )
+                )
+                return result
             except Exception as exc:  # pragma: no cover - depends on tool implementation
                 LOGGER.exception("Tool %s execution failed", tool_name)
                 # Observability: Capture failure

@@ -462,6 +462,17 @@ async function startOAuth(btn, serverId) {
         if (data.authorization_url) {
             window.open(data.authorization_url, '_blank');
             showToast('OAuth flow started. Complete authorization in the new tab.', 'success');
+            // Poll for status changes after OAuth flow starts
+            let pollCount = 0;
+            const maxPolls = 30;
+            const pollInterval = setInterval(async () => {
+                pollCount++;
+                if (pollCount >= maxPolls) {
+                    clearInterval(pollInterval);
+                    return;
+                }
+                await loadServers();
+            }, 3000);
         }
     }
 }

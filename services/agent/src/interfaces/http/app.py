@@ -87,8 +87,13 @@ def verify_internal_api_key(
     Raises:
         HTTPException 401: If key is required but invalid or missing
     """
-    # If internal_api_key is not set, skip authentication
+    # If internal_api_key is not set, block in production, warn in dev
     if not settings.internal_api_key:
+        if settings.environment == "production":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="AGENT_INTERNAL_API_KEY must be set in production",
+            )
         if settings.environment != "test":
             LOGGER.warning(
                 "AGENT_INTERNAL_API_KEY not set - agent API endpoints are UNAUTHENTICATED. "

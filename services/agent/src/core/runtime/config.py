@@ -59,6 +59,10 @@ class Settings(BaseModel):
         default=180.0,
         description="Timeout in seconds when calling LiteLLM's `/v1/chat/completions` endpoint.",
     )
+    agent_execution_timeout: float = Field(
+        default=600.0,
+        description="Global timeout in seconds for the entire agent execution pipeline.",
+    )
 
     qdrant_url: HttpUrl = Field(
         default=DEFAULT_QDRANT_URL,

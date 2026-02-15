@@ -88,35 +88,53 @@ class McpClientPool:
 
         # Check cache first and validate existing clients
         if context_id in self._pools and self._pools[context_id]:
-            valid_clients = []
-            for client in self._pools[context_id]:
-                # Check if client is still connected and healthy
-                if client.is_connected:
-                    try:
-                        # Quick ping to verify connection
-                        is_healthy = await asyncio.wait_for(client.ping(), timeout=2.0)
-                        if is_healthy:
-                            valid_clients.append(client)
-                        else:
-                            LOGGER.warning(
-                                f"Client {client.name} failed health check, removing from pool"
-                            )
-                            try:
-                                await client.disconnect()
-                            except Exception as e:
-                                LOGGER.error(f"Error disconnecting unhealthy client: {e}")
-                    except TimeoutError:
-                        LOGGER.warning(f"Client {client.name} ping timeout, removing from pool")
-                        try:
-                            await client.disconnect()
-                        except Exception as e:
-                            LOGGER.error(f"Error disconnecting timed-out client: {e}")
-                else:
+            # Parallelize health checks for all cached clients
+            async def check_client_health(client: McpClient) -> McpClient | None:
+                """Check if a client is healthy. Returns client if healthy, None otherwise."""
+                if not client.is_connected:
                     LOGGER.warning(f"Client {client.name} disconnected, removing from pool")
                     try:
                         await client.disconnect()
                     except Exception as e:
                         LOGGER.error(f"Error disconnecting stale client: {e}")
+                    return None
+
+                try:
+                    # Quick ping to verify connection
+                    is_healthy = await asyncio.wait_for(client.ping(), timeout=2.0)
+                    if is_healthy:
+                        return client
+                    else:
+                        LOGGER.warning(
+                            f"Client {client.name} failed health check, removing from pool"
+                        )
+                        try:
+                            await client.disconnect()
+                        except Exception as e:
+                            LOGGER.error(f"Error disconnecting unhealthy client: {e}")
+                        return None
+                except TimeoutError:
+                    LOGGER.warning(f"Client {client.name} ping timeout, removing from pool")
+                    try:
+                        await client.disconnect()
+                    except Exception as e:
+                        LOGGER.error(f"Error disconnecting timed-out client: {e}")
+                    return None
+
+            # Check all clients in parallel
+            health_results = await asyncio.gather(
+                *[check_client_health(client) for client in self._pools[context_id]],
+                return_exceptions=True,
+            )
+
+            # Filter out None results and exceptions
+            valid_clients: list[McpClient] = []
+            for health_check_result in health_results:
+                if isinstance(health_check_result, McpClient):
+                    valid_clients.append(health_check_result)
+                elif isinstance(health_check_result, Exception):
+                    LOGGER.error(f"Error during health check: {health_check_result}")
+                # else: health_check_result is None, skip
 
             if valid_clients:
                 self._pools[context_id] = valid_clients
@@ -175,8 +193,9 @@ class McpClientPool:
             if user_attempted:
                 connection_attempted = True
 
-            # Store in cache
+            # Store in cache with timestamp for eviction
             self._pools[context_id] = clients
+            self._timestamps[context_id] = time.monotonic()
 
             if clients:
                 LOGGER.info(f"Created {len(clients)} MCP clients for context {context_id}")
@@ -346,9 +365,10 @@ class McpClientPool:
                 disconnect_errors.append((client.name, e))
                 LOGGER.warning(f"Error disconnecting {client.name}: {e}")
 
-        # Remove from pool and timestamps
+        # Remove from pool, timestamps, and locks
         del self._pools[context_id]
         self._timestamps.pop(context_id, None)
+        self._locks.pop(context_id, None)
 
         if disconnect_errors:
             LOGGER.warning(

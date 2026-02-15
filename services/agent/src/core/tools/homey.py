@@ -135,6 +135,12 @@ class HomeyTool(Tool):
         # Shared HTTP client to avoid overhead of creating new clients
         self._http_client: httpx.AsyncClient | None = None
 
+    async def close(self) -> None:
+        """Close the shared HTTP client."""
+        if self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
+            self._http_client = None
+
     def _get_http_client(self) -> httpx.AsyncClient:
         """Get or create shared HTTP client.
 

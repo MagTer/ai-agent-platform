@@ -10,5 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY server.py .
 COPY couch_client.py .
 
+# Run as non-root user
+RUN adduser -D -u 1000 appuser
+USER appuser
+
 # Run server
 CMD ["python", "server.py"]

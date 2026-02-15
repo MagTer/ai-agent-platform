@@ -53,6 +53,9 @@ from core.tools.base import ToolConfirmationError
 
 LOGGER = logging.getLogger(__name__)
 
+# Cap prompt history to prevent unbounded context growth
+MAX_PROMPT_HISTORY_MESSAGES = 50
+
 
 async def _persist_memory_background(
     memory: MemoryStore,
@@ -213,6 +216,19 @@ class AgentService:
         if db_conversation.current_cwd:
             await self._context_injector._inject_workspace_rules(
                 history, db_conversation.current_cwd
+            )
+
+        # Cap history to prevent unbounded context growth
+        if len(history) > MAX_PROMPT_HISTORY_MESSAGES:
+            # Preserve system messages at the start, trim older user/assistant messages
+            system_msgs = [m for m in history if m.role == "system"]
+            non_system = [m for m in history if m.role != "system"]
+            keep_count = MAX_PROMPT_HISTORY_MESSAGES - len(system_msgs)
+            history = system_msgs + non_system[-keep_count:]
+            LOGGER.info(
+                "Capped prompt history from %d to %d messages",
+                len(system_msgs) + len(non_system),
+                len(history),
             )
 
         return history, history_source
@@ -1387,137 +1403,152 @@ class AgentService:
             },
         ):
             try:
-                # Phase 1: Setup conversation and context
-                (
-                    db_conversation,
-                    db_context,
-                    db_session,
-                ) = await self._setup_conversation_and_context(session, conversation_id, request)
+                async with asyncio.timeout(self._settings.agent_execution_timeout):
+                    # Phase 1: Setup conversation and context
+                    (
+                        db_conversation,
+                        db_context,
+                        db_session,
+                    ) = await self._setup_conversation_and_context(
+                        session, conversation_id, request
+                    )
 
-                # Phase 1.5: Check for pending HITL and resume if present
-                pending_hitl = (db_conversation.conversation_metadata or {}).get("pending_hitl")
-                if pending_hitl:
-                    LOGGER.info("Found pending HITL for conversation %s", conversation_id)
-                    # Yield trace_id first
+                    # Phase 1.5: Check for pending HITL and resume if present
+                    pending_hitl = (db_conversation.conversation_metadata or {}).get("pending_hitl")
+                    if pending_hitl:
+                        LOGGER.info("Found pending HITL for conversation %s", conversation_id)
+                        # Yield trace_id first
+                        trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+                        yield {
+                            "type": "trace_info",
+                            "trace_id": trace_id,
+                            "conversation_id": conversation_id,
+                        }
+
+                        async for event in self._hitl_coordinator._resume_hitl(
+                            request,
+                            session,
+                            db_session,
+                            db_conversation,
+                            pending_hitl,
+                        ):
+                            yield event
+                        return
+
+                    # System Command Interceptor
+                    sys_output = await handle_system_command(
+                        request.prompt, self, session, conversation_id
+                    )
+                    if sys_output:
+                        await session.commit()
+                        yield {
+                            "type": "content",
+                            "content": sys_output,
+                            "metadata": {"system_command": True},
+                        }
+                        return
+
+                    # Validate context exists
+                    if not db_context:
+                        LOGGER.warning("Context missing for conversation %s", conversation_id)
+                        yield {"type": "error", "content": "Error: Context missing."}
+                        return
+
+                    # Phase 2: Load and prepare history
+                    history, history_source = await self._load_and_prepare_history(
+                        session, db_session, db_context, db_conversation, request
+                    )
+
+                    # Debug logging
+                    debug_logger = DebugLogger(session)
                     trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
+
+                    # Yield trace_id as first event for debugging/observability
                     yield {
                         "type": "trace_info",
                         "trace_id": trace_id,
                         "conversation_id": conversation_id,
                     }
 
-                    async for event in self._hitl_coordinator._resume_hitl(
+                    await debug_logger.log_request(
+                        trace_id=trace_id,
+                        prompt=request.prompt,
+                        messages=request.messages,
+                        metadata=request.metadata,
+                        conversation_id=conversation_id,
+                    )
+                    await debug_logger.log_history(
+                        trace_id=trace_id,
+                        source=history_source,
+                        messages=history,
+                        conversation_id=conversation_id,
+                    )
+
+                    # Phase 3: Setup agents and executors
+                    (
+                        planner,
+                        plan_supervisor,
+                        executor,
+                        step_supervisor,
+                        skill_executor,
+                        skill_names,
+                    ) = self._setup_agents_and_executors()
+
+                    # Phase 4: Route request
+                    routing_decision = (request.metadata or {}).get(
+                        "routing_decision", RoutingDecision.AGENTIC
+                    )
+                    LOGGER.info(f"Handling request with routing decision: {routing_decision}")
+                    set_span_attributes({"routing_decision": routing_decision})
+
+                    # Record user message
+                    user_message = AgentMessage(role="user", content=request.prompt)
+                    history.append(user_message)
+                    session.add(
+                        Message(
+                            session_id=db_session.id,
+                            role="user",
+                            content=request.prompt,
+                            trace_id=current_trace_ids().get("trace_id"),
+                        )
+                    )
+
+                    if routing_decision == RoutingDecision.CHAT:
+                        async for event in self._route_chat_request(
+                            request, history, session, db_session, conversation_id
+                        ):
+                            yield event
+                        return
+
+                    # Phase 5: Agentic execution
+                    async for event in self._execute_agentic(
                         request,
+                        history,
                         session,
                         db_session,
                         db_conversation,
-                        pending_hitl,
+                        planner,
+                        plan_supervisor,
+                        executor,
+                        step_supervisor,
+                        skill_executor,
+                        skill_names,
+                        conversation_id,
                     ):
                         yield event
-                    return
 
-                # System Command Interceptor
-                sys_output = await handle_system_command(
-                    request.prompt, self, session, conversation_id
-                )
-                if sys_output:
-                    await session.commit()
-                    yield {
-                        "type": "content",
-                        "content": sys_output,
-                        "metadata": {"system_command": True},
-                    }
-                    return
-
-                # Validate context exists
-                if not db_context:
-                    LOGGER.warning("Context missing for conversation %s", conversation_id)
-                    yield {"type": "error", "content": "Error: Context missing."}
-                    return
-
-                # Phase 2: Load and prepare history
-                history, history_source = await self._load_and_prepare_history(
-                    session, db_session, db_context, db_conversation, request
-                )
-
-                # Debug logging
-                debug_logger = DebugLogger(session)
-                trace_id = current_trace_ids().get("trace_id", str(uuid.uuid4()))
-
-                # Yield trace_id as first event for debugging/observability
-                yield {
-                    "type": "trace_info",
-                    "trace_id": trace_id,
-                    "conversation_id": conversation_id,
-                }
-
-                await debug_logger.log_request(
-                    trace_id=trace_id,
-                    prompt=request.prompt,
-                    messages=request.messages,
-                    metadata=request.metadata,
-                    conversation_id=conversation_id,
-                )
-                await debug_logger.log_history(
-                    trace_id=trace_id,
-                    source=history_source,
-                    messages=history,
-                    conversation_id=conversation_id,
-                )
-
-                # Phase 3: Setup agents and executors
-                (
-                    planner,
-                    plan_supervisor,
-                    executor,
-                    step_supervisor,
-                    skill_executor,
-                    skill_names,
-                ) = self._setup_agents_and_executors()
-
-                # Phase 4: Route request
-                routing_decision = (request.metadata or {}).get(
-                    "routing_decision", RoutingDecision.AGENTIC
-                )
-                LOGGER.info(f"Handling request with routing decision: {routing_decision}")
-                set_span_attributes({"routing_decision": routing_decision})
-
-                # Record user message
-                user_message = AgentMessage(role="user", content=request.prompt)
-                history.append(user_message)
-                session.add(
-                    Message(
-                        session_id=db_session.id,
-                        role="user",
-                        content=request.prompt,
-                        trace_id=current_trace_ids().get("trace_id"),
-                    )
-                )
-
-                if routing_decision == RoutingDecision.CHAT:
-                    async for event in self._route_chat_request(
-                        request, history, session, db_session, conversation_id
-                    ):
-                        yield event
-                    return
-
-                # Phase 5: Agentic execution
-                async for event in self._execute_agentic(
-                    request,
-                    history,
-                    session,
-                    db_session,
-                    db_conversation,
-                    planner,
-                    plan_supervisor,
-                    executor,
-                    step_supervisor,
-                    skill_executor,
-                    skill_names,
+            except TimeoutError:
+                LOGGER.error(
+                    "Agent execution timed out after %ss for conversation %s",
+                    self._settings.agent_execution_timeout,
                     conversation_id,
-                ):
-                    yield event
-
+                )
+                set_span_status("ERROR", "Agent execution timed out")
+                set_span_attributes({"error.type": "TimeoutError"})
+                yield {
+                    "type": "error",
+                    "content": "The request timed out. Please try again with a simpler query.",
+                }
             except Exception as e:
                 from core.observability.error_codes import classify_exception
 

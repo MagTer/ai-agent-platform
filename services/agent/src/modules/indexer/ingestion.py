@@ -189,4 +189,6 @@ class CodeIndexer:
                 await self.index_file(file_path)
 
     async def close(self) -> None:
-        await self.client.close()
+        """Close the Qdrant client connection if initialized."""
+        if hasattr(self, "client") and self.client is not None:
+            await self.client.close()
