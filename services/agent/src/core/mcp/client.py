@@ -257,7 +257,8 @@ class McpClient:
         )
         read_stream, write_stream = streams
 
-        self._mcp_session = ClientSession(read_stream, write_stream)
+        session = ClientSession(read_stream, write_stream)
+        self._mcp_session = await self._exit_stack.enter_async_context(session)
         await asyncio.wait_for(self._mcp_session.initialize(), timeout=8.0)
 
     async def _connect_streamable_http(self, headers: dict[str, str]) -> None:
@@ -271,7 +272,8 @@ class McpClient:
         # streamablehttp_client returns (read, write, get_session_id)
         read_stream, write_stream = streams[0], streams[1]
 
-        self._mcp_session = ClientSession(read_stream, write_stream)
+        session = ClientSession(read_stream, write_stream)
+        self._mcp_session = await self._exit_stack.enter_async_context(session)
         await asyncio.wait_for(self._mcp_session.initialize(), timeout=8.0)
 
     async def _cleanup_connection(self) -> None:
