@@ -31,20 +31,17 @@ git push --force
 
 ### ALWAYS check first:
 ```bash
-# STEP 1: Check for uncommitted work
+# Check for uncommitted work
 git status
-
-# STEP 2: Check for stashed work
-git stash list
 ```
 
 ### Safe sync pattern:
 ```bash
 # CORRECT way to sync with origin
 git status                    # Check first!
-git stash push -m "WIP" -- .  # Save if needed
+# If there are uncommitted changes: commit them or ask the user.
+# NEVER use git stash -- it hides work from version control.
 git pull origin main          # Safe sync
-git stash pop                 # Restore if stashed
 ```
 
 ### If branches diverge:
@@ -459,7 +456,7 @@ Reason: [Why it's complex]
 
 Before EVERY git operation:
 1. `git status` - check for uncommitted work
-2. `git stash list` - check for stashed work
+2. If dirty: commit or ask the user. NEVER use `git stash` -- it hides work.
 3. Then proceed safely
 
 **NEVER use `git reset --hard` - it destroys work.**
