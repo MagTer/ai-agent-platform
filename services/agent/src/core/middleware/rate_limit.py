@@ -1,4 +1,4 @@
-"""Rate limiting middleware using slowapi with configurable per-path rate limits."""
+"""Rate limiting middleware using slowapi with configurable per-path limits."""
 
 from fastapi import Request, Response
 from slowapi import Limiter
