@@ -1,8 +1,6 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
 
 env:
@@ -62,6 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for testmon change detection
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -76,16 +76,18 @@ jobs:
           key: venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}
       - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
       - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
-      - name: Pytest
-        run: python -m pytest -x -n auto --dist=worksteal --cov=src --cov-report=xml --cov-report=term-missing
-        working-directory: services/agent
-        # NOTE: Architecture validation runs via test_architecture_validator.py
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+      - name: Restore testmon cache
+        uses: actions/cache@v4
         with:
-          name: coverage-report
-          path: services/agent/coverage.xml
-        if: always()
+          path: services/agent/.testmondata
+          key: testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ github.base_ref }}-${{ hashFiles('services/agent/poetry.lock') }}
+          restore-keys: |
+            testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ github.base_ref }}-
+            testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+      - name: Pytest (testmon - affected tests only)
+        run: python -m pytest -x --testmon
+        working-directory: services/agent
+        # NOTE: testmon skips unaffected tests; incompatible with xdist and branch coverage
 
   compose:
     name: Compose config

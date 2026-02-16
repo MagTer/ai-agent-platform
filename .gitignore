@@ -29,3 +29,4 @@ services/agent/data/tibp_wiki_export/
 # n8n sensitive credentials
 flows/credentials.json
 .mypy_cache/
+.testmondata
