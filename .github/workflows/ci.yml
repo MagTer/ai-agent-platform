@@ -91,6 +91,10 @@ jobs:
         run: python -m pytest -x --testmon
         working-directory: services/agent
         # NOTE: testmon skips unaffected tests; incompatible with xdist and branch coverage
+      - name: Checkpoint testmon SQLite WAL
+        if: always()
+        run: python -c "import sqlite3; c=sqlite3.connect('.testmondata'); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+        working-directory: services/agent
 
   compose:
     name: Compose config
