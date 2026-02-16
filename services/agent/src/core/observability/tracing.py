@@ -36,6 +36,7 @@ try:  # pragma: no cover - exercised implicitly during imports
         ConsoleSpanExporter,
         SimpleSpanProcessor,
         SpanExporter,
+        SpanProcessor,
     )
     from opentelemetry.trace import SpanKind as _OtelSpanKind
 
@@ -49,6 +50,11 @@ except ImportError:  # pragma: no cover - fallback branch for offline CI
 
     class SpanExporter:  # type: ignore[no-redef]
         """Fallback for SpanExporter when opentelemetry is missing."""
+
+        pass
+
+    class SpanProcessor:  # type: ignore[no-redef]
+        """Fallback for SpanProcessor when opentelemetry is missing."""
 
         pass
 
@@ -133,7 +139,7 @@ class _NoOpTraceAPI:
         return _NoOpSpan()
 
 
-class _SanitizingSpanProcessor:
+class _SanitizingSpanProcessor(SpanProcessor):
     """Span processor wrapper that strips sensitive attributes before export.
 
     Wraps any SpanProcessor and filters out attributes containing sensitive keywords
@@ -149,7 +155,7 @@ class _SanitizingSpanProcessor:
         "authorization",
     )
 
-    def __init__(self, wrapped_processor: Any) -> None:
+    def __init__(self, wrapped_processor: SpanProcessor) -> None:
         self._wrapped = wrapped_processor
 
     def _sanitize_attributes(self, attributes: dict[str, Any]) -> dict[str, Any]:
@@ -172,9 +178,9 @@ class _SanitizingSpanProcessor:
         if hasattr(span, "attributes") and span.attributes:
             sanitized = self._sanitize_attributes(dict(span.attributes))
             # Replace attributes with sanitized version
+            # Note: attributes property has no setter, must use _attributes
             if hasattr(span, "_attributes"):
                 span._attributes = sanitized
-            span.attributes = sanitized
 
         if hasattr(self._wrapped, "on_start"):
             self._wrapped.on_start(span, parent_context)
@@ -184,9 +190,9 @@ class _SanitizingSpanProcessor:
         if hasattr(span, "attributes") and span.attributes:
             sanitized = self._sanitize_attributes(dict(span.attributes))
             # Replace attributes with sanitized version
+            # Note: attributes property has no setter, must use _attributes
             if hasattr(span, "_attributes"):
                 span._attributes = sanitized
-            span.attributes = sanitized
 
         if hasattr(self._wrapped, "on_end"):
             self._wrapped.on_end(span)
@@ -392,8 +398,8 @@ def configure_tracing(
     # explicitly requested
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not otlp_endpoint or os.getenv("FORCE_CONSOLE_TRACES", "false").lower() == "true":
-        processor = SimpleSpanProcessor(ConsoleSpanExporter())
-        provider.add_span_processor(_SanitizingSpanProcessor(processor))
+        console_processor: SpanProcessor = SimpleSpanProcessor(ConsoleSpanExporter())
+        provider.add_span_processor(_SanitizingSpanProcessor(console_processor))
 
     # 2. File Exporter (Batch) with rotation
     span_log_file = span_log_path or os.getenv("SPAN_LOG_PATH")
@@ -403,15 +409,15 @@ def configure_tracing(
             max_size_mb=span_log_max_size_mb,
             max_files=span_log_max_files,
         )
-        processor = BatchSpanProcessor(exporter)
-        provider.add_span_processor(_SanitizingSpanProcessor(processor))
+        file_processor: SpanProcessor = BatchSpanProcessor(exporter)
+        provider.add_span_processor(_SanitizingSpanProcessor(file_processor))
 
     # 3. OTLP Exporter (Batch) - Phoenix
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if otlp_endpoint:
         logger.info("Configuring OTLP exporter to %s", otlp_endpoint)
-        processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint))
-        provider.add_span_processor(_SanitizingSpanProcessor(processor))
+        otlp_processor: SpanProcessor = BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint))
+        provider.add_span_processor(_SanitizingSpanProcessor(otlp_processor))
 
     _otel_trace.set_tracer_provider(provider)
 

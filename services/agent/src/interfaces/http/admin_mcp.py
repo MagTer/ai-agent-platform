@@ -99,13 +99,15 @@ def _validate_mcp_server_url(url: str) -> None:
 
     # Block internal Docker service names
     if hostname.lower() in BLOCKED_HOSTNAMES:
-        raise ValueError("Cannot connect to internal Docker services (blocked hostname: %s)" % hostname)
+        raise ValueError(
+            f"Cannot connect to internal Docker services (blocked hostname: {hostname})"
+        )
 
     # Resolve hostname to IP addresses
     try:
         addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
     except socket.gaierror as e:
-        raise ValueError("DNS resolution failed for %s: %s" % (hostname, e)) from e
+        raise ValueError(f"DNS resolution failed for {hostname}: {e}") from e
 
     # Check all resolved IPs against private ranges
     for _family, _, _, _, sockaddr in addr_info:
@@ -113,15 +115,16 @@ def _validate_mcp_server_url(url: str) -> None:
         try:
             ip_addr = ipaddress.ip_address(ip_str)
         except ValueError:
-            LOGGER.debug("Invalid IP address from getaddrinfo: %s (unexpected)", ip_str, exc_info=True)
+            LOGGER.debug(
+                "Invalid IP address from getaddrinfo: %s (unexpected)", ip_str, exc_info=True
+            )
             continue
 
         # Check against private ranges
         for network in PRIVATE_IP_RANGES:
             if ip_addr in network:
                 raise ValueError(
-                    "Cannot connect to private/reserved IP addresses (blocked IP: %s from %s)"
-                    % (ip_str, hostname)
+                    f"Cannot connect to private/reserved IP addresses (blocked IP: {ip_str} from {hostname})"
                 )
 
 
