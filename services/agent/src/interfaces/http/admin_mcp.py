@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
+import socket
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -35,9 +37,92 @@ router = APIRouter(
 VALID_TRANSPORTS = {"auto", "sse", "streamable_http"}
 VALID_AUTH_TYPES = {"none", "bearer", "oauth"}
 
+# SSRF Protection: Blocked internal Docker service hostnames
+BLOCKED_HOSTNAMES = frozenset(
+    {
+        "postgres",
+        "qdrant",
+        "litellm",
+        "redis",
+        "searxng",
+        "openwebui",
+        "traefik",
+        "webfetch",
+        "embedder",
+        "agent",
+    }
+)
+
+# SSRF Protection: Private/reserved IP ranges
+PRIVATE_IP_RANGES = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
 # Cache template at module level to avoid I/O on every request
 _TEMPLATE_PATH = Path(__file__).parent / "templates" / "admin_mcp.html"
 _TEMPLATE_PARTS = _TEMPLATE_PATH.read_text(encoding="utf-8").split("<!-- SECTION_SEPARATOR -->")
+
+
+# -- SSRF Protection --
+
+
+def _validate_mcp_server_url(url: str) -> None:
+    """Validate MCP server URL to prevent SSRF attacks.
+
+    Blocks:
+    - Non-HTTP(S) schemes
+    - Private/reserved IP ranges
+    - Common internal Docker service hostnames
+
+    Args:
+        url: The URL to validate
+
+    Raises:
+        ValueError: If the URL is blocked
+    """
+    parsed = urlparse(url)
+
+    # Only allow HTTP(S)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError("URL must use http or https scheme")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL missing hostname")
+
+    # Block internal Docker service names
+    if hostname.lower() in BLOCKED_HOSTNAMES:
+        raise ValueError("Cannot connect to internal Docker services (blocked hostname: %s)" % hostname)
+
+    # Resolve hostname to IP addresses
+    try:
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+    except socket.gaierror as e:
+        raise ValueError("DNS resolution failed for %s: %s" % (hostname, e)) from e
+
+    # Check all resolved IPs against private ranges
+    for _family, _, _, _, sockaddr in addr_info:
+        ip_str = sockaddr[0]
+        try:
+            ip_addr = ipaddress.ip_address(ip_str)
+        except ValueError:
+            LOGGER.debug("Invalid IP address from getaddrinfo: %s (unexpected)", ip_str, exc_info=True)
+            continue
+
+        # Check against private ranges
+        for network in PRIVATE_IP_RANGES:
+            if ip_addr in network:
+                raise ValueError(
+                    "Cannot connect to private/reserved IP addresses (blocked IP: %s from %s)"
+                    % (ip_str, hostname)
+                )
 
 
 # -- Dashboard --
@@ -212,10 +297,11 @@ async def create_mcp_server(
             detail=f"Invalid auth_type. Must be one of: {', '.join(sorted(VALID_AUTH_TYPES))}",
         )
 
-    # URL scheme check (SSRF protection)
-    parsed = urlparse(request.url)
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(status_code=400, detail="URL must use http or https scheme")
+    # Validate URL to prevent SSRF attacks
+    try:
+        _validate_mcp_server_url(request.url)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid URL: {e}") from e
 
     # Bearer requires auth_token
     if request.auth_type == "bearer" and not request.auth_token:
@@ -318,9 +404,10 @@ async def update_mcp_server(
         server.name = request.name
 
     if request.url is not None:
-        parsed = urlparse(request.url)
-        if parsed.scheme not in ("http", "https"):
-            raise HTTPException(status_code=400, detail="URL must use http or https scheme")
+        try:
+            _validate_mcp_server_url(request.url)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid URL: {e}") from e
         server.url = request.url
 
     if request.transport is not None:

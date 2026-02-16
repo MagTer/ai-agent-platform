@@ -26,11 +26,6 @@
   enabled: true
   description: "Interacts with Azure DevOps to manage work items."
 
-- name: test_runner
-  type: core.tools.test_runner.TestRunnerTool
-  enabled: true
-  description: "Executes pytest on a specific file or directory. Use this to verify your code changes."
-
 - name: price_tracker
   type: core.tools.price_tracker.PriceTrackerTool
   enabled: true
@@ -60,8 +55,3 @@
   type: core.tools.github_pr.GitHubPRTool
   enabled: true
   description: "Create pull requests on GitHub"
-
-- name: update_memory
-  type: core.tools.memory_writer.MemoryWriterTool
-  enabled: true
-  description: "Append facts or insights to context's persistent memory file"
