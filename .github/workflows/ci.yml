@@ -2,6 +2,9 @@ name: CI
 
 on:
   pull_request:
+  # Weekly run on main to seed the testmon cache for PR builds
+  schedule:
+    - cron: '0 5 * * 1'  # Monday 5am UTC
 
 env:
   PYTHON_VERSION: '3.11'
@@ -80,9 +83,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: services/agent/.testmondata
-          key: testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ github.base_ref }}-${{ hashFiles('services/agent/poetry.lock') }}
+          key: testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}-${{ github.sha }}
           restore-keys: |
-            testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ github.base_ref }}-
+            testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}-
             testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
       - name: Pytest (testmon - affected tests only)
         run: python -m pytest -x --testmon
