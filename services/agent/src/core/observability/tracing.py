@@ -133,6 +133,76 @@ class _NoOpTraceAPI:
         return _NoOpSpan()
 
 
+class _SanitizingSpanProcessor:
+    """Span processor wrapper that strips sensitive attributes before export.
+
+    Wraps any SpanProcessor and filters out attributes containing sensitive keywords
+    like "api_key", "token", "secret", "password", "credential", "authorization".
+    """
+
+    _SENSITIVE_KEYWORDS = (
+        "api_key",
+        "token",
+        "secret",
+        "password",
+        "credential",
+        "authorization",
+    )
+
+    def __init__(self, wrapped_processor: Any) -> None:
+        self._wrapped = wrapped_processor
+
+    def _sanitize_attributes(self, attributes: dict[str, Any]) -> dict[str, Any]:
+        """Remove sensitive attributes from span data."""
+        if not attributes:
+            return attributes
+
+        sanitized = {}
+        for key, value in attributes.items():
+            # Check if key contains any sensitive keyword (case-insensitive)
+            key_lower = key.lower()
+            if any(keyword in key_lower for keyword in self._SENSITIVE_KEYWORDS):
+                sanitized[key] = "[REDACTED]"
+            else:
+                sanitized[key] = value
+        return sanitized
+
+    def on_start(self, span: Any, parent_context: Any = None) -> None:
+        """Called when span starts - sanitize attributes."""
+        if hasattr(span, "attributes") and span.attributes:
+            sanitized = self._sanitize_attributes(dict(span.attributes))
+            # Replace attributes with sanitized version
+            if hasattr(span, "_attributes"):
+                span._attributes = sanitized
+            span.attributes = sanitized
+
+        if hasattr(self._wrapped, "on_start"):
+            self._wrapped.on_start(span, parent_context)
+
+    def on_end(self, span: Any) -> None:
+        """Called when span ends - sanitize attributes before export."""
+        if hasattr(span, "attributes") and span.attributes:
+            sanitized = self._sanitize_attributes(dict(span.attributes))
+            # Replace attributes with sanitized version
+            if hasattr(span, "_attributes"):
+                span._attributes = sanitized
+            span.attributes = sanitized
+
+        if hasattr(self._wrapped, "on_end"):
+            self._wrapped.on_end(span)
+
+    def shutdown(self) -> None:
+        """Shutdown the wrapped processor."""
+        if hasattr(self._wrapped, "shutdown"):
+            self._wrapped.shutdown()
+
+    def force_flush(self, timeout_millis: int = 30000) -> bool:
+        """Force flush the wrapped processor."""
+        if hasattr(self._wrapped, "force_flush"):
+            return self._wrapped.force_flush(timeout_millis)
+        return True
+
+
 class _FileSpanExporter(SpanExporter):
     """JSONL file exporter for spans with async write batching and rotation.
 
@@ -322,7 +392,8 @@ def configure_tracing(
     # explicitly requested
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if not otlp_endpoint or os.getenv("FORCE_CONSOLE_TRACES", "false").lower() == "true":
-        provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
+        processor = SimpleSpanProcessor(ConsoleSpanExporter())
+        provider.add_span_processor(_SanitizingSpanProcessor(processor))
 
     # 2. File Exporter (Batch) with rotation
     span_log_file = span_log_path or os.getenv("SPAN_LOG_PATH")
@@ -332,13 +403,15 @@ def configure_tracing(
             max_size_mb=span_log_max_size_mb,
             max_files=span_log_max_files,
         )
-        provider.add_span_processor(BatchSpanProcessor(exporter))
+        processor = BatchSpanProcessor(exporter)
+        provider.add_span_processor(_SanitizingSpanProcessor(processor))
 
     # 3. OTLP Exporter (Batch) - Phoenix
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     if otlp_endpoint:
-        logger.info(f"Configuring OTLP exporter to {otlp_endpoint}")
-        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint)))
+        logger.info("Configuring OTLP exporter to %s", otlp_endpoint)
+        processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint))
+        provider.add_span_processor(_SanitizingSpanProcessor(processor))
 
     _otel_trace.set_tracer_provider(provider)
 

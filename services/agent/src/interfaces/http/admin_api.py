@@ -389,6 +389,7 @@ async def list_conversations(
 )
 async def get_conversation_traces(
     conversation_id: UUID,
+    limit: int = Query(50, le=200, description="Max traces to return"),
     auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
     session: AsyncSession = Depends(get_db),
 ) -> list[TraceSearchResult]:
@@ -399,6 +400,7 @@ async def get_conversation_traces(
 
     Args:
         conversation_id: The conversation UUID.
+        limit: Maximum number of traces to return (default 50, max 200).
     """
     # Verify conversation exists
     conv_stmt = select(Conversation).where(Conversation.id == conversation_id)
@@ -406,13 +408,15 @@ async def get_conversation_traces(
     if not conv_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Get all trace_ids from messages in this conversation
+    # Get all trace_ids from messages in this conversation (with limit)
     trace_id_stmt = (
         select(Message.trace_id)
         .join(Session, Message.session_id == Session.id)
         .where(Session.conversation_id == conversation_id)
         .where(Message.trace_id.isnot(None))
         .distinct()
+        .order_by(Message.created_at.desc())
+        .limit(limit)
     )
     trace_id_result = await session.execute(trace_id_stmt)
     trace_ids = [row[0] for row in trace_id_result.fetchall()]
@@ -420,16 +424,20 @@ async def get_conversation_traces(
     if not trace_ids:
         return []
 
-    # Load trace details
+    # Load trace details only for the requested trace_ids
     settings = get_settings()
     diagnostics = DiagnosticsService(settings)
 
-    # Get all traces and filter to our list
-    all_traces = await diagnostics.get_recent_traces(limit=5000, show_all=True)
+    # Convert trace_ids to a set for faster lookups
+    trace_id_set = set(trace_ids)
+
+    # Read a reasonable window of traces and filter
+    # Read 2x the limit to account for non-matching traces
+    all_traces = await diagnostics.get_recent_traces(limit=limit * 2, show_all=True)
 
     results = []
     for trace_group in all_traces:
-        if trace_group.trace_id in trace_ids:
+        if trace_group.trace_id in trace_id_set:
             results.append(
                 TraceSearchResult(
                     trace_id=trace_group.trace_id,
@@ -440,6 +448,9 @@ async def get_conversation_traces(
                     span_count=len(trace_group.spans),
                 )
             )
+            # Stop if we found all traces
+            if len(results) >= len(trace_ids):
+                break
 
     # Sort by start time descending (most recent first)
     results.sort(key=lambda x: x.start_time, reverse=True)
@@ -1185,11 +1196,11 @@ async def toggle_debug_logging(
 
     await session.commit()
 
-    # Invalidate debug logger cache by clearing the module-level cache
+    # Invalidate debug logger cache using the public API
     # This forces the next is_enabled() call to re-read from the database
-    import core.observability.debug_logger as debug_logger_module
+    from core.observability.debug_logger import invalidate_debug_cache
 
-    debug_logger_module._debug_enabled_cache = None
+    invalidate_debug_cache()
 
     LOGGER.info("Debug logging %s by %s", "enabled" if enabled else "disabled", auth.email)
 

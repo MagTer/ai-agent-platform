@@ -7,9 +7,25 @@ from slowapi.util import get_remote_address
 
 from core.observability.security_logger import RATE_LIMIT_EXCEEDED, log_security_event
 
+# Path-specific rate limit overrides (stricter limits for sensitive endpoints)
+PATH_RATE_LIMITS: dict[str, str] = {
+    "/auth/oauth": "5/minute",
+    "/webui/oauth": "5/minute",
+    "/platformadmin/api/": "30/minute",
+    "/platformadmin/": "10/minute",
+    "/v1/chat": "30/minute",
+    "/api/agent/": "20/minute",
+}
+
+# Global limiter instance (singleton for application-wide use)
+_limiter_instance: Limiter | None = None
+
 
 def get_rate_limit_for_path(path: str) -> str:
     """Determine the appropriate rate limit for a given path.
+
+    Checks path prefixes in order of specificity (longest first) to ensure
+    more specific limits override broader ones.
 
     Args:
         path: The request path.
@@ -17,14 +33,13 @@ def get_rate_limit_for_path(path: str) -> str:
     Returns:
         Rate limit string (e.g., "10/minute").
     """
-    if path.startswith("/admin"):
-        return "10/minute"
-    elif path.startswith("/auth/oauth") or path.startswith("/webui/oauth"):
-        return "5/minute"
-    elif path.startswith("/v1/chat"):
-        return "30/minute"
-    else:
-        return "60/minute"
+    # Check specific path prefixes (sorted by length, longest first)
+    for prefix in sorted(PATH_RATE_LIMITS.keys(), key=len, reverse=True):
+        if path.startswith(prefix):
+            return PATH_RATE_LIMITS[prefix]
+
+    # Default rate limit
+    return "60/minute"
 
 
 def _dynamic_limit_key(request: Request) -> str:
@@ -43,15 +58,40 @@ def create_rate_limiter() -> Limiter:
     """Create and configure a rate limiter instance.
 
     Uses dynamic rate limits based on request path:
-    - /admin endpoints: 10/minute
     - /auth/oauth, /webui/oauth: 5/minute
+    - /platformadmin/api/: 30/minute
+    - /platformadmin/: 10/minute
+    - /api/agent/: 20/minute
     - /v1/chat: 30/minute
     - Default: 60/minute
 
     Returns:
         Configured Limiter instance with IP-based rate limiting.
     """
-    return Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+    global _limiter_instance
+    if _limiter_instance is None:
+        _limiter_instance = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+    return _limiter_instance
+
+
+def get_limiter() -> Limiter:
+    """Get the global rate limiter instance.
+
+    Routes can import this to apply custom rate limits using decorators:
+        from core.middleware.rate_limit import get_limiter
+        limiter = get_limiter()
+
+        @router.get("/sensitive")
+        @limiter.limit("5/minute")
+        async def sensitive_endpoint():
+            ...
+
+    Returns:
+        The global Limiter instance.
+    """
+    if _limiter_instance is None:
+        return create_rate_limiter()
+    return _limiter_instance
 
 
 async def rate_limit_exceeded_handler(request: Request, exc: Exception) -> Response:

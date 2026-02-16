@@ -36,6 +36,16 @@ _debug_enabled_cache: tuple[bool, float] | None = None
 _DEBUG_CACHE_TTL = 30.0  # seconds
 
 
+def invalidate_debug_cache() -> None:
+    """Invalidate the debug enabled cache.
+
+    Forces the next is_enabled() check to re-read from the database.
+    This should be called after updating the SystemConfig.debug_enabled value.
+    """
+    global _debug_enabled_cache
+    _debug_enabled_cache = None
+
+
 def configure_debug_log_handler(
     log_path: str | Path = DEBUG_LOGS_PATH,
     max_bytes: int = 10 * 1024 * 1024,  # 10MB
