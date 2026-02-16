@@ -92,11 +92,11 @@ class McpClientPool:
             async def check_client_health(client: McpClient) -> McpClient | None:
                 """Check if a client is healthy. Returns client if healthy, None otherwise."""
                 if not client.is_connected:
-                    LOGGER.warning(f"Client {client.name} disconnected, removing from pool")
+                    LOGGER.warning("Client %s disconnected, removing from pool", client.name)
                     try:
                         await client.disconnect()
                     except Exception as e:
-                        LOGGER.error(f"Error disconnecting stale client: {e}")
+                        LOGGER.error("Error disconnecting stale client: %s", e)
                     return None
 
                 try:
@@ -106,19 +106,19 @@ class McpClientPool:
                         return client
                     else:
                         LOGGER.warning(
-                            f"Client {client.name} failed health check, removing from pool"
+                            "Client %s failed health check, removing from pool", client.name
                         )
                         try:
                             await client.disconnect()
                         except Exception as e:
-                            LOGGER.error(f"Error disconnecting unhealthy client: {e}")
+                            LOGGER.error("Error disconnecting unhealthy client: %s", e)
                         return None
                 except TimeoutError:
-                    LOGGER.warning(f"Client {client.name} ping timeout, removing from pool")
+                    LOGGER.warning("Client %s ping timeout, removing from pool", client.name)
                     try:
                         await client.disconnect()
                     except Exception as e:
-                        LOGGER.error(f"Error disconnecting timed-out client: {e}")
+                        LOGGER.error("Error disconnecting timed-out client: %s", e)
                     return None
 
             # Check all clients in parallel
@@ -133,13 +133,15 @@ class McpClientPool:
                 if isinstance(health_check_result, McpClient):
                     valid_clients.append(health_check_result)
                 elif isinstance(health_check_result, Exception):
-                    LOGGER.error(f"Error during health check: {health_check_result}")
+                    LOGGER.error("Error during health check: %s", health_check_result)
                 # else: health_check_result is None, skip
 
             if valid_clients:
                 self._pools[context_id] = valid_clients
                 LOGGER.debug(
-                    f"Using {len(valid_clients)} cached MCP clients for context {context_id}"
+                    "Using %d cached MCP clients for context %s",
+                    len(valid_clients),
+                    context_id,
                 )
                 return valid_clients
 
@@ -147,7 +149,7 @@ class McpClientPool:
         async with self._locks[context_id]:
             # Double-check after acquiring lock
             if context_id in self._pools and self._pools[context_id]:
-                LOGGER.debug(f"Found clients after acquiring lock for context {context_id}")
+                LOGGER.debug("Found clients after acquiring lock for context %s", context_id)
                 return self._pools[context_id]
 
             # Load OAuth tokens for this context
@@ -155,7 +157,7 @@ class McpClientPool:
             result = await session.execute(stmt)
             tokens = result.scalars().all()
 
-            LOGGER.debug(f"Found {len(tokens)} OAuth tokens for context {context_id}")
+            LOGGER.debug("Found %d OAuth tokens for context %s", len(tokens), context_id)
 
             clients = []
             connection_attempted = False
@@ -180,12 +182,13 @@ class McpClientPool:
                         await asyncio.wait_for(client.connect(), timeout=5.0)
                         clients.append(client)
                         LOGGER.info(
-                            f"Connected Context7 MCP for context {context_id} "
-                            f"(discovered {len(client.tools)} tools)"
+                            "Connected Context7 MCP for context %s (discovered %d tools)",
+                            context_id,
+                            len(client.tools),
                         )
                     except Exception as e:
                         LOGGER.error(
-                            f"Failed to connect Context7 MCP for context {context_id}: {e}"
+                            "Failed to connect Context7 MCP for context %s: %s", context_id, e
                         )
 
             # Load user-defined MCP servers from database
@@ -198,20 +201,22 @@ class McpClientPool:
             self._timestamps[context_id] = time.monotonic()
 
             if clients:
-                LOGGER.info(f"Created {len(clients)} MCP clients for context {context_id}")
+                LOGGER.info("Created %d MCP clients for context %s", len(clients), context_id)
                 # Clear negative cache on success
                 self._negative_cache.pop(context_id, None)
             elif connection_attempted:
                 # Had credentials but failed to connect - negative cache to avoid retry storms
                 self._negative_cache[context_id] = time.monotonic()
                 LOGGER.info(
-                    f"MCP connection failed for context {context_id}, "
-                    f"will retry in {self._negative_cache_ttl}s"
+                    "MCP connection failed for context %s, will retry in %ds",
+                    context_id,
+                    self._negative_cache_ttl,
                 )
             else:
                 LOGGER.debug(
-                    f"No MCP clients created for context {context_id} "
-                    f"(no matching OAuth tokens or providers not configured)"
+                    "No MCP clients created for context %s "
+                    "(no matching OAuth tokens or providers not configured)",
+                    context_id,
                 )
 
             return clients
@@ -351,7 +356,7 @@ class McpClientPool:
             context_id: Context UUID
         """
         if context_id not in self._pools:
-            LOGGER.debug(f"No clients to disconnect for context {context_id}")
+            LOGGER.debug("No clients to disconnect for context %s", context_id)
             return
 
         clients = self._pools[context_id]
@@ -360,10 +365,10 @@ class McpClientPool:
         for client in clients:
             try:
                 await client.disconnect()
-                LOGGER.debug(f"Disconnected {client.name} for context {context_id}")
+                LOGGER.debug("Disconnected %s for context %s", client.name, context_id)
             except Exception as e:
                 disconnect_errors.append((client.name, e))
-                LOGGER.warning(f"Error disconnecting {client.name}: {e}")
+                LOGGER.warning("Error disconnecting %s: %s", client.name, e)
 
         # Remove from pool, timestamps, and locks
         del self._pools[context_id]
@@ -372,12 +377,14 @@ class McpClientPool:
 
         if disconnect_errors:
             LOGGER.warning(
-                f"Disconnected {len(clients)} clients for context {context_id} "
-                f"with {len(disconnect_errors)} errors"
+                "Disconnected %d clients for context %s with %d errors",
+                len(clients),
+                context_id,
+                len(disconnect_errors),
             )
         else:
             LOGGER.info(
-                f"Successfully disconnected {len(clients)} clients for context {context_id}"
+                "Successfully disconnected %d clients for context %s", len(clients), context_id
             )
 
     async def _eviction_loop(self) -> None:
@@ -420,7 +427,7 @@ class McpClientPool:
 
         Called during application shutdown.
         """
-        LOGGER.info(f"Shutting down MCP client pool ({len(self._pools)} contexts)")
+        LOGGER.info("Shutting down MCP client pool (%d contexts)", len(self._pools))
 
         total_clients = sum(len(clients) for clients in self._pools.values())
         disconnect_errors = []
@@ -430,15 +437,16 @@ class McpClientPool:
                 await self.disconnect_context(context_id)
             except Exception as e:
                 disconnect_errors.append((context_id, e))
-                LOGGER.error(f"Error disconnecting context {context_id}: {e}")
+                LOGGER.error("Error disconnecting context %s: %s", context_id, e)
 
         if disconnect_errors:
             LOGGER.warning(
-                f"Shutdown complete with {len(disconnect_errors)} errors "
-                f"({total_clients} total clients)"
+                "Shutdown complete with %d errors (%d total clients)",
+                len(disconnect_errors),
+                total_clients,
             )
         else:
-            LOGGER.info(f"All {total_clients} MCP clients shut down successfully")
+            LOGGER.info("All %d MCP clients shut down successfully", total_clients)
 
     def get_health_status(self) -> dict[str, dict[str, Any]]:
         """Get health status of all client pools.

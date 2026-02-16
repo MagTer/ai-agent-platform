@@ -2,7 +2,6 @@
 
 import argparse
 import asyncio
-import os
 import sys
 from pathlib import Path
 
@@ -32,8 +31,11 @@ async def main(force: bool = False):
     client = LiteLLMClient(settings)
     embedder = LiteLLMEmbedder(client)
 
-    os.environ["QDRANT_COLLECTION"] = COLLECTION_NAME
-    rag = RAGManager(embedder=embedder)
+    rag = RAGManager(
+        embedder=embedder,
+        qdrant_url=str(settings.qdrant_url),
+        collection_name=COLLECTION_NAME,
+    )
 
     try:
         print(f"📦 Checking collection '{COLLECTION_NAME}'...")

@@ -49,20 +49,17 @@ class TestCodeIndexerInitialization:
         assert indexer.client is not None
         assert indexer.splitter is not None
 
-    def test_configuration_from_environment(
+    def test_configuration_from_constructor(
         self, tmp_path: Path, mock_embedder: MockEmbedder
     ) -> None:
-        """Test configuration loading from environment variables."""
-        with patch.dict(
-            "os.environ",
-            {
-                "QDRANT_URL": "http://test-qdrant:9999",
-                "QDRANT_COLLECTION": "test-code-collection",
-            },
-        ):
-            indexer = CodeIndexer(root_path=tmp_path, embedder=mock_embedder)
-            assert indexer.qdrant_url == "http://test-qdrant:9999"
-            assert indexer.collection_name == "test-code-collection"
+        """Test configuration passed via constructor parameters."""
+        indexer = CodeIndexer(
+            root_path=tmp_path,
+            embedder=mock_embedder,
+            qdrant_url="http://test-qdrant:9999",
+            collection_name="test-code-collection",
+        )
+        assert indexer.collection_name == "test-code-collection"
 
 
 class TestCodeIndexerHashCalculation:

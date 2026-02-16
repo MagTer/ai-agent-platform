@@ -51,7 +51,11 @@ async def register_providers(
     set_embedder(embedder)
 
     # 2. RAG manager with embedder
-    rag_manager = RAGManager(embedder=embedder)
+    rag_manager = RAGManager(
+        embedder=embedder,
+        qdrant_url=str(settings.qdrant_url),
+        collection_name=settings.qdrant_collection,
+    )
     set_rag_manager(rag_manager)
 
     # 3. Fetcher with RAG manager

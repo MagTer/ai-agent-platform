@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import numpy as np
 import pytest
@@ -50,22 +50,19 @@ class TestRAGManagerInitialization:
         _ = rag_manager.client  # Access property
         assert rag_manager._client is not None
 
-    def test_configuration_from_environment(self) -> None:
-        """Test configuration loading from environment variables."""
-        with patch.dict(
-            "os.environ",
-            {
-                "QDRANT_URL": "http://test-qdrant:1234",
-                "QDRANT_TOP_K": "10",
-                "MMR_LAMBDA": "0.5",
-                "QDRANT_COLLECTION": "test-collection",
-            },
-        ):
-            manager = RAGManager(embedder=MockEmbedder())
-            assert manager.qdrant_url == "http://test-qdrant:1234"
-            assert manager.top_k == 10
-            assert manager.mmr_lambda == 0.5
-            assert manager.collection_name == "test-collection"
+    def test_configuration_from_constructor(self) -> None:
+        """Test configuration passed via constructor parameters."""
+        manager = RAGManager(
+            embedder=MockEmbedder(),
+            qdrant_url="http://test-qdrant:1234",
+            collection_name="test-collection",
+            top_k=10,
+            mmr_lambda=0.5,
+        )
+        assert manager.qdrant_url == "http://test-qdrant:1234"
+        assert manager.top_k == 10
+        assert manager.mmr_lambda == 0.5
+        assert manager.collection_name == "test-collection"
 
 
 class TestRAGManagerCosineDistance:

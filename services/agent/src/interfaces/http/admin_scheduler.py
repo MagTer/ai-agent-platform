@@ -9,7 +9,7 @@ from typing import Any
 from uuid import UUID
 
 from croniter import croniter  # type: ignore[import-untyped]
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -469,10 +469,16 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
     dependencies=[Depends(verify_admin_user)],
 )
 async def list_all_jobs(
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(50, ge=1, le=500, description="Max items to return"),
     session: AsyncSession = Depends(get_db),
 ) -> JobListResponse:
     """List all scheduled jobs across all contexts."""
     stmt = select(ScheduledJob).order_by(ScheduledJob.next_run_at.asc())
+
+    # Apply pagination
+    stmt = stmt.offset(offset).limit(limit)
+
     result = await session.execute(stmt)
     jobs = result.scalars().all()
 

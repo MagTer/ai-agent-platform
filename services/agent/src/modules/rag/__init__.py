@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import Any
 
 import numpy as np
@@ -14,14 +13,19 @@ logger = logging.getLogger(__name__)
 class RAGManager:
     """RAG Manager with dependency injection for embedder."""
 
-    def __init__(self, embedder: IEmbedder) -> None:
-        # Configuration (loaded immediately - lightweight)
-        self.qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
-        self.top_k = int(os.getenv("QDRANT_TOP_K", "5"))
-        self.mmr_lambda = float(os.getenv("MMR_LAMBDA", "0.7"))
-        self.collection_name = os.getenv(
-            "QDRANT_COLLECTION", "agent-memories"
-        )  # Default from fetcher
+    def __init__(
+        self,
+        embedder: IEmbedder,
+        qdrant_url: str = "http://qdrant:6333",
+        collection_name: str = "agent-memories",
+        top_k: int = 5,
+        mmr_lambda: float = 0.7,
+    ) -> None:
+        # Configuration
+        self.qdrant_url = qdrant_url
+        self.top_k = top_k
+        self.mmr_lambda = mmr_lambda
+        self.collection_name = collection_name
 
         # Injected dependencies
         self.embedder = embedder

@@ -14,11 +14,16 @@ logger = logging.getLogger(__name__)
 
 
 class CodeIndexer:
-    def __init__(self, root_path: Path, embedder: IEmbedder):
+    def __init__(
+        self,
+        root_path: Path,
+        embedder: IEmbedder,
+        qdrant_url: str = "http://qdrant:6333",
+        collection_name: str = "agent-memories",
+    ):
         self.root_path = root_path
-        self.qdrant_url = os.getenv("QDRANT_URL", "http://qdrant:6333")
-        self.client = AsyncQdrantClient(url=self.qdrant_url)
-        self.collection_name = os.getenv("QDRANT_COLLECTION", "agent-memories")
+        self.client = AsyncQdrantClient(url=qdrant_url)
+        self.collection_name = collection_name
         self.embedder = embedder
         self.splitter = CodeSplitter()
 
