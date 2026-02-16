@@ -85,15 +85,9 @@ jobs:
             testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ github.base_ref }}-
             testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
       - name: Pytest (testmon - affected tests only)
-        run: python -m pytest -x --testmon --cov=src --cov-report=xml --cov-report=term-missing
+        run: python -m pytest -x --testmon
         working-directory: services/agent
-        # NOTE: testmon skips tests unaffected by changes; incompatible with xdist (-n auto)
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: services/agent/coverage.xml
-        if: always()
+        # NOTE: testmon skips unaffected tests; incompatible with xdist and branch coverage
 
   compose:
     name: Compose config
