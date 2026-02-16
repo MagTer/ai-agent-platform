@@ -649,7 +649,8 @@ async def get_otel_metrics_api(
 async def get_debug_logs_api(
     trace_id: str | None = Query(None, description="Filter by trace ID"),
     event_type: str | None = Query(None, description="Filter by event type"),
-    limit: int = Query(50, le=500, description="Max entries to return"),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(50, ge=1, le=500, description="Max entries to return"),
     auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
 ) -> list[dict[str, Any]]:
     """Query debug log entries from JSONL file.
@@ -663,11 +664,15 @@ async def get_debug_logs_api(
     """
     from core.observability.debug_logger import read_debug_logs
 
-    return await read_debug_logs(
+    # Read logs (we need offset + limit entries to apply offset)
+    logs = await read_debug_logs(
         trace_id=trace_id,
         event_type=event_type,
-        limit=limit,
+        limit=offset + limit,
     )
+
+    # Apply pagination
+    return logs[offset:]
 
 
 @router.get("/investigate/{trace_id}")
@@ -761,7 +766,8 @@ async def search_traces(
     trace_id: str | None = Query(None, description="Trace ID to find (partial match)"),
     min_duration_ms: float | None = Query(None, description="Minimum duration in ms"),
     status: str | None = Query(None, description="Filter by status: OK, ERR"),
-    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(50, ge=1, le=200, description="Max items to return"),
     auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
 ) -> list[TraceSearchResult]:
     """Search OpenTelemetry traces.
@@ -798,10 +804,8 @@ async def search_traces(
             )
         )
 
-        if len(results) >= limit:
-            break
-
-    return results
+    # Apply pagination
+    return results[offset : offset + limit]
 
 
 @router.get("/traces/{trace_id}", response_model=TraceDetail)

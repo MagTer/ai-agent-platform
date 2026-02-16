@@ -13,7 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from shared.sanitize import sanitize_log
 from sqlalchemy import select
@@ -224,6 +224,8 @@ class McpServerListResponse(BaseModel):
 )
 async def list_mcp_servers(
     context_id: UUID | None = None,
+    offset: int = Query(0, ge=0, description="Number of items to skip"),
+    limit: int = Query(50, ge=1, le=500, description="Max items to return"),
     session: AsyncSession = Depends(get_db),
 ) -> McpServerListResponse:
     """List all user-defined MCP servers across all contexts."""
@@ -234,6 +236,10 @@ async def list_mcp_servers(
     )
     if context_id:
         stmt = stmt.where(McpServer.context_id == context_id)
+
+    # Apply pagination
+    stmt = stmt.offset(offset).limit(limit)
+
     result = await session.execute(stmt)
     rows = result.all()
 
