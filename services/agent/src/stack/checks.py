@@ -72,7 +72,7 @@ def _run_cmd(
     args: list[str],
     cwd: Path,
     env: dict[str, str] | None = None,
-    timeout: float | None = 300,
+    timeout: float | None = 900,
 ) -> subprocess.CompletedProcess[bytes]:
     """Run a subprocess command.
 
@@ -80,7 +80,7 @@ def _run_cmd(
         args: Command arguments list.
         cwd: Directory to execute the command in.
         env: Optional environment variables.
-        timeout: Timeout in seconds for the command. Defaults to 300s (5 min).
+        timeout: Timeout in seconds for the command. Defaults to 900s (15 min).
 
     Returns:
         CompletedProcess with return code and output.

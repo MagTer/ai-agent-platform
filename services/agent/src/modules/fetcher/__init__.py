@@ -133,6 +133,11 @@ class WebFetcher:
 
     async def _evict_old_cache_entries(self, max_entries: int = 1000) -> None:
         """Evict oldest cache entries when limit exceeded."""
+        # Quick count check before expensive sort+stat
+        entry_count = sum(1 for _ in self.cache_dir.iterdir())
+        if entry_count < max_entries:
+            return
+
         # Get all cache files sorted by modification time
         entries = await asyncio.to_thread(
             lambda: sorted(self.cache_dir.glob("*"), key=lambda p: p.stat().st_mtime)

@@ -30,6 +30,7 @@ from core.observability.security_logger import (
 )
 from core.runtime.config import get_settings
 from interfaces.http.admin_auth import AdminUser, get_admin_user
+from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
@@ -380,6 +381,70 @@ async def list_conversations(
         )
 
     return summaries
+
+
+@router.get(
+    "/conversations/{conversation_id}/traces",
+    response_model=list[TraceSearchResult],
+)
+async def get_conversation_traces(
+    conversation_id: UUID,
+    auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
+    session: AsyncSession = Depends(get_db),
+) -> list[TraceSearchResult]:
+    """Get all traces for a specific conversation.
+
+    Aggregates all trace_ids from messages in the conversation's sessions,
+    then loads trace details for each one.
+
+    Args:
+        conversation_id: The conversation UUID.
+    """
+    # Verify conversation exists
+    conv_stmt = select(Conversation).where(Conversation.id == conversation_id)
+    conv_result = await session.execute(conv_stmt)
+    if not conv_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    # Get all trace_ids from messages in this conversation
+    trace_id_stmt = (
+        select(Message.trace_id)
+        .join(Session, Message.session_id == Session.id)
+        .where(Session.conversation_id == conversation_id)
+        .where(Message.trace_id.isnot(None))
+        .distinct()
+    )
+    trace_id_result = await session.execute(trace_id_stmt)
+    trace_ids = [row[0] for row in trace_id_result.fetchall()]
+
+    if not trace_ids:
+        return []
+
+    # Load trace details
+    settings = get_settings()
+    diagnostics = DiagnosticsService(settings)
+
+    # Get all traces and filter to our list
+    all_traces = await diagnostics.get_recent_traces(limit=5000, show_all=True)
+
+    results = []
+    for trace_group in all_traces:
+        if trace_group.trace_id in trace_ids:
+            results.append(
+                TraceSearchResult(
+                    trace_id=trace_group.trace_id,
+                    start_time=trace_group.start_time.isoformat(),
+                    duration_ms=trace_group.total_duration_ms,
+                    status=trace_group.status,
+                    root_name=trace_group.root.name,
+                    span_count=len(trace_group.spans),
+                )
+            )
+
+    # Sort by start time descending (most recent first)
+    results.sort(key=lambda x: x.start_time, reverse=True)
+
+    return results
 
 
 @router.get(
@@ -1079,6 +1144,59 @@ async def get_request_stats(
         "period_hours": hours,
         "endpoints": endpoint_stats,
         "total_requests": sum(s["count"] for s in endpoint_stats.values()),
+    }
+
+
+@router.post("/debug/toggle")
+async def toggle_debug_logging(
+    request: Request,
+    enabled: bool,
+    auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
+    session: AsyncSession = Depends(get_db),
+    _csrf: None = Depends(require_csrf),
+) -> dict[str, Any]:
+    """Toggle debug logging on or off.
+
+    Updates the SystemConfig table and invalidates the debug logger cache.
+
+    Args:
+        enabled: True to enable debug logging, False to disable.
+
+    Returns:
+        Status message and current debug state.
+    """
+    # Update SystemConfig
+    stmt = select(SystemConfig).where(SystemConfig.key == "debug_enabled")
+    result = await session.execute(stmt)
+    config = result.scalar_one_or_none()
+
+    value_dict: dict[str, Any] = {"enabled": enabled}
+
+    if config:
+        config.value = value_dict
+        config.updated_at = datetime.now(UTC)
+    else:
+        new_config = SystemConfig(
+            key="debug_enabled",
+            value=value_dict,
+            description="Enable or disable debug logging",
+        )
+        session.add(new_config)
+
+    await session.commit()
+
+    # Invalidate debug logger cache by clearing the module-level cache
+    # This forces the next is_enabled() call to re-read from the database
+    import core.observability.debug_logger as debug_logger_module
+
+    debug_logger_module._debug_enabled_cache = None
+
+    LOGGER.info("Debug logging %s by %s", "enabled" if enabled else "disabled", auth.email)
+
+    return {
+        "status": "ok",
+        "debug_enabled": enabled,
+        "message": f"Debug logging {'enabled' if enabled else 'disabled'}",
     }
 
 

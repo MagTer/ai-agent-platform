@@ -25,10 +25,14 @@ try:
         OTLPMetricExporter,
     )
     from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics._internal.aggregation import (
+        ExplicitBucketHistogramAggregation,
+    )
     from opentelemetry.sdk.metrics.export import (
         ConsoleMetricExporter,
         PeriodicExportingMetricReader,
     )
+    from opentelemetry.sdk.metrics.view import View
     from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 
     _OTEL_METRICS_AVAILABLE = True
@@ -153,7 +157,27 @@ def configure_metrics(
         logger.info("No metric exporters configured; metrics will not be exported")
         return
 
-    provider = MeterProvider(resource=resource, metric_readers=readers)
+    # Define latency bucket boundaries for percentile calculation
+    # Buckets: 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s, 30s, 60s
+    latency_buckets = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000]
+
+    # Create views with explicit bucket boundaries for latency histograms
+    views = [
+        View(
+            instrument_name="agent.requests.duration",
+            aggregation=ExplicitBucketHistogramAggregation(boundaries=latency_buckets),
+        ),
+        View(
+            instrument_name="agent.llm.calls.duration",
+            aggregation=ExplicitBucketHistogramAggregation(boundaries=latency_buckets),
+        ),
+        View(
+            instrument_name="agent.tools.calls.duration",
+            aggregation=ExplicitBucketHistogramAggregation(boundaries=latency_buckets),
+        ),
+    ]
+
+    provider = MeterProvider(resource=resource, metric_readers=readers, views=views)
     _otel_metrics.set_meter_provider(provider)
 
     meter = provider.get_meter("agent-platform", version="0.1.0")
