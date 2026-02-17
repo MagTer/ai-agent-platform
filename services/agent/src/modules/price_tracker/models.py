@@ -86,7 +86,7 @@ class ProductStore(Base):
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     check_frequency_hours: Mapped[int] = mapped_column(Integer, default=72)
     check_weekday: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 0=Mon, 6=Sun
-    next_check_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_check_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     # Relationships
     product: Mapped["Product"] = relationship(back_populates="product_stores")
@@ -117,9 +117,9 @@ class PricePoint(Base):
     product_store_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("price_tracker_product_stores.id"), index=True
     )
-    price_sek: Mapped[float] = mapped_column(Numeric(10, 2))
-    unit_price_sek: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
-    offer_price_sek: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    price_sek: Mapped[Decimal] = mapped_column(Numeric(10, 2))
+    unit_price_sek: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
+    offer_price_sek: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     # Offer type: campaign, member, etc.
     offer_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
     offer_details: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -147,10 +147,10 @@ class PriceWatch(Base):
     product_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("price_tracker_products.id"), index=True
     )
-    target_price_sek: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    target_price_sek: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     alert_on_any_offer: Mapped[bool] = mapped_column(Boolean, default=False)
     price_drop_threshold_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    unit_price_target_sek: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    unit_price_target_sek: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     unit_price_drop_threshold_percent: Mapped[int | None] = mapped_column(Integer, nullable=True)
     email_address: Mapped[str] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -74,7 +74,7 @@ class TestCronValidation:
 
     def test_valid_cron_expressions(self) -> None:
         """Test that valid cron expressions are accepted."""
-        from croniter import croniter  # type: ignore[import-untyped]
+        from croniter import croniter
 
         valid = [
             "* * * * *",

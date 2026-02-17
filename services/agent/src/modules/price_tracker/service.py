@@ -497,6 +497,7 @@ class PriceTrackerService:
                     text_content=fetch_result["text"],
                     store_slug=store.slug,
                     product_name=product.name,
+                    store_url=product_store.store_url,
                 )
 
                 if not extraction_result.price_sek:

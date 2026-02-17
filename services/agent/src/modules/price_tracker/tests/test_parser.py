@@ -276,3 +276,109 @@ class TestPriceParser:
 
             assert mock_extract.call_count == 2
             assert result == fallback_result
+
+    @pytest.mark.asyncio
+    async def test_extract_price_tries_api_extractor_first(self) -> None:
+        """When store_url provided and slug has API extractor, API is called first.
+
+        If API returns a result, _extract_with_model (LLM) is NOT called.
+        """
+        parser = PriceParser()
+
+        api_result = PriceExtractionResult(
+            price_sek=Decimal("29.90"),
+            unit_price_sek=None,
+            offer_price_sek=None,
+            offer_type=None,
+            offer_details=None,
+            in_stock=True,
+            confidence=0.99,
+            pack_size=None,
+            raw_response={"source": "willys_api"},
+        )
+
+        mock_api_extractor = AsyncMock()
+        mock_api_extractor.extract = AsyncMock(return_value=api_result)
+        parser._api_extractors["willys"] = mock_api_extractor
+
+        with patch.object(parser, "_extract_with_model", new_callable=AsyncMock) as mock_llm:
+            result = await parser.extract_price(
+                text_content="page content",
+                store_slug="willys",
+                product_name="Mjolk",
+                store_url="https://www.willys.se/produkt/Mjolk-100014716_ST",
+            )
+
+        mock_api_extractor.extract.assert_called_once()
+        mock_llm.assert_not_called()
+        assert result == api_result
+
+    @pytest.mark.asyncio
+    async def test_extract_price_falls_back_to_llm_when_api_returns_none(self) -> None:
+        """API extractor returns None -> LLM cascade is used."""
+        parser = PriceParser()
+
+        mock_api_extractor = AsyncMock()
+        mock_api_extractor.extract = AsyncMock(return_value=None)
+        parser._api_extractors["willys"] = mock_api_extractor
+
+        llm_result = PriceExtractionResult(
+            price_sek=Decimal("29.90"),
+            unit_price_sek=None,
+            offer_price_sek=None,
+            offer_type=None,
+            offer_details=None,
+            in_stock=True,
+            confidence=0.85,
+            pack_size=None,
+            raw_response={},
+        )
+
+        with patch.object(parser, "_extract_with_model", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_result
+
+            result = await parser.extract_price(
+                text_content="page content",
+                store_slug="willys",
+                product_name="Mjolk",
+                store_url="https://www.willys.se/produkt/Mjolk-100014716_ST",
+            )
+
+        mock_api_extractor.extract.assert_called_once()
+        mock_llm.assert_called_once()
+        assert result == llm_result
+
+    @pytest.mark.asyncio
+    async def test_extract_price_without_store_url_skips_api(self) -> None:
+        """No store_url -> API extractor is NOT called, LLM is used directly."""
+        parser = PriceParser()
+
+        mock_api_extractor = AsyncMock()
+        mock_api_extractor.extract = AsyncMock(return_value=None)
+        parser._api_extractors["willys"] = mock_api_extractor
+
+        llm_result = PriceExtractionResult(
+            price_sek=Decimal("29.90"),
+            unit_price_sek=None,
+            offer_price_sek=None,
+            offer_type=None,
+            offer_details=None,
+            in_stock=True,
+            confidence=0.90,
+            pack_size=None,
+            raw_response={},
+        )
+
+        with patch.object(parser, "_extract_with_model", new_callable=AsyncMock) as mock_llm:
+            mock_llm.return_value = llm_result
+
+            result = await parser.extract_price(
+                text_content="page content",
+                store_slug="willys",
+                product_name="Mjolk",
+                # No store_url provided
+            )
+
+        mock_api_extractor.extract.assert_not_called()
+        mock_llm.assert_called_once()
+        assert result == llm_result

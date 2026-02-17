@@ -47,6 +47,15 @@ class PriceCheckScheduler:
         self._running = False
         self._task: asyncio.Task[None] | None = None
         self._last_summary_date: date | None = None
+        self._stats: dict[str, int] = {
+            "checks_total": 0,
+            "checks_success": 0,
+            "checks_failed": 0,
+            "checks_api": 0,
+            "checks_llm": 0,
+            "alerts_sent": 0,
+            "summaries_sent": 0,
+        }
 
     async def start(self) -> None:
         """Start the background scheduler."""
@@ -161,6 +170,7 @@ class PriceCheckScheduler:
 
                 except Exception as e:
                     logger.error(f"Failed to check product {product_store.id}: {e}")
+                    self._stats["checks_failed"] += 1
                     await session.rollback()
 
     async def _check_single_product(
@@ -169,6 +179,7 @@ class PriceCheckScheduler:
         session: AsyncSession,
     ) -> None:
         """Check price for a single product-store combination."""
+        self._stats["checks_total"] += 1
         logger.info(f"Checking price: {product_store.product.name} at {product_store.store.name}")
 
         # Fetch page content
@@ -183,6 +194,7 @@ class PriceCheckScheduler:
             text_content=text_content,
             store_slug=product_store.store.slug,
             product_name=product_store.product.name,
+            store_url=product_store.store_url,
         )
 
         # Skip recording if no price was extracted (required field)
@@ -192,6 +204,13 @@ class PriceCheckScheduler:
                 f"at {product_store.store.name} - skipping"
             )
             return
+
+        # Track extraction source (API vs LLM)
+        raw = extraction.raw_response or {}
+        if isinstance(raw, dict) and raw.get("source") == "willys_api":
+            self._stats["checks_api"] += 1
+        else:
+            self._stats["checks_llm"] += 1
 
         # Record price point
         price_point = PricePoint(
@@ -206,6 +225,7 @@ class PriceCheckScheduler:
             checked_at=datetime.now(UTC).replace(tzinfo=None),
         )
         session.add(price_point)
+        self._stats["checks_success"] += 1
 
         # Check for alerts
         await self._check_alerts(product_store, extraction, session)
@@ -317,6 +337,7 @@ class PriceCheckScheduler:
 
                 if success:
                     watch.last_alerted_at = now
+                    self._stats["alerts_sent"] += 1
 
     async def _check_weekly_summary(self) -> None:
         """Send weekly summary emails on Mondays at 14:00+."""
@@ -333,6 +354,24 @@ class PriceCheckScheduler:
         today = now.date()
         if self._last_summary_date == today:
             return
+
+        # Heuristic guard: check if any watch was alerted recently (within 10h)
+        # This prevents duplicate summaries after restart
+        async with self.session_factory() as session:
+            recent_cutoff = now - timedelta(hours=10)
+            recent_alert_stmt = (
+                select(PriceWatch.id)
+                .where(
+                    PriceWatch.is_active.is_(True),
+                    PriceWatch.last_alerted_at >= recent_cutoff,
+                )
+                .limit(1)
+            )
+            recent_result = await session.execute(recent_alert_stmt)
+            if recent_result.scalar_one_or_none() is not None:
+                logger.debug("Skipping weekly summary - recent alert found (restart guard)")
+                self._last_summary_date = today
+                return
 
         logger.info("Sending weekly summary emails")
 
@@ -430,8 +469,19 @@ class PriceCheckScheduler:
                         deals=deals,
                         watched_products=watched_products,
                     )
+                    self._stats["summaries_sent"] += 1
                     logger.info(f"Sent weekly summary to {email}")
                 except Exception as e:
                     logger.error(f"Failed to send weekly summary to {email}: {e}")
 
         self._last_summary_date = today
+
+    def get_status(self) -> dict[str, bool | str | date | dict[str, int] | None]:
+        """Get scheduler status and statistics."""
+        return {
+            "running": self._running,
+            "last_summary_date": (
+                self._last_summary_date.isoformat() if self._last_summary_date else None
+            ),
+            "stats": dict(self._stats),
+        }

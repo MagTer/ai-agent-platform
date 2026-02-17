@@ -8,6 +8,7 @@ def get_store_hints() -> dict[str, str]:
         "willys": WILLYS_HINTS,
         "apotea": APOTEA_HINTS,
         "med24": MED24_HINTS,
+        "doz": DOZ_HINTS,
     }
 
 
@@ -51,4 +52,15 @@ Med24 (pharmacy) uses these patterns:
 - "Lagerstatus" indicates availability
 - "Ordinarie pris" for regular price
 - Campaign prices often in larger font
+"""
+
+DOZ_HINTS = """
+Doz Apotek (pharmacy) uses these patterns:
+- Price shown as "X kr" or "X,- kr"
+- "Ordinarie pris" for regular price
+- "Kampanjpris" for campaign/sale price
+- "Spara X kr" for discount amount
+- "Tillfallet slut" or "Ej i lager" for out of stock
+- Prescription items marked with "Receptbelagt"
+- Comparison price shown as "X kr/st" or "X kr/dos"
 """

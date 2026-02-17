@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Protocol, runtime_checkable
 
 
@@ -70,4 +70,13 @@ class IPriceTracker(Protocol):
         ...
 
 
-__all__ = ["IPriceTracker"]
+@runtime_checkable
+class IPriceScheduler(Protocol):
+    """Abstract interface for the price check scheduler."""
+
+    def get_status(self) -> dict[str, bool | str | date | dict[str, int] | None]:
+        """Get scheduler status and statistics."""
+        ...
+
+
+__all__ = ["IPriceScheduler", "IPriceTracker"]
