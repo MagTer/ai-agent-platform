@@ -2,9 +2,6 @@ name: CI
 
 on:
   pull_request:
-  # Weekly run on main to seed the testmon cache for PR builds
-  schedule:
-    - cron: '0 5 * * 1'  # Monday 5am UTC
 
 env:
   PYTHON_VERSION: '3.11'

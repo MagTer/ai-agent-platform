@@ -1,0 +1,47 @@
+name: Seed Testmon Cache
+
+on:
+  push:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: '3.11'
+  POETRY_VERSION: '1.8.2'
+
+jobs:
+  seed-cache:
+    name: Seed testmon cache
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: abatilo/actions-poetry@v3
+        with:
+          poetry-version: ${{ env.POETRY_VERSION }}
+      - run: poetry config virtualenvs.in-project true
+      - name: Cache virtualenv
+        uses: actions/cache@v4
+        with:
+          path: services/agent/.venv
+          key: venv-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}
+      - run: poetry install --no-interaction --no-root --directory services/agent --only main,dev
+      - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
+      - name: Restore testmon cache
+        uses: actions/cache@v4
+        with:
+          path: services/agent/.testmondata
+          key: testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}-${{ github.sha }}
+          restore-keys: |
+            testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-${{ hashFiles('services/agent/poetry.lock') }}-
+            testmon-${{ runner.os }}-py${{ env.PYTHON_VERSION }}-
+      - name: Run pytest with testmon
+        run: python -m pytest -x --testmon
+        working-directory: services/agent
+      - name: Checkpoint testmon SQLite WAL
+        if: always()
+        run: python -c "import sqlite3; c=sqlite3.connect('.testmondata'); c.execute('PRAGMA wal_checkpoint(TRUNCATE)'); c.close()"
+        working-directory: services/agent
