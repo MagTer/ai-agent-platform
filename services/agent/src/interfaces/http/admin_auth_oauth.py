@@ -411,9 +411,7 @@ async def oauth_callback(
         if db_user.role != resolved_role:
             old_role = db_user.role
             db_user.role = resolved_role
-            LOGGER.info(
-                f"Role synced from Entra ID for {email}: {old_role} -> {resolved_role}"
-            )
+            LOGGER.info(f"Role synced from Entra ID for {email}: {old_role} -> {resolved_role}")
             log_security_event(
                 event_type="ROLE_SYNCED",
                 user_email=email,
