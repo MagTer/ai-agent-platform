@@ -117,8 +117,9 @@ disallow_untyped_calls = true
 no_implicit_optional = true
 warn_redundant_casts = true
 warn_unused_ignores = true
+disable_error_code = ["import-untyped"]
 # Robustness
-ignore_missing_imports = true 
+ignore_missing_imports = true
 files = ["src/core", "src/orchestrator", "src/interfaces", "src/stack", "src/modules"]
 explicit_package_bases = true
 
@@ -126,6 +127,7 @@ explicit_package_bases = true
 module = ["typer", "typer.*", "yaml", "aiogram", "aiogram.*"]
 ignore_errors = true
 ignore_missing_imports = true
+
 
 [tool.pytest.ini_options]
 minversion = "8.0"

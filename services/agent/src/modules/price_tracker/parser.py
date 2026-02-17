@@ -3,30 +3,20 @@
 import json
 import logging
 import os
-from dataclasses import dataclass
 from decimal import Decimal
 
 import httpx
+
+from modules.price_tracker.extractors.base import PriceExtractor
+from modules.price_tracker.extractors.willys_api import WillysApiExtractor
+from modules.price_tracker.result import PriceExtractionResult
+
+__all__ = ["PriceExtractionResult", "PriceParser"]
 
 logger = logging.getLogger(__name__)
 
 # LiteLLM proxy base URL
 LITELLM_API_BASE = os.getenv("LITELLM_API_BASE", "http://litellm:4000")
-
-
-@dataclass
-class PriceExtractionResult:
-    """Result from price extraction."""
-
-    price_sek: Decimal | None
-    unit_price_sek: Decimal | None
-    offer_price_sek: Decimal | None
-    offer_type: str | None  # "stammispris", "extrapris", "kampanj", etc.
-    offer_details: str | None  # "Kop 2 betala for 1"
-    in_stock: bool
-    confidence: float
-    pack_size: int | None  # Number of items in pack (e.g., 16 for "16-p")
-    raw_response: dict[str, str | float | bool | None]
 
 
 class PriceParser:
@@ -49,6 +39,9 @@ class PriceParser:
     def __init__(self) -> None:
         self._store_hints: dict[str, str] = {}
         self._load_store_hints()
+        self._api_extractors: dict[str, PriceExtractor] = {
+            "willys": WillysApiExtractor(),
+        }
 
     def _load_store_hints(self) -> None:
         """Load store-specific parsing hints."""
@@ -61,8 +54,35 @@ class PriceParser:
         text_content: str,
         store_slug: str,
         product_name: str | None = None,
+        store_url: str | None = None,
     ) -> PriceExtractionResult:
-        """Extract price data using LLM with cascading model strategy."""
+        """Extract price data using API-first strategy with LLM cascade fallback."""
+
+        # API-first: try structured extractor if available
+        if store_url and store_slug in self._api_extractors:
+            try:
+                api_result = await self._api_extractors[store_slug].extract(store_url, product_name)
+                if api_result is not None:
+                    logger.info(
+                        "Price extracted via API",
+                        extra={
+                            "method": "api",
+                            "store": store_slug,
+                            "product": product_name,
+                            "confidence": api_result.confidence,
+                        },
+                    )
+                    return api_result
+                logger.debug(
+                    "API extractor returned None, falling back to LLM",
+                    extra={"store": store_slug},
+                )
+            except Exception as e:
+                logger.warning(
+                    "API extractor failed, falling back to LLM: %s",
+                    e,
+                    extra={"store": store_slug},
+                )
 
         store_hint = self._store_hints.get(store_slug, "")
 

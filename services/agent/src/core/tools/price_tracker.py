@@ -41,7 +41,7 @@ Anvand for fragor som:
             },
             "store": {
                 "type": "string",
-                "enum": ["ica", "willys", "apotea", "med24", "all"],
+                "enum": ["ica", "willys", "apotea", "med24", "doz", "all"],
                 "description": "Butik att kontrollera (standard: all)",
             },
             "store_type": {

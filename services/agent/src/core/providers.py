@@ -18,7 +18,14 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from core.auth.token_manager import TokenManager
-    from core.protocols import ICodeIndexer, IEmbedder, IFetcher, IPriceTracker, IRAGManager
+    from core.protocols import (
+        ICodeIndexer,
+        IEmbedder,
+        IFetcher,
+        IPriceScheduler,
+        IPriceTracker,
+        IRAGManager,
+    )
     from core.protocols.email import IEmailService
 
 LOGGER = logging.getLogger(__name__)
@@ -31,6 +38,7 @@ _code_indexer_factory: type[ICodeIndexer] | None = None
 _token_manager: TokenManager | None = None
 _price_tracker: IPriceTracker | None = None
 _email_service: IEmailService | None = None
+_price_scheduler: IPriceScheduler | None = None
 
 
 class ProviderError(Exception):
@@ -162,6 +170,19 @@ def get_email_service_optional() -> IEmailService | None:
     return _email_service
 
 
+# --- Price Scheduler ---
+def set_price_scheduler(scheduler: IPriceScheduler) -> None:
+    """Register the price check scheduler."""
+    global _price_scheduler
+    _price_scheduler = scheduler
+    LOGGER.info("Price Scheduler provider registered")
+
+
+def get_price_scheduler_optional() -> IPriceScheduler | None:
+    """Get the price scheduler if configured, or None."""
+    return _price_scheduler
+
+
 __all__ = [
     "ProviderError",
     "set_embedder",
@@ -180,4 +201,6 @@ __all__ = [
     "set_email_service",
     "get_email_service",
     "get_email_service_optional",
+    "set_price_scheduler",
+    "get_price_scheduler_optional",
 ]

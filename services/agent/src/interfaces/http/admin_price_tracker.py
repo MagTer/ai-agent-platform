@@ -836,6 +836,7 @@ async def trigger_price_check(
             text_content=fetch_result["text"],
             store_slug=store.slug,
             product_name=product.name,
+            store_url=product_store.store_url,
         )
 
         if not extraction_result.price_sek:
@@ -1127,13 +1128,13 @@ async def update_watch(
 
         # Update only provided fields
         if data.target_price_sek is not None:
-            watch.target_price_sek = float(data.target_price_sek)
+            watch.target_price_sek = Decimal(str(data.target_price_sek))
         if data.alert_on_any_offer is not None:
             watch.alert_on_any_offer = data.alert_on_any_offer
         if data.price_drop_threshold_percent is not None:
             watch.price_drop_threshold_percent = data.price_drop_threshold_percent
         if data.unit_price_target_sek is not None:
-            watch.unit_price_target_sek = float(data.unit_price_target_sek)
+            watch.unit_price_target_sek = Decimal(str(data.unit_price_target_sek))
         if data.unit_price_drop_threshold_percent is not None:
             watch.unit_price_drop_threshold_percent = data.unit_price_drop_threshold_percent
         if data.email_address is not None:
@@ -1637,6 +1638,26 @@ async def import_data(
         await session.rollback()
         LOGGER.exception("Failed to import price tracker data")
         raise HTTPException(status_code=500, detail="Failed to import data") from e
+
+
+@router.get("/scheduler/status")
+async def scheduler_status(
+    admin: AdminUser = Depends(verify_admin_user),
+) -> dict[str, str | bool | dict[str, int] | None]:
+    """Get price check scheduler status and statistics.
+
+    Returns:
+        Scheduler running state, last summary date, and check stats.
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    from core.providers import get_price_scheduler_optional
+
+    scheduler = get_price_scheduler_optional()
+    if scheduler is None:
+        return {"running": False, "last_summary_date": None, "stats": None}
+    return scheduler.get_status()  # type: ignore[return-value]
 
 
 @router.get("/", response_class=UTF8HTMLResponse)

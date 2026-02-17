@@ -14,7 +14,7 @@ from .embedder import IEmbedder
 from .fetcher import IFetcher
 from .indexer import ICodeIndexer
 from .oauth import IOAuthClient
-from .price_tracker import IPriceTracker
+from .price_tracker import IPriceScheduler, IPriceTracker
 from .rag import IRAGManager
 
 __all__ = [
@@ -25,6 +25,7 @@ __all__ = [
     "IFetcher",
     "ICodeIndexer",
     "IOAuthClient",
+    "IPriceScheduler",
     "IPriceTracker",
     "IRAGManager",
 ]
