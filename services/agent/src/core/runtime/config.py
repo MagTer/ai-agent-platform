@@ -144,6 +144,13 @@ class Settings(BaseModel):
         default=None,
         description="Microsoft Entra ID tenant ID (directory ID).",
     )
+    entra_admin_roles: str = Field(
+        default="platform-admin",
+        description=(
+            "Comma-separated Entra ID App Role values that grant admin access. "
+            "Matched against the 'roles' claim in the ID token."
+        ),
+    )
     admin_jwt_secret: str | None = Field(
         default=None,
         description="Secret key for signing admin session JWTs (generate: openssl rand -hex 32).",

@@ -368,35 +368,65 @@ async def oauth_callback(
 
     email = email.lower().strip()
 
+    # Determine role from Entra ID App Roles claim
+    admin_roles = {r.strip() for r in settings.entra_admin_roles.split(",") if r.strip()}
+    token_roles: list[str] = id_claims.get("roles", [])
+    is_admin = bool(admin_roles & set(token_roles))
+    resolved_role = "admin" if is_admin else "user"
+
     # Look up or create user in database
     stmt = select(User).where(User.email == email)
     result = await session.execute(stmt)
     db_user = result.scalar_one_or_none()
 
     if not db_user:
-        # Create new user
+        # Create new user with role derived from Entra ID
         db_user = User(
             email=email,
             display_name=name,
-            role="user",  # Default to user role
+            role=resolved_role,
             is_active=True,
         )
         session.add(db_user)
         await session.flush()
 
-        LOGGER.info(f"Created new user from Entra ID: {email}")
+        LOGGER.info(f"Created new user from Entra ID: {email} (role={resolved_role})")
         log_security_event(
             event_type="USER_CREATED",
             user_email=email,
             ip_address=client_ip,
             endpoint=request.url.path,
-            details={"provider": "entra_id", "oid": oid},
+            details={
+                "provider": "entra_id",
+                "oid": oid,
+                "role": resolved_role,
+                "token_roles": token_roles,
+            },
             severity="INFO",
         )
     else:
-        # Update existing user info if needed
+        # Sync role and display name from Entra ID on every login
         if db_user.display_name != name:
             db_user.display_name = name
+        if db_user.role != resolved_role:
+            old_role = db_user.role
+            db_user.role = resolved_role
+            LOGGER.info(
+                f"Role synced from Entra ID for {email}: {old_role} -> {resolved_role}"
+            )
+            log_security_event(
+                event_type="ROLE_SYNCED",
+                user_email=email,
+                user_id=str(db_user.id),
+                ip_address=client_ip,
+                endpoint=request.url.path,
+                details={
+                    "old_role": old_role,
+                    "new_role": resolved_role,
+                    "token_roles": token_roles,
+                },
+                severity="INFO",
+            )
 
     await session.commit()
 
