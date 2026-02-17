@@ -189,7 +189,7 @@ services:
         max-file: "5"
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:0.7.2
+    image: ghcr.io/open-webui/open-webui:0.8.3
     # Port exposed via Traefik, not directly
     # ports:
     #   - "3000:8080"
@@ -197,11 +197,21 @@ services:
       # OpenAI-compatible backend (our agent)
       - OPENAI_API_BASE_URL=http://agent:8000/v1
       - OPENAI_API_KEY=${AGENT_INTERNAL_API_KEY:-sk-dummy}
+      # Disable Ollama (we only use OpenAI-compatible backend)
+      - ENABLE_OLLAMA_API=false
+      # Disable arena model evaluation
+      - ENABLE_EVALUATION_ARENA_MODELS=false
+      # Ensure env vars override DB-persisted config on restart
+      - RESET_CONFIG_ON_START=true
       # Microsoft Entra ID Authentication
       - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
       - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
       - MICROSOFT_CLIENT_TENANT_ID=${MICROSOFT_CLIENT_TENANT_ID:-}
       - OPENID_PROVIDER_URL=https://login.microsoftonline.com/${MICROSOFT_CLIENT_TENANT_ID:-common}/v2.0/.well-known/openid-configuration
+      # OAuth role management (sync admin status from Entra ID)
+      - ENABLE_OAUTH_ROLE_MANAGEMENT=true
+      - OAUTH_ROLES_CLAIM=roles
+      - OAUTH_ADMIN_ROLES=${OAUTH_ADMIN_ROLES:-platform-admin}
       # Forward user identity to backend
       - ENABLE_FORWARD_USER_INFO_HEADERS=true
       # Allow new users to sign up via OAuth
@@ -210,6 +220,10 @@ services:
       - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET}
       # Public URL for OAuth callbacks
       - WEBUI_URL=https://${DOMAIN:-agent.falle.se}
+      # Disable telemetry
+      - SCARF_NO_ANALYTICS=true
+      - DO_NOT_TRACK=true
+      - ANONYMIZED_TELEMETRY=false
     volumes:
       - ./data/openwebui:/app/backend/data
     depends_on:
