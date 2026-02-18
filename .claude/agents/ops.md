@@ -27,7 +27,14 @@ git restore .
 # FORBIDDEN - destructive
 git clean -f
 git push --force
+
+# FORBIDDEN - hides work, gets lost and forgotten
+git stash
+git stash push
+git stash save
 ```
+
+**git stash is FORBIDDEN.** If you have uncommitted changes, COMMIT them (even as a WIP commit). Stashes get lost and forgotten -- commits do not.
 
 ### ALWAYS check first:
 ```bash
@@ -39,8 +46,9 @@ git status
 ```bash
 # CORRECT way to sync with origin
 git status                    # Check first!
-# If there are uncommitted changes: commit them or ask the user.
+# If there are uncommitted changes: commit ALL of them (even unrelated files) or ask the user.
 # NEVER use git stash -- it hides work from version control.
+# NEVER switch branches or pull with uncommitted changes -- they may be silently lost!
 git pull origin main          # Safe sync
 ```
 
@@ -62,10 +70,19 @@ BEFORE creating branches or PRs, ALWAYS sync with remote:
 ### Before creating a new branch:
 ```bash
 git fetch origin
+git status                  # CHECK FOR UNCOMMITTED CHANGES FIRST!
+# If ANY uncommitted changes exist:
+#   1. Stage and commit ALL modified files (even unrelated ones) with a WIP message
+#   2. OR ask the user what to do with them
+#   NEVER switch branches with uncommitted changes -- they WILL be lost!
 git checkout main
 git pull origin main        # Ensure main is current
 git checkout -b feat/name   # Branch from up-to-date main
 ```
+
+**CRITICAL: `git checkout main` SILENTLY DISCARDS uncommitted changes to tracked files.**
+If `git status` shows ANY modifications, you MUST commit them before switching branches.
+Use a WIP commit if needed: `git commit -am "wip: save uncommitted work before branch switch"`
 
 ### After a PR is merged (squash merge):
 ```bash
@@ -456,7 +473,9 @@ Reason: [Why it's complex]
 
 Before EVERY git operation:
 1. `git status` - check for uncommitted work
-2. If dirty: commit or ask the user. NEVER use `git stash` -- it hides work.
-3. Then proceed safely
+2. If dirty: commit ALL changes (including unrelated files) or ask the user. NEVER use `git stash` -- it hides work.
+3. **NEVER run `git checkout <branch>` with uncommitted changes** -- this silently discards modifications to tracked files!
+4. Then proceed safely
 
 **NEVER use `git reset --hard` - it destroys work.**
+**NEVER switch branches with a dirty working tree -- commit first or ask the user.**

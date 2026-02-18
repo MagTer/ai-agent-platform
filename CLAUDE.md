@@ -205,6 +205,8 @@ Task(
 
 **Why?** The Ops agent has strict safety rules that prevent destructive commands like `git reset --hard`. Running git commands directly risks losing uncommitted work.
 
+**IMPORTANT: Before spawning an ops agent for branch/PR operations, warn it about any uncommitted changes visible in `git status` that are NOT part of the current task.** The ops agent must commit or preserve ALL uncommitted work before switching branches -- `git checkout` silently discards uncommitted changes to tracked files.
+
 ### What Ops Agent Handles
 
 | Operation | Example |
