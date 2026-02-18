@@ -74,7 +74,9 @@ class Conversation(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     platform: Mapped[str] = mapped_column(String)
     platform_id: Mapped[str] = mapped_column(String)
-    context_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("contexts.id"), index=True)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
     current_cwd: Mapped[str] = mapped_column(String)
     conversation_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
