@@ -8,7 +8,6 @@ import ipaddress
 import logging
 import socket
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -23,8 +22,7 @@ from core.db.engine import AsyncSessionLocal, get_db
 from core.db.models import Context, McpServer
 from core.db.oauth_models import OAuthToken
 from core.tools.mcp_loader import get_mcp_client_pool, get_mcp_health, get_mcp_stats
-from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
-from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
+from interfaces.http.admin_auth import AdminUser, verify_admin_user
 from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
@@ -64,11 +62,6 @@ PRIVATE_IP_RANGES = [
     ipaddress.ip_network("fc00::/7"),
     ipaddress.ip_network("fe80::/10"),
 ]
-
-# Cache template at module level to avoid I/O on every request
-_TEMPLATE_PATH = Path(__file__).parent / "templates" / "admin_mcp.html"
-_TEMPLATE_PARTS = _TEMPLATE_PATH.read_text(encoding="utf-8").split("<!-- SECTION_SEPARATOR -->")
-
 
 # -- SSRF Protection --
 
@@ -126,33 +119,6 @@ def _validate_mcp_server_url(url: str) -> None:
                 raise ValueError(
                     f"Cannot connect to private/reserved IP addresses (blocked IP: {ip_str} from {hostname})"
                 )
-
-
-# -- Dashboard --
-
-
-@router.get("/", response_class=UTF8HTMLResponse)
-async def mcp_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
-    """MCP server management dashboard.
-
-    Security:
-        Requires admin role via Entra ID authentication.
-    """
-    # Use cached template parts instead of reading file on every request
-    content = _TEMPLATE_PARTS[0] if len(_TEMPLATE_PARTS) > 0 else ""
-    extra_css = _TEMPLATE_PARTS[1] if len(_TEMPLATE_PARTS) > 1 else ""
-    extra_js = _TEMPLATE_PARTS[2] if len(_TEMPLATE_PARTS) > 2 else ""
-
-    return render_admin_page(
-        title="MCP Servers",
-        active_page="/platformadmin/mcp/",
-        content=content,
-        user_name=admin.display_name or admin.email.split("@")[0],
-        user_email=admin.email,
-        breadcrumbs=[("MCP Servers", "#")],
-        extra_css=extra_css,
-        extra_js=extra_js,
-    )
 
 
 # -- Pydantic models for user-managed MCP servers --
