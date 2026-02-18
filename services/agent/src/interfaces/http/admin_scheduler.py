@@ -392,10 +392,73 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
     <div class="card">
         <div class="card-header">
             <span>All Scheduled Jobs <span id="count" class="badge badge-info">0</span></span>
-            <button class="btn" onclick="loadAllJobs()">Refresh</button>
+            <div style="display: flex; gap: 8px;">
+                <button class="btn btn-primary" onclick="showCreateJobModal()">+ Create Job</button>
+                <button class="btn" onclick="loadAllJobs()">Refresh</button>
+            </div>
         </div>
         <div id="jobsList">
             <div class="loading">Loading...</div>
+        </div>
+    </div>
+
+    <!-- Create Job Modal -->
+    <div id="createJobModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Create Scheduled Job</h3>
+            <form id="createJobForm" onsubmit="submitNewJob(event)">
+                <div class="form-group">
+                    <label>Context *</label>
+                    <select id="jobContext" required>
+                        <option value="">Loading contexts...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" id="jobName" required placeholder="e.g., daily-report" pattern="^[a-zA-Z0-9_\\- ]+$">
+                </div>
+                <div class="form-group">
+                    <label>Prompt *</label>
+                    <textarea id="jobPrompt" required placeholder="What should the agent do?" style="min-height: 80px;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Cron Expression *</label>
+                    <select id="cronPresets" onchange="applyCronPreset()" style="margin-bottom: 4px;">
+                        <option value="">-- Pick a common schedule --</option>
+                        <option value="0 */4 * * *">Every 4 hours</option>
+                        <option value="0 */6 * * *">Every 6 hours</option>
+                        <option value="0 9 * * *">Daily at 9am UTC</option>
+                        <option value="0 9,17 * * *">Twice daily (9am, 5pm UTC)</option>
+                        <option value="0 8 * * 1-5">Weekdays at 8am UTC</option>
+                    </select>
+                    <input type="text" id="jobCron" required placeholder="0 8 * * 1-5 (weekdays at 08:00)">
+                    <small style="color: var(--text-muted); font-size: 12px;">Format: minute hour day month weekday. Example: 0 9 * * * = daily at 09:00 UTC</small>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="jobDescription" placeholder="Optional description">
+                </div>
+                <div class="form-group">
+                    <label>Notification Channel</label>
+                    <select id="jobNotifChannel" onchange="toggleNotifTarget()">
+                        <option value="">None</option>
+                        <option value="email">Email</option>
+                        <option value="telegram">Telegram</option>
+                    </select>
+                </div>
+                <div class="form-group" id="notifTargetGroup" style="display:none;">
+                    <label>Notification Target</label>
+                    <input type="text" id="jobNotifTarget" placeholder="Email address or Telegram chat ID">
+                </div>
+                <div class="form-group">
+                    <label>Timeout (seconds)</label>
+                    <input type="number" id="jobTimeout" value="300" min="30" max="3600">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="hideCreateJobModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Create Job</button>
+                </div>
+            </form>
         </div>
     </div>
 """
@@ -405,10 +468,17 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
     .job-row:last-child { border-bottom: none; }
     .job-name { font-weight: 600; font-size: 14px; }
     .job-meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 12px; margin-top: 4px; flex-wrap: wrap; }
+    .job-actions { display: flex; gap: 4px; }
     .status-active { color: var(--success); }
     .status-error { color: var(--error); }
     .status-paused { color: var(--text-muted); }
     .status-running { color: var(--warning); }
+    .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-content { background: var(--card-bg, #fff); border-radius: 8px; padding: 24px; width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 13px; }
+    .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; background: var(--bg, #fff); color: var(--text, #333); box-sizing: border-box; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 """
 
     extra_js = """
@@ -425,27 +495,109 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
 
         const el = document.getElementById('jobsList');
         if (jobs.length === 0) {
-            el.innerHTML = '<div class="empty-state">No scheduled jobs. Create one from a context detail page.</div>';
+            el.innerHTML = '<div class="empty-state">No scheduled jobs yet. Click "+ Create Job" to add one.</div>';
             return;
         }
         el.innerHTML = jobs.map(j => {
             const statusClass = 'status-' + j.status;
             const nextRun = j.next_run_at ? new Date(j.next_run_at).toLocaleString() : 'N/A';
             const lastRun = j.last_run_at ? new Date(j.last_run_at).toLocaleString() : 'Never';
+            const toggleLabel = j.is_enabled ? 'Pause' : 'Enable';
             return '<div class="job-row">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;">' +
                 '<span class="job-name">' + escapeHtml(j.name) + '</span>' +
-                '<span class="badge ' + statusClass + '">' + j.status + '</span>' +
-                '</div>' +
+                '<div class="job-actions">' +
+                '<button class="btn btn-sm" onclick="toggleJob(\\'' + j.id + '\\')">' + toggleLabel + '</button>' +
+                '<button class="btn btn-sm btn-primary" onclick="runJobNow(\\'' + j.id + '\\')" ' + (j.is_enabled ? '' : 'disabled') + '>Run Now</button>' +
+                '<button class="btn btn-sm btn-danger" onclick="deleteJob(\\'' + j.id + '\\', \\'' + escapeHtml(j.name).replace(/'/g, "\\\\'") + '\\')">Delete</button>' +
+                '<span class="badge ' + statusClass + '" style="margin-left:4px;">' + j.status + '</span>' +
+                '</div></div>' +
                 '<div class="job-meta">' +
                 '<span>Cron: <code>' + escapeHtml(j.cron_expression) + '</code></span>' +
                 '<span>Next: ' + nextRun + '</span>' +
                 '<span>Last: ' + lastRun + '</span>' +
                 '<span>Runs: ' + j.run_count + '</span>' +
-                '<span>Errors: ' + j.error_count + '</span>' +
+                (j.error_count > 0 ? '<span style="color:var(--error);">Errors: ' + j.error_count + '</span>' : '') +
                 '<span>Context: <a href="/platformadmin/contexts/' + j.context_id + '/#scheduler">' + j.context_id.substring(0, 8) + '...</a></span>' +
                 '</div></div>';
         }).join('');
+    }
+
+    async function toggleJob(jobId) {
+        const res = await fetchWithErrorHandling('/platformadmin/scheduler/jobs/' + jobId + '/toggle', { method: 'POST' });
+        if (res) { showToast('Job toggled', 'success'); loadAllJobs(); }
+    }
+
+    async function runJobNow(jobId) {
+        const res = await fetchWithErrorHandling('/platformadmin/scheduler/jobs/' + jobId + '/run-now', { method: 'POST' });
+        if (res) { showToast('Job triggered for immediate execution', 'success'); loadAllJobs(); }
+    }
+
+    async function deleteJob(jobId, jobName) {
+        if (!confirm('Delete job "' + jobName + '"? This cannot be undone.')) return;
+        const res = await fetchWithErrorHandling('/platformadmin/scheduler/jobs/' + jobId, { method: 'DELETE' });
+        if (res) { showToast('Job deleted', 'success'); loadAllJobs(); }
+    }
+
+    // --- Create Job Modal ---
+    let contextsLoaded = false;
+    async function loadContextsForSelect() {
+        if (contextsLoaded) return;
+        const res = await fetchWithErrorHandling('/platformadmin/contexts');
+        if (!res) return;
+        const data = await res.json();
+        const sel = document.getElementById('jobContext');
+        sel.innerHTML = '<option value="">-- Select context --</option>';
+        (data.contexts || []).forEach(c => {
+            const label = c.name ? escapeHtml(c.name) + ' (' + c.id.substring(0, 8) + '...)' : c.id;
+            sel.innerHTML += '<option value="' + c.id + '">' + label + '</option>';
+        });
+        contextsLoaded = true;
+    }
+
+    function showCreateJobModal() {
+        loadContextsForSelect();
+        document.getElementById('createJobModal').style.display = 'flex';
+    }
+
+    function hideCreateJobModal() {
+        document.getElementById('createJobModal').style.display = 'none';
+        document.getElementById('createJobForm').reset();
+        document.getElementById('cronPresets').value = '';
+        document.getElementById('notifTargetGroup').style.display = 'none';
+    }
+
+    function applyCronPreset() {
+        const preset = document.getElementById('cronPresets').value;
+        if (preset) document.getElementById('jobCron').value = preset;
+    }
+
+    function toggleNotifTarget() {
+        const ch = document.getElementById('jobNotifChannel').value;
+        document.getElementById('notifTargetGroup').style.display = ch ? 'block' : 'none';
+    }
+
+    async function submitNewJob(e) {
+        e.preventDefault();
+        const contextId = document.getElementById('jobContext').value;
+        if (!contextId) { showToast('Please select a context', 'error'); return; }
+        const body = {
+            name: document.getElementById('jobName').value,
+            skill_prompt: document.getElementById('jobPrompt').value,
+            cron_expression: document.getElementById('jobCron').value,
+            description: document.getElementById('jobDescription').value || null,
+            notification_channel: document.getElementById('jobNotifChannel').value || null,
+            notification_target: document.getElementById('jobNotifTarget').value || null,
+            timeout_seconds: parseInt(document.getElementById('jobTimeout').value) || 300
+        };
+        const res = await fetchWithErrorHandling('/platformadmin/scheduler/context/' + contextId + '/jobs', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        if (res) {
+            showToast('Job created', 'success');
+            hideCreateJobModal();
+            loadAllJobs();
+        }
     }
 
     loadAllJobs();
