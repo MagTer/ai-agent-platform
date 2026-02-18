@@ -21,7 +21,6 @@ from core.db.oauth_models import OAuthToken
 from core.providers import get_token_manager
 from core.tools.mcp_loader import get_mcp_client_pool
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
-from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
@@ -30,115 +29,6 @@ router = APIRouter(
     prefix="/platformadmin/oauth",
     tags=["platform-admin", "oauth"],
 )
-
-
-@router.get("/", response_class=UTF8HTMLResponse)
-async def oauth_dashboard(admin: AdminUser = Depends(require_admin_or_redirect)) -> str:
-    """OAuth token management dashboard.
-
-    Security:
-        Requires admin role via Entra ID authentication.
-    """
-    content = """
-        <h1 class="page-title">OAuth Tokens</h1>
-
-        <div class="card">
-            <div class="card-header">
-                <span class="card-title">Connect Provider</span>
-            </div>
-            <div style="padding: 16px;">
-                <p style="margin-bottom: 12px; color: var(--text-muted);">
-                    Connect an OAuth provider to enable MCP tools for your context.
-                </p>
-                <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <a href="/platformadmin/oauth/initiate/homey" class="btn btn-primary">
-                        Connect Homey
-                    </a>
-                </div>
-                <div id="oauth-status" style="margin-top: 12px;"></div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header">
-                <span>Active Tokens <span id="count" class="badge badge-success">0</span></span>
-                <button class="btn" onclick="loadTokens()">Refresh</button>
-            </div>
-            <div class="token-list" id="tokens">
-                <div class="loading">Loading...</div>
-            </div>
-        </div>
-    """
-
-    extra_css = """
-        .token { padding: 16px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .token-info { flex: 1; }
-        .token-provider { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
-        .token-meta { font-size: 12px; color: var(--text-muted); }
-        .token-context { font-family: monospace; font-size: 11px; color: var(--text-muted); }
-        .badge-ok { background: #d1fae5; color: #065f46; }
-        .badge-warn { background: #fef3c7; color: #92400e; }
-        .badge-err { background: #fee2e2; color: #991b1b; }
-    """
-
-    extra_js = """
-        async function loadTokens() {
-            const res = await fetchWithErrorHandling('/platformadmin/oauth/tokens');
-            if (!res) {
-                document.getElementById('tokens').innerHTML = '<div style="color: var(--error)">Failed to load tokens</div>';
-                return;
-            }
-            const data = await res.json();
-            renderTokens(data);
-        }
-        function renderTokens(data) {
-            document.getElementById('count').textContent = data.total || 0;
-            const el = document.getElementById('tokens');
-            if (!data.tokens || data.tokens.length === 0) {
-                el.innerHTML = '<div class="loading">No OAuth tokens found</div>';
-                return;
-            }
-            el.innerHTML = data.tokens.map(t => {
-                const expiry = new Date(t.expires_at);
-                const now = new Date();
-                const isExpired = t.is_expired;
-                const expiresIn = Math.round((expiry - now) / (1000 * 60 * 60));
-                let badge = '<span class="badge badge-ok">Valid</span>';
-                if (isExpired && t.has_refresh_token) {
-                    badge = '<span class="badge badge-ok">Auto-refreshes</span>';
-                } else if (isExpired) {
-                    badge = '<span class="badge badge-err">Expired</span>';
-                } else if (expiresIn < 24) {
-                    badge = '<span class="badge badge-warn">Expires soon</span>';
-                }
-                return `
-                <div class="token">
-                    <div class="token-info">
-                        <div class="token-provider">${escapeHtml(t.provider)}</div>
-                        <div class="token-context">Context: ${t.context_id}</div>
-                        <div class="token-meta">
-                            Type: ${t.token_type} |
-                            Scope: ${t.scope || 'N/A'} |
-                            ${t.has_refresh_token ? 'Last refreshed: ' + new Date(t.updated_at).toLocaleString() : 'Expires: ' + expiry.toLocaleString()}
-                        </div>
-                    </div>
-                    ${badge}
-                </div>`;
-            }).join('');
-        }
-        loadTokens();
-    """
-
-    return render_admin_page(
-        title="OAuth Tokens",
-        active_page="/platformadmin/oauth/",
-        content=content,
-        user_name=admin.display_name or admin.email.split("@")[0],
-        user_email=admin.email,
-        breadcrumbs=[("OAuth Settings", "#")],
-        extra_css=extra_css,
-        extra_js=extra_js,
-    )
 
 
 class OAuthTokenInfo(BaseModel):
