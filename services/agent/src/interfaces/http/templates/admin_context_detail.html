@@ -667,7 +667,7 @@ async function loadPermissions() {
             (t.description ? '<div style="font-size: 12px; color: var(--text-muted);">' + escapeHtml(t.description) + '</div>' : '') +
             '</div>' +
             '<label class="toggle-switch">' +
-            '<input type="checkbox" ' + (t.allowed ? 'checked' : '') + ' onchange="togglePermission(\'' + t.tool_name + '\', this.checked)">' +
+            '<input type="checkbox" ' + (t.allowed !== false ? 'checked' : '') + ' onchange="togglePermission(\'' + t.tool_name + '\', this.checked)">' +
             '<span class="toggle-slider"></span></label></div>'
         ).join('');
     }
@@ -675,21 +675,36 @@ async function loadPermissions() {
 }
 
 async function togglePermission(toolName, allowed) {
-    await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + CONTEXT_ID + '/tools/' + toolName, {
+    const res = await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + CONTEXT_ID + '/tools/' + toolName, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ allowed: allowed })
     });
+    if (res) {
+        showToast(toolName + (allowed ? ' allowed' : ' denied'), 'success');
+    } else {
+        showToast('Failed to update ' + toolName, 'error');
+        // Revert toggle on error
+        loadedTabs['permissions'] = false;
+        loadPermissions();
+    }
 }
 
 async function bulkPermissions(allowed) {
-    await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + CONTEXT_ID + '/bulk', {
+    const action = allowed ? 'allow_all' : 'deny_all';
+    const payload = { action: action };
+    const res = await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + CONTEXT_ID + '/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ allowed: allowed })
+        body: JSON.stringify(payload)
     });
-    loadedTabs['permissions'] = false;
-    loadPermissions();
+    if (res) {
+        showToast(allowed ? 'All tools allowed' : 'All tools denied', 'success');
+        loadedTabs['permissions'] = false;
+        loadPermissions();
+    } else {
+        showToast('Failed to update permissions', 'error');
+    }
 }
 
 // --- Credentials Tab ---
