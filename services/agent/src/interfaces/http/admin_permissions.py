@@ -300,7 +300,10 @@ async def permissions_dashboard(admin: AdminUser = Depends(require_admin_or_redi
             const res = await fetchWithErrorHandling('/platformadmin/permissions/contexts/' + contextId);
             if (!res) {
                 document.getElementById('toolListBody').innerHTML =
-                    '<tr><td colspan="4" style="color: var(--error); text-align: center;">Failed to load permissions: ' + e.message + '</td></tr>';
+                    '<tr><td colspan="4" style="color: var(--error); text-align: center;">Failed to load permissions</td></tr>';
+            } else {
+                const data = await res.json();
+                renderToolList(data);
             }
 
             // Scroll to detail panel
