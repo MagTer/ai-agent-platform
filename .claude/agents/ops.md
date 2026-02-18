@@ -27,7 +27,14 @@ git restore .
 # FORBIDDEN - destructive
 git clean -f
 git push --force
+
+# FORBIDDEN - hides work, gets lost and forgotten
+git stash
+git stash push
+git stash save
 ```
+
+**git stash is FORBIDDEN.** If you have uncommitted changes, COMMIT them (even as a WIP commit). Stashes get lost and forgotten -- commits do not.
 
 ### ALWAYS check first:
 ```bash
