@@ -67,8 +67,10 @@ async def get_or_create_user(
         await session.flush()  # Get user.id
 
         # Create personal context
+        # Name format: "Personal - user@example.com"
+        context_name = f"Personal - {identity.email}"
         context = Context(
-            name=f"personal_{user.id}",
+            name=context_name,
             type="personal",
             config={"owner_email": identity.email},
             default_cwd="/tmp",  # noqa: S108

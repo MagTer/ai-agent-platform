@@ -68,7 +68,7 @@ class ContextService:
         # Fallback: create context if somehow missing
         LOGGER.warning("User %s has no default context, creating one", user.email)
         context = Context(
-            name=f"personal_{user.id}",
+            name=f"Personal - {user.email}",
             type="personal",
             config={"owner_email": user.email},
             default_cwd="/tmp",  # noqa: S108

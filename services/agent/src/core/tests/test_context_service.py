@@ -88,7 +88,7 @@ async def test_resolve_for_authenticated_user_missing_context_creates_one(
 
     mock_session.add.assert_called_once()
     added_context = mock_session.add.call_args[0][0]
-    assert added_context.name == f"personal_{fake_user.id}"
+    assert added_context.name == f"Personal - {fake_user.email}"
     assert isinstance(result, uuid.UUID)
 
 
