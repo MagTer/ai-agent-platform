@@ -6,12 +6,14 @@ import asyncio
 import logging
 import re
 import tempfile
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote, unquote
 from uuid import UUID
 
 import httpx
+from qdrant_client.http.models import PointStruct
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +28,10 @@ COLLECTION_NAME = "tibp-wiki"
 ADO_API_VERSION = "7.1"
 GIT_CLONE_TIMEOUT = 300.0  # 5 minutes for clone
 ADO_REQUEST_TIMEOUT = 30.0
+CHUNK_SIZE = 2000
+CHUNK_OVERLAP = 300
+EMBED_BATCH_SIZE = 64   # chunks per embedding API call
+UPSERT_BATCH_SIZE = 500  # points per Qdrant upsert
 
 
 class WikiImportError(Exception):
@@ -249,10 +255,10 @@ async def full_import(
 
         rag = get_rag_manager()
 
-        # Verify the rag manager supports mutable collection_name (duck typing)
-        if not hasattr(rag, "collection_name") or not hasattr(rag, "client"):
+        # Verify the rag manager exposes embedder and client (duck typing)
+        if not hasattr(rag, "embedder") or not hasattr(rag, "client"):
             raise WikiImportError(
-                "RAG manager does not support collection_name override. Cannot ingest wiki pages."
+                "RAG manager does not expose embedder/client. Cannot ingest wiki pages."
             )
 
         if force:
@@ -276,30 +282,70 @@ async def full_import(
         wiki_record.status = "embedding"
         await session.commit()
 
-        # Temporarily override collection for wiki ingestion (duck typing on RAGManager)
-        original_collection: str = rag.collection_name
-        rag.collection_name = COLLECTION_NAME
-        try:
-            total_chunks = 0
-            for i, page in enumerate(pages):
-                chunks = await rag.ingest_document(
-                    page.content,
-                    {
-                        "uri": page.path,
-                        "source": "tibp_wiki",
-                        "type": "documentation",
-                        "context_id": str(context_id),
-                    },
-                    chunk_size=2000,
-                    chunk_overlap=300,
+        # Collect all chunks from all pages first (no API calls yet)
+        # Structure: list of (chunk_text, payload_metadata)
+        all_chunks: list[tuple[str, dict[str, str | int]]] = []
+        for page in pages:
+            start = 0
+            chunk_index = 0
+            while start < len(page.content):
+                chunk = page.content[start : start + CHUNK_SIZE]
+                if chunk.strip():
+                    all_chunks.append(
+                        (
+                            chunk,
+                            {
+                                "uri": page.path,
+                                "source": "tibp_wiki",
+                                "type": "documentation",
+                                "context_id": str(context_id),
+                                "chunk_index": chunk_index,
+                            },
+                        )
+                    )
+                start += CHUNK_SIZE - CHUNK_OVERLAP
+                chunk_index += 1
+
+        LOGGER.info(
+            "Wiki: collected %d chunks from %d pages, embedding in batches of %d",
+            len(all_chunks),
+            len(pages),
+            EMBED_BATCH_SIZE,
+        )
+
+        # Embed chunks in batches (many fewer API calls than 1 per page)
+        all_points: list[PointStruct] = []
+        for batch_start in range(0, len(all_chunks), EMBED_BATCH_SIZE):
+            batch = all_chunks[batch_start : batch_start + EMBED_BATCH_SIZE]
+            texts = [t for t, _ in batch]
+            embeddings = await rag.embedder.embed(texts)
+            for (chunk_text, meta), vector in zip(batch, embeddings, strict=False):
+                payload: dict[str, str | int] = dict(meta)
+                payload["text"] = chunk_text
+                all_points.append(
+                    PointStruct(
+                        id=str(uuid.uuid4()),
+                        vector=vector,
+                        payload=payload,
+                    )
                 )
-                total_chunks += chunks
-                wiki_record.pages_imported = i + 1
-                wiki_record.total_chunks = total_chunks
-                if (i + 1) % 10 == 0:
-                    await session.commit()
-        finally:
-            rag.collection_name = original_collection
+            # Update progress by approximating pages done
+            pages_done = min(
+                len(pages),
+                round(len(pages) * (batch_start + len(batch)) / len(all_chunks)),
+            )
+            wiki_record.pages_imported = pages_done
+            wiki_record.total_chunks = len(all_points)
+            await session.commit()
+
+        # Upsert all points to Qdrant in batches
+        for batch_start in range(0, len(all_points), UPSERT_BATCH_SIZE):
+            await rag.client.upsert(
+                collection_name=COLLECTION_NAME,
+                points=all_points[batch_start : batch_start + UPSERT_BATCH_SIZE],
+            )
+
+        total_chunks = len(all_points)
 
         wiki_record.status = "completed"
         wiki_record.total_chunks = total_chunks
