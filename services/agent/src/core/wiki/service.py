@@ -30,7 +30,7 @@ GIT_CLONE_TIMEOUT = 300.0  # 5 minutes for clone
 ADO_REQUEST_TIMEOUT = 30.0
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 300
-EMBED_BATCH_SIZE = 4    # chunks per embedding API call (small to avoid OOM on LiteLLM proxy)
+EMBED_BATCH_SIZE = 32   # chunks per embedding API call (safe with 2GB LiteLLM limit)
 UPSERT_BATCH_SIZE = 500  # points per Qdrant upsert
 EMBED_MAX_RETRIES = 3   # retries on transient embedding errors
 
