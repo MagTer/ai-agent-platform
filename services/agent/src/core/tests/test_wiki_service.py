@@ -9,85 +9,69 @@ import pytest
 
 from core.wiki.service import (
     WikiImportError,
-    _collect_page_paths,
     _get_ado_credentials,
+    clone_wiki_pages,
     full_import,
 )
 
 
-class TestCollectPagePaths:
-    """Tests for the _collect_page_paths helper."""
+class TestCloneWikiPages:
+    """Tests for clone_wiki_pages function."""
 
-    def test_empty_tree(self) -> None:
-        paths: list[str] = []
-        _collect_page_paths({}, paths)
-        assert paths == []
+    @pytest.mark.asyncio
+    async def test_clone_with_empty_repo(self) -> None:
+        """Test that clone_wiki_pages handles empty repos."""
+        with (
+            patch("core.wiki.service._get_wiki_clone_url") as mock_get_url,
+            patch("core.wiki.service.asyncio.create_subprocess_exec") as mock_exec,
+            patch("core.wiki.service.Path") as mock_path,
+        ):
+            # Mock URL discovery
+            mock_get_url.return_value = (
+                "MyWiki",
+                "https://x-token:pat@dev.azure.com/MyOrg/MyProject/_git/MyWiki",
+            )
 
-    def test_flat_tree(self) -> None:
-        tree: dict[str, object] = {
-            "path": "/",
-            "subPages": [
-                {"path": "/Page1"},
-                {"path": "/Page2"},
-            ],
-        }
-        paths: list[str] = []
-        _collect_page_paths(tree, paths)
-        assert paths == ["/Page1", "/Page2"]
+            # Mock successful git clone
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 0
+            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+            mock_exec.return_value = mock_proc
 
-    def test_nested_tree(self) -> None:
-        tree: dict[str, object] = {
-            "path": "/",
-            "subPages": [
-                {
-                    "path": "/Section",
-                    "subPages": [
-                        {"path": "/Section/Child1"},
-                        {"path": "/Section/Child2"},
-                    ],
-                }
-            ],
-        }
-        paths: list[str] = []
-        _collect_page_paths(tree, paths)
-        assert paths == ["/Section", "/Section/Child1", "/Section/Child2"]
+            # Mock empty file discovery
+            mock_path.return_value.rglob.return_value = []
 
-    def test_root_excluded(self) -> None:
-        tree: dict[str, object] = {
-            "path": "/",
-            "subPages": [{"path": "/SomePage"}],
-        }
-        paths: list[str] = []
-        _collect_page_paths(tree, paths)
-        assert "/" not in paths
-        assert "/SomePage" in paths
+            # Call the function
+            wiki_name, pages = await clone_wiki_pages(
+                "pat123", "https://dev.azure.com/MyOrg", "MyProject"
+            )
 
-    def test_node_without_path(self) -> None:
-        tree: dict[str, object] = {
-            "subPages": [{"path": "/Page1"}],
-        }
-        paths: list[str] = []
-        _collect_page_paths(tree, paths)
-        assert paths == ["/Page1"]
+            # Verify results
+            assert wiki_name == "MyWiki"
+            assert len(pages) == 0
 
-    def test_deep_nesting(self) -> None:
-        tree: dict[str, object] = {
-            "path": "/",
-            "subPages": [
-                {
-                    "path": "/A",
-                    "subPages": [
-                        {
-                            "path": "/A/B",
-                            "subPages": [{"path": "/A/B/C"}],
-                        }
-                    ],
-                }
-            ],
-        }
-        paths: list[str] = []
-        _collect_page_paths(tree, paths)
-        assert paths == ["/A", "/A/B", "/A/B/C"]
+    @pytest.mark.asyncio
+    async def test_clone_raises_on_git_failure(self) -> None:
+        """Test that clone_wiki_pages raises on git clone failure."""
+        with (
+            patch("core.wiki.service._get_wiki_clone_url") as mock_get_url,
+            patch("core.wiki.service.asyncio.create_subprocess_exec") as mock_exec,
+        ):
+            # Mock URL discovery
+            mock_get_url.return_value = (
+                "MyWiki",
+                "https://x-token:pat@dev.azure.com/MyOrg/MyProject/_git/MyWiki",
+            )
+
+            # Mock failed git clone
+            mock_proc = AsyncMock()
+            mock_proc.returncode = 1
+            mock_proc.communicate = AsyncMock(return_value=(b"", b"Authentication failed"))
+            mock_exec.return_value = mock_proc
+
+            # Call should raise
+            with pytest.raises(WikiImportError, match="Git clone failed"):
+                await clone_wiki_pages("pat123", "https://dev.azure.com/MyOrg", "MyProject")
 
 
 class TestGetAdoCredentials:
@@ -176,7 +160,7 @@ class TestFullImport:
                 await full_import(uuid4(), mock_session)
 
     @pytest.mark.asyncio
-    async def test_sets_status_error_on_api_failure(self) -> None:
+    async def test_sets_status_error_on_clone_failure(self) -> None:
         context_id = uuid4()
 
         # Build a mock WikiImport record
@@ -195,8 +179,8 @@ class TestFullImport:
                 return_value=("pat", "https://dev.azure.com/MyOrg", "MyProject"),
             ),
             patch(
-                "core.wiki.service.fetch_wiki_page_tree",
-                side_effect=Exception("API unreachable"),
+                "core.wiki.service.clone_wiki_pages",
+                side_effect=Exception("Git clone failed"),
             ),
         ):
             with pytest.raises(WikiImportError, match="Import failed"):
@@ -224,7 +208,7 @@ class TestFullImport:
                 "core.wiki.service._get_ado_credentials",
                 return_value=("pat", "https://dev.azure.com/MyOrg", "MyProject"),
             ),
-            patch("core.wiki.service.fetch_wiki_page_tree", return_value=[]),
+            patch("core.wiki.service.clone_wiki_pages", return_value=("MyWiki", [])),
         ):
             result = await full_import(context_id, mock_session)
 

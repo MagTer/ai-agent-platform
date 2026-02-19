@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import nulls_last, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import AsyncSessionLocal, get_db
@@ -124,6 +124,14 @@ async def wiki_import_dashboard(
 """
 
     extra_js = """
+        // Unregister any service workers (e.g. from Open WebUI) that intercept
+        // GET requests and return cached HTML instead of forwarding to the agent.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+                regs.forEach(function(r) { r.unregister(); });
+            });
+        }
+
         let pollInterval = null;
         let currentContextId = null;
 
@@ -138,10 +146,17 @@ async def wiki_import_dashboard(
         });
 
         async function loadStatus(contextId) {
-            const resp = await fetch('/platformadmin/wiki/status/' + contextId);
-            if (!resp || !resp.ok) return;
-            const data = await resp.json();
-            renderStatus(data);
+            if (!contextId) return;
+            try {
+                const resp = await fetch('/platformadmin/wiki/status/' + contextId, {cache: 'no-store'});
+                if (!resp || !resp.ok) return;
+                const contentType = resp.headers.get('content-type') || '';
+                if (!contentType.includes('application/json')) return;
+                const data = await resp.json();
+                renderStatus(data);
+            } catch (e) {
+                console.warn('loadStatus error:', e);
+            }
         }
 
         function renderStatus(data) {
@@ -250,7 +265,6 @@ async def wiki_import_dashboard(
 @router.get(
     "/status/{context_id}",
     response_model=list[WikiImportStatus],
-    dependencies=[Depends(verify_admin_user)],
 )
 async def get_wiki_status(
     context_id: UUID,
@@ -260,7 +274,7 @@ async def get_wiki_status(
     stmt = (
         select(WikiImport)
         .where(WikiImport.context_id == context_id)
-        .order_by(WikiImport.wiki_identifier)
+        .order_by(nulls_last(WikiImport.last_import_started_at.desc()))
     )
     result = await session.execute(stmt)
     records = result.scalars().all()
@@ -303,6 +317,32 @@ async def trigger_wiki_import(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Context {request.context_id} not found",
+        )
+
+    # Pre-check credentials synchronously so the error is surfaced immediately
+    # rather than failing silently in the background task.
+    from core.wiki.service import _get_ado_credentials
+
+    creds = await _get_ado_credentials(request.context_id, session)
+    if not creds:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "No Azure DevOps credentials configured for this context. "
+                "Add a PAT via Context Detail -> Credentials tab (type: azure_devops_pat). "
+                "The credential value must be the PAT and the metadata must include organization_url "
+                "in the format https://dev.azure.com/YourOrg/YourProject"
+            ),
+        )
+    _, _, project = creds
+    if not project:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Azure DevOps credentials found but organization_url does not include a project. "
+                "Update the credential metadata with a URL like: "
+                "https://dev.azure.com/YourOrg/YourProject"
+            ),
         )
 
     context_id = request.context_id

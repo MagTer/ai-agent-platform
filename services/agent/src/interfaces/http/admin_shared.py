@@ -595,6 +595,14 @@ def render_admin_page(
             return div.innerHTML;
         }
 
+        // Unregister any service workers (e.g. from Open WebUI) that would
+        // intercept admin portal GET requests and return cached HTML.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+                regs.forEach(function(r) { r.unregister(); });
+            });
+        }
+
         // CSRF token utilities
         function getCsrfToken() {
             const cookies = document.cookie.split(';');

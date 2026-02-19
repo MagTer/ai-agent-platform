@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import tempfile
 from datetime import UTC, datetime
-from urllib.parse import unquote
+from pathlib import Path
+from urllib.parse import quote, unquote
 from uuid import UUID
 
 import httpx
@@ -21,6 +24,7 @@ LOGGER = logging.getLogger(__name__)
 
 COLLECTION_NAME = "tibp-wiki"
 ADO_API_VERSION = "7.1"
+GIT_CLONE_TIMEOUT = 300.0  # 5 minutes for clone
 ADO_REQUEST_TIMEOUT = 30.0
 
 
@@ -71,67 +75,100 @@ async def _get_ado_credentials(
     return pat, url, None
 
 
-def _collect_page_paths(node: dict[str, object], paths: list[str]) -> None:
-    """Recursively collect page paths from the ADO wiki tree response.
-
-    The tree API returns: {"path": "/", "subPages": [{"path": "/Page1", ...}, ...]}
-    Root path "/" is excluded.
-    """
-    path = node.get("path")
-    if isinstance(path, str) and path != "/":
-        paths.append(path)
-    sub_pages = node.get("subPages")
-    if isinstance(sub_pages, list):
-        for sub in sub_pages:
-            if isinstance(sub, dict):
-                _collect_page_paths(sub, paths)
-
-
-async def fetch_wiki_page_tree(
+async def _get_wiki_clone_url(
     pat: str,
     org_url: str,
     project: str,
-    wiki_identifier: str | None = None,
-) -> list[WikiPage]:
-    """Fetch all wiki pages from ADO API with content.
+) -> tuple[str, str]:
+    """Discover the wiki identifier and authenticated git clone URL.
 
-    Step 1: GET pages?path=/&recursionLevel=full  -> page paths
-    Step 2: GET pages?path=P&includeContent=true  -> page content (per page)
+    Calls the wikis list API to get the projectWiki's remoteUrl, then
+    injects the PAT as the HTTP password for git clone auth.
+
+    Returns (wiki_identifier, authenticated_clone_url).
     """
-    if not wiki_identifier:
-        wiki_identifier = f"{project}.wiki"
-
-    tree_url = (
-        f"{org_url}/{project}/_apis/wiki/wikis/{wiki_identifier}/pages"
-        f"?path=/&recursionLevel=full&api-version={ADO_API_VERSION}"
-    )
-
     auth = httpx.BasicAuth(username="", password=pat)
-    async with httpx.AsyncClient(timeout=ADO_REQUEST_TIMEOUT, auth=auth) as client:
-        response = await client.get(tree_url)
-        response.raise_for_status()
+    list_url = f"{org_url}/{project}/_apis/wiki/wikis"
+    wiki_name = f"{project.replace(' ', '-')}.wiki"
+    remote_url = ""
 
-        page_paths: list[str] = []
-        _collect_page_paths(response.json(), page_paths)
-        LOGGER.info("Found %d wiki pages in %s/%s", len(page_paths), project, wiki_identifier)
+    try:
+        async with httpx.AsyncClient(timeout=ADO_REQUEST_TIMEOUT, auth=auth) as client:
+            resp = await client.get(list_url, params={"api-version": ADO_API_VERSION})
+            resp.raise_for_status()
+            wikis = resp.json().get("value", [])
+            # Prefer projectWiki type; fall back to first entry
+            chosen = next((w for w in wikis if w.get("type") == "projectWiki"), None)
+            if chosen is None and wikis:
+                chosen = wikis[0]
+            if chosen:
+                discovered_name = chosen.get("name") or chosen.get("id") or wiki_name
+                wiki_name = str(discovered_name).replace(" ", "-")
+                remote_url = str(chosen.get("remoteUrl", ""))
+                LOGGER.info("Discovered wiki: name=%s remote=%s", wiki_name, remote_url)
+    except Exception as e:
+        LOGGER.warning("Wiki discovery failed, using name-based fallback: %s", e)
 
+    # Build the git clone URL from components.
+    # The remoteUrl from the wikis API points to the web viewer (/_wiki/wikis/...),
+    # not the git endpoint. The correct git clone URL is /_git/{wiki-name}.
+    pat_encoded = quote(pat, safe="")
+    org_part = org_url.replace("https://", "")
+    proj_encoded = quote(project)
+    clone_url = f"https://x-token:{pat_encoded}@{org_part}/{proj_encoded}/_git/{wiki_name}"
+
+    return wiki_name, clone_url
+
+
+async def clone_wiki_pages(
+    pat: str,
+    org_url: str,
+    project: str,
+) -> tuple[str, list[WikiPage]]:
+    """Clone the ADO wiki git repo and return all markdown pages.
+
+    Uses a shallow clone (--depth 1) for speed. The PAT is injected
+    into the HTTPS clone URL as the HTTP password.
+
+    Returns (wiki_identifier, pages).
+    """
+    wiki_name, clone_url = await _get_wiki_clone_url(pat, org_url, project)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        LOGGER.info("Cloning wiki repo %s (shallow)...", wiki_name)
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "clone",
+            "--depth",
+            "1",
+            "--quiet",
+            clone_url,
+            tmpdir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=GIT_CLONE_TIMEOUT)
+
+        if proc.returncode != 0:
+            err_msg = stderr_bytes.decode(errors="replace")
+            # Mask PAT in error output
+            err_msg = err_msg.replace(pat, "***")
+            raise WikiImportError(f"Git clone failed (exit {proc.returncode}): {err_msg}")
+
+        # Walk cloned repo and collect all .md files (skip .git dir)
         pages: list[WikiPage] = []
-        for i, path in enumerate(page_paths):
-            content_url = (
-                f"{org_url}/{project}/_apis/wiki/wikis/{wiki_identifier}/pages"
-                f"?path={path}&includeContent=true&api-version={ADO_API_VERSION}"
-            )
+        md_files = sorted(f for f in Path(tmpdir).rglob("*.md") if ".git" not in f.parts)
+        for i, md_file in enumerate(md_files):
             try:
-                r = await client.get(content_url)
-                r.raise_for_status()
-                content = r.json().get("content", "")
-                if content and content.strip():
-                    pages.append(WikiPage(path=path, content=content, order=i))
-            except httpx.HTTPStatusError as e:
-                LOGGER.warning("Failed to fetch wiki page %s: %s", path, e)
+                content = md_file.read_text(encoding="utf-8", errors="replace")
+                if content.strip():
+                    rel_path = "/" + md_file.relative_to(tmpdir).as_posix()
+                    pages.append(WikiPage(path=rel_path, content=content, order=i))
+            except Exception as e:
+                LOGGER.warning("Failed to read wiki file %s: %s", md_file, e)
 
-    LOGGER.info("Fetched content for %d/%d pages", len(pages), len(page_paths))
-    return pages
+        LOGGER.info("Read %d markdown pages from cloned wiki %s", len(pages), wiki_name)
+        return wiki_name, pages
 
 
 async def full_import(
@@ -140,7 +177,7 @@ async def full_import(
     wiki_identifier: str | None = None,
     force: bool = False,
 ) -> str:
-    """Fetch all wiki pages, embed, and index into Qdrant.
+    """Clone the ADO wiki git repo, embed pages, and index into Qdrant.
 
     Designed to run as a background task. Updates WikiImport record with
     progress as it proceeds. Returns a summary string on completion.
@@ -148,7 +185,7 @@ async def full_import(
     Args:
         context_id: Context with ADO credentials.
         session: Database session.
-        wiki_identifier: Override wiki identifier (default: {project}.wiki).
+        wiki_identifier: Unused override (kept for API compatibility).
         force: Delete and recreate the Qdrant collection before importing.
 
     Returns:
@@ -168,19 +205,21 @@ async def full_import(
             "URL should be: https://dev.azure.com/Org/Project"
         )
 
-    effective_wiki_id = wiki_identifier or f"{project}.wiki"
+    # Use hyphenated fallback for the DB record key; clone_wiki_pages will
+    # discover and return the real identifier.
+    db_wiki_id = wiki_identifier or f"{project.replace(' ', '-')}.wiki"
 
     # Get or create WikiImport record
     stmt = select(WikiImport).where(
         WikiImport.context_id == context_id,
-        WikiImport.wiki_identifier == effective_wiki_id,
+        WikiImport.wiki_identifier == db_wiki_id,
     )
     wiki_record = (await session.execute(stmt)).scalar_one_or_none()
 
     if not wiki_record:
         wiki_record = WikiImport(
             context_id=context_id,
-            wiki_identifier=effective_wiki_id,
+            wiki_identifier=db_wiki_id,
         )
         session.add(wiki_record)
 
@@ -193,7 +232,12 @@ async def full_import(
     await session.refresh(wiki_record)
 
     try:
-        pages = await fetch_wiki_page_tree(pat, org_url, project, wiki_identifier=effective_wiki_id)
+        discovered_id, pages = await clone_wiki_pages(pat, org_url, project)
+
+        # Update DB record with discovered identifier if it differs
+        if discovered_id != db_wiki_id:
+            wiki_record.wiki_identifier = discovered_id
+
         wiki_record.total_pages = len(pages)
         await session.commit()
 
@@ -205,7 +249,7 @@ async def full_import(
 
         rag = get_rag_manager()
 
-        # Verify the rag manager supports mutable collection_name (duck typing — no modules import)
+        # Verify the rag manager supports mutable collection_name (duck typing)
         if not hasattr(rag, "collection_name") or not hasattr(rag, "client"):
             raise WikiImportError(
                 "RAG manager does not support collection_name override. Cannot ingest wiki pages."
