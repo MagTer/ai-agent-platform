@@ -1,69 +1,5 @@
 [
   {
-    "timestamp": "2026-02-10T12:00:25.503045+00:00",
-    "branch": "fix/diagnostics-admin-js-error",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-11T22:37:38.823251+00:00",
-    "branch": "feat/context-centric-admin",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-11T22:43:55.728380+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-12T06:40:51.588703+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-12T06:55:13.950269+00:00",
-    "branch": "fix/architecture-violations",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-12T21:39:55.243641+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-12T21:48:12.402789+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-12T22:33:59.639401+00:00",
-    "branch": "feat/context-scoped-credentials",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
     "timestamp": "2026-02-13T09:56:42.298512+00:00",
     "branch": "main",
     "services": [
@@ -154,6 +90,70 @@
   {
     "timestamp": "2026-02-15T17:49:36.888256+00:00",
     "branch": "feat/otel-observability-metrics-logs",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-17T23:06:16.531410+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-18T07:07:59.486371+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-18T19:57:47.754700+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-18T20:07:19.395446+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-18T20:34:38.852953+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-18T21:21:09.134803+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-18T22:15:49.163817+00:00",
+    "branch": "main",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-19T15:56:51.939438+00:00",
+    "branch": "main",
     "services": [
       "agent"
     ],
