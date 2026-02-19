@@ -30,8 +30,9 @@ GIT_CLONE_TIMEOUT = 300.0  # 5 minutes for clone
 ADO_REQUEST_TIMEOUT = 30.0
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 300
-EMBED_BATCH_SIZE = 64   # chunks per embedding API call
+EMBED_BATCH_SIZE = 16   # chunks per embedding API call (smaller = safer for proxy limits)
 UPSERT_BATCH_SIZE = 500  # points per Qdrant upsert
+EMBED_MAX_RETRIES = 3   # retries on transient embedding errors
 
 
 class WikiImportError(Exception):
@@ -318,7 +319,27 @@ async def full_import(
         for batch_start in range(0, len(all_chunks), EMBED_BATCH_SIZE):
             batch = all_chunks[batch_start : batch_start + EMBED_BATCH_SIZE]
             texts = [t for t, _ in batch]
-            embeddings = await rag.embedder.embed(texts)
+            # Retry on transient errors (server disconnect, timeout)
+            embeddings: list[list[float]] = []
+            for attempt in range(EMBED_MAX_RETRIES):
+                try:
+                    embeddings = await rag.embedder.embed(texts)
+                    break
+                except Exception as embed_err:
+                    if attempt < EMBED_MAX_RETRIES - 1:
+                        wait = 2.0 ** attempt
+                        LOGGER.warning(
+                            "Embed batch %d/%d failed (attempt %d/%d), retrying in %.0fs: %s",
+                            batch_start // EMBED_BATCH_SIZE + 1,
+                            -(-len(all_chunks) // EMBED_BATCH_SIZE),
+                            attempt + 1,
+                            EMBED_MAX_RETRIES,
+                            wait,
+                            embed_err,
+                        )
+                        await asyncio.sleep(wait)
+                    else:
+                        raise
             for (chunk_text, meta), vector in zip(batch, embeddings, strict=False):
                 payload: dict[str, str | int] = dict(meta)
                 payload["text"] = chunk_text
