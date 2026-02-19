@@ -122,6 +122,28 @@ class HITLCoordinator:
             "ja",
             "ok",
         )
+        is_request_changes = (
+            "request changes" in user_response_lower or "revise" in user_response_lower
+        )
+        is_cancel = (
+            "cancel" in user_response_lower
+            or "reject" in user_response_lower
+            or user_response_lower in ("no", "nej", "abort")
+        )
+
+        if skill_name == "requirements_drafter" and category == "confirmation" and is_cancel:
+            LOGGER.info("HITL: requirements_drafter cancelled by user")
+            yield {"type": "content", "content": "Work item creation cancelled."}
+            session.add(
+                Message(
+                    session_id=db_session.id,
+                    role="assistant",
+                    content="Work item creation cancelled.",
+                    trace_id=trace_id,
+                )
+            )
+            await session.commit()
+            return
 
         if skill_name == "requirements_drafter" and category == "confirmation" and is_approval:
             LOGGER.info("HITL handoff: requirements_drafter -> requirements_writer")
@@ -147,6 +169,21 @@ class HITLCoordinator:
             ):
                 yield event
             return
+
+        if (
+            skill_name == "requirements_drafter"
+            and category == "confirmation"
+            and is_request_changes
+        ):  # noqa: E501
+            # Resume the drafter with an explicit revision instruction as the tool result
+            LOGGER.info("HITL: requirements_drafter revision requested")
+            yield {
+                "type": "thinking",
+                "content": "Revising the draft...",
+                "metadata": {"role": "Executor", "hitl_revision": True},
+            }
+            # Fall through to normal resume - the user's "Request Changes" text
+            # is forwarded as the tool result so the drafter can act on it.
 
         # Normal HITL resume - continue the original skill
         yield {
@@ -281,10 +318,11 @@ class HITLCoordinator:
             if type_match:
                 draft["type"] = type_match.group(1).strip()
 
-            # Extract Team
+            # Extract Team - strip display name suffix (e.g., "infra - Infrastructure" -> "infra")
             team_match = re.search(r"Team:\s*(.+?)(?:\n|$)", content)
             if team_match:
-                draft["team_alias"] = team_match.group(1).strip()
+                team_raw = team_match.group(1).strip()
+                draft["team_alias"] = team_raw.split(" - ")[0].strip()
 
             # Extract Title
             title_match = re.search(r"Title:\s*(.+?)(?:\n|$)", content)
@@ -317,9 +355,11 @@ class HITLCoordinator:
                 draft["tags"] = [t.strip() for t in re.split(r"[,;]", tags_str) if t.strip()]
 
             # Validate minimum required fields
-            if draft.get("title") and draft.get("team_alias"):
+            if draft.get("title") and draft.get("team_alias") and draft.get("type"):
                 LOGGER.info("Extracted draft: %s", draft)
                 return draft
+            missing = [f for f in ("title", "team_alias", "type") if not draft.get(f)]
+            LOGGER.warning("Draft missing required fields: %s", missing)
 
         LOGGER.warning("Could not extract draft from skill messages")
         return None

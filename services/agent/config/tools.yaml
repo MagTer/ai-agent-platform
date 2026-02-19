@@ -55,3 +55,8 @@
   type: core.tools.github_pr.GitHubPRTool
   enabled: true
   description: "Create pull requests on GitHub"
+
+- name: wiki_sync
+  type: core.tools.wiki_sync.WikiSyncTool
+  enabled: true
+  description: "Syncs the TIBP corporate wiki from Azure DevOps into the search index."
