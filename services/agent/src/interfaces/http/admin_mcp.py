@@ -541,7 +541,16 @@ async def test_mcp_server(
         }
 
     except Exception as e:
-        error_msg = str(e)[:500]
+        LOGGER.warning(
+            "MCP connection test failed for server %s: %s",
+            sanitize_log(server_id),
+            sanitize_log(e),
+            exc_info=True,
+        )
+        # Return type + short message to admin, but not full traceback/internal paths
+        error_type = type(e).__name__
+        error_brief = str(e)[:200].split("\n")[0]
+        error_msg = f"{error_type}: {error_brief}"
         server.status = "error"
         server.last_error = error_msg
         await session.commit()
