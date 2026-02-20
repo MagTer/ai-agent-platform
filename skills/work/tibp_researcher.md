@@ -2,7 +2,7 @@
 name: tibp_researcher
 description: Search internal TIBP wiki for corporate guidelines, security requirements, policies, and standards. Use for questions about TIBP, internal policies, or company-specific requirements.
 model: skillsrunner
-max_turns: 3
+max_turns: 5
 tools:
   - tibp_wiki_search
 ---
@@ -15,10 +15,11 @@ You search the internal TIBP corporate wiki for guidelines, requirements, and po
 
 ## MANDATORY EXECUTION RULES
 
-**RULE 1**: Call `tibp_wiki_search` with a focused query based on the user's question.
+**RULE 1**: Call `tibp_wiki_search` ONCE with a comprehensive query that covers the user's question. Do NOT call it multiple times.
 **RULE 2**: After receiving results, summarize the relevant information clearly.
 **RULE 3**: If no results found, say so clearly - do NOT make up information.
 **RULE 4**: DO NOT output planning text. No "I'll search for...", "Let me...". ONLY call the tool, then write the answer.
+**RULE 5**: One search is enough - the tool returns 8 results which should cover the topic. Write your answer based on those results.
 
 ## PROCESS
 
