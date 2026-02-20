@@ -2,15 +2,13 @@ import asyncio
 import logging
 import re
 import time
-from functools import lru_cache
-from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 from uuid import UUID
 
-import yaml
 from azure.devops.connection import Connection
 from msrest.authentication import BasicAuthentication
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.credential_service import CredentialService
@@ -23,35 +21,6 @@ LOGGER = logging.getLogger(__name__)
 _connection_cache: dict[str, tuple[Connection, float]] = {}
 CONNECTION_CACHE_TTL = 300  # 5 minutes
 CONNECTION_CACHE_MAX_SIZE = 50  # Limit cache size to prevent unbounded growth
-
-
-@lru_cache(maxsize=1)
-def _load_ado_mappings() -> dict[str, Any]:
-    """Load and cache ADO mappings from config file.
-
-    Tries multiple locations for Docker and local development compatibility.
-
-    Returns:
-        Parsed YAML content as dict, empty dict if not found.
-    """
-    # Candidate paths in priority order
-    candidates = [
-        Path("/app/config/ado_mappings.yaml"),  # Docker mount
-        Path(__file__).resolve().parent.parent.parent.parent / "config" / "ado_mappings.yaml",
-    ]
-
-    for config_path in candidates:
-        try:
-            if config_path.exists():
-                LOGGER.debug("Loading ADO mappings from %s", config_path)
-                with open(config_path, encoding="utf-8") as f:
-                    return yaml.safe_load(f) or {}
-        except Exception as e:
-            LOGGER.warning("Failed to load ADO mappings from %s: %s", config_path, e)
-            continue
-
-    LOGGER.warning("ADO mappings not found in any of: %s", [str(p) for p in candidates])
-    return {}
 
 
 def _sanitize_wiql_value(value: str) -> str:
@@ -262,38 +231,78 @@ class AzureDevOpsTool(Tool):
     def __init__(self) -> None:
         """Initialize Azure DevOps tool.
 
-        Configuration is loaded per-user from credentials in platformadmin.
-        No environment variable fallbacks - all config must be in credentials.
+        Configuration is loaded per-request from the database.
+        No YAML files or environment variable fallbacks.
         """
-        # Use cached mappings loaded at module level
-        self.mappings = _load_ado_mappings()
 
-        # Validate and warn
-        warnings = self._validate_mappings()
-        for warning in warnings:
-            LOGGER.warning(f"ADO Mapping: {warning}")
+    async def _load_mappings_from_db(self, session: AsyncSession | None) -> dict[str, Any]:
+        """Load ADO team mappings from database.
 
-    def _get_available_teams(self) -> list[str]:
+        Queries the ado_team_configs table and returns the same dict shape
+        that the old YAML file produced: {"teams": {...}, "defaults": {...}}
+
+        Args:
+            session: Database session for querying ado_team_configs.
+
+        Returns:
+            Mappings dict with "teams" and "defaults" keys.
+        """
+        if not session:
+            LOGGER.warning("No DB session available for loading ADO mappings")
+            return {}
+
+        from core.db.models import AdoTeamConfig
+
+        stmt = select(AdoTeamConfig).order_by(AdoTeamConfig.sort_order, AdoTeamConfig.alias)
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+
+        mappings: dict[str, Any] = {"teams": {}, "defaults": {}}
+        for row in rows:
+            if row.is_default:
+                mappings["defaults"] = {
+                    "area_path": row.area_path,
+                    "default_type": row.default_type,
+                }
+            else:
+                team_data: dict[str, Any] = {
+                    "area_path": row.area_path,
+                    "default_type": row.default_type,
+                    "default_tags": row.default_tags or [],
+                }
+                if row.display_name:
+                    team_data["display_name"] = row.display_name
+                if row.owner:
+                    team_data["owner"] = row.owner
+                if row.alias:
+                    mappings["teams"][row.alias] = team_data
+
+        return mappings
+
+    def _get_available_teams(self, mappings: dict[str, Any]) -> list[str]:
         """Return list of configured team aliases."""
-        return list(self.mappings.get("teams", {}).keys())
+        return list(mappings.get("teams", {}).keys())
 
-    def find_team_by_owner(self, owner_name: str) -> str | None:
+    def find_team_by_owner(self, owner_name: str, mappings: dict[str, Any]) -> str | None:
         """Find team alias by owner name (case-insensitive partial match).
 
         Args:
             owner_name: Name or partial name of the team owner.
+            mappings: ADO team mappings dict.
 
         Returns:
             Team alias if found, None otherwise.
         """
         owner_lower = owner_name.lower()
-        for alias, config in self.mappings.get("teams", {}).items():
+        for alias, config in mappings.get("teams", {}).items():
             owner = config.get("owner", "")
             if owner and owner_lower in owner.lower():
                 return alias
         return None
 
-    def _resolve_team_config(self, team_alias: str | None) -> dict[str, Any]:
+    def _resolve_team_config(
+        self, team_alias: str | None, mappings: dict[str, Any]
+    ) -> dict[str, Any]:
         """Resolve team configuration with validation.
 
         Supports both team alias (e.g., 'infra') and owner name (e.g., 'Martin').
@@ -305,9 +314,9 @@ class AzureDevOpsTool(Tool):
             ValueError: If team_alias is invalid (with suggestions)
         """
         if not team_alias:
-            return self.mappings.get("defaults", {})
+            return mappings.get("defaults", {})
 
-        teams = self.mappings.get("teams", {})
+        teams = mappings.get("teams", {})
 
         # Direct match by team alias
         if team_alias in teams:
@@ -316,7 +325,7 @@ class AzureDevOpsTool(Tool):
             return config
 
         # Try to find by owner name
-        resolved_alias = self.find_team_by_owner(team_alias)
+        resolved_alias = self.find_team_by_owner(team_alias, mappings)
         if resolved_alias:
             LOGGER.info(f"Resolved '{team_alias}' to team '{resolved_alias}' via owner lookup")
             config = teams[resolved_alias].copy()
@@ -331,10 +340,10 @@ class AzureDevOpsTool(Tool):
             error_msg += f" Did you mean: {', '.join(suggestions)}?"
         raise ValueError(error_msg)
 
-    def _validate_mappings(self) -> list[str]:
+    def _validate_mappings(self, mappings: dict[str, Any]) -> list[str]:
         """Validate mapping structure, return warnings."""
         warnings = []
-        teams = self.mappings.get("teams", {})
+        teams = mappings.get("teams", {})
 
         for team, config in teams.items():
             if not config.get("area_path"):
@@ -478,6 +487,9 @@ class AzureDevOpsTool(Tool):
 
         pat, org_url, cred_project = creds
 
+        # Load team mappings from DB (fresh per request, no caching)
+        mappings = await self._load_mappings_from_db(session)
+
         try:
             # Use cached connection if available (with TTL and size limits)
             # If context_id is None, create uncached connection (fallback)
@@ -516,11 +528,11 @@ class AzureDevOpsTool(Tool):
 
                 # 1. Resolve Configuration based on Team Alias
                 try:
-                    team_config = self._resolve_team_config(team_alias)
+                    team_config = self._resolve_team_config(team_alias, mappings)
                 except ValueError as e:
                     return f"❌ Error: {str(e)}"
 
-                default_area = self.mappings.get("defaults", {}).get("area_path")
+                default_area = mappings.get("defaults", {}).get("area_path")
 
                 # 2. Determine Final Values (Arg > Team Config > Default)
                 final_area_path = area_path or team_config.get("area_path") or default_area
@@ -701,7 +713,7 @@ class AzureDevOpsTool(Tool):
                 # Resolve team_alias to area_path
                 if team_alias:
                     try:
-                        team_config = self._resolve_team_config(team_alias)
+                        team_config = self._resolve_team_config(team_alias, mappings)
                         # Override area_path if team provided
                         if not area_path:
                             area_path = team_config.get("area_path")
@@ -730,7 +742,7 @@ class AzureDevOpsTool(Tool):
 
                 where_clause = " AND ".join(conditions)
                 # WIQL doesn't support parameterized queries
-                wiql = f"""  
+                wiql = f"""
                 SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType]
                 FROM WorkItems
                 WHERE {where_clause}
@@ -776,7 +788,7 @@ class AzureDevOpsTool(Tool):
                 team_area_clause = ""
                 if team_alias:
                     try:
-                        team_config = self._resolve_team_config(team_alias)
+                        team_config = self._resolve_team_config(team_alias, mappings)
                         if team_config.get("area_path"):
                             safe_area = _sanitize_wiql_value(team_config["area_path"])
                             team_area_clause = f" AND [System.AreaPath] UNDER '{safe_area}'"
@@ -861,21 +873,21 @@ class AzureDevOpsTool(Tool):
 
             elif action == "get_teams":
                 """List configured teams with their settings."""
-                teams = self.mappings.get("teams", {})
+                teams = mappings.get("teams", {})
 
                 if not teams:
-                    return "⚠️ No teams configured in ado_mappings.yaml"
+                    return "⚠️ No teams configured. Add teams via Admin Portal → ADO Config."
 
                 results = ["### Configured Teams\n"]
-                for team_alias, config in teams.items():
-                    display_name = config.get("display_name", team_alias)
+                for team_alias_key, config in teams.items():
+                    display_name = config.get("display_name", team_alias_key)
                     owner = config.get("owner", "")
                     area = config.get("area_path", "Not set")
                     type_ = config.get("default_type", "Not set")
-                    tags = config.get("default_tags", [])
-                    tags_str = ", ".join(tags) if tags else "None"
+                    team_tags = config.get("default_tags", [])
+                    tags_str = ", ".join(team_tags) if team_tags else "None"
 
-                    results.append(f"**{team_alias}** ({display_name})")
+                    results.append(f"**{team_alias_key}** ({display_name})")
                     if owner:
                         results.append(f"  - Owner: {owner}")
                     results.append(f"  - Area Path: {area}")
@@ -890,15 +902,15 @@ class AzureDevOpsTool(Tool):
                 if not target_project:
                     return "❌ Error: Project not specified for team_summary action."
 
-                teams = self.mappings.get("teams", {})
+                teams = mappings.get("teams", {})
                 if not teams:
-                    return "⚠️ No teams configured in ado_mappings.yaml"
+                    return "⚠️ No teams configured. Add teams via Admin Portal → ADO Config."
 
                 results = ["### Team Workload Summary\n"]
                 results.append("| Team | Active | New | Closed |")
                 results.append("|------|--------|-----|--------|")
 
-                for team_alias, config in teams.items():
+                for team_alias_key, config in teams.items():
                     area_path_value = config.get("area_path")
                     if not area_path_value:
                         continue
@@ -943,7 +955,7 @@ class AzureDevOpsTool(Tool):
                     closed_count = len(closed_result.work_items)
 
                     results.append(
-                        f"| {team_alias} | {active_count} | {new_count} | {closed_count} |"
+                        f"| {team_alias_key} | {active_count} | {new_count} | {closed_count} |"
                     )
 
                 return "\n".join(results)

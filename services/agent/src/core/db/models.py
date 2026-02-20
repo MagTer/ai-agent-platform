@@ -464,6 +464,33 @@ class SystemConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
 
 
+class AdoTeamConfig(Base):
+    """Global ADO team mapping configuration stored in database.
+
+    One row has is_default=TRUE, alias=NULL -- this is the global defaults row.
+    All other rows have is_default=FALSE and a non-null alias representing a team.
+
+    Replaces the ado_mappings.yaml file with a DB-backed admin portal.
+    """
+
+    __tablename__ = "ado_team_configs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # NULL only for the global-defaults row (is_default=TRUE)
+    alias: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    area_path: Mapped[str] = mapped_column(String, nullable=False)
+    owner: Mapped[str | None] = mapped_column(String, nullable=True)
+    # "Feature", "User Story", "Bug"
+    default_type: Mapped[str] = mapped_column(String, nullable=False)
+    default_tags: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    # TRUE = global defaults row (alias=NULL)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+
 class WikiImport(Base):
     """Tracks Azure DevOps wiki import state per context."""
 

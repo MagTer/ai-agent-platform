@@ -34,6 +34,7 @@ ADMIN_NAV_ITEMS: list[NavItem] = [
     NavItem("Scheduler", "/platformadmin/scheduler/", "&#128339;", "features"),
     NavItem("Price Tracker", "/platformadmin/price-tracker/", "&#128181;", "features"),
     NavItem("Wiki Import", "/platformadmin/wiki/", "&#128218;", "features"),
+    NavItem("ADO Config", "/platformadmin/ado-config/", "&#128203;", "features"),
     NavItem("Chat", "/", "&#128172;", "external"),
     NavItem("Open WebUI Admin", "/admin/", "&#128279;", "external"),
 ]
