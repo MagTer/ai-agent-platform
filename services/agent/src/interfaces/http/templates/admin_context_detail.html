@@ -579,10 +579,11 @@ async function loadOverview() {
                 statusBadge = '<span style="color: var(--text-muted); font-size: 11px;">Empty</span>';
             }
 
-            // Actions
+            // Actions - link to diagnostics page with trace parameter for auto-search
             let actions = '';
             if (c.last_trace_id) {
-                actions = '<a href="/platformadmin/api/investigate/' + c.last_trace_id + '" target="_blank" style="color: var(--primary); text-decoration: none; font-size: 12px;">View Logs</a>';
+                const shortTraceId = c.last_trace_id.substring(0, 8);
+                actions = '<a href="/platformadmin/diagnostics/?trace=' + c.last_trace_id + '" title="View trace in diagnostics: ' + c.last_trace_id + '" style="color: var(--primary); text-decoration: none; font-size: 12px; font-family: monospace;">' + shortTraceId + '</a>';
             } else {
                 actions = '<span style="color: var(--text-muted); font-size: 11px;">-</span>';
             }
