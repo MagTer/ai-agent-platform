@@ -314,8 +314,8 @@ async def full_import(
             EMBED_BATCH_SIZE,
         )
 
-        # Embed chunks in batches (many fewer API calls than 1 per page)
-        all_points: list[PointStruct] = []
+        # Embed chunks in batches and upsert incrementally (avoid OOM from unbounded accumulation)
+        total_chunks = 0
         for batch_start in range(0, len(all_chunks), EMBED_BATCH_SIZE):
             batch = all_chunks[batch_start : batch_start + EMBED_BATCH_SIZE]
             texts = [t for t, _ in batch]
@@ -340,33 +340,36 @@ async def full_import(
                         await asyncio.sleep(wait)
                     else:
                         raise
+
+            # Build points for this batch only
+            batch_points: list[PointStruct] = []
             for (chunk_text, meta), vector in zip(batch, embeddings, strict=False):
                 payload: dict[str, str | int] = dict(meta)
                 payload["text"] = chunk_text
-                all_points.append(
+                batch_points.append(
                     PointStruct(
                         id=str(uuid.uuid4()),
                         vector=vector,
                         payload=payload,
                     )
                 )
+
+            # Upsert immediately to avoid memory accumulation
+            await rag.client.upsert(
+                collection_name=COLLECTION_NAME,
+                points=batch_points,
+            )
+
+            total_chunks += len(batch_points)
+
             # Update progress by approximating pages done
             pages_done = min(
                 len(pages),
                 round(len(pages) * (batch_start + len(batch)) / len(all_chunks)),
             )
             wiki_record.pages_imported = pages_done
-            wiki_record.total_chunks = len(all_points)
+            wiki_record.total_chunks = total_chunks
             await session.commit()
-
-        # Upsert all points to Qdrant in batches
-        for batch_start in range(0, len(all_points), UPSERT_BATCH_SIZE):
-            await rag.client.upsert(
-                collection_name=COLLECTION_NAME,
-                points=all_points[batch_start : batch_start + UPSERT_BATCH_SIZE],
-            )
-
-        total_chunks = len(all_points)
 
         wiki_record.status = "completed"
         wiki_record.total_chunks = total_chunks
