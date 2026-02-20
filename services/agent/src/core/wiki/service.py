@@ -30,9 +30,9 @@ GIT_CLONE_TIMEOUT = 300.0  # 5 minutes for clone
 ADO_REQUEST_TIMEOUT = 30.0
 CHUNK_SIZE = 2000
 CHUNK_OVERLAP = 300
-EMBED_BATCH_SIZE = 32   # chunks per embedding API call (safe with 2GB LiteLLM limit)
+EMBED_BATCH_SIZE = 32  # chunks per embedding API call (safe with 2GB LiteLLM limit)
 UPSERT_BATCH_SIZE = 500  # points per Qdrant upsert
-EMBED_MAX_RETRIES = 3   # retries on transient embedding errors
+EMBED_MAX_RETRIES = 3  # retries on transient embedding errors
 
 
 class WikiImportError(Exception):
@@ -327,7 +327,7 @@ async def full_import(
                     break
                 except Exception as embed_err:
                     if attempt < EMBED_MAX_RETRIES - 1:
-                        wait = 2.0 ** attempt
+                        wait = 2.0**attempt
                         LOGGER.warning(
                             "Embed batch %d/%d failed (attempt %d/%d), retrying in %.0fs: %s",
                             batch_start // EMBED_BATCH_SIZE + 1,
