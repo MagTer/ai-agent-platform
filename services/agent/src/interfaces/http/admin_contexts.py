@@ -12,7 +12,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from shared.sanitize import sanitize_log
-from sqlalchemy import distinct, func, select
+from sqlalchemy import desc, distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
@@ -20,6 +20,8 @@ from core.db.models import (
     Context,
     Conversation,
     McpServer,
+    Message,
+    Session,
     ToolPermission,
     User,
     UserContext,
@@ -547,16 +549,62 @@ async def get_context_details(
             detail=f"Context {context_id} not found",
         )
 
-    # Get conversations with pagination
+    # Get conversations with enriched data (message count, last activity)
     conv_stmt = (
-        select(Conversation)
+        select(
+            Conversation,
+            func.count(Message.id).label("message_count"),
+            func.max(Message.created_at).label("last_activity"),
+        )
+        .outerjoin(Session, Session.conversation_id == Conversation.id)
+        .outerjoin(Message, Message.session_id == Session.id)
         .where(Conversation.context_id == context_id)
-        .order_by(Conversation.created_at.desc())
+        .group_by(Conversation.id)
+        .order_by(desc(func.max(Message.created_at)))
         .limit(limit)
         .offset(offset)
     )
     conv_result = await session.execute(conv_stmt)
-    conversations = conv_result.scalars().all()
+    conv_rows = conv_result.all()
+
+    # Enrich conversations with additional details
+    enriched_conversations = []
+    for row in conv_rows:
+        conv = row[0]
+        message_count = row[1] or 0
+        last_activity = row[2]
+
+        # Get last user message for preview
+        last_user_msg_stmt = (
+            select(Message.content, Message.trace_id)
+            .join(Session, Session.id == Message.session_id)
+            .where(Session.conversation_id == conv.id, Message.role == "user")
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+        last_msg_result = await session.execute(last_user_msg_stmt)
+        last_msg_row = last_msg_result.first()
+        last_user_msg = last_msg_row[0][:100] if last_msg_row else None
+        last_trace_id = last_msg_row[1] if last_msg_row else None
+
+        # Get error count from messages with trace_ids linked to error spans
+        # For now, we'll approximate by checking if conversation_metadata has errors
+        error_count = 0
+        if conv.conversation_metadata:
+            # Check for pending_hitl or other error indicators
+            if "pending_hitl" in conv.conversation_metadata:
+                error_count = 1
+
+        enriched_conversations.append(
+            {
+                "conversation": conv,
+                "message_count": message_count,
+                "last_activity": last_activity,
+                "last_user_message": last_user_msg,
+                "last_trace_id": last_trace_id,
+                "error_count": error_count,
+            }
+        )
 
     # Get OAuth tokens (with sensitive data masked)
     oauth_stmt = select(OAuthToken).where(OAuthToken.context_id == context_id)
@@ -593,13 +641,25 @@ async def get_context_details(
         is_personal=is_personal,
         conversations=[
             {
-                "id": str(conv.id),
-                "platform": conv.platform,
-                "platform_id": conv.platform_id,
-                "current_cwd": conv.current_cwd,
-                "created_at": conv.created_at.isoformat(),
+                "id": str(enriched["conversation"].id),
+                "platform": enriched["conversation"].platform,
+                "platform_id": enriched["conversation"].platform_id,
+                "current_cwd": enriched["conversation"].current_cwd,
+                "created_at": enriched["conversation"].created_at.isoformat(),
+                "updated_at": (
+                    enriched["conversation"].updated_at.isoformat()
+                    if enriched["conversation"].updated_at
+                    else None
+                ),
+                "message_count": enriched["message_count"],
+                "last_activity": (
+                    enriched["last_activity"].isoformat() if enriched["last_activity"] else None
+                ),
+                "last_user_message": enriched["last_user_message"],
+                "last_trace_id": enriched["last_trace_id"],
+                "error_count": enriched["error_count"],
             }
-            for conv in conversations
+            for enriched in enriched_conversations
         ],
         oauth_tokens=[
             {
