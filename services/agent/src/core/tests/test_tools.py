@@ -127,6 +127,7 @@ async def test_agent_service_executes_tool(tmp_path: Path) -> None:
     request = AgentRequest(
         prompt="hello",
         metadata={
+            "context_id": "default-ctx",
             "tools": ["dummy"],
             "tool_calls": [
                 {
