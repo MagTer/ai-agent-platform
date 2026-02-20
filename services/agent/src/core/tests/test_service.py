@@ -121,7 +121,7 @@ async def test_agent_service_roundtrip(tmp_path: Path) -> None:
     mock_result.scalars.return_value.all.return_value = []
     session.execute.return_value = mock_result
 
-    request = AgentRequest(prompt="Hello")
+    request = AgentRequest(prompt="Hello", metadata={"context_id": "default-ctx"})
     response = await service.handle_request(request, session=session)
 
     assert response.response.startswith("response:")
@@ -134,6 +134,7 @@ async def test_agent_service_roundtrip(tmp_path: Path) -> None:
         prompt="How are you?",
         conversation_id=response.conversation_id,
         messages=response.messages,
+        metadata={"context_id": "default-ctx"},
     )
     follow_response = await service.handle_request(follow_up, session=session)
 
@@ -211,7 +212,7 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
 
     session.get.side_effect = get_side_effect
 
-    request = AgentRequest(prompt="Hello world")
+    request = AgentRequest(prompt="Hello world", metadata={"context_id": "default-ctx"})
     response = await service.handle_request(request, session=session)
 
     expected_resp = "response: Tool dummy_tool output:\ndummy result for alpha"
