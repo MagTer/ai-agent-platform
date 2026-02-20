@@ -2,7 +2,7 @@
 name: requirements_writer
 description: EXECUTION-ONLY Azure DevOps skill. Takes approved draft data and creates the work item. Called automatically after user approves a draft from requirements_drafter.
 model: skillsrunner
-max_turns: 3
+max_turns: 6
 tools:
   - azure_devops
 ---
@@ -75,11 +75,19 @@ Call azure_devops with this exact structure:
 
 ## OUTPUT
 
-After successful creation, report:
+After successful creation, forward the tool result directly to the user — it already contains the work item ID, title, and a link. Append the team and type on new lines:
+
 ```
-Work item created: #[ID] - [Title]
+[tool result from azure_devops]
 Team: [team_alias]
 Type: [type]
+```
+
+Example:
+```
+✅ Created User Story #123: [Implement Managed Identities](https://dev.azure.com/Org/Project/_workitems/edit/123)
+Team: infra
+Type: User Story
 ```
 
 ## ERRORS

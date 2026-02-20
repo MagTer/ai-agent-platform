@@ -462,3 +462,30 @@ class SystemConfig(Base):
     value: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+
+class WikiImport(Base):
+    """Tracks Azure DevOps wiki import state per context."""
+
+    __tablename__ = "wiki_imports"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    wiki_identifier: Mapped[str] = mapped_column(String)
+    status: Mapped[str] = mapped_column(String, default="idle")
+    total_pages: Mapped[int] = mapped_column(Integer, default=0)
+    pages_imported: Mapped[int] = mapped_column(Integer, default=0)
+    total_chunks: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_import_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_import_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    context = relationship("Context")
+
+    __table_args__ = (
+        UniqueConstraint("context_id", "wiki_identifier", name="uq_context_wiki_import"),
+    )

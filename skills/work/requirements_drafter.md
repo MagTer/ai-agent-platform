@@ -2,7 +2,7 @@
 name: requirements_drafter
 description: Read-Only Azure DevOps drafting skill. PREPARES work items (Features, User Stories, Bugs) but DOES NOT create them. Use when user asks to draft or plan a work item.
 model: skillsrunner
-max_turns: 5
+max_turns: 12
 tools:
   - azure_devops
   - tibp_wiki_search
@@ -68,12 +68,9 @@ Use these templates exactly when drafting work items:
 **As a** [Role]
 **I want** [Feature/Capability]
 **So that** [Benefit/Value]
-
-### Acceptance Criteria
-- [ ] Condition 1
-- [ ] Condition 2
-- [ ] Condition 3
 ```
+
+Note: Acceptance Criteria for User Stories go in the **separate `Acceptance Criteria:` field** in the draft output — NOT inside the description body.
 
 ### Bug Template
 ```
@@ -88,6 +85,18 @@ Use these templates exactly when drafting work items:
 - Expected: [what should happen]
 - Actual: [what happens]
 ```
+
+---
+
+## TIBP POLICY LOOKUP (optional pre-step)
+
+Before drafting a work item that touches **security, compliance, accessibility, data privacy, or governance**, search the TIBP corporate wiki first:
+
+```json
+{"name": "tibp_wiki_search", "arguments": {"query": "[topic] requirements policy"}}
+```
+
+Use the results to populate relevant acceptance criteria or success metrics. Skip this step for plain feature/bug work items with no policy implications.
 
 ---
 
@@ -118,6 +127,7 @@ After getting teams, use `request_user_input` to let user choose:
 ```
 
 **IMPORTANT**: Use the ACTUAL team names from Step 1, not hardcoded values.
+When writing the draft, put **only the team alias** (e.g., `infra`) in the `Team:` field — not the full display name.
 
 ### Step 3: Determine Work Item Type (if unclear)
 
@@ -165,12 +175,16 @@ After showing the draft, ALWAYS call `request_user_input` for confirmation:
   "arguments": {
     "category": "confirmation",
     "prompt": "Create this work item in Azure DevOps?",
-    "options": ["Approve - Create the work item", "Reject - Cancel"]
+    "options": ["Approve - Create the work item", "Request Changes - Revise the draft", "Cancel - Abort"]
   }
 }
 ```
 
 **CRITICAL**: The system will handle the handoff to requirements_writer automatically when user approves.
+
+If the user selects **"Request Changes"**: ask what they would like to change (use `request_user_input` with category `clarification`), then produce a revised draft and request confirmation again.
+
+If the user selects **"Cancel"**: acknowledge and stop.
 
 ---
 
@@ -203,7 +217,7 @@ Output the draft text, then:
   "arguments": {
     "category": "confirmation",
     "prompt": "Create this User Story in Azure DevOps?\n\nTeam: infra\nTitle: Implement Azure Managed Identities",
-    "options": ["Approve - Create the work item", "Reject - Cancel"]
+    "options": ["Approve - Create the work item", "Request Changes - Revise the draft", "Cancel - Abort"]
   }
 }
 ```
@@ -219,3 +233,5 @@ Output the draft text, then:
 - Do NOT say "Reply Approve" - use request_user_input instead
 - Do NOT call azure_devops with action="create"
 - Do NOT call requirements_writer directly
+- Do NOT put the display name in the `Team:` field - use the alias only (e.g. `infra`, not `infra - Infrastructure`)
+- Do NOT put Acceptance Criteria inside the description body for User Stories - use the separate AC field in the draft format

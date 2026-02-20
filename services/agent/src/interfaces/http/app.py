@@ -58,6 +58,7 @@ from interfaces.http.admin_portal import router as admin_portal_router
 from interfaces.http.admin_price_tracker import router as admin_price_tracker_router
 from interfaces.http.admin_scheduler import router as admin_scheduler_router
 from interfaces.http.admin_users import router as admin_users_router
+from interfaces.http.admin_wiki import router as admin_wiki_router
 from interfaces.http.admin_workspaces import router as admin_workspaces_router
 from interfaces.http.oauth import router as oauth_router
 from interfaces.http.oauth_webui import router as oauth_webui_router
@@ -883,6 +884,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     app.include_router(admin_portal_router)
     app.include_router(admin_contexts_router)
     app.include_router(admin_workspaces_router)
+    app.include_router(admin_wiki_router)
     app.include_router(admin_oauth_router)
     app.include_router(admin_mcp_router)
     app.include_router(admin_diagnostics_router)

@@ -724,13 +724,16 @@ class SkillExecutor:
             if tool_outputs:
                 combined = "\n\n---\n\n".join(tool_outputs[-3:])
                 output_msg = (
-                    f"Skill '{skill_name}' reached max turns ({max_turns}). "
-                    f"Collected data from {source_count} sources:\n\n{combined}"
+                    "⏱️ This search took longer than expected and was stopped to avoid delays.\n\n"
+                    f"**What was found** (from {source_count} sources):\n\n{combined}\n\n"
+                    "_The answer may be incomplete. Try asking a more specific question or "
+                    "breaking it into smaller parts._"
                 )
             else:
                 output_msg = (
-                    f"Skill '{skill_name}' reached max turns ({max_turns}). "
-                    f"Used {source_count} sources but no substantial results."
+                    "⏱️ This search took longer than expected and was stopped to avoid delays.\n\n"
+                    f"Searched {source_count} sources but found no substantial results.\n\n"
+                    "_Try rephrasing your question or asking something more specific._"
                 )
 
             yield {

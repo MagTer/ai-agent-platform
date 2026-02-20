@@ -3,7 +3,7 @@ name: "researcher"
 description: "Standard web research with page reading. Searches web AND fetches full page content. Use for questions needing current, detailed information."
 tools: ["web_search", "web_fetch"]
 model: skillsrunner
-max_turns: 7
+max_turns: 10
 ---
 
 # Web Research

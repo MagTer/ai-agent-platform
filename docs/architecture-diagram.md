@@ -1,409 +1,273 @@
 # Platform Architecture
 
-This document provides a detailed view of the AI Agent Platform's architecture, showing how requests flow from Open WebUI through the system and how components interact.
+This document provides a simplified view of the AI Agent Platform's architecture, showing how requests flow through the system.
 
-## Component Overview
+## High-Level Architecture
 
-| Component | Layer | Purpose |
-|-----------|-------|---------|
-| **Open WebUI** | External | Chat frontend that sends OpenAI-compatible API requests |
-| **OpenWebUI Adapter** | Interfaces | Translates HTTP requests to internal format, handles SSE streaming |
-| **Dispatcher** | Orchestrator | Routes requests based on intent classification (chat vs agentic) |
-| **AgentService** | Core | Coordinates planning, execution, and memory operations |
-| **PlannerAgent** | Core/Agents | Generates execution plans from user requests |
-| **PlanSupervisor** | Core/Agents | Validates plans before execution |
-| **StepExecutor** | Core/Agents | Executes individual plan steps |
-| **StepSupervisor** | Core/Agents | Validates step results, triggers re-planning if needed |
-| **SkillExecutor** | Core/Skills | Executes skills with scoped tool access |
-| **ToolRegistry** | Core/Tools | Manages available tools per context |
-| **MemoryStore** | Core | Vector-based memory for context retrieval |
-| **LiteLLMClient** | Core | Unified interface to multiple LLM providers |
-
----
-
-## Request Flow Diagram
+The platform follows a **4-layer modular monolith**:
 
 ```mermaid
-flowchart TB
-    subgraph External ["External (Frontend)"]
-        WebUI["Open WebUI<br/>(Chat Interface)"]
+graph TB
+    subgraph "Interfaces Layer"
+        HTTP[HTTP Adapter<br/>OpenWebUI, Admin Portal]
+        Telegram[Telegram Adapter]
+        Scheduler[Scheduler Adapter]
     end
 
-    subgraph Interfaces ["Interfaces Layer"]
-        Adapter["OpenWebUI Adapter<br/>/v1/chat/completions"]
-        SSE["SSE Stream Generator"]
+    subgraph "Orchestrator Layer"
+        Dispatcher[Unified Orchestrator<br/>Routes: CHAT vs AGENTIC]
     end
 
-    subgraph Orchestrator ["Orchestrator Layer"]
-        Dispatcher["Dispatcher"]
-        IntentClassifier["Intent Classifier"]
+    subgraph "Core Layer - Runtime"
+        AgentService[Agent Service<br/>Coordinates execution]
+        Planner[Planner Agent]
+        Executor[Step Executor]
+        Supervisor[Step Supervisor]
     end
 
-    subgraph Core ["Core Layer"]
-        subgraph Service ["Agent Service"]
-            AgentService["AgentService<br/>(Coordinator)"]
-        end
-
-        subgraph Agents ["Agent Pipeline"]
-            Planner["Planner Agent<br/>(Plan Generation)"]
-            PlanSupervisor["Plan Supervisor<br/>(Plan Validation)"]
-            Executor["Step Executor<br/>(Plan Execution)"]
-            StepSupervisor["Step Supervisor<br/>(Result Validation)"]
-        end
-
-        subgraph Tools ["Tools & Skills"]
-            Registry["Tool Registry"]
-            SkillExec["Skill Executor<br/>(scoped tools)"]
-            NativeTools["Native Tools<br/>(web_fetch, search, etc.)"]
-            MCPTools["MCP Tools<br/>(OAuth-enabled)"]
-        end
-
-        subgraph Memory ["Memory & Data"]
-            MemoryStore["Memory Store<br/>(Qdrant)"]
-            DB[("PostgreSQL<br/>(Conversations, Users)")]
-        end
-
-        subgraph LLM ["LLM Interface"]
-            LiteLLM["LiteLLM Client"]
-            Models["Models<br/>(Planner, Composer, etc.)"]
-        end
+    subgraph "Core Layer - Infrastructure"
+        Tools[Tool Registry]
+        Skills[Skill Executor]
+        Memory[Memory/RAG]
+        LLM[LiteLLM Client]
+        DB[(PostgreSQL)]
     end
 
-    subgraph Skills ["Skills (Markdown Files)"]
-        Researcher["researcher.md"]
-        BacklogManager["backlog_manager.md"]
-        OtherSkills["Other Skills..."]
+    subgraph "Modules Layer"
+        RAG[RAG Manager<br/>Qdrant + Embedder]
     end
 
-    %% Main Flow
-    WebUI -->|"POST /v1/chat/completions"| Adapter
-    Adapter -->|"Extract context_id"| Adapter
-    Adapter -->|"Create AgentService"| AgentService
-    Adapter -->|"stream_message()"| Dispatcher
+    HTTP --> Dispatcher
+    Telegram --> Dispatcher
+    Scheduler --> Dispatcher
 
-    Dispatcher -->|"Classify intent"| IntentClassifier
-    IntentClassifier -->|"CHAT | AGENTIC"| Dispatcher
+    Dispatcher -->|CHAT| LLM
+    Dispatcher -->|AGENTIC| AgentService
 
-    Dispatcher -->|"CHAT: Direct LLM"| LiteLLM
-    Dispatcher -->|"AGENTIC: Execute"| AgentService
+    AgentService --> Planner
+    AgentService --> Executor
+    AgentService --> Supervisor
 
-    AgentService -->|"Generate plan"| Planner
-    Planner -->|"Structured JSON Plan"| PlanSupervisor
-    PlanSupervisor -->|"Validated Plan"| AgentService
+    Executor --> Tools
+    Executor --> Skills
+    Executor --> Memory
 
-    AgentService -->|"Execute steps"| Executor
-    Executor -->|"Step results"| StepSupervisor
-    StepSupervisor -->|"OK | ADJUST"| AgentService
+    Planner --> LLM
+    Executor --> LLM
+    Supervisor --> LLM
 
-    Executor -->|"Tool calls"| Registry
-    Registry -->|"Get tool"| NativeTools
-    Registry -->|"Get tool"| MCPTools
-    Executor -->|"Skill steps"| SkillExec
-
-    SkillExec -->|"Load skill"| Registry
-    Registry -->|"Parse .md"| Researcher
-    Registry -->|"Parse .md"| BacklogManager
-    Registry -->|"Parse .md"| OtherSkills
-
-    SkillExec -->|"Worker loop"| LiteLLM
-    SkillExec -->|"Scoped tools"| NativeTools
-
-    Executor -->|"Memory search"| MemoryStore
-    AgentService -->|"Persist messages"| DB
-
-    Planner -->|"Generate"| LiteLLM
-    Executor -->|"Completion"| LiteLLM
-    StepSupervisor -->|"Review"| LiteLLM
-
-    LiteLLM -->|"API calls"| Models
-
-    AgentService -->|"Stream events"| Dispatcher
-    Dispatcher -->|"AgentChunks"| SSE
-    SSE -->|"SSE events"| Adapter
-    Adapter -->|"data: {...}"| WebUI
+    Memory --> RAG
+    AgentService --> DB
 ```
 
 ---
 
-## Detailed Component Interactions
-
-### 1. Request Entry Point
+## Request Flow (Simplified)
 
 ```mermaid
 sequenceDiagram
-    participant WebUI as Open WebUI
-    participant Adapter as OpenWebUI Adapter
-    participant Factory as ServiceFactory
-    participant Service as AgentService
-    participant Dispatcher
-
-    WebUI->>Adapter: POST /v1/chat/completions
-    Note over Adapter: Extract user from<br/>X-OpenWebUI-* headers
-
-    Adapter->>Factory: get_or_create_context_id()
-    Factory-->>Adapter: context_id (UUID)
-
-    Adapter->>Factory: create_service(context_id)
-    Note over Factory: Clone tool registry<br/>Load MCP tools<br/>Create MemoryStore
-    Factory-->>Adapter: AgentService instance
-
-    Adapter->>Dispatcher: stream_message(session_id, message)
-    Dispatcher-->>Adapter: AsyncGenerator[AgentChunk]
-
-    loop Stream Events
-        Adapter->>WebUI: SSE: data: {"choices": [...]}
-    end
-
-    Adapter->>WebUI: data: [DONE]
-```
-
-### 2. Planning and Execution Pipeline
-
-```mermaid
-sequenceDiagram
-    participant Service as AgentService
-    participant Planner as PlannerAgent
-    participant PlanSuper as PlanSupervisor
-    participant Executor as StepExecutor
-    participant StepSuper as StepSupervisor
+    participant User as Open WebUI
+    participant Adapter as HTTP Adapter
+    participant Dispatcher as Unified Orchestrator
+    participant Agent as Agent Service
     participant LLM as LiteLLM
 
-    Service->>Planner: generate_stream(request, history, tools)
-    Planner->>LLM: stream_chat(system + user)
-    LLM-->>Planner: JSON plan tokens
-    Planner-->>Service: Plan object
+    User->>Adapter: POST /v1/chat/completions
+    Adapter->>Dispatcher: stream_message()
 
-    Service->>PlanSuper: review(plan)
-    Note over PlanSuper: Validate tool names<br/>Check skill existence
-    PlanSuper-->>Service: Validated Plan
-
-    loop For each step in plan
-        Service->>Executor: run_stream(step, request)
-
-        alt Tool Step
-            Executor->>Executor: _run_tool_gen()
-            Note over Executor: Execute tool
-        else Skill Step
-            Executor->>Executor: _run_skill_gen()
-            Note over Executor: Execute skill with scoped tools
-        else Completion Step
-            Executor->>LLM: stream_chat(history)
-            LLM-->>Executor: Completion tokens
-        else Memory Step
-            Executor->>Executor: search_memory()
-        end
-
-        Executor-->>Service: StepResult
-
-        alt Not Completion Step
-            Service->>StepSuper: review(step, result)
-            StepSuper->>LLM: evaluate(step, output)
-            LLM-->>StepSuper: {decision, reason}
-            StepSuper-->>Service: "ok" | "adjust"
-
-            alt decision == "adjust"
-                Note over Service: Add feedback to history<br/>Trigger re-planning
-            end
-        end
+    alt CHAT (simple question)
+        Dispatcher->>LLM: Direct response
+        LLM-->>User: SSE stream
+    else AGENTIC (requires tools/planning)
+        Dispatcher->>Agent: execute()
+        Agent->>Agent: Plan → Execute → Supervise
+        Agent->>LLM: Multiple calls (plan, execute, review)
+        Agent-->>User: SSE stream with events
     end
 ```
 
-### 3. Skill Execution
+---
+
+## Agent Execution Pipeline
+
+When the orchestrator routes to AGENTIC mode, the Agent Service runs this pipeline:
 
 ```mermaid
-sequenceDiagram
-    participant Executor as StepExecutor
-    participant SkillExec as SkillExecutor
-    participant Registry as SkillRegistry
-    participant LLM as LiteLLM
-    participant Tools as Scoped Tools
+stateDiagram-v2
+    [*] --> Planning
 
-    Executor->>SkillExec: execute(skill="researcher", args={...})
+    Planning --> Validation: Generate Plan
+    Validation --> Execution: Plan Valid
 
-    SkillExec->>Registry: get("researcher")
-    Registry-->>SkillExec: Skill (metadata, prompt, tools)
+    state Execution {
+        [*] --> ExecuteStep
+        ExecuteStep --> Review
+        Review --> ExecuteStep: Next Step
+        Review --> Replan: Needs Adjustment
+        Review --> [*]: Complete
+    }
 
-    SkillExec->>SkillExec: Filter tools to skill.tools only
-    Note over SkillExec: SECURITY: Only tools<br/>declared in skill frontmatter
+    Replan --> Planning: Retry (max 3x)
+    Execution --> [*]: Final Answer
+```
 
-    loop Worker Loop (max_turns)
-        SkillExec->>LLM: stream_chat(messages, tools=scoped_tools)
+**Pipeline Components:**
+1. **Planner Agent** - Generates structured execution plan
+2. **Plan Supervisor** - Validates plan before execution
+3. **Step Executor** - Runs individual steps (tools, skills, completions)
+4. **Step Supervisor** - Reviews results, triggers replan if needed
 
-        alt No Tool Calls
-            LLM-->>SkillExec: Final answer content
-            Note over SkillExec: Return result
-        else Tool Calls
-            LLM-->>SkillExec: tool_calls array
-            loop For each tool_call
-                SkillExec->>Tools: tool.run(**args)
-                Tools-->>SkillExec: Tool output
-                Note over SkillExec: Add to messages
-            end
-        end
-    end
+---
 
-    SkillExec-->>Executor: {output: ..., source_count: N}
+## Core Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| **Unified Orchestrator** | `orchestrator/dispatcher.py` | Routes requests (CHAT vs AGENTIC) |
+| **Agent Service** | `core/runtime/service.py` | Coordinates planning & execution |
+| **Planner Agent** | `core/agents/planner.py` | Generates execution plans |
+| **Step Executor** | `core/agents/executor.py` | Executes plan steps |
+| **Step Supervisor** | `core/agents/supervisors.py` | Validates step results |
+| **Skill Executor** | `core/skills/executor.py` | Runs skills with scoped tools |
+| **Tool Registry** | `core/tools/registry.py` | Manages available tools |
+| **RAG Manager** | `modules/rag/__init__.py` | Vector search (Qdrant) |
+| **LiteLLM Client** | `core/runtime/litellm_client.py` | Multi-provider LLM interface |
+
+---
+
+## Runtime Decomposition
+
+The Agent Service delegates specialized work to focused modules:
+
+```mermaid
+graph LR
+    Service[Agent Service<br/>service.py]
+
+    Service --> Persistence[Persistence<br/>persistence.py<br/>DB CRUD]
+    Service --> ContextInjector[Context Injector<br/>context_injector.py<br/>Files & Workspaces]
+    Service --> ToolRunner[Tool Runner<br/>tool_runner.py<br/>Tool Execution]
+    Service --> HITL[HITL Coordinator<br/>hitl.py<br/>Human-in-the-Loop]
 ```
 
 ---
 
 ## Layer Dependency Rules
 
-```mermaid
-graph TB
-    subgraph Legend
-        L1[Layer can import]
-        L2[Cannot import]
-    end
+**Strict import hierarchy** enforced by architecture validator:
 
-    subgraph Architecture
-        Interfaces["interfaces/<br/>(HTTP, CLI)"]
-        Orchestrator["orchestrator/<br/>(Dispatcher)"]
-        Modules["modules/<br/>(RAG, Indexer, Embedder)"]
-        Core["core/<br/>(DB, Models, Config)"]
-    end
-
-    Interfaces -->|"Can import"| Orchestrator
-    Interfaces -->|"Can import"| Modules
-    Interfaces -->|"Can import"| Core
-
-    Orchestrator -->|"Can import"| Modules
-    Orchestrator -->|"Can import"| Core
-
-    Modules -->|"Can import"| Core
-
-    Core -.->|"NEVER imports"| Modules
-    Core -.->|"NEVER imports"| Orchestrator
-    Core -.->|"NEVER imports"| Interfaces
-
-    Modules -.->|"Cannot import"| Modules
-
-    style Core fill:#e1f5fe
-    style Modules fill:#fff3e0
-    style Orchestrator fill:#f3e5f5
-    style Interfaces fill:#e8f5e9
 ```
+interfaces/     ──────┐
+                      ├──> Can import
+orchestrator/   ──────┤
+                      │
+modules/        ──────┤
+                      ↓
+core/           ←─────── NEVER imports upward
+```
+
+**Rules:**
+- ✅ Interfaces can import orchestrator, modules, core
+- ✅ Orchestrator can import modules, core
+- ✅ Modules can import core
+- ❌ Core NEVER imports modules, orchestrator, or interfaces
+- ❌ Modules CANNOT import other modules (use Protocol-based DI)
 
 ---
 
 ## Multi-Tenant Context Isolation
 
+Each user gets an isolated service instance:
+
 ```mermaid
 flowchart LR
-    subgraph Request ["Incoming Request"]
-        Headers["X-OpenWebUI-User-Email<br/>X-OpenWebUI-User-Name"]
-        ChatID["chat_id"]
-    end
+    Request["X-OpenWebUI-User-Email<br/>chat_id"] --> Factory[Service Factory]
 
-    subgraph Factory ["ServiceFactory"]
-        Clone["Clone base registry"]
-        Filter["Filter by permissions"]
-        MCP["Load MCP tools"]
-        Memory["Create MemoryStore"]
-    end
+    Factory --> Filter[Filter Tools<br/>by Permissions]
+    Factory --> MCP[Load MCP Tools<br/>OAuth per context]
+    Factory --> Memory[RAG Manager<br/>context_id scoped]
 
-    subgraph Isolated ["Context-Isolated Service"]
-        Service["AgentService"]
-        Registry["Tool Registry<br/>(filtered)"]
-        Store["MemoryStore<br/>(context_id scoped)"]
-        Tokens["OAuth Tokens<br/>(per-context)"]
-    end
-
-    Headers --> |"Auto-provision user"| Factory
-    ChatID --> |"Resolve context_id"| Factory
-
-    Factory --> Clone
-    Clone --> Filter
-    Filter --> MCP
-    MCP --> Memory
-
+    Filter --> Service[Agent Service<br/>Isolated Instance]
+    MCP --> Service
     Memory --> Service
-    Service --> Registry
-    Service --> Store
-    Service --> Tokens
 ```
 
+**Isolation guarantees:**
+- Tools filtered by context permissions
+- OAuth tokens scoped to context_id
+- Memory/RAG searches scoped to context_id
+- Conversations scoped to context_id
+
 ---
 
-## Adaptive Execution Loop
+## Event Streaming
 
-The system supports re-planning when step execution fails validation:
+The system streams typed events via SSE:
 
-```mermaid
-stateDiagram-v2
-    [*] --> Planning
+| Event Type | Description | Example |
+|------------|-------------|---------|
+| `thinking` | Internal reasoning | "Analyzing user request..." |
+| `plan` | Generated execution plan | `{"steps": [...]}` |
+| `step_start` | Step beginning | "Searching wiki..." |
+| `tool_output` | Tool result | Search results |
+| `skill_activity` | Skill worker status | "Fetching page..." |
+| `content` | Final answer tokens | Response text |
+| `error` | Error occurred | Exception details |
 
-    Planning --> PlanReview
-    PlanReview --> Execution: Plan Valid
+---
 
-    state Execution {
-        [*] --> ExecuteStep
-        ExecuteStep --> StepReview
-        StepReview --> ExecuteStep: OK + More Steps
-        StepReview --> [*]: OK + Complete
-        StepReview --> ReplanNeeded: ADJUST
-    }
+## File Structure
 
-    ReplanNeeded --> Planning: replans_remaining > 0
-    ReplanNeeded --> ForceContinue: replans_remaining == 0
-
-    ForceContinue --> Execution
-
-    Execution --> FinalAnswer: Completion Step OK
-    FinalAnswer --> [*]
 ```
-
----
-
-## Key Event Types
-
-The system uses typed events for streaming responses:
-
-| Event Type | Description | When Emitted |
-|------------|-------------|--------------|
-| `thinking` | Internal reasoning/status | Plan generation, step transitions |
-| `plan` | Execution plan created | After PlannerAgent completes |
-| `step_start` | Step execution beginning | Before each step runs |
-| `tool_start` | Tool call beginning | When tool is invoked |
-| `tool_output` | Tool execution result | After tool completes |
-| `skill_activity` | Skill worker activity | During skill execution (search, fetch) |
-| `content` | Response content | Final answer tokens |
-| `error` | Error occurred | On failures |
-| `history_snapshot` | Conversation state | After completion |
-
----
-
-## File Locations
-
-| Component | File Path |
-|-----------|-----------|
-| OpenWebUI Adapter | `services/agent/src/interfaces/http/openwebui_adapter.py` |
-| Dispatcher | `services/agent/src/orchestrator/dispatcher.py` |
-| AgentService | `services/agent/src/core/core/service.py` |
-| ServiceFactory | `services/agent/src/core/core/service_factory.py` |
-| PlannerAgent | `services/agent/src/core/agents/planner.py` |
-| StepExecutor | `services/agent/src/core/agents/executor.py` |
-| StepSupervisor | `services/agent/src/core/agents/supervisor_step.py` |
-| PlanSupervisor | `services/agent/src/core/agents/supervisor_plan.py` |
-| SkillRegistry | `services/agent/src/core/skills/registry.py` |
-| SkillExecutor | `services/agent/src/core/skills/executor.py` |
-| ToolRegistry | `services/agent/src/core/tools/registry.py` |
-| LiteLLMClient | `services/agent/src/core/core/litellm_client.py` |
-| MemoryStore | `services/agent/src/core/core/memory.py` |
+services/agent/src/
+├── interfaces/          # Protocol adapters (HTTP, Telegram, Scheduler)
+│   ├── http/
+│   │   ├── app.py       # FastAPI application
+│   │   ├── admin_*.py   # Admin portal modules
+│   │   └── openwebui_adapter.py  # OpenAI-compatible API
+│   ├── telegram/
+│   └── scheduler/
+├── orchestrator/
+│   └── dispatcher.py    # Unified orchestrator (CHAT vs AGENTIC routing)
+├── core/
+│   ├── runtime/         # Agent service & infrastructure
+│   │   ├── service.py           # Main coordinator
+│   │   ├── persistence.py       # DB CRUD
+│   │   ├── context_injector.py  # File/workspace injection
+│   │   ├── tool_runner.py       # Tool execution
+│   │   ├── hitl.py              # Human-in-the-loop
+│   │   ├── litellm_client.py    # LLM client
+│   │   └── memory.py            # Memory store
+│   ├── agents/          # Agent pipeline components
+│   │   ├── planner.py
+│   │   ├── executor.py
+│   │   └── supervisors.py
+│   ├── skills/          # Skill execution
+│   ├── tools/           # Tool implementations
+│   ├── auth/            # Authentication & credentials
+│   ├── db/              # Database models
+│   └── observability/   # Tracing & metrics
+└── modules/
+    └── rag/             # RAG manager (Qdrant + embedder)
+```
 
 ---
 
 ## Summary
 
-The AI Agent Platform follows a clean 4-layer architecture:
+**Key Architecture Principles:**
 
-1. **Interfaces** - Protocol adapters (HTTP/SSE for Open WebUI)
-2. **Orchestrator** - Request routing and skill management
-3. **Core** - Execution engine with planning, supervision, and tools
-4. **Modules** - Isolated feature modules (RAG, Indexer, Embedder)
+1. **4-layer modular monolith** - Clean separation of concerns
+2. **Unified orchestrator** - Single entry point routes CHAT vs AGENTIC
+3. **Agent pipeline** - Plan → Execute → Supervise with adaptive replanning
+4. **Context isolation** - Multi-tenant with scoped tools, memory, and credentials
+5. **Strict layer boundaries** - Core never imports upward
+6. **Event streaming** - Real-time progress via typed SSE events
 
-Requests flow from Open WebUI through the adapter, get classified by intent, and either:
-- **CHAT**: Direct LLM response
-- **AGENTIC**: Full planning/execution pipeline with tool use and adaptive re-planning
+**Request Flow:**
+```
+User → HTTP Adapter → Unified Orchestrator → Agent Service → LLM
+                              ↓
+                         (or direct to LLM for simple CHAT)
+```
 
-The system provides multi-tenant isolation through context-scoped services, ensuring each user's data and tools remain separate.
+The platform balances simplicity (direct LLM for simple questions) with power (full agentic pipeline for complex tasks requiring tools, planning, and supervision).

@@ -394,7 +394,7 @@ class StepExecutorAgent:
                         final_args["user_email"] = user_email
 
             # Inject context_id for tools that need OAuth token lookup or context isolation
-            if step.tool in ("homey", "git_clone", "azure_devops", "update_memory"):
+            if step.tool in ("homey", "git_clone", "azure_devops", "update_memory", "wiki_sync"):
                 context_id_str = (request.metadata or {}).get("context_id")
                 if context_id_str:
                     from uuid import UUID
@@ -406,7 +406,7 @@ class StepExecutorAgent:
                         final_args["context_id"] = UUID(context_id_str)
 
             # Inject session for tools that need database access for context-specific data
-            if step.tool in ("git_clone", "azure_devops", "update_memory"):
+            if step.tool in ("git_clone", "azure_devops", "update_memory", "wiki_sync"):
                 db_session = (request.metadata or {}).get("_db_session")
                 if db_session:
                     sig = inspect.signature(tool.run)

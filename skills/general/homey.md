@@ -3,7 +3,7 @@ name: "homey"
 description: "Control your Homey smart home - lights, devices, automations. Use for commands like 'turn on/off lights', 'dim', 'set temperature', or 'trigger flow'. Swedish: 'tänd', 'släck', 'dimma', 'starta flöde'."
 tools: ["homey"]
 model: skillsrunner
-max_turns: 6
+max_turns: 10
 ---
 
 # Homey Smart Home Control

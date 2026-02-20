@@ -33,6 +33,7 @@ ADMIN_NAV_ITEMS: list[NavItem] = [
     NavItem("Contexts", "/platformadmin/contexts/", "&#128451;", "users"),
     NavItem("Scheduler", "/platformadmin/scheduler/", "&#128339;", "features"),
     NavItem("Price Tracker", "/platformadmin/price-tracker/", "&#128181;", "features"),
+    NavItem("Wiki Import", "/platformadmin/wiki/", "&#128218;", "features"),
     NavItem("Chat", "/", "&#128172;", "external"),
     NavItem("Open WebUI Admin", "/admin/", "&#128279;", "external"),
 ]
@@ -592,6 +593,14 @@ def render_admin_page(
             const div = document.createElement('div');
             div.textContent = str;
             return div.innerHTML;
+        }
+
+        // Unregister any service workers (e.g. from Open WebUI) that would
+        // intercept admin portal GET requests and return cached HTML.
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+                regs.forEach(function(r) { r.unregister(); });
+            });
         }
 
         // CSRF token utilities

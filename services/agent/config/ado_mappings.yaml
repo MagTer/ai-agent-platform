@@ -6,32 +6,32 @@ teams:
     area_path: 'Web Teams\Common\Infra'
     display_name: "Common - Infrastructure"
     owner: "Magnus Ternström"
-    default_type: "User story"
+    default_type: "User Story"
   common:
     area_path: 'Web Teams\Common'
     display_name: "Common"
     owner: "Magnus Ternström"
-    default_type: "User story"
+    default_type: "User Story"
   platform:
     area_path: 'Web Teams\Platform'
     display_name: "Platform"
     owner: "Malin Stjärnsten"
-    default_type: "User story"
+    default_type: "User Story"
   engage:
     area_path: 'Web Teams\Engage'
     display_name: "Engage"
     owner: "Max Hjälm"
-    default_type: "User story"
+    default_type: "User Story"
   guide_and_find:
     area_path: 'Web Teams\Guide and Find'
     display_name: "Guide and Find"
     owner: "Sara Ekstrand"
-    default_type: "User story"
+    default_type: "User Story"
   otd:
     area_path: 'Web Teams\OtD and Services'
     display_name: "OtD and Services"
     owner: "Martin Brunnander"
-    default_type: "User story"
+    default_type: "User Story"
   content:
     area_path: 'Web Teams\Content'
     display_name: "Content"
@@ -41,7 +41,7 @@ teams:
     area_path: 'Web Teams\Walter'
     display_name: "Walter"
     owner: "Daniel Cozma"
-    default_type: "User story"
+    default_type: "User Story"
   security:
     area_path: 'Web Teams\Platform\Security'
     display_name: "Platform - Security"

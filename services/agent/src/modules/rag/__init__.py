@@ -117,8 +117,8 @@ class RAGManager:
 
             for p in res.points:
                 payload = p.payload or {}
-                # Support both 'url' (web) and 'filepath' (code)
-                uri = payload.get("url") or payload.get("filepath")
+                # Support 'url' (web), 'filepath' (code), and 'uri' (wiki/generic)
+                uri = payload.get("url") or payload.get("filepath") or payload.get("uri")
                 text = payload.get("text")
                 vec = p.vector
 
