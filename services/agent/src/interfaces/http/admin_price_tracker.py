@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
+from shared.sanitize import sanitize_log
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,7 +44,6 @@ from orchestrator.price_tracker import (
     ProductStore,
     Store,
 )
-from shared.sanitize import sanitize_log
 
 LOGGER = logging.getLogger(__name__)
 

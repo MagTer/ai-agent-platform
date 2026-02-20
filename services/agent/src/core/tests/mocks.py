@@ -5,8 +5,9 @@ from collections.abc import Iterable
 from typing import Any
 from unittest.mock import MagicMock
 
-from core.runtime.litellm_client import LiteLLMClient
 from shared.models import AgentMessage
+
+from core.runtime.litellm_client import LiteLLMClient
 
 
 class MockLLMClient(LiteLLMClient):

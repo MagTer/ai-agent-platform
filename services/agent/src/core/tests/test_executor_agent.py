@@ -10,12 +10,12 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
 
 from core.agents.executor import StepExecutorAgent
 from core.runtime.memory import MemoryStore
 from core.tests.mocks import MockLLMClient
 from core.tools.base import Tool
-from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
 
 
 @pytest.fixture

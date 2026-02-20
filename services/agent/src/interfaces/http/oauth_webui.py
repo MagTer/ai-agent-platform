@@ -6,6 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,7 +15,6 @@ from core.db.models import Conversation
 from core.db.oauth_models import OAuthToken
 from core.providers import get_token_manager
 from interfaces.http.admin_auth import AuthenticatedUser, verify_user
-from shared.sanitize import sanitize_log
 
 LOGGER = logging.getLogger(__name__)
 

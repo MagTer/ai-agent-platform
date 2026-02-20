@@ -5,8 +5,11 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import Any
 
+from shared.models import AgentRequest, Plan, PlanStep, RoutingDecision
+from shared.streaming import AgentChunk
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from utils.template import substitute_variables
 
 from core.command_loader import get_registry_index
 from core.db.models import Context, Conversation, Message, Session
@@ -17,9 +20,6 @@ from core.runtime.litellm_client import LiteLLMClient
 from core.runtime.routing import registry
 from core.runtime.service import AgentService
 from core.skills import SkillRegistryProtocol
-from shared.models import AgentRequest, Plan, PlanStep, RoutingDecision
-from shared.streaming import AgentChunk
-from utils.template import substitute_variables
 
 LOGGER = logging.getLogger(__name__)
 

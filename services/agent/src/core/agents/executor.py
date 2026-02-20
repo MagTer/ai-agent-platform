@@ -9,6 +9,8 @@ import time
 from collections.abc import AsyncGenerator
 from typing import Any, Literal, cast
 
+from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
+
 from core.command_loader import load_command
 from core.models.pydantic_schemas import StepEvent, ToolCallEvent, TraceContext
 from core.observability.logging import log_event
@@ -21,7 +23,6 @@ from core.observability.tracing import (
 from core.runtime.litellm_client import LiteLLMClient
 from core.runtime.memory import MemoryStore
 from core.tools import ToolRegistry
-from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
 
 LOGGER = logging.getLogger(__name__)
 

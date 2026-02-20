@@ -6,8 +6,9 @@ import asyncio
 import logging
 from pathlib import Path
 
-from core.context.files import CONTEXT_DATA_BASE
 from shared.models import AgentMessage
+
+from core.context.files import CONTEXT_DATA_BASE
 
 LOGGER = logging.getLogger(__name__)
 

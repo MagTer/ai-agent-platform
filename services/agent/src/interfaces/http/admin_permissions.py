@@ -9,6 +9,7 @@ from uuid import UUID
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,6 @@ from core.db.models import Context, ToolPermission, User, UserContext
 from core.runtime.config import Settings, get_settings
 from interfaces.http.admin_auth import AdminUser, verify_admin_user
 from interfaces.http.csrf import require_csrf
-from shared.sanitize import sanitize_log
 
 LOGGER = logging.getLogger(__name__)
 

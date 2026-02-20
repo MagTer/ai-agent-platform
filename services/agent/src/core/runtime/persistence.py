@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
+from shared.models import AgentMessage
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +18,6 @@ from core.models.pydantic_schemas import SupervisorDecision, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids
 from core.runtime.memory import MemoryRecord, MemoryStore
-from shared.models import AgentMessage
 
 LOGGER = logging.getLogger(__name__)
 

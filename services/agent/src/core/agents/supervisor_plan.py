@@ -6,11 +6,11 @@ import logging
 from typing import TYPE_CHECKING, Literal
 
 import orjson
+from shared.models import AgentMessage, Plan
 
 from core.models.pydantic_schemas import SupervisorDecision, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
-from shared.models import AgentMessage, Plan
 
 if TYPE_CHECKING:
     from core.runtime.litellm_client import LiteLLMClient
