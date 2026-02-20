@@ -7,7 +7,14 @@ from uuid import UUID
 
 import pytest
 
-from core.tools.azure_devops import AzureDevOpsTool, _sanitize_wiql_value
+from core.tools.azure_devops import AzureDevOpsTool, _load_ado_mappings, _sanitize_wiql_value
+
+
+@pytest.fixture(autouse=True)
+def clear_ado_cache() -> None:
+    """Clear the ADO mappings LRU cache before each test."""
+    _load_ado_mappings.cache_clear()
+
 
 MOCK_MAPPINGS: dict = {
     "defaults": {
@@ -37,13 +44,13 @@ FAKE_CONTEXT_ID = UUID("11111111-1111-1111-1111-111111111111")
 
 @pytest.fixture
 def tool() -> AzureDevOpsTool:
-    """Create AzureDevOpsTool with mocked DB mappings and credentials."""
-    t = AzureDevOpsTool()
-    t._get_credentials_for_context = AsyncMock(  # type: ignore[method-assign]
-        return_value=("fake_pat", "https://dev.azure.com/TestOrg", "TestProject")
-    )
-    t._load_mappings_from_db = AsyncMock(return_value=MOCK_MAPPINGS)  # type: ignore[method-assign]
-    return t
+    """Create AzureDevOpsTool with mocked mappings and credentials."""
+    with patch("core.tools.azure_devops._load_ado_mappings", return_value=MOCK_MAPPINGS):
+        t = AzureDevOpsTool()
+        t._get_credentials_for_context = AsyncMock(  # type: ignore[method-assign]
+            return_value=("fake_pat", "https://dev.azure.com/TestOrg", "TestProject")
+        )
+        return t
 
 
 # ---------------------------------------------------------------------------
@@ -462,24 +469,29 @@ class TestCredentialFailurePaths:
     @pytest.mark.asyncio
     async def test_no_context_id_returns_config_error(self) -> None:
         """When context_id is None, run() returns a credential error message."""
-        t = AzureDevOpsTool()
-        t._get_credentials_for_context = AsyncMock(return_value=None)  # type: ignore[method-assign]
-        t._load_mappings_from_db = AsyncMock(return_value=MOCK_MAPPINGS)  # type: ignore[method-assign]
-        result = await t.run(action="get", work_item_id=1, context_id=None)
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=MOCK_MAPPINGS):
+            t = AzureDevOpsTool()
+            # _get_credentials_for_context returns None when no context provided
+            t._get_credentials_for_context = AsyncMock(  # type: ignore[method-assign]
+                return_value=None
+            )
+            result = await t.run(action="get", work_item_id=1, context_id=None)
 
         assert "Error" in result or "credential" in result.lower() or "not configured" in result
 
     @pytest.mark.asyncio
     async def test_credential_not_found_returns_helpful_message(self) -> None:
         """When credentials are not stored for a context, return a helpful message."""
-        t = AzureDevOpsTool()
-        t._get_credentials_for_context = AsyncMock(return_value=None)  # type: ignore[method-assign]
-        t._load_mappings_from_db = AsyncMock(return_value=MOCK_MAPPINGS)  # type: ignore[method-assign]
-        result = await t.run(
-            action="list",
-            context_id=FAKE_CONTEXT_ID,
-            session=AsyncMock(),
-        )
+        with patch("core.tools.azure_devops._load_ado_mappings", return_value=MOCK_MAPPINGS):
+            t = AzureDevOpsTool()
+            t._get_credentials_for_context = AsyncMock(  # type: ignore[method-assign]
+                return_value=None
+            )
+            result = await t.run(
+                action="list",
+                context_id=FAKE_CONTEXT_ID,
+                session=AsyncMock(),
+            )
 
         # Should contain a message directing user to configure credentials
         assert "credential" in result.lower() or "not configured" in result.lower()
