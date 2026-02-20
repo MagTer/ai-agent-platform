@@ -34,7 +34,8 @@ class TibpWikiSearchTool(Tool):
             query: The search query.
         """
         rag = get_rag_manager()
-        results = await rag.retrieve(query, top_k=5, collection_name="tibp-wiki")
+        # Use top_k=8 to get more candidates (scores above ~0.5 are usually relevant)
+        results = await rag.retrieve(query, top_k=8, collection_name="tibp-wiki")
         if not results:
             return "No relevant guidelines found in TIBP Wiki."
 
