@@ -376,15 +376,18 @@ class GitCloneTool(Tool):
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=120)
 
             if process.returncode != 0:
-                # Pull failed - try reset if history diverged
-                reset_cmd = ["git", "reset", "--hard", "origin/HEAD"]
-                await asyncio.create_subprocess_exec(
-                    *reset_cmd,
-                    cwd=workspace_path,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                # Pull failed - do NOT auto-reset (would destroy local changes)
+                pull_error = stderr.decode().strip()
+                LOGGER.warning(
+                    "Git pull --ff-only failed for %s: %s. Manual intervention required.",
+                    workspace_path,
+                    pull_error,
                 )
-                return f"Repository updated (reset): {workspace_path}"
+                return (
+                    f"Error: Could not fast-forward update repository at {workspace_path}. "
+                    "The branch has diverged from the remote and requires manual intervention. "
+                    f"Pull error: {pull_error}"
+                )
 
             return f"Repository updated: {workspace_path}"
 

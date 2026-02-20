@@ -232,10 +232,15 @@ class ClaudeCodeTool(Tool):
         Returns:
             Claude Code's findings or fix summary.
         """
-        # Sanitize task description
-        task, blocked_patterns = self._sanitize_task(task)
+        # Reject task if it contains dangerous patterns - do NOT sanitize and proceed
+        _, blocked_patterns = self._sanitize_task(task)
         if blocked_patterns:
-            LOGGER.warning("Task contained blocked patterns: %s", blocked_patterns)
+            LOGGER.warning("Rejected task containing dangerous patterns: %s", blocked_patterns)
+            return (
+                "Error: Task description contains dangerous patterns that are not allowed: "
+                + ", ".join(blocked_patterns)
+                + ". Please rephrase the task without shell commands or path traversal."
+            )
 
         # Validate repo path (includes traversal protection)
         result = self._validate_repo_path(repo_path, context_id)
