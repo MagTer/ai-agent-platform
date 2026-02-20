@@ -12,6 +12,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from shared.sanitize import sanitize_log
+
 from core.db.engine import get_db
 from core.db.models import AdoTeamConfig
 from interfaces.http.admin_auth import AdminUser, verify_admin_user
@@ -424,7 +426,7 @@ async def create_team(
     session.add(row)
     await session.commit()
     await session.refresh(row)
-    LOGGER.info("Created ADO team config: %s", alias)
+    LOGGER.info("Created ADO team config: %s", sanitize_log(alias))
     return AdoTeamConfigOut(
         id=row.id,
         alias=row.alias,
@@ -473,7 +475,7 @@ async def update_team(
     row.sort_order = body.sort_order
     await session.commit()
     await session.refresh(row)
-    LOGGER.info("Updated ADO team config: %s", alias)
+    LOGGER.info("Updated ADO team config: %s", sanitize_log(alias))
     return AdoTeamConfigOut(
         id=row.id,
         alias=row.alias,
@@ -510,7 +512,7 @@ async def delete_team(
 
     await session.delete(row)
     await session.commit()
-    LOGGER.info("Deleted ADO team config: %s", alias)
+    LOGGER.info("Deleted ADO team config: %s", sanitize_log(alias))
 
 
 @router.get("/defaults", dependencies=[Depends(verify_admin_user)])
@@ -559,7 +561,7 @@ async def update_defaults(
     await session.commit()
     LOGGER.info(
         "Updated ADO global defaults: area_path=%s, default_type=%s",
-        body.area_path,
-        body.default_type,
+        sanitize_log(body.area_path),
+        sanitize_log(body.default_type),
     )
     return {"area_path": body.area_path, "default_type": body.default_type}

@@ -1,7 +1,5 @@
 """Tests for Azure DevOps create, children, team_summary actions and helpers."""
 
-from __future__ import annotations
-
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID
 
