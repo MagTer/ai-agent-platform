@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+
 from shared.models import StepOutcome
 
 if TYPE_CHECKING:

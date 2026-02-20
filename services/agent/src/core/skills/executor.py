@@ -17,6 +17,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from core.observability.tracing import (
+    set_span_attributes,
+    set_span_status,
+    start_span,
+)
+from core.tools.activity_hints import build_activity_message
 from shared.models import (
     AgentMessage,
     AgentRequest,
@@ -24,13 +30,6 @@ from shared.models import (
     PlanStep,
     StepResult,
 )
-
-from core.observability.tracing import (
-    set_span_attributes,
-    set_span_status,
-    start_span,
-)
-from core.tools.activity_hints import build_activity_message
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -726,7 +725,8 @@ class SkillExecutor:
                 output_msg = (
                     "⏱️ This search took longer than expected and was stopped to avoid delays.\n\n"
                     f"**What was found** (from {source_count} sources):\n\n{combined}\n\n"
-                    "_The answer may be incomplete. Try asking a more specific question or breaking it into smaller parts._"
+                    "_The answer may be incomplete. Try asking a more specific question or "
+                    "breaking it into smaller parts._"
                 )
             else:
                 output_msg = (

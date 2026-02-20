@@ -7,7 +7,6 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from shared.models import AgentMessage, AgentRequest
 
 from core.db import Context, Conversation
 from core.runtime.config import Settings
@@ -16,6 +15,7 @@ from core.runtime.memory import MemoryStore
 from core.runtime.service import AgentService
 from core.tools import Tool, ToolRegistry, load_tool_registry
 from core.tools.web_fetch import WebFetchTool
+from shared.models import AgentMessage, AgentRequest
 
 
 class MockLiteLLMClient:

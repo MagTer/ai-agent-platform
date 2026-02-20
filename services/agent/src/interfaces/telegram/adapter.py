@@ -4,14 +4,14 @@ from typing import Any
 from aiogram import Bot
 from aiogram import Dispatcher as TelegramDispatcher
 from aiogram.types import Message
-from shared.chunk_filter import ChunkFilter
-from shared.streaming import VerbosityLevel
 
 from core.context import ContextService
 from core.db.engine import AsyncSessionLocal
 from core.runtime.service_factory import ServiceFactory
 from interfaces.base import PlatformAdapter
 from orchestrator.dispatcher import Dispatcher as AgentDispatcher
+from shared.chunk_filter import ChunkFilter
+from shared.streaming import VerbosityLevel
 
 LOGGER = logging.getLogger(__name__)
 

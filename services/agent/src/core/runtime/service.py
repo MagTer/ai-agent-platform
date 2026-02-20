@@ -7,18 +7,6 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from shared.models import (
-    AgentMessage,
-    AgentRequest,
-    AgentResponse,
-    AwaitingInputCategory,
-    AwaitingInputRequest,
-    Plan,
-    PlanStep,
-    RoutingDecision,
-    StepOutcome,
-    StepResult,
-)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.agents import (
@@ -50,6 +38,18 @@ from core.skills import SkillExecutor, SkillRegistryProtocol
 from core.system_commands import handle_system_command
 from core.tools import ToolRegistry
 from core.tools.base import ToolConfirmationError
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    AwaitingInputCategory,
+    AwaitingInputRequest,
+    Plan,
+    PlanStep,
+    RoutingDecision,
+    StepOutcome,
+    StepResult,
+)
 
 LOGGER = logging.getLogger(__name__)
 

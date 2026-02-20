@@ -13,10 +13,10 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
-from shared.models import AgentRequest, PlanStep
 
 from core.db.models import UserContext
 from core.skills.executor import SkillExecutor
+from shared.models import AgentRequest, PlanStep
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

@@ -8,7 +8,6 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from shared.models import AgentMessage, AgentRequest, PlanStep
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import Conversation, Message, Session
@@ -16,6 +15,7 @@ from core.observability.tracing import current_trace_ids
 from core.runtime.litellm_client import LiteLLMClient
 from core.skills import SkillExecutor, SkillRegistryProtocol
 from core.tools import ToolRegistry
+from shared.models import AgentMessage, AgentRequest, PlanStep
 
 LOGGER = logging.getLogger(__name__)
 
