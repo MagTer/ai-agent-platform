@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from pathlib import Path
 
 from core.tools.base import Tool
 
 LOGGER = logging.getLogger(__name__)
+
+# Characters invalid in git branch names
+_BRANCH_INVALID_CHARS_RE = re.compile(r"[ \t~^:?*\[\\]|\.\.+")
+# Maximum branch name length
+_BRANCH_MAX_LEN = 100
 
 
 class GitHubPRTool(Tool):
@@ -62,6 +68,30 @@ class GitHubPRTool(Tool):
         "required": ["repo_path", "title", "body"],
     }
 
+    @staticmethod
+    def _sanitize_branch_name(name: str) -> str:
+        """Return a git-safe branch name derived from the input.
+
+        Transformations applied:
+        - Spaces and invalid chars (tildes, carets, colons, etc.) replaced with hyphens.
+        - Consecutive hyphens collapsed to one.
+        - Leading hyphens stripped (git rejects branch names starting with '-').
+        - Truncated to _BRANCH_MAX_LEN characters.
+
+        Args:
+            name: Raw branch name candidate.
+
+        Returns:
+            Sanitized branch name safe for use with git.
+        """
+        sanitized = _BRANCH_INVALID_CHARS_RE.sub("-", name)
+        # Collapse runs of hyphens
+        sanitized = re.sub(r"-{2,}", "-", sanitized)
+        # Strip leading hyphens
+        sanitized = sanitized.lstrip("-")
+        # Truncate
+        return sanitized[:_BRANCH_MAX_LEN]
+
     async def run(
         self,
         repo_path: str,
@@ -90,6 +120,17 @@ class GitHubPRTool(Tool):
         repo_dir = Path(repo_path)
         if not repo_dir.exists():
             return f"Error: Repository path does not exist: {repo_path}"
+
+        # Sanitize branch name to ensure git-compatibility
+        if branch_name is not None:
+            sanitized_branch = self._sanitize_branch_name(branch_name)
+            if sanitized_branch != branch_name:
+                LOGGER.info(
+                    "Branch name sanitized: %r -> %r",
+                    branch_name,
+                    sanitized_branch,
+                )
+            branch_name = sanitized_branch
 
         # Check for uncommitted changes
         has_changes = await self._has_uncommitted_changes(repo_dir)
@@ -170,7 +211,30 @@ class GitHubPRTool(Tool):
         return f"Created branch: {branch_name}"
 
     async def _commit_changes(self, repo_dir: Path, title: str) -> str:
-        """Stage and commit all changes."""
+        """Stage and commit all changes.
+
+        WARNING: Uses 'git add -A' which stages ALL modified, added, and deleted files.
+        The list of staged files is included in the return message for visibility.
+        """
+        # Capture the list of changed files before staging (for transparency)
+        status_process = await asyncio.create_subprocess_exec(
+            "git",
+            "status",
+            "--porcelain",
+            cwd=repo_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        status_stdout, _ = await status_process.communicate()
+        changed_files_raw = status_stdout.decode().strip()
+        changed_files = [line.strip() for line in changed_files_raw.splitlines() if line.strip()]
+
+        LOGGER.warning(
+            "Staging ALL changes with 'git add -A' in %s. Files: %s",
+            repo_dir,
+            changed_files,
+        )
+
         # Stage all changes
         process = await asyncio.create_subprocess_exec(
             "git",
@@ -196,7 +260,9 @@ class GitHubPRTool(Tool):
         stdout, stderr = await process.communicate()
         if process.returncode != 0:
             return f"Error: Failed to commit: {stderr.decode()}"
-        return "Changes committed"
+
+        files_summary = "\n".join(f"  {f}" for f in changed_files) if changed_files else "  (none)"
+        return f"Changes committed. Staged files:\n{files_summary}"
 
     async def _push_branch(self, repo_dir: Path, branch_name: str) -> str:
         """Push the branch to origin."""
