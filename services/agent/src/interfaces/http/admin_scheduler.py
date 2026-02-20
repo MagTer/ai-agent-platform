@@ -11,6 +11,7 @@ from uuid import UUID
 from croniter import croniter
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -238,9 +239,9 @@ async def create_job(
 
     LOGGER.info(
         "Created scheduled job %s (context: %s, cron: %s)",
-        job.name,
-        context_id,
-        job.cron_expression,
+        sanitize_log(job.name),
+        sanitize_log(context_id),
+        sanitize_log(job.cron_expression),
     )
 
     return {"success": True, "job_id": str(job.id), "next_run_at": next_run.isoformat()}

@@ -6,6 +6,40 @@
 
 ---
 
+## ⚠️ CRITICAL SAFETY RULES - READ FIRST
+
+### Git Operations: MANDATORY DELEGATION
+
+**BEFORE running ANY git command, STOP and check:**
+
+```python
+# ✅ CORRECT - Delegate to ops agent
+Task(
+    subagent_type="ops",
+    description="commit and create PR",
+    prompt="Commit current changes and create a PR"
+)
+
+# ❌ FORBIDDEN - Direct git commands
+git reset --hard    # DESTROYS uncommitted work
+git stash          # HIDES work, gets lost
+git push --force   # OVERWRITES remote
+git checkout .     # DISCARDS changes
+git clean -f       # DELETES files
+```
+
+**Why?** The ops agent has safety checks. Direct git commands risk data loss.
+
+**Allowed read-only commands:** `git status`, `git diff`, `git log`, `git show`
+
+**Everything else:** Use ops agent via Task tool.
+
+**Enforcement:** `.git-safety-check.sh` script blocks forbidden commands.
+
+**Audit:** Run `.claude/git-audit.sh` to check for violations.
+
+---
+
 ## Native Sub-Agents (Markdown-Based)
 
 This project uses **native Claude Code sub-agents** defined in `.claude/agents/*.md`. Each agent has specialized instructions and model assignments embedded directly in their YAML frontmatter and markdown content.
@@ -204,6 +238,10 @@ Task(
 ```
 
 **Why?** The Ops agent has strict safety rules that prevent destructive commands like `git reset --hard`. Running git commands directly risks losing uncommitted work.
+
+**Enforcement:** The `.git-safety-check.sh` script blocks forbidden git commands. It checks for command chaining (e.g., `sleep 10 && git reset --hard`) and common bypass patterns.
+
+**Audit:** Run `.claude/git-audit.sh` to check recent commits and bash history for violations.
 
 **IMPORTANT: Before spawning an ops agent for branch/PR operations, warn it about any uncommitted changes visible in `git status` that are NOT part of the current task.** The ops agent must commit or preserve ALL uncommitted work before switching branches -- `git checkout` silently discards uncommitted changes to tracked files.
 

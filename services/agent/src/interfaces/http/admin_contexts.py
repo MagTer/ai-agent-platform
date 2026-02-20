@@ -11,6 +11,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
+from shared.sanitize import sanitize_log
 from sqlalchemy import distinct, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -820,7 +821,7 @@ async def delete_context(
     await session.delete(ctx)
     await session.commit()
 
-    LOGGER.info(f"Admin deleted context {context_id}")
+    LOGGER.info("Admin deleted context %s", sanitize_log(context_id))
 
     # Note: MCP clients will be automatically cleaned up on next access
     # since the context no longer exists in the database
@@ -911,7 +912,7 @@ async def update_context(
         ctx.config = config
 
     await session.commit()
-    LOGGER.info("Admin updated context %s", context_id)
+    LOGGER.info("Admin updated context %s", sanitize_log(context_id))
     return {"success": True, "message": f"Context '{ctx.name}' updated"}
 
 
@@ -979,7 +980,10 @@ async def add_context_member(
     await session.commit()
 
     LOGGER.info(
-        "Admin added user %s to context %s with role %s", user.email, context_id, request.role
+        "Admin added user %s to context %s with role %s",
+        sanitize_log(user.email),
+        sanitize_log(context_id),
+        sanitize_log(request.role),
     )
     return {"success": True, "message": f"Added {user.email} as {request.role}"}
 
@@ -1024,7 +1028,10 @@ async def update_context_member(
     await session.commit()
 
     LOGGER.info(
-        "Admin updated member %s role to %s in context %s", user_id, request.role, context_id
+        "Admin updated member %s role to %s in context %s",
+        sanitize_log(user_id),
+        sanitize_log(request.role),
+        sanitize_log(context_id),
     )
     return {"success": True, "message": f"Updated role to {request.role}"}
 
@@ -1053,7 +1060,9 @@ async def remove_context_member(
     await session.delete(uc)
     await session.commit()
 
-    LOGGER.info("Admin removed member %s from context %s", user_id, context_id)
+    LOGGER.info(
+        "Admin removed member %s from context %s", sanitize_log(user_id), sanitize_log(context_id)
+    )
     return {"success": True, "message": "Member removed"}
 
 
@@ -1351,7 +1360,10 @@ async def write_context_file(
     file_path.write_text(request.content, encoding="utf-8")
 
     LOGGER.info(
-        f"Admin wrote file {file_name} for context {context_id} ({len(request.content)} bytes)"
+        "Admin wrote file %s for context %s (%d bytes)",
+        sanitize_log(file_name),
+        sanitize_log(context_id),
+        len(request.content),
     )
 
     return {
@@ -1417,12 +1429,18 @@ async def delete_context_file(
     if abs_path in ctx.pinned_files:
         ctx.pinned_files = [p for p in ctx.pinned_files if p != abs_path]
         await session.commit()
-        LOGGER.info(f"Auto-unpinned file {file_name} for context {context_id}")
+        LOGGER.info(
+            "Auto-unpinned file %s for context %s",
+            sanitize_log(file_name),
+            sanitize_log(context_id),
+        )
 
     # Delete file
     file_path.unlink()
 
-    LOGGER.info(f"Admin deleted file {file_name} for context {context_id}")
+    LOGGER.info(
+        "Admin deleted file %s for context %s", sanitize_log(file_name), sanitize_log(context_id)
+    )
 
     return {"success": True, "message": f"File '{file_name}' deleted"}
 
@@ -1482,13 +1500,19 @@ async def toggle_pin_context_file(
         # Unpin
         ctx.pinned_files = [p for p in ctx.pinned_files if p != abs_path]
         await session.commit()
-        LOGGER.info(f"Admin unpinned file {file_name} for context {context_id}")
+        LOGGER.info(
+            "Admin unpinned file %s for context %s",
+            sanitize_log(file_name),
+            sanitize_log(context_id),
+        )
         return {"success": True, "pinned": False, "message": f"File '{file_name}' unpinned"}
     else:
         # Pin
         ctx.pinned_files = list(ctx.pinned_files) + [abs_path]
         await session.commit()
-        LOGGER.info(f"Admin pinned file {file_name} for context {context_id}")
+        LOGGER.info(
+            "Admin pinned file %s for context %s", sanitize_log(file_name), sanitize_log(context_id)
+        )
         return {"success": True, "pinned": True, "message": f"File '{file_name}' pinned"}
 
 
@@ -1708,7 +1732,10 @@ async def write_context_skill(
     file_path.write_text(request.content, encoding="utf-8")
 
     LOGGER.info(
-        f"Admin wrote skill {file_name} for context {context_id} ({len(request.content)} bytes)"
+        "Admin wrote skill %s for context %s (%d bytes)",
+        sanitize_log(file_name),
+        sanitize_log(context_id),
+        len(request.content),
     )
 
     return {
@@ -1769,7 +1796,9 @@ async def delete_context_skill(
     # Delete file
     file_path.unlink()
 
-    LOGGER.info(f"Admin deleted skill {file_name} for context {context_id}")
+    LOGGER.info(
+        "Admin deleted skill %s for context %s", sanitize_log(file_name), sanitize_log(context_id)
+    )
 
     return {"success": True, "message": f"Skill '{file_name}' deleted"}
 

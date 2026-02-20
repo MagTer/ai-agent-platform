@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import urlparse
 
 import pytest
 
@@ -163,12 +165,40 @@ class TestWebFetchToolSecurity:
         with patch("core.tools.web_fetch.get_fetcher", return_value=mock_fetcher):
             # Test 'link' parameter
             result = await web_fetch_tool.run(link="https://example.com")
-            assert "https://example.com" in result
+
+            # Extract URL from "Fetched URL: <url>" line
+            lines = result.split("\n")
+            fetched_url_line = next(
+                (line for line in lines if line.startswith("Fetched URL:")), None
+            )
+            assert fetched_url_line is not None, "Result should contain 'Fetched URL:' line"
+            fetched_url = fetched_url_line.replace("Fetched URL:", "").strip()
+
+            # Validate URL components
+            parsed = urlparse(fetched_url)
+            assert parsed.scheme == "https", f"Expected https scheme, got {parsed.scheme}"
+            assert (
+                parsed.netloc == "example.com"
+            ), f"Expected example.com netloc, got {parsed.netloc}"
             mock_fetcher.fetch.assert_called_with("https://example.com")
 
             # Test 'website' parameter
             result = await web_fetch_tool.run(website="https://example.com")
-            assert "https://example.com" in result
+
+            # Extract URL from "Fetched URL: <url>" line
+            lines = result.split("\n")
+            fetched_url_line = next(
+                (line for line in lines if line.startswith("Fetched URL:")), None
+            )
+            assert fetched_url_line is not None, "Result should contain 'Fetched URL:' line"
+            fetched_url = fetched_url_line.replace("Fetched URL:", "").strip()
+
+            # Validate URL components
+            parsed = urlparse(fetched_url)
+            assert parsed.scheme == "https", f"Expected https scheme, got {parsed.scheme}"
+            assert (
+                parsed.netloc == "example.com"
+            ), f"Expected example.com netloc, got {parsed.netloc}"
 
     @pytest.mark.asyncio
     async def test_fetch_sanitizes_output(self, web_fetch_tool: WebFetchTool) -> None:
@@ -296,7 +326,17 @@ class TestWebFetchToolSecurity:
             # Error should contain context
             error_msg = str(exc_info.value)
             assert "Web fetch failed" in error_msg
-            assert "https://slow-site.example.com" in error_msg
+
+            # Extract URL from error message using regex
+            url_match = re.search(r"https?://[^\s:]+", error_msg)
+            assert url_match is not None, "Error message should contain a URL"
+
+            found_url = url_match.group(0)
+            parsed = urlparse(found_url)
+            assert parsed.scheme == "https", f"Expected https scheme in error, got {parsed.scheme}"
+            assert (
+                parsed.netloc == "slow-site.example.com"
+            ), f"Expected slow-site.example.com netloc in error, got {parsed.netloc}"
 
 
 class TestWebToolsInputValidation:
