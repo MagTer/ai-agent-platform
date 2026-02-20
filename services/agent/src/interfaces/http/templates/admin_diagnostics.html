@@ -753,7 +753,14 @@
         window.closeDebugLogModal = closeDebugLogModal;
         window.clearDebugTraceFilter = clearDebugTraceFilter;
 
-        loadTraces();
+        // Check URL for trace parameter and load accordingly
+        const urlParams = new URLSearchParams(window.location.search);
+        const traceParam = urlParams.get('trace');
+        if (traceParam) {
+            loadTraces(traceParam);
+        } else {
+            loadTraces();
+        }
 
         function switchTab(tab) {
             currentTab = tab;
@@ -1191,14 +1198,6 @@
             }
         }
 
-        // Check URL for trace parameter to auto-filter debug logs
-        const urlParams = new URLSearchParams(window.location.search);
-        const traceParam = urlParams.get('trace');
-        if (traceParam) {
-            // If trace param present, switch to traces tab and select
-            setTimeout(() => loadTraceDetail(traceParam), 500);
-        }
-
         let filteredTraceGroups = [];
 
         async function loadTraces(searchTraceId = null) {
@@ -1217,7 +1216,10 @@
             traceGroups = await res.json();
             filterTraces();
 
-            if (selectedTraceId) {
+            // If we searched for a specific trace, auto-select the first result
+            if (searchTraceId && traceGroups.length > 0) {
+                selectTrace(0);
+            } else if (selectedTraceId) {
                 const idx = traceGroups.findIndex(g => g.trace_id === selectedTraceId);
                 if (idx >= 0) selectTrace(idx);
             }
