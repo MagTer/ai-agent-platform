@@ -90,6 +90,9 @@ class TelegramAdapter(PlatformAdapter):
 
                 chunk_filter = ChunkFilter(VerbosityLevel.DEFAULT)
 
+                # Build metadata with context_id
+                metadata = {"context_id": str(context_id)}
+
                 # Delegate to Dispatcher with explicit Platform context
                 full_response = ""
                 async for chunk in self.dispatcher.stream_message(
@@ -99,6 +102,7 @@ class TelegramAdapter(PlatformAdapter):
                     platform_id=chat_id,
                     db_session=session,
                     agent_service=agent_service,
+                    metadata=metadata,
                 ):
                     chunk_type = chunk["type"]
                     content = chunk.get("content")

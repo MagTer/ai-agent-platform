@@ -81,27 +81,39 @@ class ConversationPersistence:
     ) -> Conversation:
         """Ensure a Conversation exists, creating one if needed.
 
+        IMPORTANT: request_metadata MUST include 'context_id' (UUID).
+        This is set upstream by the adapter/dispatcher using ContextService.
+
         Args:
             session: Database session
             conversation_id: UUID for the conversation
-            request_metadata: Request metadata containing platform info
+            request_metadata: Request metadata containing platform info and context_id
 
         Returns:
             The existing or newly created Conversation
+
+        Raises:
+            ValueError: If context_id is missing or invalid
         """
         db_conversation = await session.get(Conversation, conversation_id)
         if db_conversation:
             return db_conversation
 
-        # Auto-create attached to 'default' context if new
-        stmt = select(Context).where(Context.name == "default")
-        result = await session.execute(stmt)
-        db_context = result.scalar_one_or_none()
+        # Context ID MUST be provided by upstream (adapter/dispatcher via ContextService)
+        context_id = request_metadata.get("context_id")
+        if not context_id:
+            raise ValueError(
+                f"Cannot create conversation {conversation_id}: "
+                "context_id missing from request_metadata. "
+                "Ensure adapter calls ContextService.resolve_*() first."
+            )
 
+        # Verify context exists
+        db_context = await session.get(Context, context_id)
         if not db_context:
-            # Bootstrap default context
-            db_context = await self._context_manager.create_context(
-                session, "default", "shared", {}
+            raise ValueError(
+                f"Cannot create conversation {conversation_id}: "
+                f"context_id {context_id} not found in database."
             )
 
         db_conversation = Conversation(
