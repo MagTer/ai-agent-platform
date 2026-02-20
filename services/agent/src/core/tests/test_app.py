@@ -142,7 +142,7 @@ async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
             {"role": "system", "content": "be helpful"},
             {"role": "user", "content": "Hello"},
         ],
-        "metadata": {"tools": []},
+        "metadata": {"tools": [], "context_id": "default-ctx"},
     }
 
     response = client.post("/v1/agent/chat/completions", json=payload)
@@ -166,6 +166,7 @@ async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
             },
             {"role": "user", "content": "How are you?"},
         ],
+        "metadata": {"context_id": "default-ctx"},
     }
 
     second = client.post("/v1/agent/chat/completions", json=follow_payload)

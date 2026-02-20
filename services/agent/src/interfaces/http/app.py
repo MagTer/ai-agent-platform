@@ -143,7 +143,15 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     )
     configure_metrics(settings.app_name)
     setup_otel_log_bridge(settings.app_name)
-    configure_debug_log_handler()
+
+    # Use temp directory for debug logs in test environment
+    if settings.environment == "test":
+        import tempfile
+
+        debug_log_path = Path(tempfile.gettempdir()) / "agent_debug_logs.jsonl"
+        configure_debug_log_handler(debug_log_path)
+    else:
+        configure_debug_log_handler()
 
     app = FastAPI(title=settings.app_name)
 
