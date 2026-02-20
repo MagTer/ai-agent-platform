@@ -2,7 +2,7 @@
 name: requirements_writer
 description: EXECUTION-ONLY Azure DevOps skill. Takes approved draft data and creates the work item. Called automatically after user approves a draft from requirements_drafter.
 model: skillsrunner
-max_turns: 3
+max_turns: 6
 tools:
   - azure_devops
 ---

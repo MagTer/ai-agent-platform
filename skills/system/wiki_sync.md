@@ -2,7 +2,7 @@
 name: wiki_sync
 description: Syncs the TIBP corporate wiki from Azure DevOps into the Qdrant search index. Use for scheduled imports.
 model: skillsrunner
-max_turns: 2
+max_turns: 5
 tools:
   - wiki_sync
 ---

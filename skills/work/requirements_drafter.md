@@ -2,7 +2,7 @@
 name: requirements_drafter
 description: Read-Only Azure DevOps drafting skill. PREPARES work items (Features, User Stories, Bugs) but DOES NOT create them. Use when user asks to draft or plan a work item.
 model: skillsrunner
-max_turns: 8
+max_turns: 12
 tools:
   - azure_devops
   - tibp_wiki_search

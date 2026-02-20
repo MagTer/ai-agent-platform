@@ -2,7 +2,7 @@
 name: backlog_manager
 description: READ-ONLY Azure DevOps skill. Lists, searches, and retrieves work items. Returns formatted tables/summaries. Use for ANY query about existing work items.
 model: skillsrunner
-max_turns: 7
+max_turns: 10
 tools:
   - azure_devops
   - read_file

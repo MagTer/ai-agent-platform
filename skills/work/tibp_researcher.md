@@ -2,7 +2,7 @@
 name: tibp_researcher
 description: Search internal TIBP wiki for corporate guidelines, security requirements, policies, and standards. Use for questions about TIBP, internal policies, or company-specific requirements.
 model: skillsrunner
-max_turns: 5
+max_turns: 10
 tools:
   - tibp_wiki_search
 ---

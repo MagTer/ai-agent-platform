@@ -3,7 +3,7 @@ name: "search"
 description: "Quick web search for simple factual questions. Returns search snippets only (no page reading). Use for quick lookups."
 tools: ["web_search"]
 model: skillsrunner
-max_turns: 2
+max_turns: 5
 ---
 
 # Quick Web Search

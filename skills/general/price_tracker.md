@@ -3,7 +3,7 @@ name: "priser"
 description: "Check prices, find deals, and get shopping recommendations. Ask about discounts, compare prices, or what to buy this week."
 tools: ["price_tracker"]
 model: skillsrunner
-max_turns: 3
+max_turns: 5
 ---
 
 # Price Tracker Assistant
