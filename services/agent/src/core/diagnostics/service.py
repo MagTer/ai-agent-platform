@@ -806,14 +806,29 @@ class DiagnosticsService:
                         message="No OAuth tokens configured",
                     )
 
-                # Count expired tokens
                 now = datetime.now(UTC).replace(tzinfo=None)
-                expired_result = await conn.execute(
-                    select(func.count()).select_from(OAuthToken).where(OAuthToken.expires_at < now)
-                )
-                expired_count = expired_result.scalar() or 0
 
-                # Count tokens expiring within 1 hour
+                # Expired tokens WITHOUT a refresh token are truly broken --
+                # there is no way to recover them without re-authorising.
+                broken_result = await conn.execute(
+                    select(func.count())
+                    .select_from(OAuthToken)
+                    .where(OAuthToken.expires_at < now)
+                    .where(OAuthToken.refresh_token.is_(None))
+                )
+                broken_count = broken_result.scalar() or 0
+
+                # Expired tokens WITH a refresh token are fine -- the platform
+                # will obtain a fresh access token automatically on next use.
+                stale_result = await conn.execute(
+                    select(func.count())
+                    .select_from(OAuthToken)
+                    .where(OAuthToken.expires_at < now)
+                    .where(OAuthToken.refresh_token.is_not(None))
+                )
+                stale_count = stale_result.scalar() or 0
+
+                # Tokens expiring within 1 hour (still valid, just heads-up)
                 soon = now + timedelta(hours=1)
                 expiring_result = await conn.execute(
                     select(func.count())
@@ -825,12 +840,20 @@ class DiagnosticsService:
 
                 latency = (time.perf_counter() - start) * 1000
 
-                if expired_count > 0:
+                if broken_count > 0:
                     return TestResult(
                         component="OAuth Tokens",
                         status="fail",
                         latency_ms=latency,
-                        message=f"{expired_count}/{total_tokens} tokens expired",
+                        message=f"{broken_count}/{total_tokens} tokens expired (no refresh token -- re-authorise required)",
+                    )
+
+                if stale_count > 0:
+                    return TestResult(
+                        component="OAuth Tokens",
+                        status="ok",
+                        latency_ms=latency,
+                        message=f"{stale_count}/{total_tokens} access tokens stale (refresh token present, will auto-renew)",
                     )
 
                 if expiring_count > 0:
