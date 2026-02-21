@@ -554,9 +554,13 @@ class DiagnosticsService:
         port = self._settings.port
         url = f"http://127.0.0.1:{port}/v1/models"
 
+        headers: dict[str, str] = {}
+        if self._settings.internal_api_key:
+            headers["Authorization"] = f"Bearer {self._settings.internal_api_key}"
+
         start = time.perf_counter()
         try:
-            resp = await client.get(url)
+            resp = await client.get(url, headers=headers)
             latency = (time.perf_counter() - start) * 1000
 
             if resp.status_code == 200:
