@@ -7,7 +7,6 @@ import pytest
 
 from core.tools.azure_devops import AzureDevOpsTool, _sanitize_wiql_value
 
-
 MOCK_MAPPINGS: dict = {
     "defaults": {
         "area_path": "Web Teams\\Common",

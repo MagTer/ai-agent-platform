@@ -9,10 +9,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from shared.sanitize import sanitize_log
 
 from core.db.engine import get_db
 from core.db.models import AdoTeamConfig
