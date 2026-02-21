@@ -488,7 +488,7 @@ def run_smoke_checks(project_name: str, *, full: bool = False) -> list[SmokeResu
         "infrastructure status",
         (
             "STATUS=$(curl -sf --max-time 30 "
-            "-H 'X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY' "
+            '-H "X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY" '
             "http://localhost:8000/platformadmin/api/status"
             ' | python3 -c "import sys,json; d=json.load(sys.stdin); '
             "print(d.get('status','UNKNOWN'))\")"
@@ -507,7 +507,7 @@ def run_smoke_checks(project_name: str, *, full: bool = False) -> list[SmokeResu
                 "-lc",
                 (
                     "curl -sf --max-time 30 "
-                    "-H 'X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY' "
+                    '-H "X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY" '
                     "http://localhost:8000/platformadmin/api/status"
                     ' | python3 -c "import sys,json; d=json.load(sys.stdin);'
                     " print(d.get('status','UNKNOWN'))\""
@@ -531,7 +531,7 @@ def run_smoke_checks(project_name: str, *, full: bool = False) -> list[SmokeResu
                 "full diagnostics",
                 (
                     "curl -sf --max-time 60 -X POST "
-                    "-H 'X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY' "
+                    '-H "X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY" '
                     "http://localhost:8000/platformadmin/diagnostics/run > /dev/null"
                 ),
                 timeout=75,
