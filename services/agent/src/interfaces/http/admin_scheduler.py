@@ -409,6 +409,57 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
         </div>
     </div>
 
+    <!-- Edit Job Modal -->
+    <div id="editJobModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h3>Edit Scheduled Job</h3>
+            <form id="editJobForm" onsubmit="submitEditJob(event)">
+                <input type="hidden" id="editJobId">
+                <div class="form-group">
+                    <label>Prompt *</label>
+                    <textarea id="editJobPrompt" required style="min-height: 80px;"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Cron Expression *</label>
+                    <select id="editCronPresets" onchange="applyEditCronPreset()" style="margin-bottom: 4px;">
+                        <option value="">-- Pick a common schedule --</option>
+                        <option value="0 */4 * * *">Every 4 hours</option>
+                        <option value="0 */6 * * *">Every 6 hours</option>
+                        <option value="0 9 * * *">Daily at 9am UTC</option>
+                        <option value="0 9,17 * * *">Twice daily (9am, 5pm UTC)</option>
+                        <option value="0 8 * * 1-5">Weekdays at 8am UTC</option>
+                    </select>
+                    <input type="text" id="editJobCron" required placeholder="0 8 * * 1-5">
+                    <small style="color: var(--text-muted); font-size: 12px;">Format: minute hour day month weekday</small>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <input type="text" id="editJobDescription" placeholder="Optional description">
+                </div>
+                <div class="form-group">
+                    <label>Notification Channel</label>
+                    <select id="editJobNotifChannel" onchange="toggleEditNotifTarget()">
+                        <option value="">None</option>
+                        <option value="email">Email</option>
+                        <option value="telegram">Telegram</option>
+                    </select>
+                </div>
+                <div class="form-group" id="editNotifTargetGroup" style="display:none;">
+                    <label>Notification Target</label>
+                    <input type="text" id="editJobNotifTarget" placeholder="Email address or Telegram chat ID">
+                </div>
+                <div class="form-group">
+                    <label>Timeout (seconds)</label>
+                    <input type="number" id="editJobTimeout" value="300" min="30" max="3600">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn" onclick="hideEditJobModal()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Create Job Modal -->
     <div id="createJobModal" class="modal" style="display: none;">
         <div class="modal-content">
@@ -516,12 +567,14 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
                 '<div style="display:flex;justify-content:space-between;align-items:center;">' +
                 '<span class="job-name">' + escapeHtml(j.name) + sysBadge + '</span>' +
                 '<div class="job-actions">' +
+                '<button class="btn btn-sm" onclick="editJob(\\'' + j.id + '\\')">Edit</button>' +
                 '<button class="btn btn-sm" onclick="toggleJob(\\'' + j.id + '\\')">' + toggleLabel + '</button>' +
                 '<button class="btn btn-sm btn-primary" onclick="runJobNow(\\'' + j.id + '\\')" ' + (j.is_enabled ? '' : 'disabled') + '>Run Now</button>' +
                 '<button class="btn btn-sm btn-danger" onclick="deleteJob(\\'' + j.id + '\\', \\'' + escapeHtml(j.name).replace(/'/g, "\\\\'") + '\\')">Delete</button>' +
                 '<span class="badge ' + statusClass + '" style="margin-left:4px;">' + j.status + '</span>' +
                 '</div></div>' +
                 '<div class="job-meta">' +
+                '<span style="width:100%;color:var(--text);font-style:italic;">' + escapeHtml(j.skill_prompt.length > 120 ? j.skill_prompt.substring(0, 120) + '...' : j.skill_prompt) + '</span>' +
                 '<span>Cron: <code>' + escapeHtml(j.cron_expression) + '</code></span>' +
                 '<span>Next: ' + nextRun + '</span>' +
                 '<span>Last: ' + lastRun + '</span>' +
@@ -585,6 +638,59 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
             sel.innerHTML += '<option value="' + c.id + '">' + label + '</option>';
         });
         contextsLoaded = true;
+    }
+
+    function editJob(jobId) {
+        const job = _allJobs.find(j => j.id === jobId);
+        if (!job) return;
+        document.getElementById('editJobId').value = job.id;
+        document.getElementById('editJobPrompt').value = job.skill_prompt;
+        document.getElementById('editJobCron').value = job.cron_expression;
+        document.getElementById('editJobDescription').value = job.description || '';
+        document.getElementById('editJobTimeout').value = job.timeout_seconds || 300;
+        const channel = job.notification_channel || '';
+        document.getElementById('editJobNotifChannel').value = channel;
+        document.getElementById('editJobNotifTarget').value = job.notification_target || '';
+        document.getElementById('editNotifTargetGroup').style.display = channel ? 'block' : 'none';
+        document.getElementById('editCronPresets').value = '';
+        document.getElementById('editJobModal').style.display = 'flex';
+    }
+
+    function hideEditJobModal() {
+        document.getElementById('editJobModal').style.display = 'none';
+        document.getElementById('editJobForm').reset();
+        document.getElementById('editNotifTargetGroup').style.display = 'none';
+    }
+
+    function applyEditCronPreset() {
+        const preset = document.getElementById('editCronPresets').value;
+        if (preset) document.getElementById('editJobCron').value = preset;
+    }
+
+    function toggleEditNotifTarget() {
+        const ch = document.getElementById('editJobNotifChannel').value;
+        document.getElementById('editNotifTargetGroup').style.display = ch ? 'block' : 'none';
+    }
+
+    async function submitEditJob(e) {
+        e.preventDefault();
+        const jobId = document.getElementById('editJobId').value;
+        const body = {
+            skill_prompt: document.getElementById('editJobPrompt').value,
+            cron_expression: document.getElementById('editJobCron').value,
+            description: document.getElementById('editJobDescription').value || null,
+            notification_channel: document.getElementById('editJobNotifChannel').value || null,
+            notification_target: document.getElementById('editJobNotifTarget').value || null,
+            timeout_seconds: parseInt(document.getElementById('editJobTimeout').value) || 300
+        };
+        const res = await fetchWithErrorHandling('/platformadmin/scheduler/jobs/' + jobId, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+        });
+        if (res) {
+            showToast('Job updated', 'success');
+            hideEditJobModal();
+            loadAllJobs();
+        }
     }
 
     function showCreateJobModal() {
