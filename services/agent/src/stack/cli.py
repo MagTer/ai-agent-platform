@@ -675,6 +675,16 @@ def dev_deploy(
         help="Rebuild and recreate all services (use when .env changes affect multiple services).",
     ),
     timeout: float = typer.Option(60.0, help="Health check timeout in seconds."),
+    skip_smoke: bool = typer.Option(
+        False,
+        "--skip-smoke",
+        help="Skip post-deploy smoke tests.",
+    ),
+    full_smoke: bool = typer.Option(
+        False,
+        "--full-smoke",
+        help="Run full component diagnostics as part of smoke tests (~30s extra).",
+    ),
 ) -> None:
     """Build and deploy to dev environment with health verification.
 
@@ -714,7 +724,38 @@ def dev_deploy(
     # Record dev deployment
     _record_dev_deployment(services)
 
+    # Post-deploy smoke tests
+    if not skip_smoke:
+        smoke_results = checks.run_smoke_checks(dev_project, full=full_smoke)
+        checks.print_smoke_results(smoke_results)
+
     console.print("[bold green]Dev deploy complete - all services healthy.[/bold green]")
+
+
+@dev_app.command("smoke")
+def dev_smoke(
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Run full component diagnostics (~30s extra).",
+    ),
+) -> None:
+    """Run post-deploy smoke tests against the running dev stack.
+
+    Executes lightweight HTTP probes inside the agent container to verify
+    the service is responding correctly. Use this to re-run smoke tests
+    without triggering a full redeploy.
+
+    Example:
+        stack dev smoke          # Quick checks
+        stack dev smoke --full   # Full component diagnostics
+    """
+    tooling.ensure_docker()
+    dev_project = "ai-agent-platform-dev"
+    smoke_results = checks.run_smoke_checks(dev_project, full=full)
+    checks.print_smoke_results(smoke_results)
+    if any(not r.passed for r in smoke_results):
+        raise typer.Exit(code=1)
 
 
 # =============================================================================
@@ -907,6 +948,16 @@ def deploy(
         None,
         help="Specific services to rebuild (default: agent only).",
     ),
+    skip_smoke: bool = typer.Option(
+        False,
+        "--skip-smoke",
+        help="Skip post-deploy smoke tests.",
+    ),
+    full_smoke: bool = typer.Option(
+        False,
+        "--full-smoke",
+        help="Run full component diagnostics as part of smoke tests (~30s extra).",
+    ),
 ) -> None:
     """Deploy changes to production.
 
@@ -994,6 +1045,11 @@ def deploy(
     assert current_branch is not None
     _record_deployment(current_branch, services_to_build)
 
+    # Step 5.5: Post-deploy smoke tests (warnings only, deploy already done)
+    if not skip_smoke:
+        smoke_results = checks.run_smoke_checks(prod_project, full=full_smoke)
+        checks.print_smoke_results(smoke_results)
+
     # Step 6: Show status
     console.print("[bold green]✓ Deployment complete![/bold green]")
     result = compose.run_compose(["ps"], prod=True, timeout=30)
@@ -1076,6 +1132,31 @@ def rollback(
     console.print("")
     console.print("[yellow]Note: This only rolled back the Docker image.[/yellow]")
     console.print("[yellow]If database migrations were applied, use `stack db rollback`.[/yellow]")
+
+
+@app.command()
+def smoke(
+    full: bool = typer.Option(
+        False,
+        "--full",
+        help="Run full component diagnostics (~30s extra).",
+    ),
+) -> None:
+    """Run post-deploy smoke tests against the running production stack.
+
+    Executes lightweight HTTP probes inside the agent container to verify
+    the production service is responding correctly.
+
+    Example:
+        stack smoke          # Quick checks
+        stack smoke --full   # Full component diagnostics
+    """
+    tooling.ensure_docker()
+    prod_project = "ai-agent-platform-prod"
+    smoke_results = checks.run_smoke_checks(prod_project, full=full)
+    checks.print_smoke_results(smoke_results)
+    if any(not r.passed for r in smoke_results):
+        raise typer.Exit(code=1)
 
 
 @app.command()

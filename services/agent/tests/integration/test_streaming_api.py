@@ -10,6 +10,8 @@ from shared.models import AgentRequest
 from core.db.engine import get_db
 from interfaces.http.app import create_app
 
+pytestmark = pytest.mark.integration
+
 # Mock Data
 MOCK_STEP_ID = "step-123"
 MOCK_TOKENS = ["Hello", " ", "World", "!"]

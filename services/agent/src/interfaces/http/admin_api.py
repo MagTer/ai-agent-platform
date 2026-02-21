@@ -183,6 +183,7 @@ class SystemStatusResponse(BaseModel):
     status: str  # HEALTHY, DEGRADED, CRITICAL
     environment: str
     timestamp: str
+    system_context_id: str | None
     healthy_components: list[str]
     failed_components: list[dict[str, Any]]
     recent_errors: list[dict[str, Any]]
@@ -279,6 +280,7 @@ class SystemConfigResponse(BaseModel):
 
 @router.get("/status", response_model=SystemStatusResponse)
 async def get_system_status(
+    request: Request,
     auth: AdminUser | APIKeyUser = Depends(get_api_key_auth),
     session: AsyncSession = Depends(get_db),
 ) -> SystemStatusResponse:
@@ -317,10 +319,16 @@ async def get_system_status(
             if len(recent_errors) >= 10:
                 break
 
+    # Retrieve system_context_id from app state if available
+    system_context_id: str | None = None
+    if hasattr(request.app.state, "system_context_id"):
+        system_context_id = str(request.app.state.system_context_id)
+
     return SystemStatusResponse(
         status=summary.get("overall_status", "UNKNOWN"),
         environment=settings.environment,
         timestamp=datetime.now(UTC).isoformat(),
+        system_context_id=system_context_id,
         healthy_components=summary.get("healthy_components", []),
         failed_components=summary.get("failed_components", []),
         recent_errors=recent_errors,

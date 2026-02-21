@@ -10,6 +10,7 @@ Functions:
     run_mypy: Run Mypy type checker
     run_pytest: Run pytest test suite
     run_semantic_tests: Run end-to-end semantic tests (local only)
+    run_smoke_checks: Post-deploy smoke checks via docker exec
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,6 +42,16 @@ class CheckResult:
     success: bool
     name: str
     message: str = ""
+
+
+@dataclass
+class SmokeResult:
+    """Result of a single post-deploy smoke check."""
+
+    name: str
+    passed: bool
+    message: str
+    duration_ms: float
 
 
 # --- Styling ---
@@ -425,6 +437,150 @@ def run_semantic_tests(
         return CheckResult(success=False, name="semantic", message="Golden query test failures")
 
 
+def run_smoke_checks(project_name: str, *, full: bool = False) -> list[SmokeResult]:
+    """Run post-deploy smoke checks against a running stack via docker exec.
+
+    Executes lightweight HTTP probes inside the agent container to verify
+    the deployed service is responding correctly. Uses docker exec so no
+    host port mapping is required (works for both dev and prod).
+
+    The AGENT_DIAGNOSTIC_API_KEY is resolved from inside the container's
+    own environment -- no key leakage to the host process.
+
+    Args:
+        project_name: Docker Compose project name (e.g. "ai-agent-platform-dev").
+        full: If True, also run full component diagnostics via /platformadmin/diagnostics/run.
+
+    Returns:
+        List of SmokeResult, one per check.
+    """
+    from stack import tooling  # avoid circular import at module level
+
+    container = f"{project_name}-agent-1"
+    results: list[SmokeResult] = []
+
+    def _exec_check(name: str, cmd: str, timeout: float = 15) -> SmokeResult:
+        """Run a single docker exec smoke check and return a SmokeResult."""
+        t0 = time.monotonic()
+        try:
+            tooling.docker_exec(container, "sh", "-lc", cmd, timeout=timeout)
+            duration_ms = (time.monotonic() - t0) * 1000
+            return SmokeResult(name=name, passed=True, message="OK", duration_ms=duration_ms)
+        except subprocess.CalledProcessError as exc:
+            duration_ms = (time.monotonic() - t0) * 1000
+            stderr = exc.stderr.decode() if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            msg = stderr.strip().splitlines()[-1] if stderr.strip() else f"exit {exc.returncode}"
+            return SmokeResult(name=name, passed=False, message=msg, duration_ms=duration_ms)
+        except Exception as exc:  # noqa: BLE001
+            duration_ms = (time.monotonic() - t0) * 1000
+            return SmokeResult(name=name, passed=False, message=str(exc), duration_ms=duration_ms)
+
+    # Check 1: /v1/models - basic routing + LiteLLM proxy reachability, no auth
+    results.append(
+        _exec_check(
+            "/v1/models",
+            "curl -sf --max-time 10 http://localhost:8000/v1/models > /dev/null",
+        )
+    )
+
+    # Check 2: /platformadmin/api/health - diagnostic API up, no auth
+    results.append(
+        _exec_check(
+            "/platformadmin/api/health",
+            "curl -sf --max-time 10 http://localhost:8000/platformadmin/api/health > /dev/null",
+        )
+    )
+
+    # Check 3: /platformadmin/api/status with API key - reads DB + trace data
+    status_result = _exec_check(
+        "infrastructure status",
+        (
+            "STATUS=$(curl -sf --max-time 10 "
+            "-H 'X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY' "
+            "http://localhost:8000/platformadmin/api/status"
+            ' | python3 -c "import sys,json; d=json.load(sys.stdin); '
+            "print(d.get('status','UNKNOWN'))\")"
+            " && echo $STATUS"
+            " && [ \"$STATUS\" != 'CRITICAL' ]"
+        ),
+        timeout=20,
+    )
+    # Enrich the message with the status value when it passes
+    if status_result.passed:
+        # Re-run to capture output for the status label
+        try:
+            proc = tooling.docker_exec(
+                container,
+                "sh",
+                "-lc",
+                (
+                    "curl -sf --max-time 10 "
+                    "-H 'X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY' "
+                    "http://localhost:8000/platformadmin/api/status"
+                    ' | python3 -c "import sys,json; d=json.load(sys.stdin);'
+                    " print(d.get('status','UNKNOWN'))\""
+                ),
+                timeout=20,
+            )
+            if isinstance(proc.stdout, bytes):
+                stdout = proc.stdout.decode().strip()
+            else:
+                stdout = (proc.stdout or "").strip()
+            if stdout:
+                status_result.message = stdout
+        except Exception:  # noqa: S110, BLE001
+            pass
+    results.append(status_result)
+
+    # Check 4 (optional): full component diagnostics
+    if full:
+        results.append(
+            _exec_check(
+                "full diagnostics",
+                (
+                    "curl -sf --max-time 60 -X POST "
+                    "-H 'X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY' "
+                    "http://localhost:8000/platformadmin/diagnostics/run > /dev/null"
+                ),
+                timeout=75,
+            )
+        )
+
+    return results
+
+
+def print_smoke_results(results: list[SmokeResult]) -> None:
+    """Print smoke check results in a human-readable format.
+
+    Args:
+        results: List of SmokeResult from run_smoke_checks().
+    """
+    print(f"\n{BOLD}Running smoke tests...{RESET}")
+
+    for r in results:
+        icon = f"{GREEN}✓{RESET}" if r.passed else f"{RED}✗{RESET}"
+        label = f"{r.name:<40}"
+        timing = f"{r.duration_ms:.0f}ms"
+        if r.passed:
+            if r.message and r.message != "OK":
+                extra = f"  {GREEN}{r.message}{RESET}"
+            else:
+                extra = f"  {YELLOW}{timing}{RESET}"
+            print(f"  {icon} {label}{extra}")
+        else:
+            print(f"  {icon} {label}  {RED}{r.message}{RESET}")
+
+    failed = [r for r in results if not r.passed]
+    if not failed:
+        print(f"{GREEN}All smoke tests passed.{RESET}")
+    else:
+        n = len(failed)
+        print(
+            f"{YELLOW}Warning: {n} smoke check(s) failed. "
+            "Check Diagnostics portal or: ./stack dev logs agent{RESET}"
+        )
+
+
 def run_lint(*, fix: bool = True, repo_root: Path | None = None) -> list[CheckResult]:
     """Run linting checks (Ruff + Black).
 
@@ -553,12 +709,15 @@ def ensure_dependencies() -> None:
 
 __all__ = [
     "CheckResult",
+    "SmokeResult",
     "run_architecture",
     "run_ruff",
     "run_black",
     "run_mypy",
     "run_pytest",
     "run_semantic_tests",
+    "run_smoke_checks",
+    "print_smoke_results",
     "run_lint",
     "run_all_checks",
     "ensure_in_virtualenv",

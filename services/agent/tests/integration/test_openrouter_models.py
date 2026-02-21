@@ -31,6 +31,8 @@ from shared.content_classifier import (
     contains_raw_model_tokens,
 )
 
+pytestmark = pytest.mark.integration
+
 LOGGER = logging.getLogger(__name__)
 
 LITELLM_BASE = os.getenv("LITELLM_BASE_URL", "http://localhost:4001")

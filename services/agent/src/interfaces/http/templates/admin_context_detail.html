@@ -478,7 +478,17 @@ async function loadOverview() {
     typeEl.className = 'badge badge-info';
 
     window._isPersonal = ctx.is_personal || false;
+    window._isSystem = ctx.type === 'system';
     window._contextData = ctx;
+
+    // Show SYSTEM badge next to the context title
+    if (window._isSystem) {
+        const sysBadge = document.createElement('span');
+        sysBadge.className = 'badge';
+        sysBadge.textContent = 'SYSTEM';
+        sysBadge.style.cssText = 'background:#d1d5db;color:#374151;font-size:10px;letter-spacing:0.05em;margin-left:8px;';
+        document.getElementById('contextTitle').after(sysBadge);
+    }
 
     let html = '<div class="card-header"><span class="card-title">Context Details</span>';
     html += '<button class="btn btn-sm" onclick="showEditContextModal()">Edit</button></div>';
@@ -608,8 +618,8 @@ async function loadOverview() {
         html += '</tbody></table></details></div>';
     }
 
-    // Danger Zone (not for personal contexts)
-    if (!window._isPersonal) {
+    // Danger Zone (not for personal or system contexts)
+    if (!window._isPersonal && !window._isSystem) {
         html += '<div style="margin-top: 32px; border: 1px solid var(--error); border-radius: 8px; padding: 16px;">';
         html += '<h3 style="color: var(--error); margin: 0 0 8px 0; font-size: 15px;">Danger Zone</h3>';
         html += '<p style="font-size: 13px; color: var(--text-muted); margin: 0 0 12px 0;">Deleting this context will permanently remove all conversations, credentials, workspaces, scheduled jobs, and files associated with it.</p>';

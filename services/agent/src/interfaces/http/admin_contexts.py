@@ -101,6 +101,13 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
         <div id="sharedList"></div>
     </div>
 
+    <details id="systemSection" style="display:none; margin-bottom: 16px;">
+        <summary style="cursor:pointer; padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; font-weight: 600; font-size: 14px; color: var(--text-muted); list-style: none; display: flex; align-items: center; gap: 8px;">
+            <span>&#x25B6;</span> System <span id="systemCount" class="badge" style="background:#e5e7eb;color:#374151;">0</span>
+        </summary>
+        <div id="systemList" style="margin-top: 8px;"></div>
+    </details>
+
     <!-- Create Context Modal -->
     <div id="createModal" class="modal" style="display: none;">
         <div class="modal-content">
@@ -142,6 +149,7 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
     .badge-type-personal { background: #dbeafe; color: #1e40af; }
     .badge-type-shared { background: #e5e7eb; color: #374151; }
+    .badge-type-system { background: #d1d5db; color: #374151; font-size: 10px; letter-spacing: 0.05em; }
 """
 
     extra_js = """
@@ -159,11 +167,15 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
         const ownerLine = c.owner_email
             ? '<span style="font-weight:500;">Owner: ' + escapeHtml(c.owner_email) + '</span>'
             : '<span style="color:var(--text-muted);font-style:italic;">No owner</span>';
+        const systemBadge = c.type === 'system'
+            ? '<span class="badge badge-type-system" style="margin-left:8px;">SYSTEM</span>'
+            : '';
         return '<a href="/platformadmin/contexts/' + c.id + '/" class="context-card">' +
-            '<div class="context-header"><div>' +
+            '<div class="context-header"><div style="display:flex;align-items:center;">' +
             '<div class="context-name">' + escapeHtml(c.name) + '</div>' +
-            '<div class="context-id">' + c.id + '</div>' +
+            systemBadge +
             '</div></div>' +
+            '<div class="context-id">' + c.id + '</div>' +
             '<div class="context-meta">' +
             ownerLine +
             '<span>Conversations: ' + c.conversation_count + '</span>' +
@@ -177,8 +189,9 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
 
     function renderContexts(data) {
         const contexts = data.contexts || [];
+        const system   = contexts.filter(c => c.type === 'system');
         const personal = contexts.filter(c => c.type === 'personal');
-        const shared = contexts.filter(c => c.type !== 'personal');
+        const shared   = contexts.filter(c => c.type !== 'personal' && c.type !== 'system');
 
         document.getElementById('totalContexts').textContent = data.total || 0;
         document.getElementById('personalContexts').textContent = personal.length;
@@ -186,6 +199,7 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
 
         const personalSection = document.getElementById('personalSection');
         const sharedSection = document.getElementById('sharedSection');
+        const systemSection = document.getElementById('systemSection');
 
         if (personal.length > 0) {
             personalSection.style.display = '';
@@ -201,6 +215,14 @@ async def contexts_dashboard(admin: AdminUser = Depends(require_admin_or_redirec
             document.getElementById('sharedList').innerHTML = shared.map(renderContextCard).join('');
         } else {
             sharedSection.style.display = 'none';
+        }
+
+        if (system.length > 0) {
+            systemSection.style.display = '';
+            document.getElementById('systemCount').textContent = system.length;
+            document.getElementById('systemList').innerHTML = system.map(renderContextCard).join('');
+        } else {
+            systemSection.style.display = 'none';
         }
 
         if (contexts.length === 0) {
@@ -353,7 +375,7 @@ class CreateContextRequest(BaseModel):
     @classmethod
     def validate_type(cls, v: str) -> str:
         """Validate context type."""
-        valid_types = {"personal", "shared", "virtual", "git_repo", "devops"}
+        valid_types = {"personal", "shared", "virtual", "git_repo", "devops", "system"}
         if v not in valid_types:
             raise ValueError(f"Invalid context type. Must be one of: {', '.join(valid_types)}")
         return v
@@ -862,6 +884,13 @@ async def delete_context(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Context {context_id} not found",
+        )
+
+    # Check if this is the system context - prevent deletion
+    if ctx.type == "system":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete the system context.",
         )
 
     # Check if this is a personal/default context - prevent deletion
