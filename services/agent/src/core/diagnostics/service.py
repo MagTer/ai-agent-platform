@@ -56,6 +56,18 @@ class TraceGroup(BaseModel):
 
 
 class DiagnosticsService:
+    # Components whose failures cap at WARNING (never CRITICAL).
+    # These are third-party services or user-configured integrations:
+    # platform degraded but still functional without them.
+    EXTERNAL_COMPONENTS: frozenset[str] = frozenset({
+        "SearXNG Search",  # actual web queries via SearXNG (internet-dependent)
+        "Internet",        # raw internet connectivity
+        "OAuth Tokens",    # third-party OAuth (Homey, etc.)
+        "MCP",             # user-configured MCP servers
+        "Azure DevOps",    # Microsoft ADO (user integration)
+        "OpenRouter",      # upstream LLM API provider
+    })
+
     def __init__(self, settings: Settings):
         self._settings = settings
         self._trace_log_path = Path(str(settings.trace_span_log_path or "data/spans.jsonl"))
@@ -243,6 +255,7 @@ class DiagnosticsService:
                 results = await asyncio.gather(
                     self._check_qdrant(client),
                     self._check_litellm(client),
+                    self._check_openrouter(client),
                     self._check_embedder(client),
                     self._check_openwebui_interface(client),
                     self._check_postgres(),
@@ -316,16 +329,29 @@ class DiagnosticsService:
                 error_code = self._map_component_to_error_code(result.component)
                 error_info = get_error_info(error_code)
 
+                # External components are capped at WARNING regardless of
+                # their generic error code severity -- a third-party service
+                # being down degrades optional features, not the core platform.
+                is_external = any(
+                    ext in result.component for ext in self.EXTERNAL_COMPONENTS
+                )
+                effective_severity = (
+                    ErrorSeverity.WARNING
+                    if is_external and error_info.severity == ErrorSeverity.CRITICAL
+                    else error_info.severity
+                )
+
                 failure_info = {
                     "component": result.component,
                     "error_code": error_info.code,
-                    "severity": error_info.severity.value,
+                    "severity": effective_severity.value,
                     "message": result.message or error_info.description,
                     "recovery_hint": error_info.recovery_hint,
                     "latency_ms": result.latency_ms,
+                    "is_external": is_external,
                 }
 
-                if error_info.severity == ErrorSeverity.CRITICAL:
+                if effective_severity == ErrorSeverity.CRITICAL:
                     failed.append(failure_info)
                 else:
                     warnings.append(failure_info)
@@ -401,8 +427,8 @@ class DiagnosticsService:
         component_lower = component.lower()
 
         mapping = {
-            "ollama": ErrorCode.LLM_CONNECTION_FAILED,
             "litellm": ErrorCode.LLM_CONNECTION_FAILED,
+            "openrouter": ErrorCode.NET_CONNECTION_REFUSED,
             "qdrant": ErrorCode.RAG_QDRANT_UNAVAILABLE,
             "postgres": ErrorCode.DB_CONNECTION_FAILED,
             "embedder": ErrorCode.RAG_EMBEDDING_FAILED,
@@ -423,32 +449,6 @@ class DiagnosticsService:
                 return code
 
         return ErrorCode.UNKNOWN
-
-    async def _check_ollama(self, client: httpx.AsyncClient) -> TestResult:
-        # Default Ollama is host:11434 usually.
-        # We can infer from settings, but config splits litellm from ollama.
-        # Docker usually uses 'ollama:11434'.
-        url = "http://ollama:11434/api/tags"
-        start = time.perf_counter()
-        try:
-            resp = await client.get(url)
-            latency = (time.perf_counter() - start) * 1000
-            if resp.status_code == 200:
-                return TestResult(component="Ollama", status="ok", latency_ms=latency)
-            return TestResult(
-                component="Ollama",
-                status="fail",
-                latency_ms=latency,
-                message=f"Status {resp.status_code}",
-            )
-        except Exception as e:
-            latency = (time.perf_counter() - start) * 1000
-            return TestResult(
-                component="Ollama",
-                status="fail",
-                latency_ms=latency,
-                message=str(e),
-            )
 
     async def _check_qdrant(self, client: httpx.AsyncClient) -> TestResult:
         url = f"{self._settings.qdrant_url}/collections"
@@ -491,6 +491,39 @@ class DiagnosticsService:
             latency = (time.perf_counter() - start) * 1000
             return TestResult(
                 component="LiteLLM",
+                status="fail",
+                latency_ms=latency,
+                message=str(e),
+            )
+
+    async def _check_openrouter(self, client: httpx.AsyncClient) -> TestResult:
+        """Check connectivity to the OpenRouter upstream LLM API.
+
+        A 401 response still proves the endpoint is reachable -- we just
+        haven't authenticated, which is expected without a key here.
+        """
+        url = "https://openrouter.ai/api/v1/models"
+        start = time.perf_counter()
+        try:
+            resp = await client.get(url, timeout=10.0)
+            latency = (time.perf_counter() - start) * 1000
+            if resp.status_code in (200, 401, 403):
+                return TestResult(
+                    component="OpenRouter",
+                    status="ok",
+                    latency_ms=latency,
+                    message=f"Reachable (HTTP {resp.status_code})",
+                )
+            return TestResult(
+                component="OpenRouter",
+                status="fail",
+                latency_ms=latency,
+                message=f"HTTP {resp.status_code}",
+            )
+        except Exception as e:
+            latency = (time.perf_counter() - start) * 1000
+            return TestResult(
+                component="OpenRouter",
                 status="fail",
                 latency_ms=latency,
                 message=str(e),
