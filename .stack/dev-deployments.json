@@ -1,29 +1,5 @@
 [
   {
-    "timestamp": "2026-02-18T22:15:49.163817+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-19T15:56:51.939438+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
-    "timestamp": "2026-02-19T17:57:49.806199+00:00",
-    "branch": "main",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
     "timestamp": "2026-02-19T18:01:02.664409+00:00",
     "branch": "feature/tibp-ado-wiki-import",
     "services": [
@@ -154,6 +130,30 @@
   {
     "timestamp": "2026-02-20T08:14:42.277442+00:00",
     "branch": "feature/tibp-ado-wiki-import",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-20T21:05:10.978410+00:00",
+    "branch": "feat/conversation-list-improvements",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-20T21:10:20.605385+00:00",
+    "branch": "feat/conversation-list-improvements",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-20T22:19:59.472485+00:00",
+    "branch": "feat/conversation-list-improvements",
     "services": [
       "agent"
     ],

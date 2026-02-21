@@ -46,6 +46,7 @@ from core.runtime.models import (
 from core.runtime.service import AgentService
 from core.runtime.service_factory import ServiceFactory
 from core.tools.mcp_loader import set_mcp_client_pool
+from interfaces.http.admin_ado import router as admin_ado_router
 from interfaces.http.admin_api import router as admin_api_router
 from interfaces.http.admin_auth import AuthRedirectError
 from interfaces.http.admin_auth_oauth import router as admin_auth_oauth_router
@@ -900,6 +901,7 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     app.include_router(admin_permissions_router)
     app.include_router(admin_users_router)
     app.include_router(admin_scheduler_router)
+    app.include_router(admin_ado_router)
     app.include_router(admin_api_router)  # Diagnostic API (X-API-Key or Entra ID)
 
     return app
