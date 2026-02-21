@@ -90,7 +90,7 @@ class ErrorCode(str, Enum):
     SKILL_MAX_TURNS = "SKILL_MAX_TURNS"
 
     # ---- Auth Errors ----
-    AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED"
+    AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED"  # noqa: S105
 
     # ---- Generic Errors ----
     UNKNOWN = "UNKNOWN"

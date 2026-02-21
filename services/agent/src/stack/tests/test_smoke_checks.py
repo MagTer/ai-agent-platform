@@ -74,7 +74,7 @@ class TestRunSmokeChecks:
         """A non-zero docker exec exit code marks the check as failed."""
         err = subprocess.CalledProcessError(1, "docker", stderr=b"curl: (7) Connection refused")
         mock_docker_exec.side_effect = [
-            err,            # health fails (now check 1)
+            err,  # health fails (now check 1)
             self._make_proc(0),  # status passes (now check 2)
         ]
 

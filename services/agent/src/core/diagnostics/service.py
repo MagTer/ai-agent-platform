@@ -59,14 +59,16 @@ class DiagnosticsService:
     # Components whose failures cap at WARNING (never CRITICAL).
     # These are third-party services or user-configured integrations:
     # platform degraded but still functional without them.
-    EXTERNAL_COMPONENTS: frozenset[str] = frozenset({
-        "SearXNG Search",  # actual web queries via SearXNG (internet-dependent)
-        "Internet",        # raw internet connectivity
-        "OAuth Tokens",    # third-party OAuth (Homey, etc.)
-        "MCP",             # user-configured MCP servers
-        "Azure DevOps",    # Microsoft ADO (user integration)
-        "OpenRouter",      # upstream LLM API provider
-    })
+    EXTERNAL_COMPONENTS: frozenset[str] = frozenset(
+        {
+            "SearXNG Search",  # actual web queries via SearXNG (internet-dependent)
+            "Internet",  # raw internet connectivity
+            "OAuth Tokens",  # third-party OAuth (Homey, etc.)
+            "MCP",  # user-configured MCP servers
+            "Azure DevOps",  # Microsoft ADO (user integration)
+            "OpenRouter",  # upstream LLM API provider
+        }
+    )
 
     def __init__(self, settings: Settings):
         self._settings = settings
@@ -332,9 +334,7 @@ class DiagnosticsService:
                 # External components are capped at WARNING regardless of
                 # their generic error code severity -- a third-party service
                 # being down degrades optional features, not the core platform.
-                is_external = any(
-                    ext in result.component for ext in self.EXTERNAL_COMPONENTS
-                )
+                is_external = any(ext in result.component for ext in self.EXTERNAL_COMPONENTS)
                 effective_severity = (
                     ErrorSeverity.WARNING
                     if is_external and error_info.severity == ErrorSeverity.CRITICAL
@@ -845,7 +845,10 @@ class DiagnosticsService:
                         component="OAuth Tokens",
                         status="fail",
                         latency_ms=latency,
-                        message=f"{broken_count}/{total_tokens} tokens expired (no refresh token -- re-authorise required)",
+                        message=(
+                            f"{broken_count}/{total_tokens} tokens expired "
+                            "(no refresh token -- re-authorise required)"
+                        ),
                     )
 
                 if stale_count > 0:
@@ -853,7 +856,10 @@ class DiagnosticsService:
                         component="OAuth Tokens",
                         status="ok",
                         latency_ms=latency,
-                        message=f"{stale_count}/{total_tokens} access tokens stale (refresh token present, will auto-renew)",
+                        message=(
+                            f"{stale_count}/{total_tokens} access tokens stale "
+                            "(refresh token present, will auto-renew)"
+                        ),
                     )
 
                 if expiring_count > 0:
