@@ -145,6 +145,10 @@ testpaths = [
     "src/stack/tests",
     "src/utils/tests",
 ]
+markers = [
+    "integration: requires a running stack (docker-compose up)",
+    "smoke: post-deploy functional check",
+]
 
 [tool.coverage.run]
 branch = true

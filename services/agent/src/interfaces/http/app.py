@@ -26,7 +26,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.engine import get_db
-from core.db.models import Context
+from core.db.models import Context, ScheduledJob
 from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
 from core.observability.debug_logger import configure_debug_log_handler
 from core.observability.logging import setup_logging, setup_otel_log_bridge
@@ -69,6 +69,100 @@ LOGGER = logging.getLogger(__name__)
 
 # Shared httpx client for readiness checks (reuse across requests)
 _READINESS_HTTP_CLIENT: httpx.AsyncClient | None = None
+
+
+async def _seed_system_context(session_factory: Any) -> uuid.UUID:
+    """Idempotently ensure the system context exists; return its UUID.
+
+    Args:
+        session_factory: Async session factory from SQLAlchemy.
+
+    Returns:
+        UUID of the system context.
+    """
+    from sqlalchemy import select
+
+    async with session_factory() as session:
+        row = (
+            await session.execute(select(Context).where(Context.name == "system"))
+        ).scalar_one_or_none()
+        if not row:
+            row = Context(
+                name="system",
+                type="system",
+                display_name="System",
+                config={},
+                default_cwd="/tmp",  # noqa: S108
+            )
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+            LOGGER.info("System context: %s (created)", row.id)
+        else:
+            LOGGER.info("System context: %s (existing)", row.id)
+        return row.id
+
+
+async def _seed_system_jobs(session_factory: Any, system_context_id: uuid.UUID) -> None:
+    """Idempotently create the golden query scheduled jobs under the system context.
+
+    Args:
+        session_factory: Async session factory from SQLAlchemy.
+        system_context_id: UUID of the system context.
+    """
+    from sqlalchemy import select
+
+    from interfaces.scheduler.adapter import SchedulerAdapter
+
+    golden_jobs = [
+        {
+            "name": "golden-routing",
+            "cron_expression": "0 6 * * *",
+            "skill_prompt": "Run semantic eval category=routing",
+            "timeout_seconds": 300,
+        },
+        {
+            "name": "golden-regression",
+            "cron_expression": "0 7 * * 1",
+            "skill_prompt": "Run semantic eval category=regression",
+            "timeout_seconds": 300,
+        },
+        {
+            "name": "golden-skills",
+            "cron_expression": "0 6 * * 0",
+            "skill_prompt": "Run semantic eval category=skills",
+            "timeout_seconds": 420,
+        },
+    ]
+
+    async with session_factory() as session:
+        for job_def in golden_jobs:
+            existing = (
+                await session.execute(
+                    select(ScheduledJob).where(
+                        ScheduledJob.context_id == system_context_id,
+                        ScheduledJob.name == job_def["name"],
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing:
+                continue
+
+            next_run = SchedulerAdapter._compute_next_run(str(job_def["cron_expression"]))
+            job = ScheduledJob(
+                context_id=system_context_id,
+                name=job_def["name"],
+                cron_expression=job_def["cron_expression"],
+                skill_prompt=job_def["skill_prompt"],
+                timeout_seconds=job_def["timeout_seconds"],
+                is_enabled=True,
+                status="active",
+                next_run_at=next_run,
+            )
+            session.add(job)
+            LOGGER.info("Seeded system job: %s", job_def["name"])
+
+        await session.commit()
 
 
 def verify_internal_api_key(
@@ -520,6 +614,11 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
         await job_scheduler.initialize_next_run_times()
         await job_scheduler.start()
         LOGGER.info("Job scheduler started")
+
+        # Seed system context and golden query jobs
+        system_context_id = await _seed_system_context(AsyncSessionLocal)
+        app.state.system_context_id = system_context_id
+        await _seed_system_jobs(AsyncSessionLocal, system_context_id)
 
         yield  # Application runs here
 

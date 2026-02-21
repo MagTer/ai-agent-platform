@@ -20,6 +20,8 @@ from core.db.oauth_models import OAuthToken
 from core.runtime.config import Settings
 from interfaces.http.app import create_app
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture
 def diagnostic_api_key() -> str:

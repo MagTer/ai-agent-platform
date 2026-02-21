@@ -110,6 +110,7 @@ class JobResponse(BaseModel):
 
     id: UUID
     context_id: UUID
+    context_type: str
     name: str
     description: str | None
     cron_expression: str
@@ -137,11 +138,12 @@ class JobListResponse(BaseModel):
     total: int
 
 
-def _job_to_response(job: ScheduledJob) -> JobResponse:
+def _job_to_response(job: ScheduledJob, context_type: str = "shared") -> JobResponse:
     """Convert a ScheduledJob model to a response dict."""
     return JobResponse(
         id=job.id,
         context_id=job.context_id,
+        context_type=context_type,
         name=job.name,
         description=job.description,
         cron_expression=job.cron_expression,
@@ -177,16 +179,17 @@ async def list_context_jobs(
 ) -> JobListResponse:
     """List all scheduled jobs for a context."""
     stmt = (
-        select(ScheduledJob)
+        select(ScheduledJob, Context.type.label("context_type"))
+        .join(Context, ScheduledJob.context_id == Context.id)
         .where(ScheduledJob.context_id == context_id)
         .order_by(ScheduledJob.name)
     )
     result = await session.execute(stmt)
-    jobs = result.scalars().all()
+    rows = result.all()
 
     return JobListResponse(
-        jobs=[_job_to_response(j) for j in jobs],
-        total=len(jobs),
+        jobs=[_job_to_response(job, ctx_type) for job, ctx_type in rows],
+        total=len(rows),
     )
 
 
@@ -393,7 +396,10 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
     <div class="card">
         <div class="card-header">
             <span>All Scheduled Jobs <span id="count" class="badge badge-info">0</span></span>
-            <div style="display: flex; gap: 8px;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+                <label style="font-size:13px; color:var(--text-muted); cursor:pointer; display:flex; align-items:center; gap:4px;">
+                    <input type="checkbox" id="hideSystemTasks" onchange="onHideSystemToggle()"> Hide system tasks
+                </label>
                 <button class="btn btn-primary" onclick="showCreateJobModal()">+ Create Job</button>
                 <button class="btn" onclick="loadAllJobs()">Refresh</button>
             </div>
@@ -483,30 +489,32 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
 """
 
     extra_js = """
-    async function loadAllJobs() {
-        const res = await fetchWithErrorHandling('/platformadmin/scheduler/all-jobs');
-        if (!res) { document.getElementById('jobsList').innerHTML = '<div style="color: var(--error)">Failed to load</div>'; return; }
-        const data = await res.json();
-        const jobs = data.jobs || [];
+    var _allJobs = [];
 
-        document.getElementById('count').textContent = data.total;
-        document.getElementById('totalJobs').textContent = data.total;
-        document.getElementById('activeJobs').textContent = jobs.filter(j => j.status === 'active').length;
-        document.getElementById('errorJobs').textContent = jobs.filter(j => j.status === 'error').length;
+    function onHideSystemToggle() {
+        const toggle = document.getElementById('hideSystemTasks');
+        localStorage.setItem('scheduler_hide_system', toggle.checked);
+        renderJobs();
+    }
+
+    function renderJobs() {
+        const hideSystem = document.getElementById('hideSystemTasks')?.checked;
+        const visible = hideSystem ? _allJobs.filter(j => j.context_type !== 'system') : _allJobs;
 
         const el = document.getElementById('jobsList');
-        if (jobs.length === 0) {
-            el.innerHTML = '<div class="empty-state">No scheduled jobs yet. Click "+ Create Job" to add one.</div>';
+        if (visible.length === 0) {
+            el.innerHTML = '<div class="empty-state">No scheduled jobs' + (hideSystem && _allJobs.length > 0 ? ' (system jobs hidden)' : '. Click "+ Create Job" to add one.') + '</div>';
             return;
         }
-        el.innerHTML = jobs.map(j => {
+        el.innerHTML = visible.map(j => {
             const statusClass = 'status-' + j.status;
             const nextRun = j.next_run_at ? new Date(j.next_run_at).toLocaleString() : 'N/A';
             const lastRun = j.last_run_at ? new Date(j.last_run_at).toLocaleString() : 'Never';
             const toggleLabel = j.is_enabled ? 'Pause' : 'Enable';
+            const sysBadge = j.context_type === 'system' ? '<span class="badge" style="background:#d1d5db;color:#374151;font-size:10px;margin-left:4px;">SYSTEM</span>' : '';
             return '<div class="job-row">' +
                 '<div style="display:flex;justify-content:space-between;align-items:center;">' +
-                '<span class="job-name">' + escapeHtml(j.name) + '</span>' +
+                '<span class="job-name">' + escapeHtml(j.name) + sysBadge + '</span>' +
                 '<div class="job-actions">' +
                 '<button class="btn btn-sm" onclick="toggleJob(\\'' + j.id + '\\')">' + toggleLabel + '</button>' +
                 '<button class="btn btn-sm btn-primary" onclick="runJobNow(\\'' + j.id + '\\')" ' + (j.is_enabled ? '' : 'disabled') + '>Run Now</button>' +
@@ -523,6 +531,29 @@ async def scheduler_dashboard(admin: AdminUser = Depends(require_admin_or_redire
                 '</div></div>';
         }).join('');
     }
+
+    async function loadAllJobs() {
+        const res = await fetchWithErrorHandling('/platformadmin/scheduler/all-jobs');
+        if (!res) { document.getElementById('jobsList').innerHTML = '<div style="color: var(--error)">Failed to load</div>'; return; }
+        const data = await res.json();
+        _allJobs = data.jobs || [];
+
+        // Stats always over ALL jobs
+        document.getElementById('count').textContent = data.total;
+        document.getElementById('totalJobs').textContent = data.total;
+        document.getElementById('activeJobs').textContent = _allJobs.filter(j => j.status === 'active').length;
+        document.getElementById('errorJobs').textContent = _allJobs.filter(j => j.status === 'error').length;
+
+        renderJobs();
+    }
+
+    // Init toggle state from localStorage
+    (function() {
+        const toggle = document.getElementById('hideSystemTasks');
+        if (toggle) {
+            toggle.checked = localStorage.getItem('scheduler_hide_system') !== 'false';
+        }
+    })();
 
     async function toggleJob(jobId) {
         const res = await fetchWithErrorHandling('/platformadmin/scheduler/jobs/' + jobId + '/toggle', { method: 'POST' });
@@ -627,17 +658,20 @@ async def list_all_jobs(
     session: AsyncSession = Depends(get_db),
 ) -> JobListResponse:
     """List all scheduled jobs across all contexts."""
-    stmt = select(ScheduledJob).order_by(ScheduledJob.next_run_at.asc())
-
-    # Apply pagination
-    stmt = stmt.offset(offset).limit(limit)
+    stmt = (
+        select(ScheduledJob, Context.type.label("context_type"))
+        .join(Context, ScheduledJob.context_id == Context.id)
+        .order_by(ScheduledJob.next_run_at.asc())
+        .offset(offset)
+        .limit(limit)
+    )
 
     result = await session.execute(stmt)
-    jobs = result.scalars().all()
+    rows = result.all()
 
     return JobListResponse(
-        jobs=[_job_to_response(j) for j in jobs],
-        total=len(jobs),
+        jobs=[_job_to_response(job, ctx_type) for job, ctx_type in rows],
+        total=len(rows),
     )
 
 

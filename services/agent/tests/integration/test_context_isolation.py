@@ -23,6 +23,8 @@ from core.db.oauth_models import OAuthToken
 from core.runtime.memory import MemoryRecord, MemoryStore
 from core.runtime.service_factory import ServiceFactory
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.mark.asyncio
 class TestContextIsolation:

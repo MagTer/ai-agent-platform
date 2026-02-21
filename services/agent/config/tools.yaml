@@ -60,3 +60,8 @@
   type: core.tools.wiki_sync.WikiSyncTool
   enabled: true
   description: "Syncs the TIBP corporate wiki from Azure DevOps into the search index."
+
+- name: semantic_eval
+  type: core.tools.semantic_eval.SemanticEvalTool
+  enabled: true
+  description: "Run semantic regression tests for a named golden query category"

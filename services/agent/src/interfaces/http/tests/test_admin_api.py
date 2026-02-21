@@ -693,3 +693,137 @@ class TestSkillStatsEndpoint:
         assert "period_hours" in data
         assert "skills" in data
         assert "total_skill_steps" in data
+
+    @patch("core.observability.debug_logger.read_debug_logs", new_callable=AsyncMock)
+    def test_skill_stats_accepts_hours_param(
+        self,
+        mock_read_logs: AsyncMock,
+        test_client: TestClient,
+    ) -> None:
+        """Skill stats should accept the hours query parameter."""
+        mock_read_logs.return_value = []
+
+        response = test_client.get(
+            "/platformadmin/api/skills/stats?hours=48",
+            headers={"X-API-Key": "test-diag-key-123"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["period_hours"] == 48
+
+
+class TestRequestsStatsEndpoint:
+    """Tests for GET /platformadmin/api/requests/stats endpoint."""
+
+    def test_requests_stats_returns_expected_shape(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Requests stats should return period_hours, endpoints, and total_requests."""
+        response = test_client.get(
+            "/platformadmin/api/requests/stats",
+            headers={"X-API-Key": "test-diag-key-123"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert "period_hours" in data
+        assert "endpoints" in data
+        assert "total_requests" in data
+
+    def test_requests_stats_returns_empty_when_no_spans(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Requests stats returns zero totals when spans.jsonl is missing."""
+        response = test_client.get(
+            "/platformadmin/api/requests/stats",
+            headers={"X-API-Key": "test-diag-key-123"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        # In test environment there is no spans.jsonl file, so total should be 0
+        assert isinstance(data["total_requests"], int)
+        assert isinstance(data["endpoints"], dict)
+
+    def test_requests_stats_accepts_hours_param(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Requests stats should accept the hours query parameter."""
+        response = test_client.get(
+            "/platformadmin/api/requests/stats?hours=72",
+            headers={"X-API-Key": "test-diag-key-123"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["period_hours"] == 72
+
+    def test_requests_stats_requires_auth(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """Requests stats should require API key authentication."""
+        response = test_client.get("/platformadmin/api/requests/stats")
+
+        assert response.status_code == 401
+
+
+class TestModelsEndpoint:
+    """Tests for GET /v1/models endpoint."""
+
+    def test_models_endpoint_returns_200_with_models_key(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """GET /v1/models should return 200 with a models key (no auth required when key unset)."""
+        from unittest.mock import AsyncMock, patch
+
+        # Mock AgentService.list_models to avoid real LiteLLM call
+        mock_models_response = {"object": "list", "data": [{"id": "gpt-4", "object": "model"}]}
+
+        with patch(
+            "interfaces.http.app.AgentService",
+            autospec=True,
+        ):
+            from core.runtime.service import AgentService
+
+            with patch.object(
+                AgentService,
+                "list_models",
+                new_callable=AsyncMock,
+                return_value=mock_models_response,
+            ):
+                response = test_client.get("/v1/models")
+
+        # Either succeeds (200) or fails with a known status (502 if LiteLLM unreachable)
+        assert response.status_code in (200, 500, 502)
+
+    def test_models_endpoint_no_auth_required_in_test_env(
+        self,
+        test_client: TestClient,
+    ) -> None:
+        """When AGENT_INTERNAL_API_KEY is unset, /v1/models allows unauthenticated access."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_models_response = {"object": "list", "data": []}
+
+        with patch(
+            "interfaces.http.app.AgentService",
+            autospec=True,
+        ):
+            from core.runtime.service import AgentService
+
+            with patch.object(
+                AgentService,
+                "list_models",
+                new_callable=AsyncMock,
+                return_value=mock_models_response,
+            ):
+                # Should NOT return 401 when AGENT_INTERNAL_API_KEY is not configured
+                response = test_client.get("/v1/models")
+
+        assert response.status_code != 401

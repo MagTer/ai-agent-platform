@@ -27,6 +27,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from core.auth.credential_service import CredentialService
 from core.mcp.client import McpClient
 
+pytestmark = pytest.mark.integration
+
 LOGGER = logging.getLogger(__name__)
 
 ENCRYPTION_KEY = os.getenv("AGENT_CREDENTIAL_ENCRYPTION_KEY", "")

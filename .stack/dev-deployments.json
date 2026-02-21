@@ -1,13 +1,5 @@
 [
   {
-    "timestamp": "2026-02-19T18:01:02.664409+00:00",
-    "branch": "feature/tibp-ado-wiki-import",
-    "services": [
-      "agent"
-    ],
-    "environment": "development"
-  },
-  {
     "timestamp": "2026-02-19T18:27:38.147368+00:00",
     "branch": "feature/tibp-ado-wiki-import",
     "services": [
@@ -154,6 +146,14 @@
   {
     "timestamp": "2026-02-20T22:19:59.472485+00:00",
     "branch": "feat/conversation-list-improvements",
+    "services": [
+      "agent"
+    ],
+    "environment": "development"
+  },
+  {
+    "timestamp": "2026-02-21T00:08:02.478736+00:00",
+    "branch": "main",
     "services": [
       "agent"
     ],

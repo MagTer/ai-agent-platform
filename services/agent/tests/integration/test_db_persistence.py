@@ -12,6 +12,8 @@ TEST_DB_URL = os.getenv(
     "POSTGRES_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/agent_db"
 )
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture
 async def db_session():
