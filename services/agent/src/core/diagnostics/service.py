@@ -412,7 +412,7 @@ class DiagnosticsService:
             "openwebui": ErrorCode.NET_CONNECTION_REFUSED,
             # New integration test components
             "mcp": ErrorCode.NET_CONNECTION_REFUSED,
-            "oauth": ErrorCode.CONFIG_MISSING,
+            "oauth": ErrorCode.AUTH_TOKEN_EXPIRED,
             "azure": ErrorCode.NET_CONNECTION_REFUSED,
             "credential": ErrorCode.CONFIG_INVALID,
             "price": ErrorCode.DB_CONNECTION_FAILED,
