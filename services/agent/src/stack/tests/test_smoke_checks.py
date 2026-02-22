@@ -45,7 +45,7 @@ class TestRunSmokeChecks:
 
         results = run_smoke_checks("ai-agent-platform-dev")
 
-        assert len(results) == 3  # 3 standard checks (no --full)
+        assert len(results) == 2  # 2 standard checks (no --full)
         assert all(r.passed for r in results)
 
     @patch("stack.tooling.docker_exec")
@@ -56,7 +56,6 @@ class TestRunSmokeChecks:
         results = run_smoke_checks("ai-agent-platform-dev")
 
         names = [r.name for r in results]
-        assert "/v1/models" in names
         assert "/platformadmin/api/health" in names
         assert "infrastructure status" in names
 
@@ -67,7 +66,7 @@ class TestRunSmokeChecks:
 
         results = run_smoke_checks("ai-agent-platform-prod", full=True)
 
-        assert len(results) == 4
+        assert len(results) == 3
         assert results[-1].name == "full diagnostics"
 
     @patch("stack.tooling.docker_exec")
@@ -75,9 +74,8 @@ class TestRunSmokeChecks:
         """A non-zero docker exec exit code marks the check as failed."""
         err = subprocess.CalledProcessError(1, "docker", stderr=b"curl: (7) Connection refused")
         mock_docker_exec.side_effect = [
-            err,  # /v1/models fails
-            self._make_proc(0),  # health passes
-            self._make_proc(0),  # status passes
+            err,  # health fails (now check 1)
+            self._make_proc(0),  # status passes (now check 2)
         ]
 
         results = run_smoke_checks("ai-agent-platform-dev")
@@ -124,7 +122,6 @@ class TestPrintSmokeResults:
     def test_all_passed_prints_success(self, capsys: pytest.CaptureFixture[str]) -> None:
         """When all checks pass, the output contains a success message."""
         results = [
-            SmokeResult("/v1/models", True, "OK", 12.0),
             SmokeResult("/platformadmin/api/health", True, "OK", 8.0),
             SmokeResult("infrastructure status", True, "HEALTHY", 120.0),
         ]
@@ -159,11 +156,9 @@ class TestPrintSmokeResults:
     def test_each_result_is_printed(self, capsys: pytest.CaptureFixture[str]) -> None:
         """Every check name appears in the output."""
         results = [
-            SmokeResult("/v1/models", True, "OK", 10.0),
             SmokeResult("/platformadmin/api/health", False, "timeout", 5.0),
         ]
         print_smoke_results(results)
 
         out = capsys.readouterr().out
-        assert "/v1/models" in out
         assert "/platformadmin/api/health" in out

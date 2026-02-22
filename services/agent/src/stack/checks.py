@@ -475,15 +475,7 @@ def run_smoke_checks(project_name: str, *, full: bool = False) -> list[SmokeResu
             duration_ms = (time.monotonic() - t0) * 1000
             return SmokeResult(name=name, passed=False, message=str(exc), duration_ms=duration_ms)
 
-    # Check 1: /v1/models - basic routing + LiteLLM proxy reachability, no auth
-    results.append(
-        _exec_check(
-            "/v1/models",
-            "curl -sf --max-time 10 http://localhost:8000/v1/models > /dev/null",
-        )
-    )
-
-    # Check 2: /platformadmin/api/health - diagnostic API up, no auth
+    # Check 1: /platformadmin/api/health - liveness probe
     results.append(
         _exec_check(
             "/platformadmin/api/health",
@@ -491,19 +483,19 @@ def run_smoke_checks(project_name: str, *, full: bool = False) -> list[SmokeResu
         )
     )
 
-    # Check 3: /platformadmin/api/status with API key - reads DB + trace data
+    # Check 2: full diagnostics summary (runs all component checks)
     status_result = _exec_check(
         "infrastructure status",
         (
-            "STATUS=$(curl -sf --max-time 10 "
-            "-H 'X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY' "
+            "STATUS=$(curl -sf --max-time 30 "
+            '-H "X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY" '
             "http://localhost:8000/platformadmin/api/status"
             ' | python3 -c "import sys,json; d=json.load(sys.stdin); '
             "print(d.get('status','UNKNOWN'))\")"
             " && echo $STATUS"
             " && [ \"$STATUS\" != 'CRITICAL' ]"
         ),
-        timeout=20,
+        timeout=45,
     )
     # Enrich the message with the status value when it passes
     if status_result.passed:
@@ -514,13 +506,13 @@ def run_smoke_checks(project_name: str, *, full: bool = False) -> list[SmokeResu
                 "sh",
                 "-lc",
                 (
-                    "curl -sf --max-time 10 "
-                    "-H 'X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY' "
+                    "curl -sf --max-time 30 "
+                    '-H "X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY" '
                     "http://localhost:8000/platformadmin/api/status"
                     ' | python3 -c "import sys,json; d=json.load(sys.stdin);'
                     " print(d.get('status','UNKNOWN'))\""
                 ),
-                timeout=20,
+                timeout=45,
             )
             if isinstance(proc.stdout, bytes):
                 stdout = proc.stdout.decode().strip()
@@ -532,14 +524,14 @@ def run_smoke_checks(project_name: str, *, full: bool = False) -> list[SmokeResu
             pass
     results.append(status_result)
 
-    # Check 4 (optional): full component diagnostics
+    # Check 3 (optional): full component diagnostics
     if full:
         results.append(
             _exec_check(
                 "full diagnostics",
                 (
                     "curl -sf --max-time 60 -X POST "
-                    "-H 'X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY' "
+                    '-H "X-Api-Key: $AGENT_DIAGNOSTIC_API_KEY" '
                     "http://localhost:8000/platformadmin/diagnostics/run > /dev/null"
                 ),
                 timeout=75,

@@ -89,6 +89,9 @@ class ErrorCode(str, Enum):
     SKILL_EXECUTION_FAILED = "SKILL_EXECUTION_FAILED"
     SKILL_MAX_TURNS = "SKILL_MAX_TURNS"
 
+    # ---- Auth Errors ----
+    AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED"  # noqa: S105
+
     # ---- Generic Errors ----
     UNKNOWN = "UNKNOWN"
 
@@ -311,6 +314,14 @@ ERROR_METADATA: dict[ErrorCode, ErrorInfo] = {
         category="skill",
         description="Skill reached maximum turn limit without completing",
         recovery_hint="Simplify the goal or increase max_turns if appropriate",
+    ),
+    # Auth Errors
+    ErrorCode.AUTH_TOKEN_EXPIRED: ErrorInfo(
+        code="AUTH_TOKEN_EXPIRED",
+        severity=ErrorSeverity.WARNING,
+        category="auth",
+        description="OAuth token has expired and needs re-authorization",
+        recovery_hint="Re-authorize the integration via Admin Portal -> Context -> OAuth",
     ),
     # Generic
     ErrorCode.UNKNOWN: ErrorInfo(
