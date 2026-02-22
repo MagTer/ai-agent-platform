@@ -1,11 +1,16 @@
 name: Trivy Container Scan
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     paths:
       - 'services/agent/Dockerfile'
       - 'services/agent/pyproject.toml'
       - 'services/agent/poetry.lock'
+  schedule:
+    - cron: '0 4 * * 1'  # Weekly Monday baseline refresh
 
 jobs:
   scan:
