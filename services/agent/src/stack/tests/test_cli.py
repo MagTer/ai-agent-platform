@@ -8,7 +8,7 @@ from typing import Any
 from pytest import MonkeyPatch
 from typer.testing import CliRunner
 
-from stack import checks, cli
+from stack import backup, checks, cli
 
 runner = CliRunner()
 
@@ -382,6 +382,9 @@ def test_dev_deploy_default_uses_no_deps(monkeypatch: MonkeyPatch, tmp_path: Pat
     monkeypatch.setattr(cli.tooling, "ensure_docker", lambda: None)
     monkeypatch.setattr(cli, "_repo_root", lambda: tmp_path)
     monkeypatch.setattr(cli.tooling, "current_branch", lambda path: "main")
+    monkeypatch.setattr(backup, "run_backup", lambda **kwargs: None)
+    monkeypatch.setattr(backup, "check_volume_exists", lambda vol, **kwargs: True)
+    monkeypatch.setattr(backup, "expected_postgres_volume", lambda **kwargs: "fake-vol")
 
     def fake_run_compose(args: list[str], dev: bool = False, **kwargs: Any) -> SimpleNamespace:
         called.setdefault("compose_calls", []).append(args)
@@ -409,6 +412,9 @@ def test_dev_deploy_all_omits_no_deps(monkeypatch: MonkeyPatch, tmp_path: Path) 
     monkeypatch.setattr(cli.tooling, "ensure_docker", lambda: None)
     monkeypatch.setattr(cli, "_repo_root", lambda: tmp_path)
     monkeypatch.setattr(cli.tooling, "current_branch", lambda path: "main")
+    monkeypatch.setattr(backup, "run_backup", lambda **kwargs: None)
+    monkeypatch.setattr(backup, "check_volume_exists", lambda vol, **kwargs: True)
+    monkeypatch.setattr(backup, "expected_postgres_volume", lambda **kwargs: "fake-vol")
 
     def fake_run_compose(args: list[str], dev: bool = False, **kwargs: Any) -> SimpleNamespace:
         called.setdefault("compose_calls", []).append(args)
@@ -454,6 +460,9 @@ def test_deploy_allows_main_branch(monkeypatch: MonkeyPatch, tmp_path: Path) -> 
     monkeypatch.setattr(cli.tooling, "ensure_docker", lambda: None)
     monkeypatch.setattr(cli, "_repo_root", lambda: tmp_path)
     monkeypatch.setattr(cli.tooling, "current_branch", lambda path: "main")
+    monkeypatch.setattr(backup, "run_backup", lambda **kwargs: None)
+    monkeypatch.setattr(backup, "check_volume_exists", lambda vol, **kwargs: True)
+    monkeypatch.setattr(backup, "expected_postgres_volume", lambda **kwargs: "fake-vol")
 
     # Mock quality checks
     monkeypatch.setattr(cli.checks, "ensure_dependencies", lambda: None)
@@ -481,6 +490,9 @@ def test_deploy_force_allows_feature_branch(monkeypatch: MonkeyPatch, tmp_path: 
     monkeypatch.setattr(cli.tooling, "ensure_docker", lambda: None)
     monkeypatch.setattr(cli, "_repo_root", lambda: tmp_path)
     monkeypatch.setattr(cli.tooling, "current_branch", lambda path: "feature/test-branch")
+    monkeypatch.setattr(backup, "run_backup", lambda **kwargs: None)
+    monkeypatch.setattr(backup, "check_volume_exists", lambda vol, **kwargs: True)
+    monkeypatch.setattr(backup, "expected_postgres_volume", lambda **kwargs: "fake-vol")
 
     # Mock quality checks
     monkeypatch.setattr(cli.checks, "ensure_dependencies", lambda: None)
@@ -510,6 +522,9 @@ def test_deploy_skip_checks(monkeypatch: MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli.tooling, "ensure_docker", lambda: None)
     monkeypatch.setattr(cli, "_repo_root", lambda: tmp_path)
     monkeypatch.setattr(cli.tooling, "current_branch", lambda path: "main")
+    monkeypatch.setattr(backup, "run_backup", lambda **kwargs: None)
+    monkeypatch.setattr(backup, "check_volume_exists", lambda vol, **kwargs: True)
+    monkeypatch.setattr(backup, "expected_postgres_volume", lambda **kwargs: "fake-vol")
 
     def fake_run_quality_checks(repo_root: Path) -> None:
         quality_check_called["called"] = True
