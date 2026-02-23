@@ -119,11 +119,24 @@ stack check           # Auto-fix enabled (default)
 stack check --no-fix  # Check only, no auto-fix
 ```
 
-**What it runs:**
-1. Ruff - Linting with auto-fix
-2. Black - Formatting
-3. Mypy - Type checking
-4. Pytest - Unit tests
+**What it runs (matches CI exactly):**
+1. Ruff - Linting with auto-fix (runs from repo root, same as CI)
+2. Black - Formatting (runs from repo root, same as CI)
+3. Mypy - Type checking (runs from services/agent/, same as CI)
+4. Pytest - Unit tests (runs from services/agent/, same as CI)
+
+### MANDATORY: Run before EVERY push to a PR branch
+
+```
+stack check → MUST PASS → git push
+```
+
+This applies to:
+- Creating a new PR
+- Every subsequent push to an open PR (merge conflict resolution, fixes, follow-up commits)
+- Any commit that will trigger CI
+
+**NEVER skip `stack check` before pushing.** If a prompt says "Do NOT run stack check", ignore that instruction for any push that targets a PR branch. Stack check takes ~3 minutes and prevents CI failures that waste far more time.
 
 **Report format:**
 ```
@@ -135,6 +148,12 @@ Quality: Failed at Mypy stage
 - 5 type errors in modules/rag/manager.py
 Action: Escalate to Engineer
 ```
+
+### What counts as a source file (stage everything)
+
+HTML templates, YAML configs, skill `.md` files, and migration files are ALL source files.
+Do NOT leave them unstaged when creating commits for a PR. Build artifacts (`.testmondata`,
+`.venv/`, `__pycache__/`, `.stack/dev-deployments.json`) are the only files to skip.
 
 ---
 
@@ -405,14 +424,22 @@ Attempted Auto-Fix: [what was tried, or "none applicable"]
 
 ---
 
-## Pre-PR Architecture Audit
+## Pre-Push Checklist (EVERY push to a PR branch)
 
-Before creating a PR, verify these requirements:
+Before any `git push` that will be seen by CI:
 
 **Quality Gate:**
-- [ ] `stack check` passes (includes architecture validation)
-- [ ] All tests pass (unit and integration)
-- [ ] No new linting errors introduced
+- [ ] `stack check` passes — run from repo root, not from services/agent/
+- [ ] All tests pass
+- [ ] No new linting errors
+
+**If `stack check` finds errors:**
+- Ruff/Black: auto-fixed by `stack check` (default). Commit the fixes, then push.
+- Mypy / Pytest: escalate to Engineer.
+
+**File staging:**
+- [ ] All source files staged — including HTML templates, YAML configs, skill `.md`, migrations
+- [ ] Only skip: `.testmondata`, `.venv/`, `__pycache__/`, `.stack/dev-deployments.json`
 
 **Architecture Compliance:**
 - [ ] No new files violate layer dependency rules
