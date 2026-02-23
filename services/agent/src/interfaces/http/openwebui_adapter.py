@@ -11,9 +11,6 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from shared.chunk_filter import ChunkFilter
-from shared.sanitize import sanitize_log
-from shared.streaming import VerbosityLevel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.header_auth import extract_user_from_headers
@@ -25,6 +22,9 @@ from core.runtime.service import AgentService
 from core.runtime.service_factory import ServiceFactory
 from interfaces.base import PlatformAdapter
 from orchestrator.dispatcher import Dispatcher
+from shared.chunk_filter import ChunkFilter
+from shared.sanitize import sanitize_log
+from shared.streaming import VerbosityLevel
 
 LOGGER = logging.getLogger(__name__)
 

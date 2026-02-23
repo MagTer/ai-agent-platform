@@ -6,10 +6,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from shared.models import AgentMessage, AgentRequest, Plan
 
 from core.agents.planner import MAX_PROMPT_LENGTH, PlannerAgent, _sanitize_user_input
 from core.tests.mocks import MockLLMClient
+from shared.models import AgentMessage, AgentRequest, Plan
 
 
 def _llm(planner: PlannerAgent) -> MockLLMClient:

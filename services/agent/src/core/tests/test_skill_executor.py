@@ -7,10 +7,10 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from shared.models import AgentRequest, PlanStep
 
 from core.skills.executor import SkillExecutor
 from core.skills.registry import SkillRegistry
+from shared.models import AgentRequest, PlanStep
 
 
 @pytest.fixture

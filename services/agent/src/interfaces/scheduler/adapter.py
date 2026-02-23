@@ -16,7 +16,6 @@ import uuid
 from datetime import UTC, datetime
 
 from croniter import croniter
-from shared.models import AgentRequest
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -24,6 +23,7 @@ from core.db.models import ScheduledJob
 from core.protocols.email import EmailMessage
 from core.providers import get_email_service_optional
 from core.runtime.service_factory import ServiceFactory
+from shared.models import AgentRequest
 
 LOGGER = logging.getLogger(__name__)
 

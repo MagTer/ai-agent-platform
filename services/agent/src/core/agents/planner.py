@@ -9,12 +9,12 @@ from typing import Any
 
 import orjson
 from pydantic import ValidationError
-from shared.models import AgentMessage, AgentRequest, Plan, PlanStep
 
 from core.models.pydantic_schemas import PlanEvent, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
 from core.runtime.litellm_client import LiteLLMClient
+from shared.models import AgentMessage, AgentRequest, Plan, PlanStep
 
 LOGGER = logging.getLogger(__name__)
 

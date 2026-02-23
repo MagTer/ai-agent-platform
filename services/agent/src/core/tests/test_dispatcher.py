@@ -6,7 +6,6 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from shared.models import AgentMessage, Plan, PlanStep, RoutingDecision
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.models import Context, Conversation, Session
@@ -15,6 +14,7 @@ from core.runtime.litellm_client import LiteLLMClient
 from core.runtime.service import AgentService
 from core.skills.registry import Skill, SkillRegistry
 from orchestrator.dispatcher import Dispatcher
+from shared.models import AgentMessage, Plan, PlanStep, RoutingDecision
 
 
 @pytest.fixture

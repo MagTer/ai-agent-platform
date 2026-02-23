@@ -1,4 +1,5 @@
 import pytest
+
 from utils.template import substitute_variables
 
 

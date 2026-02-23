@@ -5,9 +5,8 @@ Revises: 20260221_ado_team_configs
 Create Date: 2026-02-22 14:00:00.000000
 """
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 revision: str = "20260222_display_name_contexts"
 down_revision: str | None = "20260221_ado_team_configs"

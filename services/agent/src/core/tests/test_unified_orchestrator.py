@@ -5,9 +5,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from shared.models import AgentMessage
 
 from core.routing.unified_orchestrator import UnifiedOrchestrator
+from shared.models import AgentMessage
 
 
 @pytest.fixture

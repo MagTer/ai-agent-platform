@@ -17,6 +17,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from core.observability.tracing import (
+    set_span_attributes,
+    set_span_status,
+    start_span,
+)
+from core.tools.activity_hints import build_activity_message
 from shared.models import (
     AgentMessage,
     AgentRequest,
@@ -24,13 +30,6 @@ from shared.models import (
     PlanStep,
     StepResult,
 )
-
-from core.observability.tracing import (
-    set_span_attributes,
-    set_span_status,
-    start_span,
-)
-from core.tools.activity_hints import build_activity_message
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
