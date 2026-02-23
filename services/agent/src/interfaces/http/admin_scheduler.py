@@ -11,6 +11,7 @@ from uuid import UUID
 from croniter import croniter
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +20,6 @@ from core.db.models import Context, ScheduledJob
 from interfaces.http.admin_auth import AdminUser, require_admin_or_redirect, verify_admin_user
 from interfaces.http.admin_shared import UTF8HTMLResponse, render_admin_page
 from interfaces.http.csrf import require_csrf
-from shared.sanitize import sanitize_log
 
 LOGGER = logging.getLogger(__name__)
 

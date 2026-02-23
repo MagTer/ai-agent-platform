@@ -10,12 +10,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
 
 from core.agents.executor import TOOL_TIMEOUT_SECONDS, StepExecutorAgent
 from core.runtime.memory import MemoryRecord, MemoryStore
 from core.tests.mocks import MockLLMClient
 from core.tools.base import Tool
-from shared.models import AgentMessage, AgentRequest, PlanStep, StepResult
 
 
 @pytest.fixture

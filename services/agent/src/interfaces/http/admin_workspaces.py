@@ -12,6 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +20,6 @@ from core.db.engine import get_db
 from core.db.models import Context, Workspace
 from interfaces.http.admin_auth import verify_admin_user
 from interfaces.http.csrf import require_csrf
-from shared.sanitize import sanitize_log
 
 LOGGER = logging.getLogger(__name__)
 

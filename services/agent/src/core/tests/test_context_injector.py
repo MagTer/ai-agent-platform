@@ -4,10 +4,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from shared.models import AgentMessage
 
 from core.context.files import CONTEXT_DATA_BASE, ensure_context_directories
 from core.runtime.context_injector import ContextInjector
-from shared.models import AgentMessage
 
 
 @pytest.mark.asyncio

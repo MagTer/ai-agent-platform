@@ -7,6 +7,7 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from shared.models import AgentMessage, AgentRequest
 
 from core.db import Context, Conversation
 from core.runtime.config import Settings
@@ -15,7 +16,6 @@ from core.runtime.memory import MemoryRecord, MemoryStore
 from core.runtime.service import AgentService
 from core.tools import ToolRegistry
 from core.tools.base import Tool
-from shared.models import AgentMessage, AgentRequest
 
 
 class MockLiteLLMClient(LiteLLMClient):
