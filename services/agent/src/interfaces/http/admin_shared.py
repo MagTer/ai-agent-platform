@@ -664,7 +664,14 @@ def render_admin_page(
                     let errorMsg = 'Request failed: ' + response.status;
                     try {
                         const errorData = await response.json();
-                        errorMsg = errorData.detail || errorData.message || errorMsg;
+                        const detail = errorData.detail || errorData.message;
+                        if (detail) {
+                            if (Array.isArray(detail)) {
+                                errorMsg = detail.map(e => e.msg || String(e)).join('; ');
+                            } else {
+                                errorMsg = String(detail);
+                            }
+                        }
                     } catch {
                         errorMsg = await response.text() || errorMsg;
                     }
