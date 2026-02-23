@@ -23,7 +23,7 @@ from core.auth.admin_session import (
     verify_admin_jwt,
 )
 from core.db.engine import get_db
-from core.db.models import User
+from core.db.models import Context, User, UserContext
 from core.observability.security_logger import (
     AUTH_FAILURE,
     AUTH_SUCCESS,
@@ -388,6 +388,25 @@ async def oauth_callback(
             is_active=True,
         )
         session.add(db_user)
+        await session.flush()  # Get db_user.id
+
+        # Auto-provision personal context (same as get_or_create_user)
+        context = Context(
+            name=f"Personal - {email}",
+            type="personal",
+            config={"owner_email": email},
+            default_cwd="/tmp",  # noqa: S108
+        )
+        session.add(context)
+        await session.flush()  # Get context.id
+
+        user_context = UserContext(
+            user_id=db_user.id,
+            context_id=context.id,
+            role="owner",
+            is_default=True,
+        )
+        session.add(user_context)
         await session.flush()
 
         LOGGER.info(f"Created new user from Entra ID: {email} (role={resolved_role})")
@@ -425,6 +444,31 @@ async def oauth_callback(
                 },
                 severity="INFO",
             )
+
+    # Ensure the user has a personal context — covers existing users who lost
+    # their context (e.g. DB mishap) and legacy users created before auto-provisioning.
+    existing_ctx = await session.execute(
+        select(UserContext).where(UserContext.user_id == db_user.id)
+    )
+    if not existing_ctx.scalar_one_or_none():
+        context = Context(
+            name=f"Personal - {email}",
+            type="personal",
+            config={"owner_email": email},
+            default_cwd="/tmp",  # noqa: S108
+        )
+        session.add(context)
+        await session.flush()
+        session.add(
+            UserContext(
+                user_id=db_user.id,
+                context_id=context.id,
+                role="owner",
+                is_default=True,
+            )
+        )
+        await session.flush()
+        LOGGER.info("Auto-provisioned missing personal context for existing user: %s", email)
 
     await session.commit()
 

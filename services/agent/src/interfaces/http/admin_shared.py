@@ -548,7 +548,7 @@ def get_admin_header_html(
                 <div class="user-avatar">{user_initial}</div>
                 <span>{safe_name}</span>
             </div>
-            <a href="/" class="logout-link">Exit Admin</a>
+            <a href="/platformadmin/auth/logout" class="logout-link">Exit Admin</a>
         </div>
     </header>
     """
@@ -664,7 +664,14 @@ def render_admin_page(
                     let errorMsg = 'Request failed: ' + response.status;
                     try {
                         const errorData = await response.json();
-                        errorMsg = errorData.detail || errorData.message || errorMsg;
+                        const detail = errorData.detail || errorData.message;
+                        if (detail) {
+                            if (Array.isArray(detail)) {
+                                errorMsg = detail.map(e => e.msg || String(e)).join('; ');
+                            } else {
+                                errorMsg = String(detail);
+                            }
+                        }
                     } catch {
                         errorMsg = await response.text() || errorMsg;
                     }
