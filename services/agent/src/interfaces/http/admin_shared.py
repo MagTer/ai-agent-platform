@@ -548,7 +548,7 @@ def get_admin_header_html(
                 <div class="user-avatar">{user_initial}</div>
                 <span>{safe_name}</span>
             </div>
-            <a href="/" class="logout-link">Exit Admin</a>
+            <a href="/platformadmin/auth/logout" class="logout-link">Exit Admin</a>
         </div>
     </header>
     """
