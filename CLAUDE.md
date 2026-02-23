@@ -210,15 +210,29 @@ All agent instructions are in `.claude/agents/*.md`:
 
 ## Quality Gate (MANDATORY)
 
-Before completing ANY code changes:
+**`stack check` must pass before EVERY push to a PR branch** — not just when first creating
+the PR. This includes merge conflict resolution commits, follow-up fix commits, and any other
+push that CI will see.
 
 ```bash
-stack check
+stack check           # Run from repo root with auto-fix (default)
+stack check --no-fix  # CI-style check-only mode
 ```
 
-This runs: Ruff → Black → Mypy → Pytest
+This runs (matching CI exactly): Ruff → Black → Mypy → Pytest
 
-Use `stack check --no-fix` for CI-style check-only mode.
+**Never include "Do NOT run stack check" in ops agent prompts for any PR push.**
+Stack check takes ~3 minutes; a CI failure costs far more time to diagnose and fix.
+
+### What counts as a source file
+
+All of the following must be staged before pushing — they are **source files, not artifacts**:
+- Python (`.py`) — always
+- HTML templates (`templates/*.html`)
+- YAML configs (`config/tools.yaml`, skill `.md` files)
+- Alembic migrations (`alembic/versions/*.py`)
+
+Build artifacts to skip: `.testmondata`, `.venv/`, `__pycache__/`, `.stack/dev-deployments.json`
 
 **If this fails, you MUST fix errors. No exceptions.**
 
