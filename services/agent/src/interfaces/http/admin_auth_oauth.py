@@ -445,6 +445,31 @@ async def oauth_callback(
                 severity="INFO",
             )
 
+    # Ensure the user has a personal context — covers existing users who lost
+    # their context (e.g. DB mishap) and legacy users created before auto-provisioning.
+    existing_ctx = await session.execute(
+        select(UserContext).where(UserContext.user_id == db_user.id)
+    )
+    if not existing_ctx.scalar_one_or_none():
+        context = Context(
+            name=f"Personal - {email}",
+            type="personal",
+            config={"owner_email": email},
+            default_cwd="/tmp",  # noqa: S108
+        )
+        session.add(context)
+        await session.flush()
+        session.add(
+            UserContext(
+                user_id=db_user.id,
+                context_id=context.id,
+                role="owner",
+                is_default=True,
+            )
+        )
+        await session.flush()
+        LOGGER.info("Auto-provisioned missing personal context for existing user: %s", email)
+
     await session.commit()
 
     # Check if user is admin
