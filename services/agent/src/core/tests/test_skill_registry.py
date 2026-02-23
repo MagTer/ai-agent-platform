@@ -11,6 +11,45 @@ import pytest
 from core.skills.registry import Skill, SkillRegistry
 
 
+def test_list_all_skills_returns_metadata(tmp_path: Path) -> None:
+    """Test that list_all_skills returns serializable skill metadata."""
+    # Create test skill directory structure
+    general_dir = tmp_path / "general"
+    general_dir.mkdir()
+    skill_file = general_dir / "test_skill.md"
+    skill_file.write_text(
+        "---\n"
+        "name: test_skill\n"
+        "description: A test skill\n"
+        "model: agentchat\n"
+        "tools: [web_search]\n"
+        "max_turns: 5\n"
+        "---\n\n"
+        "# Test Skill\n\nInstructions here.\n",
+        encoding="utf-8",
+    )
+
+    registry = SkillRegistry(tool_registry=None, skills_dir=tmp_path)
+    result = registry.list_all_skills()
+
+    assert len(result) == 1
+    skill_info = result[0]
+    assert skill_info["name"] == "test_skill"
+    assert skill_info["description"] == "A test skill"
+    assert skill_info["model"] == "agentchat"
+    assert skill_info["tools"] == ["web_search"]
+    assert skill_info["max_turns"] == 5
+    assert skill_info["category"] == "general"
+    assert skill_info["file_name"] == "test_skill.md"
+
+
+def test_list_all_skills_empty_registry(tmp_path: Path) -> None:
+    """Test that list_all_skills returns empty list for empty registry."""
+    registry = SkillRegistry(tool_registry=None, skills_dir=tmp_path)
+    result = registry.list_all_skills()
+    assert result == []
+
+
 class TestSkill:
     """Tests for the Skill dataclass."""
 

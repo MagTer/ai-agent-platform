@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 from shared.sanitize import sanitize_log
 from sqlalchemy import desc, distinct, func, select
@@ -1674,6 +1674,165 @@ async def list_context_skills(
     skills.sort(key=lambda s: cast(str, s["name"]))
 
     return {"skills": skills, "total": len(skills)}
+
+
+@router.get(
+    "/{context_id}/api/global-skills",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def list_global_skills(
+    context_id: UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """List all global (repo) skills with override status for this context.
+
+    Args:
+        context_id: Context UUID (to check for overrides)
+        request: FastAPI request (to access app state)
+        session: Database session
+
+    Returns:
+        List of global skills with override indicators
+
+    Security:
+        Requires admin role via Entra ID authentication.
+    """
+    from core.context.files import get_context_dir
+
+    # Verify context exists
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    # Get global skill registry from app state
+    factory = request.app.state.service_factory
+    global_registry = factory._skill_registry
+    if global_registry is None:
+        return {"skills": [], "total": 0}
+
+    global_skills = global_registry.list_all_skills()
+
+    # Check which global skills have context overrides
+    context_dir = get_context_dir(context_id)
+    skills_dir = context_dir / "skills"
+
+    # Load context skill names for override detection
+    context_skill_names: set[str] = set()
+    if skills_dir.exists():
+        from core.skills.registry import parse_skill_content
+
+        for file_path in skills_dir.iterdir():
+            if file_path.is_file() and file_path.suffix == ".md":
+                try:
+                    content = file_path.read_text(encoding="utf-8")
+                    skill_obj = parse_skill_content(file_path, content, skills_dir)
+                    if skill_obj:
+                        context_skill_names.add(skill_obj.name)
+                except Exception as exc:  # noqa: BLE001
+                    LOGGER.debug("Skipping unreadable context skill %s: %s", file_path.name, exc)
+
+    # Annotate global skills with override status
+    for skill in global_skills:
+        skill["has_override"] = skill["name"] in context_skill_names
+
+    return {"skills": global_skills, "total": len(global_skills)}
+
+
+@router.post(
+    "/{context_id}/api/global-skills/{skill_name}/fork",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def fork_global_skill(
+    context_id: UUID,
+    skill_name: str,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Fork a global skill into the context for customization.
+
+    Copies the global skill's raw content to the context skills directory.
+    The context skill will then override the global skill (same name in frontmatter).
+
+    Args:
+        context_id: Context UUID
+        skill_name: Global skill name (from frontmatter)
+        request: FastAPI request (to access app state)
+        session: Database session
+
+    Returns:
+        Success message with created file name
+
+    Raises:
+        HTTPException: 404 if context or skill not found
+        HTTPException: 409 if context override already exists
+
+    Security:
+        Requires admin role via Entra ID authentication.
+        CSRF protection for mutation.
+    """
+    from core.context.files import ensure_context_directories, get_context_dir
+
+    # Security: validate skill_name (no path traversal)
+    if "/" in skill_name or ".." in skill_name or "\\" in skill_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid skill name",
+        )
+
+    # Verify context exists
+    stmt = select(Context).where(Context.id == context_id)
+    result = await session.execute(stmt)
+    if not result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Context not found")
+
+    # Get global skill
+    factory = request.app.state.service_factory
+    global_registry = factory._skill_registry
+    if global_registry is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Skill registry not available"
+        )
+
+    skill = global_registry.get(skill_name)
+    if skill is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Global skill '{skill_name}' not found",
+        )
+
+    # Check if context already has an override (by filename)
+    context_dir = get_context_dir(context_id)
+    skills_dir = context_dir / "skills"
+    target_file = skills_dir / skill.path.name
+
+    if target_file.exists():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Context already has a skill file '{skill.path.name}'. Delete it first or edit it directly.",
+        )
+
+    # Copy raw content to context skills directory
+    context_dir = ensure_context_directories(context_id)
+    skills_dir = context_dir / "skills"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    target_file = skills_dir / skill.path.name
+
+    target_file.write_text(skill.raw_content, encoding="utf-8")
+
+    LOGGER.info(
+        "Admin forked global skill '%s' to context %s as %s",
+        sanitize_log(skill_name),
+        sanitize_log(context_id),
+        sanitize_log(skill.path.name),
+    )
+
+    return {
+        "success": True,
+        "message": f"Forked '{skill_name}' to context",
+        "file_name": skill.path.name,
+    }
 
 
 @router.get(
