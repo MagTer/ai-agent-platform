@@ -431,6 +431,41 @@ class SkillRegistry:
         names.update(self._by_path.keys())
         return names
 
+    def list_all_skills(self) -> list[dict[str, object]]:
+        """List all registered skills with metadata for admin display.
+
+        Returns a list of serializable dicts suitable for JSON responses.
+        Each dict contains: name, description, model, tools, max_turns, category.
+
+        Returns:
+            List of skill metadata dictionaries.
+        """
+        result: list[dict[str, object]] = []
+        for skill in sorted(self._skills.values(), key=lambda s: s.name):
+            # Derive category from the skill's path relative to skills_dir
+            # e.g., skills/general/researcher.md -> "general"
+            category = "unknown"
+            try:
+                rel = skill.path.relative_to(self._skills_dir)
+                parts = rel.parts
+                if len(parts) > 1:
+                    category = parts[0]
+            except ValueError:
+                pass
+
+            result.append(
+                {
+                    "name": skill.name,
+                    "file_name": skill.path.name,
+                    "description": skill.description,
+                    "model": skill.model,
+                    "tools": skill.tools,
+                    "max_turns": skill.max_turns,
+                    "category": category,
+                }
+            )
+        return result
+
     def validate_skill(self, name: str) -> tuple[bool, str]:
         """Validate a skill name and return validation status.
 

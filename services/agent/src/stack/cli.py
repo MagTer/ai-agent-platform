@@ -30,6 +30,8 @@ app.add_typer(openwebui_app, name="openwebui")
 app.add_typer(db_app, name="db")
 app.add_typer(qdrant.app, name="qdrant")
 app.add_typer(auth.app, name="login")
+backup_app = typer.Typer(help="Database backup and restore commands.")
+app.add_typer(backup_app, name="backup")
 
 
 def _ensure_text(value: str | bytes | None) -> str:
@@ -695,6 +697,18 @@ def dev_deploy(
     Use --all when .env changes affect Open WebUI or other services.
     """
     tooling.ensure_docker()
+
+    # Pre-deploy backup
+    from stack.backup import check_volume_exists, expected_postgres_volume, run_backup
+
+    # Volume existence check
+    expected_vol = expected_postgres_volume(dev=True)
+    check_volume_exists(expected_vol, warn_label="dev postgres")
+
+    # Automatic backup before deploy
+    console.print("[cyan]Running pre-deploy database backup...[/cyan]")
+    run_backup(dev=True)
+
     services = list(service) if service else ["agent"]
 
     if all_services:
@@ -1006,6 +1020,17 @@ def deploy(
             console.print(f"[bold red]✗ Quality checks failed: {exc}[/bold red]")
             console.print("[yellow]Use --skip-checks to bypass (not recommended)[/yellow]")
             raise typer.Exit(code=1) from exc
+
+    # Step 1.5: Pre-deploy backup
+    from stack.backup import check_volume_exists, expected_postgres_volume, run_backup
+
+    # Volume existence check
+    expected_vol = expected_postgres_volume(prod=True)
+    check_volume_exists(expected_vol, warn_label="prod postgres")
+
+    # Automatic backup before deploy
+    console.print("[cyan]Running pre-deploy database backup...[/cyan]")
+    run_backup(prod=True)
 
     # Step 2: Determine services to rebuild
     services_to_build = list(service) if service else ["agent"]
@@ -1845,6 +1870,126 @@ def db_history(
         capture_output=False,
         timeout=30,
     )
+
+
+# =============================================================================
+# BACKUP COMMANDS
+# =============================================================================
+
+
+@backup_app.callback(invoke_without_command=True)
+def backup_default(
+    ctx: typer.Context,
+    prod: bool = typer.Option(False, "--prod", help="Backup production database."),
+    dev: bool = typer.Option(False, "--dev", help="Backup development database."),
+    retention: int = typer.Option(5, "--retention", "-n", help="Number of backups to keep."),
+) -> None:
+    """Create a database backup (default: production).
+
+    Example:
+        stack backup              # Backup prod (default)
+        stack backup --dev        # Backup dev
+        stack backup --retention 10  # Keep last 10
+    """
+    # If a subcommand was invoked, skip the default behavior
+    if ctx.invoked_subcommand is not None:
+        return
+
+    from stack.backup import run_backup
+
+    if not prod and not dev:
+        prod = True  # Default to prod
+
+    result = run_backup(prod=prod, dev=dev, retention=retention)
+    if result is None:
+        console.print("[yellow]Backup was not created (see warnings above).[/yellow]")
+        raise typer.Exit(code=1)
+    console.print(f"[bold green]Backup complete: {result}[/bold green]")
+
+
+@backup_app.command("restore")
+def backup_restore(
+    file: Path = typer.Argument(..., help="Path to the backup file (.sql.gz)."),
+    prod: bool = typer.Option(False, "--prod", help="Restore to production database."),
+    dev: bool = typer.Option(False, "--dev", help="Restore to development database."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt."),
+) -> None:
+    """Restore a database backup.
+
+    Example:
+        stack backup restore data/backups/prod_20260223_172400.sql.gz
+        stack backup restore data/backups/dev_20260223_172400.sql.gz --dev
+    """
+    from stack.backup import BACKUP_DIR, restore_backup
+
+    tooling.ensure_docker()
+
+    # Resolve relative paths against backup dir
+    backup_path = file if file.is_absolute() else (BACKUP_DIR / file)
+    if not backup_path.exists():
+        # Try project root
+        backup_path = _repo_root() / file
+    if not backup_path.exists():
+        console.print(f"[red]Backup file not found: {file}[/red]")
+        console.print(f"[dim]Searched: {BACKUP_DIR}, {_repo_root()}[/dim]")
+        raise typer.Exit(code=1)
+
+    if not prod and not dev:
+        # Infer from filename
+        if backup_path.name.startswith("dev_"):
+            dev = True
+        else:
+            prod = True
+
+    env_label = "PRODUCTION" if prod else "DEVELOPMENT"
+
+    if not yes:
+        response = input(
+            f"This will restore {backup_path.name} to the {env_label} database. "
+            f"Continue? [y/N]: "
+        )
+        if response.strip().lower() != "y":
+            console.print("[yellow]Restore cancelled.[/yellow]")
+            return
+
+    success = restore_backup(backup_path, prod=prod, dev=dev)
+    if not success:
+        raise typer.Exit(code=1)
+    console.print("[bold green]Restore complete.[/bold green]")
+
+
+@backup_app.command("list")
+def backup_list() -> None:
+    """List available database backups.
+
+    Example:
+        stack backup list
+    """
+    from stack.backup import BACKUP_DIR, list_backups
+
+    backups = list_backups()
+    if not backups:
+        console.print(f"[yellow]No backups found in {BACKUP_DIR}[/yellow]")
+        return
+
+    table = Table()
+    table.add_column("File")
+    table.add_column("Size")
+    table.add_column("Date")
+
+    for backup in backups:
+        size_mb = backup.stat().st_size / (1024 * 1024)
+        # Parse timestamp from filename: env_YYYYMMDD_HHMMSS.sql.gz
+        name_parts = backup.stem.replace(".sql", "").split("_")
+        if len(name_parts) >= 3:
+            d = name_parts[1]
+            t = name_parts[2]
+            date_str = f"{d[:4]}-{d[4:6]}-{d[6:8]} {t[:2]}:{t[2:4]}:{t[4:6]}"
+        else:
+            date_str = "unknown"
+        table.add_row(backup.name, f"{size_mb:.1f} MB", date_str)
+
+    console.print(table)
 
 
 __all__ = ["app"]

@@ -473,6 +473,9 @@ input:checked + .toggle-slider:before { transform: translateX(20px); }
 .tools-checkboxes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .tools-checkboxes label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .tools-checkboxes input[type="checkbox"] { width: auto; padding: 0; margin: 0; }
+.global-skill-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.global-skill-row:last-child { border-bottom: none; }
+.global-skill-row.has-override { opacity: 0.7; }
 
 <!-- SECTION_SEPARATOR -->
 const CONTEXT_ID = '__CONTEXT_ID__';
@@ -1517,27 +1520,101 @@ let skillListCache = [];
 
 async function loadSkills() {
     const card = document.getElementById('skillsCard');
-    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/api/skills');
-    if (!res) { card.innerHTML = '<div class="empty-state">Failed to load skills</div>'; return; }
-    const data = await res.json();
-    skillListCache = data.skills || [];
 
-    let html = '<div class="card-header"><span class="card-title">Context Skills (' + skillListCache.length + ')</span>';
+    // Fetch both global and context skills in parallel
+    const [globalRes, contextRes] = await Promise.all([
+        fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/api/global-skills'),
+        fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/api/skills')
+    ]);
+
+    if (!globalRes && !contextRes) {
+        card.innerHTML = '<div class="empty-state">Failed to load skills</div>';
+        return;
+    }
+
+    const globalData = globalRes ? await globalRes.json() : { skills: [] };
+    const contextData = contextRes ? await contextRes.json() : { skills: [] };
+    const globalSkills = globalData.skills || [];
+    skillListCache = contextData.skills || [];
+
+    // Build context skill name set for override detection
+    const contextSkillNames = new Set();
+    skillListCache.forEach(function(s) {
+        // Use parsed frontmatter name if available, otherwise filename without .md
+        const parsedName = s.description !== undefined ? s.name : s.name.replace('.md', '');
+        contextSkillNames.add(parsedName);
+    });
+
+    let html = '';
+
+    // --- Global Skills Catalog ---
+    html += '<div class="card-header"><span class="card-title">Global Skills Catalog (' + globalSkills.length + ')</span>';
+    html += '<span style="font-size: 12px; color: var(--text-muted); margin-left: 8px;">Read-only -- repo-managed</span></div>';
+
+    if (globalSkills.length === 0) {
+        html += '<div class="empty-state">No global skills loaded</div>';
+    } else {
+        // Group by category
+        const categories = {};
+        globalSkills.forEach(function(s) {
+            const cat = s.category || 'other';
+            if (!categories[cat]) categories[cat] = [];
+            categories[cat].push(s);
+        });
+
+        Object.keys(categories).sort().forEach(function(cat) {
+            html += '<div style="margin-bottom: 8px;">';
+            html += '<div style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 0 4px 0;">' + escapeHtml(cat) + '</div>';
+            categories[cat].forEach(function(s) {
+                const hasOverride = s.has_override;
+                const desc = s.description ? escapeHtml(s.description.substring(0, 80)) + (s.description.length > 80 ? '...' : '') : 'No description';
+                const modelBadge = s.model ? '<span class="badge badge-info">' + s.model + '</span>' : '';
+                const toolsBadge = s.tools && s.tools.length > 0 ? '<span class="badge badge-warning">' + s.tools.length + ' tools</span>' : '';
+                const overrideBadge = hasOverride ? '<span class="badge" style="background: #fef3c7; color: #92400e;">OVERRIDDEN</span>' : '';
+
+                html += '<div class="global-skill-row' + (hasOverride ? ' has-override' : '') + '">';
+                html += '<div style="flex: 1;">';
+                html += '<div><span style="font-weight: 500;">' + escapeHtml(s.name) + '</span> ' + modelBadge + toolsBadge + ' ' + overrideBadge + '</div>';
+                html += '<div style="font-size: 12px; color: var(--text-muted);">' + desc + '</div>';
+                html += '</div>';
+                html += '<div style="display: flex; gap: 4px; align-items: center;">';
+                if (hasOverride) {
+                    html += '<button class="btn btn-sm" style="background: #fef3c7; color: #92400e; border-color: #f59e0b;" onclick="resetSkillToGlobal(\'' + escapeHtml(s.name) + '\', \'' + escapeHtml(s.file_name) + '\')">Reset to Global</button>';
+                } else {
+                    html += '<button class="btn btn-sm btn-primary" onclick="forkSkillToContext(\'' + escapeHtml(s.name) + '\')">Fork to Context</button>';
+                }
+                html += '</div>';
+                html += '</div>';
+            });
+            html += '</div>';
+        });
+    }
+
+    // --- Divider ---
+    html += '<div style="border-top: 2px solid var(--border); margin: 16px 0;"></div>';
+
+    // --- Context Skills (existing behavior) ---
+    html += '<div class="card-header"><span class="card-title">Context Skills (' + skillListCache.length + ')</span>';
     html += '<button class="btn btn-sm btn-primary" onclick="showNewSkillModal()">+ New Skill</button>';
     html += '</div>';
 
     if (skillListCache.length === 0) {
-        html += '<div class="empty-state">No skills in this context</div>';
+        html += '<div class="empty-state">No custom skills in this context</div>';
     } else {
         html += skillListCache.map(function(s) {
             const sizeKB = (s.size / 1024).toFixed(1);
             const desc = s.description ? escapeHtml(s.description.substring(0, 60)) + (s.description.length > 60 ? '...' : '') : 'No description';
             const modelBadge = s.model ? '<span class="badge badge-info">' + s.model + '</span>' : '';
             const toolsBadge = s.tools ? '<span class="badge badge-warning">' + s.tools.length + ' tools</span>' : '';
+
+            // Check if this context skill overrides a global skill
+            const overridesGlobal = globalSkills.some(function(gs) { return gs.name === s.name.replace('.md', '') || gs.file_name === s.name; });
+            const overrideBadge = overridesGlobal ? '<span class="badge" style="background: #fef3c7; color: #92400e;">OVERRIDES GLOBAL</span>' : '';
+
             return '<div class="skill-row" id="skill-row-' + escapeHtml(s.name) + '" onclick="selectSkill(\'' + escapeHtml(s.name) + '\')">' +
                 '<div>' +
-                '<div><span style="font-weight: 500;">' + escapeHtml(s.name) + '</span>' + modelBadge + toolsBadge + '</div>' +
-                '<div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">' + desc + '</div>' +
+                '<div><span style="font-weight: 500;">' + escapeHtml(s.name) + '</span>' + modelBadge + toolsBadge + ' ' + overrideBadge + '</div>' +
+                '<div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">' + desc + ' (' + sizeKB + ' KB)</div>' +
                 '</div>' +
                 '<div style="display: flex; gap: 4px; align-items: center;" onclick="event.stopPropagation();">' +
                 '<button class="btn btn-sm btn-danger" onclick="deleteSkill(\'' + escapeHtml(s.name) + '\')">Delete</button>' +
@@ -1729,6 +1806,33 @@ async function submitNewSkill(e) {
         loadedTabs['skills'] = false;
         await loadSkills();
         selectSkill(fileName);
+    }
+}
+
+async function forkSkillToContext(skillName) {
+    if (!confirm('Fork global skill "' + skillName + '" to this context for customization?')) return;
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/api/global-skills/' + encodeURIComponent(skillName) + '/fork', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    });
+    if (res) {
+        const data = await res.json();
+        showToast('Skill forked: ' + (data.file_name || skillName), 'success');
+        loadedTabs['skills'] = false;
+        loadSkills();
+    }
+}
+
+async function resetSkillToGlobal(skillName, fileName) {
+    if (!confirm('Reset "' + skillName + '" to the global version? This will DELETE the context override file "' + fileName + '". The global skill will take effect again.')) return;
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/api/skills/' + encodeURIComponent(fileName), { method: 'DELETE' });
+    if (res) {
+        showToast('Reset to global: ' + skillName, 'success');
+        if (currentSkill === fileName) {
+            currentSkill = null;
+        }
+        loadedTabs['skills'] = false;
+        loadSkills();
     }
 }
 
