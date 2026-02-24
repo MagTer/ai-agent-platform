@@ -83,6 +83,7 @@ class _NoOpSpan:
     attributes: dict[str, Any] = {}
     start_time: int | None = None
     end_time: int | None = None
+    events: tuple[Any, ...] = ()  # Empty events tuple for compatibility
 
     def __enter__(self) -> _NoOpSpan:  # pragma: no cover - trivial
         return self
@@ -253,6 +254,21 @@ class _FileSpanExporter(SpanExporter):
             elif span and hasattr(span, "attributes"):
                 status_name = str(span.attributes.get("status", "UNSET"))
 
+            # Extract span events (debug events, exceptions, etc.)
+            raw_events = getattr(span, "events", None) or ()
+            events_list: list[dict[str, Any]] = []
+            for evt in raw_events:
+                evt_attrs = dict(getattr(evt, "attributes", {}) or {})
+                evt_ts = getattr(evt, "timestamp", None)
+                evt_iso = datetime.utcfromtimestamp(evt_ts / 1e9).isoformat() if evt_ts else None
+                events_list.append(
+                    {
+                        "name": getattr(evt, "name", ""),
+                        "timestamp": evt_iso,
+                        "attributes": evt_attrs,
+                    }
+                )
+
             record = {
                 "name": getattr(span, "name", "unknown"),
                 "context": {
@@ -270,6 +286,7 @@ class _FileSpanExporter(SpanExporter):
                 ),
                 "duration_ms": duration_ms,
                 "status": status_name,
+                "events": events_list,
             }
             records.append(record)
 

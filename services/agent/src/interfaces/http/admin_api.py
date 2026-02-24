@@ -250,6 +250,7 @@ class SpanDetail(BaseModel):
     duration_ms: float
     status: str
     attributes: dict[str, Any]
+    events: list[dict[str, Any]] = []  # Span events (debug events, exceptions, etc.)
 
 
 class TraceDetail(BaseModel):
@@ -726,6 +727,7 @@ async def investigate_trace(
                     "status": s.status,
                     "attributes": s.attributes,
                     "start_time": s.start_time,
+                    "events": s.events,
                 }
                 for s in tg.spans
             ]
@@ -867,6 +869,7 @@ async def get_trace_detail(
                 duration_ms=span.duration_ms,
                 status=span.status,
                 attributes=span.attributes,
+                events=span.events,
             )
             for span in sorted_spans
         ],

@@ -1,11 +1,11 @@
 """OTel-based debug logger for verbose platform tracing.
 
-Replaces the DB-backed DebugLog model with JSONL file storage.
-Debug events are emitted as structured log records at DEBUG level,
-written to data/debug_logs.jsonl with automatic rotation.
+Debug events are emitted as OTel span events via span.add_event().
+The _FileSpanExporter in tracing.py captures these events alongside span
+attributes and writes them to spans.jsonl.
 
-When OTEL_EXPORTER_OTLP_ENDPOINT is configured, debug logs also
-flow to the external collector via the LoggerProvider bridge.
+The Diagnostic API reads debug events from spans.jsonl instead of the
+old debug_logs.jsonl file.
 """
 
 from __future__ import annotations
@@ -14,8 +14,6 @@ import asyncio
 import json
 import logging
 import time
-from datetime import UTC, datetime
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.models import SystemConfig
 
-# Dedicated logger for debug events (separate from root logger)
-_debug_log = logging.getLogger("agent.debug")
-
-# Path for debug log storage
+# Path kept for backward compatibility (no longer written to)
 DEBUG_LOGS_PATH = Path("data/debug_logs.jsonl")
 
 # Toggle cache with TTL
@@ -48,35 +43,20 @@ def invalidate_debug_cache() -> None:
 
 def configure_debug_log_handler(
     log_path: str | Path = DEBUG_LOGS_PATH,
-    max_bytes: int = 10 * 1024 * 1024,  # 10MB
+    max_bytes: int = 10 * 1024 * 1024,
     backup_count: int = 3,
 ) -> None:
-    """Set up rotating file handler for debug logs.
+    """No-op. Debug logs are now emitted as OTel span events.
+
+    Kept for backward compatibility during migration.
 
     Args:
-        log_path: Path to the debug log file.
-        max_bytes: Maximum file size before rotation.
-        backup_count: Number of backup files to keep.
+        log_path: Ignored. Previously the path to the debug log file.
+        max_bytes: Ignored. Previously the maximum file size before rotation.
+        backup_count: Ignored. Previously the number of backup files to keep.
     """
-    log_path = Path(log_path)
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Create custom formatter that outputs raw JSON (no wrapper)
-    class RawJsonFormatter(logging.Formatter):
-        def format(self, record: logging.LogRecord) -> str:
-            # The message is already a JSON string from log_event
-            return record.getMessage()
-
-    handler = RotatingFileHandler(
-        log_path,
-        maxBytes=max_bytes,
-        backupCount=backup_count,
-        encoding="utf-8",
-    )
-    handler.setFormatter(RawJsonFormatter())
-    _debug_log.addHandler(handler)
-    _debug_log.setLevel(logging.DEBUG)
-    _debug_log.propagate = False  # Don't propagate to root logger
+    logger_mod = logging.getLogger(__name__)
+    logger_mod.info("configure_debug_log_handler is deprecated; debug events use OTel span events")
 
 
 def _sanitize_args(args: dict[str, Any] | Any) -> dict[str, Any]:
@@ -103,12 +83,107 @@ def _sanitize_args(args: dict[str, Any] | Any) -> dict[str, Any]:
     return sanitized
 
 
-async def read_debug_logs(
+def _get_spans_path() -> Path:
+    """Get the path to the spans JSONL file."""
+    try:
+        from core.runtime.config import get_settings
+
+        settings = get_settings()
+        return Path(str(settings.trace_span_log_path or "data/spans.jsonl"))
+    except Exception:
+        return Path("data/spans.jsonl")
+
+
+def _extract_debug_events_from_spans_file(
+    spans_path: Path,
+    trace_id: str | None,
+    event_type: str | None,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Extract debug events from span events in spans.jsonl (blocking I/O).
+
+    Each span record in spans.jsonl has an "events" list. Debug events
+    have names starting with "debug." and contain structured attributes.
+
+    Args:
+        spans_path: Path to spans.jsonl file.
+        trace_id: Optional trace_id filter.
+        event_type: Optional event_type filter (e.g., "tool_call").
+        limit: Maximum results to return.
+
+    Returns:
+        List of debug event dicts, newest first.
+    """
+    if not spans_path.exists():
+        return []
+
+    results: list[dict[str, Any]] = []
+
+    try:
+        with spans_path.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return []
+
+    # Process in reverse (newest spans first)
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        if len(results) >= limit:
+            break
+
+        try:
+            span_record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        span_trace_id = span_record.get("context", {}).get("trace_id", "")
+
+        # If filtering by trace_id and this span doesn't match, skip
+        if trace_id and span_trace_id != trace_id:
+            continue
+
+        events = span_record.get("events", [])
+        for evt in reversed(events):  # newest events first within span
+            evt_name = evt.get("name", "")
+            if not evt_name.startswith("debug."):
+                continue
+
+            evt_attrs = evt.get("attributes", {})
+            evt_event_type = evt_attrs.get("debug.event_type", "")
+
+            # Apply event_type filter
+            if event_type and evt_event_type != event_type:
+                continue
+
+            # Reconstruct the legacy debug log format for API compatibility
+            event_data_str = evt_attrs.get("debug.event_data", "{}")
+            try:
+                event_data = json.loads(event_data_str)
+            except (json.JSONDecodeError, TypeError):
+                event_data = {}
+
+            result_entry = {
+                "trace_id": evt_attrs.get("debug.trace_id", span_trace_id),
+                "event_type": evt_event_type,
+                "conversation_id": evt_attrs.get("debug.conversation_id"),
+                "event_data": event_data,
+                "timestamp": evt.get("timestamp", span_record.get("start_time")),
+            }
+            results.append(result_entry)
+
+            if len(results) >= limit:
+                break
+
+    return results
+
+
+async def _read_debug_events_from_spans(
     trace_id: str | None = None,
     event_type: str | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
-    """Read debug logs from JSONL file with optional filters.
+    """Async wrapper for reading debug events from spans.jsonl.
 
     Args:
         trace_id: Filter by trace ID.
@@ -118,56 +193,42 @@ async def read_debug_logs(
     Returns:
         List of debug log entries (newest first).
     """
-    log_path = DEBUG_LOGS_PATH
-    if not log_path.exists():
-        return []
-
-    # Read file in background thread to avoid blocking
-    lines = await asyncio.to_thread(_read_lines, log_path)
-
-    results = []
-    for line in reversed(lines):  # newest first
-        if not line.strip():
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        if trace_id and entry.get("trace_id") != trace_id:
-            continue
-        if event_type and entry.get("event_type") != event_type:
-            continue
-
-        results.append(entry)
-        if len(results) >= limit:
-            break
-
-    return results
+    spans_path = _get_spans_path()
+    return await asyncio.to_thread(
+        _extract_debug_events_from_spans_file,
+        spans_path,
+        trace_id,
+        event_type,
+        limit,
+    )
 
 
-def _read_lines(path: Path) -> list[str]:
-    """Read all lines from a file (blocking I/O).
+async def read_debug_logs(
+    trace_id: str | None = None,
+    event_type: str | None = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Read debug events from span events in spans.jsonl.
 
     Args:
-        path: Path to the file.
+        trace_id: Filter by trace ID.
+        event_type: Filter by event type.
+        limit: Maximum number of entries to return.
 
     Returns:
-        List of lines.
+        List of debug log entries (newest first).
     """
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            return f.readlines()
-    except Exception:
-        return []
+    return await _read_debug_events_from_spans(
+        trace_id=trace_id, event_type=event_type, limit=limit
+    )
 
 
 class DebugLogger:
-    """Emits debug events as OTel-correlated structured log records.
+    """Emits debug events as OTel span events.
 
-    Replaces the DB-backed DebugLogger. Events are written to
-    data/debug_logs.jsonl with automatic rotation and optional
-    OTLP export when a collector is configured.
+    Events are added to the current active OTel span via span.add_event().
+    The _FileSpanExporter captures events alongside span attributes and
+    writes them to spans.jsonl (the single source of truth).
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -209,7 +270,7 @@ class DebugLogger:
         event_data: dict[str, Any],
         conversation_id: str | None = None,
     ) -> None:
-        """Log a debug event to JSONL file and OTel span attributes.
+        """Log a debug event as an OTel span event.
 
         Args:
             trace_id: Trace ID for correlation.
@@ -220,24 +281,26 @@ class DebugLogger:
         if not await self.is_enabled():
             return
 
-        # 1. Write structured JSON to debug_logs.jsonl
-        record = {
-            "trace_id": trace_id,
-            "event_type": event_type,
-            "conversation_id": conversation_id,
-            "event_data": _sanitize_args(event_data),
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-        _debug_log.debug(json.dumps(record, default=str))
+        # Sanitize before attaching to span
+        sanitized_data = _sanitize_args(event_data)
 
-        # 2. Set OTel span attributes (for trace waterfall enrichment)
+        # Build flat attributes dict for OTel event.
+        # OTel event attributes must be primitive types (str, int, float, bool)
+        # or sequences of primitives. Complex dicts must be JSON-serialized.
+        attrs: dict[str, Any] = {
+            "debug.trace_id": trace_id,
+            "debug.event_type": event_type,
+        }
+        if conversation_id:
+            attrs["debug.conversation_id"] = conversation_id
+
+        # Serialize event_data as JSON string (OTel doesn't support nested dicts)
+        attrs["debug.event_data"] = json.dumps(sanitized_data, default=str)[:4000]
+
+        # Add as span event on the current active span
         span = trace.get_current_span()
         if span.is_recording():
-            # Truncate to avoid excessive span attribute sizes
-            span.set_attribute(
-                f"debug.{event_type}",
-                json.dumps(event_data, default=str)[:4000],
-            )
+            span.add_event(f"debug.{event_type}", attributes=attrs)
 
     async def log_request(
         self,
