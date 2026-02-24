@@ -36,6 +36,7 @@ class TraceSpan(BaseModel):
     duration_ms: float
     status: str
     attributes: dict[str, Any]
+    events: list[dict[str, Any]] = []  # Span events (debug events, exceptions, etc.)
 
 
 class TestResult(BaseModel):
@@ -1238,6 +1239,7 @@ class DiagnosticsService:
                 duration_ms=data.get("duration_ms", 0.0),
                 status=data.get("status", "UNSET"),
                 attributes=data.get("attributes", {}),
+                events=data.get("events", []),
             )
         except (KeyError, ValueError):
             return None

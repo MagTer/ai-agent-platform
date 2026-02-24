@@ -1413,6 +1413,15 @@ class AgentService:
                         session, conversation_id, request
                     )
 
+                    # Enrich root span with context_id for per-tenant trace filtering
+                    if db_context:
+                        set_span_attributes(
+                            {
+                                "context_id": str(db_context.id),
+                                "context_name": db_context.name or "",
+                            }
+                        )
+
                     # Phase 1.5: Check for pending HITL and resume if present
                     pending_hitl = (db_conversation.conversation_metadata or {}).get("pending_hitl")
                     if pending_hitl:

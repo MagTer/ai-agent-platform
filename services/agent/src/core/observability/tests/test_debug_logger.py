@@ -18,26 +18,32 @@ from core.observability.debug_logger import (
 )
 
 
+def _make_enabled_session(enabled: bool = True) -> AsyncMock:
+    """Create a mock AsyncSession that returns the given debug_enabled value."""
+    session = AsyncMock(spec=AsyncSession)
+    mock_execute = AsyncMock()
+    mock_result = MagicMock()
+    mock_config = MagicMock()
+    mock_config.value = "true" if enabled else "false"
+    mock_result.scalar_one_or_none.return_value = mock_config
+    mock_execute.return_value = mock_result
+    session.execute = mock_execute
+    return session
+
+
 @pytest.mark.asyncio
-async def test_log_event_writes_to_file_when_enabled() -> None:
-    """When enabled, log_event should write JSON line to file."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        log_path = Path(tmpdir) / "debug_test.jsonl"
-        configure_debug_log_handler(log_path=log_path)
+async def test_log_event_adds_span_event_when_enabled() -> None:
+    """When enabled, log_event should add an OTel span event."""
+    session = _make_enabled_session(enabled=True)
+    logger = DebugLogger(session)
 
-        # Mock session with enabled config
-        session = AsyncMock(spec=AsyncSession)
-        mock_execute = AsyncMock()
-        mock_result = MagicMock()
-        mock_config = MagicMock()
-        mock_config.value = "true"
-        mock_result.scalar_one_or_none.return_value = mock_config
-        mock_execute.return_value = mock_result
-        session.execute = mock_execute
+    # Mock the current span
+    mock_span = MagicMock()
+    mock_span.is_recording.return_value = True
 
-        logger = DebugLogger(session)
+    with patch("core.observability.debug_logger.trace") as mock_trace:
+        mock_trace.get_current_span.return_value = mock_span
 
-        # Log an event
         await logger.log_event(
             trace_id="test-trace-123",
             event_type="test_event",
@@ -45,75 +51,75 @@ async def test_log_event_writes_to_file_when_enabled() -> None:
             conversation_id="conv-456",
         )
 
-        # Verify file was written
-        assert log_path.exists()
-        content = log_path.read_text()
-        assert "test-trace-123" in content
-        assert "test_event" in content
-
-        # Verify JSON is valid
-        entry = json.loads(content.strip())
-        assert entry["trace_id"] == "test-trace-123"
-        assert entry["event_type"] == "test_event"
-        assert entry["conversation_id"] == "conv-456"
-        assert entry["event_data"] == {"key": "value"}
+        # Verify span event was added
+        mock_span.add_event.assert_called_once()
+        call_args = mock_span.add_event.call_args
+        assert call_args[0][0] == "debug.test_event"
+        attrs = call_args[1]["attributes"]
+        assert attrs["debug.trace_id"] == "test-trace-123"
+        assert attrs["debug.event_type"] == "test_event"
+        assert attrs["debug.conversation_id"] == "conv-456"
+        assert '"key": "value"' in attrs["debug.event_data"]
 
 
 @pytest.mark.asyncio
 async def test_log_event_is_noop_when_disabled() -> None:
-    """When disabled, log_event should not write anything."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        log_path = Path(tmpdir) / "debug_test.jsonl"
-        configure_debug_log_handler(log_path=log_path)
+    """When disabled, log_event should not call add_event."""
+    session = _make_enabled_session(enabled=False)
+    logger = DebugLogger(session)
 
-        # Mock session with disabled config
-        session = AsyncMock(spec=AsyncSession)
-        mock_execute = AsyncMock()
-        mock_result = MagicMock()
-        mock_config = MagicMock()
-        mock_config.value = "false"
-        mock_result.scalar_one_or_none.return_value = mock_config
-        mock_execute.return_value = mock_result
-        session.execute = mock_execute
+    mock_span = MagicMock()
+    mock_span.is_recording.return_value = True
 
-        logger = DebugLogger(session)
+    with patch("core.observability.debug_logger.trace") as mock_trace:
+        mock_trace.get_current_span.return_value = mock_span
 
-        # Log an event
         await logger.log_event(
             trace_id="test-trace-123",
             event_type="test_event",
             event_data={"key": "value"},
         )
 
-        # Verify file was NOT written (or is empty)
-        if log_path.exists():
-            content = log_path.read_text().strip()
-            assert content == ""
+        # Verify no span event was added
+        mock_span.add_event.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_log_event_skips_add_event_when_span_not_recording() -> None:
+    """When the span is not recording, no event should be added."""
+    session = _make_enabled_session(enabled=True)
+    logger = DebugLogger(session)
+
+    mock_span = MagicMock()
+    mock_span.is_recording.return_value = False
+
+    with patch("core.observability.debug_logger.trace") as mock_trace:
+        mock_trace.get_current_span.return_value = mock_span
+
+        await logger.log_event(
+            trace_id="test-trace-123",
+            event_type="test_event",
+            event_data={"key": "value"},
+        )
+
+        mock_span.add_event.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_is_enabled_caches_result() -> None:
     """is_enabled should cache the result for TTL period."""
-    session = AsyncMock(spec=AsyncSession)
-    mock_execute = AsyncMock()
-    mock_result = MagicMock()
-    mock_config = MagicMock()
-    mock_config.value = "true"
-    mock_result.scalar_one_or_none.return_value = mock_config
-    mock_execute.return_value = mock_result
-    session.execute = mock_execute
-
+    session = _make_enabled_session(enabled=True)
     logger = DebugLogger(session)
 
     # First call should query DB
     enabled1 = await logger.is_enabled()
     assert enabled1 is True
-    assert mock_execute.call_count == 1
+    assert session.execute.call_count == 1
 
     # Second call should use cache (no additional DB query)
     enabled2 = await logger.is_enabled()
     assert enabled2 is True
-    assert mock_execute.call_count == 1  # Still 1
+    assert session.execute.call_count == 1  # Still 1
 
 
 def test_sanitize_args_redacts_sensitive_keys() -> None:
@@ -154,102 +160,138 @@ def test_sanitize_args_handles_non_dict() -> None:
     assert _sanitize_args([1, 2, 3]) == {}
 
 
-@pytest.mark.asyncio
-async def test_read_debug_logs_filters_by_trace_id() -> None:
-    """read_debug_logs should filter by trace_id."""
+def test_configure_debug_log_handler_is_noop() -> None:
+    """configure_debug_log_handler should be a no-op (backward compat)."""
+    # Should not raise; no file should be created
     with tempfile.TemporaryDirectory() as tmpdir:
         log_path = Path(tmpdir) / "debug_test.jsonl"
+        configure_debug_log_handler(log_path=log_path)
+        # No file should be created since the function is now a no-op
+        assert not log_path.exists()
 
-        # Write test data
-        with log_path.open("w") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "trace_id": "trace-1",
-                        "event_type": "request",
-                        "timestamp": "2024-01-01T00:00:00",
-                    }
-                )
-                + "\n"
-            )
-            f.write(
-                json.dumps(
-                    {
-                        "trace_id": "trace-2",
-                        "event_type": "plan",
-                        "timestamp": "2024-01-01T00:01:00",
-                    }
-                )
-                + "\n"
-            )
-            f.write(
-                json.dumps(
-                    {
-                        "trace_id": "trace-1",
-                        "event_type": "tool_call",
-                        "timestamp": "2024-01-01T00:02:00",
-                    }
-                )
-                + "\n"
-            )
 
-        # Patch DEBUG_LOGS_PATH to point to our temp file
-        with patch("core.observability.debug_logger.DEBUG_LOGS_PATH", log_path):
-            # Filter by trace-1
+@pytest.mark.asyncio
+async def test_read_debug_logs_filters_by_trace_id() -> None:
+    """read_debug_logs should filter by trace_id from span events."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        spans_path = Path(tmpdir) / "spans.jsonl"
+
+        # Write span records with embedded debug events
+        span1 = {
+            "name": "agent.request",
+            "context": {"trace_id": "trace-1", "span_id": "span-1"},
+            "start_time": "2024-01-01T00:00:00",
+            "duration_ms": 100,
+            "status": "OK",
+            "attributes": {},
+            "events": [
+                {
+                    "name": "debug.request",
+                    "timestamp": "2024-01-01T00:00:00",
+                    "attributes": {
+                        "debug.trace_id": "trace-1",
+                        "debug.event_type": "request",
+                        "debug.event_data": '{"prompt": "hello"}',
+                    },
+                },
+                {
+                    "name": "debug.tool_call",
+                    "timestamp": "2024-01-01T00:00:01",
+                    "attributes": {
+                        "debug.trace_id": "trace-1",
+                        "debug.event_type": "tool_call",
+                        "debug.event_data": '{"tool_name": "search"}',
+                    },
+                },
+            ],
+        }
+        span2 = {
+            "name": "agent.request",
+            "context": {"trace_id": "trace-2", "span_id": "span-2"},
+            "start_time": "2024-01-01T00:01:00",
+            "duration_ms": 200,
+            "status": "OK",
+            "attributes": {},
+            "events": [
+                {
+                    "name": "debug.plan",
+                    "timestamp": "2024-01-01T00:01:00",
+                    "attributes": {
+                        "debug.trace_id": "trace-2",
+                        "debug.event_type": "plan",
+                        "debug.event_data": '{"plan": "step1"}',
+                    },
+                },
+            ],
+        }
+
+        with spans_path.open("w") as f:
+            f.write(json.dumps(span1) + "\n")
+            f.write(json.dumps(span2) + "\n")
+
+        with patch(
+            "core.observability.debug_logger._get_spans_path",
+            return_value=spans_path,
+        ):
             logs = await read_debug_logs(trace_id="trace-1", limit=10)
 
-            # Should only return trace-1 entries (newest first)
             assert len(logs) == 2
-            assert logs[0]["event_type"] == "tool_call"
-            assert logs[1]["event_type"] == "request"
             assert all(log["trace_id"] == "trace-1" for log in logs)
 
 
 @pytest.mark.asyncio
 async def test_read_debug_logs_filters_by_event_type() -> None:
-    """read_debug_logs should filter by event_type."""
+    """read_debug_logs should filter by event_type from span events."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        log_path = Path(tmpdir) / "debug_test.jsonl"
+        spans_path = Path(tmpdir) / "spans.jsonl"
 
-        # Write test data
-        with log_path.open("w") as f:
-            f.write(
-                json.dumps(
-                    {
-                        "trace_id": "trace-1",
-                        "event_type": "request",
-                        "timestamp": "2024-01-01T00:00:00",
-                    }
-                )
-                + "\n"
-            )
-            f.write(
-                json.dumps(
-                    {
-                        "trace_id": "trace-1",
-                        "event_type": "plan",
-                        "timestamp": "2024-01-01T00:01:00",
-                    }
-                )
-                + "\n"
-            )
-            f.write(
-                json.dumps(
-                    {
-                        "trace_id": "trace-1",
-                        "event_type": "tool_call",
-                        "timestamp": "2024-01-01T00:02:00",
-                    }
-                )
-                + "\n"
-            )
+        span1 = {
+            "name": "agent.request",
+            "context": {"trace_id": "trace-1", "span_id": "span-1"},
+            "start_time": "2024-01-01T00:00:00",
+            "duration_ms": 100,
+            "status": "OK",
+            "attributes": {},
+            "events": [
+                {
+                    "name": "debug.request",
+                    "timestamp": "2024-01-01T00:00:00",
+                    "attributes": {
+                        "debug.trace_id": "trace-1",
+                        "debug.event_type": "request",
+                        "debug.event_data": '{"prompt": "hello"}',
+                    },
+                },
+                {
+                    "name": "debug.plan",
+                    "timestamp": "2024-01-01T00:00:01",
+                    "attributes": {
+                        "debug.trace_id": "trace-1",
+                        "debug.event_type": "plan",
+                        "debug.event_data": '{"plan": "do stuff"}',
+                    },
+                },
+                {
+                    "name": "debug.tool_call",
+                    "timestamp": "2024-01-01T00:00:02",
+                    "attributes": {
+                        "debug.trace_id": "trace-1",
+                        "debug.event_type": "tool_call",
+                        "debug.event_data": '{"tool_name": "search"}',
+                    },
+                },
+            ],
+        }
 
-        # Patch DEBUG_LOGS_PATH
-        with patch("core.observability.debug_logger.DEBUG_LOGS_PATH", log_path):
-            # Filter by event_type=plan
+        with spans_path.open("w") as f:
+            f.write(json.dumps(span1) + "\n")
+
+        with patch(
+            "core.observability.debug_logger._get_spans_path",
+            return_value=spans_path,
+        ):
             logs = await read_debug_logs(event_type="plan", limit=10)
 
-            # Should only return plan entries
             assert len(logs) == 1
             assert logs[0]["event_type"] == "plan"
 
@@ -258,62 +300,65 @@ async def test_read_debug_logs_filters_by_event_type() -> None:
 async def test_read_debug_logs_respects_limit() -> None:
     """read_debug_logs should respect the limit parameter."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        log_path = Path(tmpdir) / "debug_test.jsonl"
+        spans_path = Path(tmpdir) / "spans.jsonl"
 
-        # Write 10 entries
-        with log_path.open("w") as f:
+        # Write 10 span records each with one debug event
+        with spans_path.open("w") as f:
             for i in range(10):
-                f.write(
-                    json.dumps(
+                span = {
+                    "name": "agent.request",
+                    "context": {"trace_id": f"trace-{i}", "span_id": f"span-{i}"},
+                    "start_time": f"2024-01-01T00:{i:02d}:00",
+                    "duration_ms": 100,
+                    "status": "OK",
+                    "attributes": {},
+                    "events": [
                         {
-                            "trace_id": f"trace-{i}",
-                            "event_type": "request",
+                            "name": "debug.request",
                             "timestamp": f"2024-01-01T00:{i:02d}:00",
-                        }
-                    )
-                    + "\n"
-                )
+                            "attributes": {
+                                "debug.trace_id": f"trace-{i}",
+                                "debug.event_type": "request",
+                                "debug.event_data": '{"prompt": "hello"}',
+                            },
+                        },
+                    ],
+                }
+                f.write(json.dumps(span) + "\n")
 
-        # Patch DEBUG_LOGS_PATH
-        with patch("core.observability.debug_logger.DEBUG_LOGS_PATH", log_path):
-            # Request only 3 entries
+        with patch(
+            "core.observability.debug_logger._get_spans_path",
+            return_value=spans_path,
+        ):
             logs = await read_debug_logs(limit=3)
 
-            # Should return exactly 3 (newest first)
+            # Should return exactly 3 (newest spans first)
             assert len(logs) == 3
-            assert logs[0]["trace_id"] == "trace-9"
-            assert logs[1]["trace_id"] == "trace-8"
-            assert logs[2]["trace_id"] == "trace-7"
 
 
 @pytest.mark.asyncio
 async def test_read_debug_logs_returns_empty_if_file_missing() -> None:
     """read_debug_logs should return empty list if file doesn't exist."""
-    with patch("core.observability.debug_logger.DEBUG_LOGS_PATH", Path("/nonexistent/file.jsonl")):
+    with patch(
+        "core.observability.debug_logger._get_spans_path",
+        return_value=Path("/nonexistent/spans.jsonl"),
+    ):
         logs = await read_debug_logs(limit=10)
         assert logs == []
 
 
 @pytest.mark.asyncio
 async def test_log_tool_call_sanitizes_args() -> None:
-    """log_tool_call should sanitize tool arguments."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        log_path = Path(tmpdir) / "debug_test.jsonl"
-        configure_debug_log_handler(log_path=log_path)
+    """log_tool_call should sanitize tool arguments in span event attributes."""
+    session = _make_enabled_session(enabled=True)
+    logger = DebugLogger(session)
 
-        # Mock enabled session
-        session = AsyncMock(spec=AsyncSession)
-        mock_execute = AsyncMock()
-        mock_result = MagicMock()
-        mock_config = MagicMock()
-        mock_config.value = "true"
-        mock_result.scalar_one_or_none.return_value = mock_config
-        mock_execute.return_value = mock_result
-        session.execute = mock_execute
+    mock_span = MagicMock()
+    mock_span.is_recording.return_value = True
 
-        logger = DebugLogger(session)
+    with patch("core.observability.debug_logger.trace") as mock_trace:
+        mock_trace.get_current_span.return_value = mock_span
 
-        # Log tool call with sensitive args
         await logger.log_tool_call(
             trace_id="test-trace",
             conversation_id="conv-1",
@@ -321,10 +366,11 @@ async def test_log_tool_call_sanitizes_args() -> None:
             args={"url": "https://api.example.com", "api_key": "secret-key-123"},
         )
 
-        # Read the log file
-        content = log_path.read_text()
-        entry = json.loads(content.strip())
+        # Verify span event was added with sanitized args
+        mock_span.add_event.assert_called_once()
+        call_args = mock_span.add_event.call_args
+        event_data_str = call_args[1]["attributes"]["debug.event_data"]
+        event_data = json.loads(event_data_str)
 
-        # Verify api_key is redacted
-        assert entry["event_data"]["args"]["api_key"] == "***REDACTED***"
-        assert entry["event_data"]["args"]["url"] == "https://api.example.com"
+        assert event_data["args"]["api_key"] == "***REDACTED***"
+        assert event_data["args"]["url"] == "https://api.example.com"
