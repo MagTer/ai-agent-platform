@@ -1,0 +1,2324 @@
+# Self-Healing Skill Quality System
+
+**Date:** 2026-02-24
+**Author:** Architect (Opus)
+**Status:** Revised 2026-02-24 (design corrections + PR #222 cleanup gaps added)
+
+### Revision Summary (2026-02-24)
+
+The following corrections were applied after review:
+
+1. **Self-healing design** -- Removed mandatory human-review gate. Improvements are now
+   auto-applied to the context overlay immediately (`status=applied`). Admin reviews
+   AFTER the fact and can **revert** if needed. Status workflow: `applied → reverted | promoted`.
+
+2. **New Step 0** -- Logging consolidation cleanup (4 items remaining from PR #222):
+   - `conversation_id` missing from root span in `service.py`
+   - Dead import/call of `configure_debug_log_handler` in `app.py`
+   - Dead `DEBUG_LOGS_PATH` constant in `debug_logger.py`
+   - Stale `data/debug_logs.jsonl` reference in `admin_diagnostics.html`
+
+3. **New Step 2.5** -- Add `skill_name` to `log_supervisor()` events. Without this,
+   the signal matching in the analyser is fragile (step_label matching only).
+
+4. **`_get_spans_path()` note** -- Added engineer note to verify/define this helper
+   in `debug_logger.py` after PR #222 rewrite.
+
+5. **`LiteLLMClient.completion()` note** -- Added engineer note: verify whether this
+   non-streaming method exists; if not, use `stream_chat()` and collect chunks.
+
+6. **Scheduler private attrs** -- Added engineer note to expose `_litellm` and
+   `_skill_registry` as properties on `ServiceFactory` rather than accessing privates.
+
+7. **Notification link** -- Notification now includes a direct URL to the context's
+   Skill Quality tab so admins can navigate straight to the review page.
+
+8. **Promote-to-Global warning** -- API response and UI tooltip now clearly state
+   that promotion writes to the container filesystem only (lost on next deploy)
+   and that a git commit is needed to make it permanent.
+
+9. **UI** -- Replaced Accept/Reject buttons with Revert + Promote to Global. Status
+   labels updated: `applied=Active`, `reverted=Reverted`, `promoted=Promoted`.
+   Badge tooltip clarified.
+
+---
+
+---
+
+## 1. Feature Overview
+
+A scheduled background job that periodically analyses recent skill executions for a given context, identifies underperforming skills (high REPLAN/ABORT rate), generates an improved version of the skill, and **immediately writes it to the context overlay** (self-healing). The admin can see what changed and why in the portal, and can **revert** if the change made things worse. Accepted changes can be **promoted to global** if they are good enough for all contexts.
+
+**Key Principles:**
+- Auto-apply to context overlay immediately -- this IS the self-healing
+- Changes are context-isolated and fully reversible via the admin portal (Revert button)
+- No auto-apply to global -- admin promotes manually if the change merits it
+- Admin portal shows what changed, why, and provides a safety valve (revert)
+- Supervisor REPLAN/ABORT events + reason fields are the quality signal
+
+**Status workflow:** `applied` → `reverted` | `promoted`
+(No pending_review/accept gate -- the healing happens immediately, revert is the escape hatch)
+
+---
+
+## 2. Architecture Decisions
+
+### Layer Placement
+
+| Component | Layer | Rationale |
+|-----------|-------|-----------|
+| `SkillImprovementProposal` DB model | `core/db/models.py` | Data model, Layer 4 |
+| `SkillQualityAnalyser` service | `core/runtime/skill_quality.py` | New service in core/runtime (Layer 4) -- queries spans, calls LLM, writes overlay files. Does NOT import from higher layers. |
+| Analyser scheduler integration | `interfaces/scheduler/adapter.py` | Extends existing scheduler to recognize a new job type. Layer 1 can import core. |
+| Admin portal endpoints | `interfaces/http/admin_contexts.py` | New API endpoints for proposal CRUD. Layer 1. |
+| Admin portal UI | `interfaces/http/templates/admin_context_detail.html` | New "Skill Quality" tab in context detail. |
+| Alembic migration | `services/agent/alembic/versions/` | New table for proposals. |
+
+### Why `core/runtime/` and NOT a new module?
+
+The analyser reads span data (already in core/observability), reads skill files (core/skills), writes overlay files (core/context/files), and calls LLM (core/runtime/litellm_client). All dependencies are within core/. Placing it in `modules/` would be wrong because modules cannot import other modules, and we need access to multiple core services.
+
+### Protocol-Based DI
+
+No new protocols needed. The analyser uses:
+- `LiteLLMClient` directly (already in core/runtime)
+- `read_debug_logs()` from `core/observability/debug_logger`
+- `parse_skill_content()` from `core/skills/registry`
+- `ensure_context_directories()` from `core/context/files`
+
+---
+
+## 3. Database Schema
+
+### New Table: `skill_improvement_proposals`
+
+```python
+# In services/agent/src/core/db/models.py
+
+class SkillImprovementProposal(Base):
+    """Proposed skill improvement generated by the quality analyser.
+
+    Each proposal records the original and improved skill content,
+    along with the analysis that motivated the change. The improved
+    version is written to the context overlay immediately (self-healing).
+    Admins can review and revert in the admin portal if needed.
+
+    Statuses:
+    - applied: Improvement written to context overlay (default, active state)
+    - reverted: Admin reverted; overlay restored to original content
+    - promoted: Admin promoted to global /skills/ directory
+    """
+
+    __tablename__ = "skill_improvement_proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    skill_name: Mapped[str] = mapped_column(String, index=True)
+    skill_file_name: Mapped[str] = mapped_column(String)
+    # The skill content BEFORE the proposed change
+    original_content: Mapped[str] = mapped_column(String)
+    # The proposed improved skill content
+    proposed_content: Mapped[str] = mapped_column(String)
+    # LLM-generated summary of what changed and why
+    change_summary: Mapped[str] = mapped_column(String)
+    # JSON: list of failure signals that motivated this proposal
+    # Each entry: {"trace_id": str, "outcome": str, "reason": str, "step_label": str}
+    failure_signals: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    # Number of total executions in the analysis window
+    total_executions: Mapped[int] = mapped_column(Integer, default=0)
+    # Number of failed executions (REPLAN + ABORT)
+    failed_executions: Mapped[int] = mapped_column(Integer, default=0)
+    # pending_review, accepted, rejected, promoted
+    status: Mapped[str] = mapped_column(String, default="pending_review", index=True)
+    # Admin who reviewed (nullable until reviewed)
+    reviewed_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now)
+
+    context = relationship("Context")
+
+    __table_args__ = (
+        Index("ix_proposal_context_skill", "context_id", "skill_name"),
+        Index("ix_proposal_status", "status"),
+    )
+```
+
+### Alembic Migration
+
+File: `services/agent/alembic/versions/20260224_add_skill_improvement_proposals.py`
+
+```python
+"""Add skill_improvement_proposals table.
+
+Revision ID: 20260224_skill_improvement_proposals
+Revises: 20260222_display_name_contexts
+Create Date: 2026-02-24
+"""
+
+import sqlalchemy as sa
+from alembic import op
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+revision: str = "20260224_skill_improvement_proposals"
+down_revision: str | None = "20260222_display_name_contexts"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    """Create skill_improvement_proposals table."""
+    op.create_table(
+        "skill_improvement_proposals",
+        sa.Column("id", UUID(as_uuid=True), primary_key=True),
+        sa.Column(
+            "context_id",
+            UUID(as_uuid=True),
+            sa.ForeignKey("contexts.id", ondelete="CASCADE"),
+            nullable=False,
+            index=True,
+        ),
+        sa.Column("skill_name", sa.String(), nullable=False, index=True),
+        sa.Column("skill_file_name", sa.String(), nullable=False),
+        sa.Column("original_content", sa.String(), nullable=False),
+        sa.Column("proposed_content", sa.String(), nullable=False),
+        sa.Column("change_summary", sa.String(), nullable=False),
+        sa.Column("failure_signals", JSONB(), server_default="[]"),
+        sa.Column("total_executions", sa.Integer(), server_default="0"),
+        sa.Column("failed_executions", sa.Integer(), server_default="0"),
+        sa.Column(
+            "status",
+            sa.String(),
+            server_default="applied",
+            nullable=False,
+            index=True,
+        ),
+        sa.Column("reviewed_by", sa.String(), nullable=True),
+        sa.Column("reviewed_at", sa.DateTime(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+    )
+    op.create_index(
+        "ix_proposal_context_skill",
+        "skill_improvement_proposals",
+        ["context_id", "skill_name"],
+    )
+
+
+def downgrade() -> None:
+    """Drop skill_improvement_proposals table."""
+    op.drop_index("ix_proposal_context_skill", table_name="skill_improvement_proposals")
+    op.drop_table("skill_improvement_proposals")
+```
+
+---
+
+## 4. Implementation Roadmap
+
+### Step 0: Logging Consolidation Cleanup (PR #222 follow-up)
+
+Four small items left incomplete in the merged PR #222 that must be cleaned up before the
+self-healing work begins (Step 2 reads supervisor events from spans, and correctness of the
+span data depends on `conversation_id` being present).
+
+**Engineer tasks:**
+
+1. **Add `conversation_id` to root span** (`services/agent/src/core/runtime/service.py`)
+
+   In the block after `context_id` and `context_name` are set on the root span (around the
+   `set_span_attributes` call that sets `context_id`), also set `conversation_id`:
+
+   ```python
+   if db_context:
+       span_attrs: dict[str, str] = {
+           "context_id": str(db_context.id),
+           "context_name": db_context.name or "",
+       }
+       # conversation_id is resolved later; set it once resolved
+   ```
+
+   Concretely: find where `conversation_id` is first known (after `_get_or_create_conversation`
+   in `persistence.py` or equivalent) and call:
+   ```python
+   set_span_attributes({"conversation_id": str(conversation.id)})
+   ```
+   The root span is still active at that point so the attribute will be captured by
+   `_FileSpanExporter`.
+
+2. **Remove dead import + call in `app.py`**
+   (`services/agent/src/interfaces/http/app.py`)
+
+   Remove the import line:
+   ```python
+   from core.observability.debug_logger import configure_debug_log_handler
+   ```
+   And remove the call to `configure_debug_log_handler(debug_log_path)` (and the
+   `debug_log_path` variable assignment if it is only used for that call).
+
+3. **Remove dead `DEBUG_LOGS_PATH` constant** (`services/agent/src/core/observability/debug_logger.py`)
+
+   Remove:
+   ```python
+   # Path kept for backward compatibility (no longer written to)
+   DEBUG_LOGS_PATH = Path("data/debug_logs.jsonl")
+   ```
+   Also remove the `DEBUG_LOGS_PATH` parameter from `configure_debug_log_handler()`
+   signature (or remove the whole function if `app.py` no longer calls it -- verify first).
+
+4. **Update stale docs in `admin_diagnostics.html`**
+   (`services/agent/src/interfaces/http/templates/admin_diagnostics.html`)
+
+   Find the line referencing `data/debug_logs.jsonl` and update it to:
+   ```
+   Debug events are stored as OTel span events in <code>data/spans.jsonl</code>.
+   ```
+
+**Files affected:**
+- `services/agent/src/core/runtime/service.py` (add `conversation_id` to span)
+- `services/agent/src/interfaces/http/app.py` (remove dead import/call)
+- `services/agent/src/core/observability/debug_logger.py` (remove dead constant)
+- `services/agent/src/interfaces/http/templates/admin_diagnostics.html` (update doc text)
+
+**Ops tasks:**
+- Run `./stack check` to verify no regressions
+
+---
+
+### Step 1: Database Model + Migration
+
+**Engineer tasks:**
+- Add `SkillImprovementProposal` class to `services/agent/src/core/db/models.py` (append after `WikiImport` class, before the final blank line). Use the exact schema from Section 3 above. Import `Any` from `typing` is already present. `JSONB`, `UUID`, `Index`, `Integer`, `String`, `DateTime`, `ForeignKey` are already imported.
+- Create migration file `services/agent/alembic/versions/20260224_add_skill_improvement_proposals.py` with the exact content from Section 3 above.
+
+**Ops tasks:**
+- Run `./stack check` to verify model compiles
+- Run alembic migration on dev: `cd services/agent && poetry run alembic upgrade head`
+
+**Files affected:**
+- `services/agent/src/core/db/models.py` (modify -- append new class)
+- `services/agent/alembic/versions/20260224_add_skill_improvement_proposals.py` (create)
+
+---
+
+### Step 2: Span Query Helper -- Read Supervisor Events by Context
+
+The existing `read_debug_logs()` in `core/observability/debug_logger.py` does NOT support filtering by `context_id`. We need a new function that filters spans by `context_id` attribute and extracts supervisor events.
+
+**Engineer tasks:**
+
+Create a new function in `services/agent/src/core/observability/debug_logger.py`:
+
+```python
+def _extract_supervisor_events_for_context(
+    spans_path: Path,
+    context_id: str,
+    since_iso: str,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Extract supervisor REPLAN/ABORT events for a specific context.
+
+    Reads spans.jsonl and filters by:
+    1. Span attributes.context_id == context_id
+    2. Events with name starting with "debug."
+    3. Event attribute debug.event_type == "supervisor"
+    4. Event timestamp >= since_iso
+    5. Event data outcome in (REPLAN, ABORT)
+
+    Args:
+        spans_path: Path to spans.jsonl file.
+        context_id: Context UUID string to filter by.
+        since_iso: ISO timestamp cutoff (only events after this).
+        limit: Maximum results to return.
+
+    Returns:
+        List of dicts with keys: trace_id, outcome, reason, step_label, timestamp, conversation_id
+    """
+    if not spans_path.exists():
+        return []
+
+    results: list[dict[str, Any]] = []
+
+    try:
+        with spans_path.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return []
+
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        if len(results) >= limit:
+            break
+
+        try:
+            span_record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        # Filter by context_id (set as root span attribute)
+        span_attrs = span_record.get("attributes", {})
+        if span_attrs.get("context_id") != context_id:
+            continue
+
+        span_trace_id = span_record.get("context", {}).get("trace_id", "")
+
+        events = span_record.get("events", [])
+        for evt in reversed(events):
+            evt_name = evt.get("name", "")
+            if not evt_name.startswith("debug."):
+                continue
+
+            evt_attrs = evt.get("attributes", {})
+            if evt_attrs.get("debug.event_type") != "supervisor":
+                continue
+
+            # Parse event data
+            event_data_str = evt_attrs.get("debug.event_data", "{}")
+            try:
+                event_data = json.loads(event_data_str)
+            except (json.JSONDecodeError, TypeError):
+                event_data = {}
+
+            outcome = event_data.get("outcome", "")
+            if outcome not in ("REPLAN", "ABORT"):
+                continue
+
+            # Check timestamp
+            evt_ts = evt.get("timestamp", "")
+            if evt_ts and evt_ts < since_iso:
+                continue
+
+            results.append({
+                "trace_id": span_trace_id,
+                "outcome": outcome,
+                "reason": event_data.get("reason", ""),
+                "step_label": event_data.get("step_label", ""),
+                "timestamp": evt_ts,
+                "conversation_id": evt_attrs.get("debug.conversation_id"),
+            })
+
+            if len(results) >= limit:
+                break
+
+    return results
+
+
+async def read_supervisor_events_for_context(
+    context_id: str,
+    since_iso: str,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Async wrapper for reading supervisor failure events for a context.
+
+    Args:
+        context_id: Context UUID string.
+        since_iso: ISO timestamp cutoff.
+        limit: Maximum number of entries.
+
+    Returns:
+        List of supervisor failure events (REPLAN/ABORT only).
+    """
+    # NOTE FOR ENGINEER: After PR #222, debug_logger.py was rewritten. Check whether
+    # a `_get_spans_path()` helper (or equivalent) already exists in the merged file.
+    # If not, define it as: return Path("data/spans.jsonl")
+    # The spans path must match the SPAN_LOG_PATH env var / configure_tracing() call.
+    spans_path = _get_spans_path()
+    return await asyncio.to_thread(
+        _extract_supervisor_events_for_context,
+        spans_path,
+        context_id,
+        since_iso,
+        limit,
+    )
+```
+
+Also add a helper to count all skill_step events per skill for a context (to compute total execution counts):
+
+```python
+def _count_skill_executions_for_context(
+    spans_path: Path,
+    context_id: str,
+    since_iso: str,
+) -> dict[str, dict[str, int]]:
+    """Count skill executions by outcome for a context.
+
+    Returns:
+        Dict mapping skill_name -> {"total": N, "SUCCESS": N, "REPLAN": N, "ABORT": N, "RETRY": N}
+    """
+    if not spans_path.exists():
+        return {}
+
+    counts: dict[str, dict[str, int]] = {}
+
+    try:
+        with spans_path.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return {}
+
+    for line in lines:
+        if not line.strip():
+            continue
+
+        try:
+            span_record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        span_attrs = span_record.get("attributes", {})
+        if span_attrs.get("context_id") != context_id:
+            continue
+
+        events = span_record.get("events", [])
+        for evt in events:
+            evt_name = evt.get("name", "")
+            if not evt_name.startswith("debug."):
+                continue
+
+            evt_attrs = evt.get("attributes", {})
+            if evt_attrs.get("debug.event_type") != "skill_step":
+                continue
+
+            evt_ts = evt.get("timestamp", "")
+            if evt_ts and evt_ts < since_iso:
+                continue
+
+            event_data_str = evt_attrs.get("debug.event_data", "{}")
+            try:
+                event_data = json.loads(event_data_str)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            skill_name = event_data.get("skill_name", "unknown")
+            outcome = event_data.get("outcome", "unknown")
+
+            if skill_name not in counts:
+                counts[skill_name] = {"total": 0, "SUCCESS": 0, "REPLAN": 0, "ABORT": 0, "RETRY": 0}
+
+            counts[skill_name]["total"] += 1
+            if outcome in counts[skill_name]:
+                counts[skill_name][outcome] += 1
+
+    return counts
+
+
+async def count_skill_executions_for_context(
+    context_id: str,
+    since_iso: str,
+) -> dict[str, dict[str, int]]:
+    """Async wrapper for counting skill executions by outcome for a context."""
+    spans_path = _get_spans_path()
+    return await asyncio.to_thread(
+        _count_skill_executions_for_context,
+        spans_path,
+        context_id,
+        since_iso,
+    )
+```
+
+**Ops tasks:**
+- Run `./stack check`
+
+**Files affected:**
+- `services/agent/src/core/observability/debug_logger.py` (modify -- add 4 new functions at end of file, before `DebugLogger` class)
+
+---
+
+### Step 2.5: Add `skill_name` to Supervisor Events (PREREQUISITE FOR SIGNAL QUALITY)
+
+Currently `log_supervisor()` in `debug_logger.py` records `step_label` and `outcome` but NOT `skill_name`. The span query helpers in Step 2 do best-effort matching on `step_label` which is fragile (a step labelled "Research quarterly results" won't match skill name "researcher").
+
+**Engineer tasks:**
+
+In `services/agent/src/core/observability/debug_logger.py`, update `log_supervisor()` to accept and record `skill_name`:
+
+```python
+async def log_supervisor(
+    self,
+    trace_id: str,
+    step_label: str,
+    outcome: str,
+    reason: str,
+    conversation_id: str | None = None,
+    skill_name: str | None = None,  # ADD THIS
+) -> None:
+```
+
+Update the `event_data` dict to include it:
+```python
+event_data={
+    "step_label": step_label,
+    "outcome": outcome,
+    "reason": reason[:500],
+    "skill_name": skill_name,  # ADD THIS (nullable)
+},
+```
+
+Then find all callers of `log_supervisor()` in `service.py` and `supervisors.py` and pass the `skill_name` from the active `PlanStep`. The `PlanStep` has a `tool` field which is the skill name when `executor="skill"`.
+
+Update `_extract_supervisor_events_for_context()` (Step 2) to prefer `skill_name` from event_data over step_label matching:
+```python
+skill_name_evt = event_data.get("skill_name")
+outcome = event_data.get("outcome", "")
+# ... add skill_name_evt to the result dict
+```
+
+And in `SkillQualityAnalyser._generate_proposal()`, replace the fragile step_label matching with:
+```python
+relevant_events = [
+    evt for evt in supervisor_events
+    if evt.get("skill_name") == skill_name
+    or skill_name.lower() in (evt.get("step_label", "") or "").lower()  # fallback
+]
+```
+
+**Files affected:**
+- `services/agent/src/core/observability/debug_logger.py` (modify)
+- `services/agent/src/core/agents/supervisors.py` (modify -- pass skill_name)
+- `services/agent/src/core/runtime/service.py` (modify -- pass skill_name to log_supervisor)
+
+---
+
+### Step 3: SkillQualityAnalyser Service
+
+**Engineer tasks:**
+
+Create `services/agent/src/core/runtime/skill_quality.py`:
+
+```python
+"""Skill quality analyser for self-healing skill improvements.
+
+Analyses recent skill execution spans for a context, identifies
+underperforming skills, and generates improved versions as proposals
+for admin review.
+
+Architecture:
+    Lives in core/runtime/ (Layer 4).
+    Uses: LiteLLMClient, debug_logger queries, skill file I/O.
+    Does NOT import from interfaces/ or orchestrator/.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.context.files import ensure_context_directories, get_context_dir
+from core.db.models import Context, SkillImprovementProposal
+from core.observability.debug_logger import (
+    count_skill_executions_for_context,
+    read_supervisor_events_for_context,
+)
+from core.runtime.litellm_client import LiteLLMClient
+from core.skills.registry import Skill, SkillRegistry, parse_skill_content
+
+LOGGER = logging.getLogger(__name__)
+
+# Minimum number of executions before a skill is eligible for analysis
+MIN_EXECUTIONS_THRESHOLD = 5
+
+# Minimum failure rate (REPLAN + ABORT / total) to trigger improvement
+MIN_FAILURE_RATE = 0.3  # 30%
+
+# Maximum number of proposals to generate per run
+MAX_PROPOSALS_PER_RUN = 3
+
+# LLM model for generating improvements (use the cheaper model)
+IMPROVEMENT_MODEL = "agentchat"
+
+IMPROVEMENT_PROMPT_TEMPLATE = """You are a skill improvement specialist for an AI agent platform.
+
+A "skill" is a markdown file with YAML frontmatter that instructs an LLM how to perform a task using scoped tools. The platform's self-correction loop has detected that this skill is underperforming.
+
+## Current Skill Content
+
+```markdown
+{current_skill_content}
+```
+
+## Failure Analysis
+
+This skill had {total_executions} executions in the last {analysis_days} days.
+{failed_executions} executions resulted in REPLAN or ABORT outcomes ({failure_rate:.0%} failure rate).
+
+### Failure Reasons (from supervisor evaluations):
+
+{failure_reasons}
+
+## Your Task
+
+Generate an improved version of this skill that addresses the failure patterns above.
+
+**Rules:**
+1. Keep the same YAML frontmatter structure (name, description, tools, model, max_turns)
+2. Do NOT change the skill name or tools list
+3. Focus on improving the instruction clarity, error handling guidance, and edge case coverage
+4. If failures indicate the skill needs more turns, increase max_turns (but not above 15)
+5. If failures indicate tool misuse, add explicit examples of correct tool usage
+6. If failures indicate missing context, add pre-conditions or clarifying questions
+7. Return ONLY the complete improved skill markdown (frontmatter + body), nothing else
+8. Do NOT wrap the output in code fences
+
+## Improved Skill Content:
+"""
+
+SUMMARY_PROMPT_TEMPLATE = """Summarize the changes between these two skill versions in 2-3 sentences.
+Focus on WHAT changed and WHY (based on the failure patterns).
+
+Original:
+```
+{original}
+```
+
+Improved:
+```
+{improved}
+```
+
+Failure patterns: {failure_summary}
+
+Summary (2-3 sentences, no markdown):"""
+
+
+class SkillQualityAnalyser:
+    """Analyses skill execution quality and generates improvement proposals.
+
+    This service:
+    1. Reads recent supervisor REPLAN/ABORT events for a context
+    2. Identifies skills with high failure rates
+    3. Reads current skill content (context overlay or global)
+    4. Calls LLM to generate improved skill content
+    5. Writes proposals to DB for admin review
+    6. Optionally writes the improved content to context overlay
+    """
+
+    def __init__(
+        self,
+        litellm: LiteLLMClient,
+        skill_registry: SkillRegistry | None = None,
+    ) -> None:
+        """Initialize the analyser.
+
+        Args:
+            litellm: LiteLLM client for generating improvements.
+            skill_registry: Global skill registry for reading skill content.
+        """
+        self._litellm = litellm
+        self._skill_registry = skill_registry
+
+    async def analyse_and_propose(
+        self,
+        context_id: UUID,
+        session: AsyncSession,
+        analysis_days: int = 7,
+    ) -> list[SkillImprovementProposal]:
+        """Run full analysis pipeline for a context.
+
+        Improved skills are written to the context overlay immediately (self-healing).
+        Proposals are recorded in DB with status='applied' for admin visibility.
+        Admins can revert via the portal if the change is unwanted.
+
+        Args:
+            context_id: Context to analyse.
+            session: Database session.
+            analysis_days: Number of days to look back.
+
+        Returns:
+            List of created SkillImprovementProposal records.
+        """
+        LOGGER.info(
+            "Starting skill quality analysis for context %s (last %d days)",
+            context_id,
+            analysis_days,
+        )
+
+        # Verify context exists
+        ctx = await session.get(Context, context_id)
+        if not ctx:
+            LOGGER.error("Context %s not found", context_id)
+            return []
+
+        # 1. Compute time window
+        since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=analysis_days)
+        since_iso = since.isoformat()
+
+        # 2. Count executions per skill
+        execution_counts = await count_skill_executions_for_context(
+            str(context_id), since_iso
+        )
+
+        if not execution_counts:
+            LOGGER.info("No skill executions found for context %s in last %d days", context_id, analysis_days)
+            return []
+
+        # 3. Identify underperforming skills
+        underperforming: list[tuple[str, dict[str, int]]] = []
+        for skill_name, counts in execution_counts.items():
+            total = counts["total"]
+            if total < MIN_EXECUTIONS_THRESHOLD:
+                continue
+
+            failures = counts.get("REPLAN", 0) + counts.get("ABORT", 0)
+            failure_rate = failures / total
+            if failure_rate >= MIN_FAILURE_RATE:
+                underperforming.append((skill_name, counts))
+                LOGGER.info(
+                    "Skill '%s' identified as underperforming: %d/%d failures (%.0f%%)",
+                    skill_name,
+                    failures,
+                    total,
+                    failure_rate * 100,
+                )
+
+        if not underperforming:
+            LOGGER.info("No underperforming skills found for context %s", context_id)
+            return []
+
+        # Sort by failure count descending, take top N
+        underperforming.sort(key=lambda x: x[1].get("REPLAN", 0) + x[1].get("ABORT", 0), reverse=True)
+        underperforming = underperforming[:MAX_PROPOSALS_PER_RUN]
+
+        # 4. Get failure reasons from supervisor events
+        supervisor_events = await read_supervisor_events_for_context(
+            str(context_id), since_iso
+        )
+
+        # Group by skill (step_label often contains the skill name in executor context)
+        # The supervisor events don't directly have skill_name, but we can match by trace_id
+        # to skill_step events. For simplicity, we'll use all supervisor reasons.
+        # A better approach: the step_label in supervisor events is the plan step label,
+        # which typically includes the skill name.
+
+        # 5. Skip skills that already have an applied (unreacted) proposal
+        existing_pending_stmt = (
+            select(SkillImprovementProposal.skill_name)
+            .where(
+                SkillImprovementProposal.context_id == context_id,
+                SkillImprovementProposal.status == "applied",
+            )
+        )
+        result = await session.execute(existing_pending_stmt)
+        pending_skills = set(result.scalars().all())
+
+        # 6. Generate proposals
+        proposals: list[SkillImprovementProposal] = []
+        for skill_name, counts in underperforming:
+            if skill_name in pending_skills:
+                LOGGER.info(
+                    "Skipping '%s' -- already has an applied proposal awaiting review",
+                    skill_name,
+                )
+                continue
+
+            try:
+                proposal = await self._generate_proposal(
+                    context_id=context_id,
+                    skill_name=skill_name,
+                    counts=counts,
+                    supervisor_events=supervisor_events,
+                    analysis_days=analysis_days,
+                    session=session,
+                )
+                if proposal:
+                    proposals.append(proposal)
+            except Exception as exc:
+                LOGGER.error(
+                    "Failed to generate proposal for skill '%s': %s",
+                    skill_name,
+                    exc,
+                    exc_info=True,
+                )
+
+        LOGGER.info(
+            "Skill quality analysis complete for context %s: %d proposals created",
+            context_id,
+            len(proposals),
+        )
+        return proposals
+
+    async def _generate_proposal(
+        self,
+        context_id: UUID,
+        skill_name: str,
+        counts: dict[str, int],
+        supervisor_events: list[dict[str, Any]],
+        analysis_days: int,
+        session: AsyncSession,
+    ) -> SkillImprovementProposal | None:
+        """Generate a single skill improvement proposal.
+
+        Args:
+            context_id: Context UUID.
+            skill_name: Name of the skill to improve.
+            counts: Execution count breakdown.
+            supervisor_events: All supervisor events for this context.
+            analysis_days: Analysis window in days.
+            session: Database session.
+        Returns:
+            Created proposal, or None if generation failed.
+        """
+        # Read current skill content
+        current_content = await self._read_skill_content(context_id, skill_name)
+        if not current_content:
+            LOGGER.warning("Could not read content for skill '%s'", skill_name)
+            return None
+
+        # Filter supervisor events relevant to this skill
+        # Match by step_label containing skill name (best-effort)
+        relevant_events = [
+            evt for evt in supervisor_events
+            if skill_name.lower() in (evt.get("step_label", "") or "").lower()
+            or skill_name.lower() in (evt.get("reason", "") or "").lower()
+        ]
+
+        # If no specific events found, use all events (the analysis is still valid
+        # based on execution counts)
+        if not relevant_events:
+            relevant_events = supervisor_events[:20]
+
+        # Format failure reasons
+        failure_reasons_text = "\n".join(
+            f"- [{evt.get('outcome', 'UNKNOWN')}] {evt.get('reason', 'No reason given')}"
+            for evt in relevant_events[:15]
+        )
+        if not failure_reasons_text:
+            failure_reasons_text = "(No specific failure reasons captured)"
+
+        total = counts["total"]
+        failures = counts.get("REPLAN", 0) + counts.get("ABORT", 0)
+        failure_rate = failures / total if total > 0 else 0.0
+
+        # Generate improved version via LLM
+        prompt = IMPROVEMENT_PROMPT_TEMPLATE.format(
+            current_skill_content=current_content,
+            total_executions=total,
+            analysis_days=analysis_days,
+            failed_executions=failures,
+            failure_rate=failure_rate,
+            failure_reasons=failure_reasons_text,
+        )
+
+        improved_content = await self._call_llm(prompt)
+        if not improved_content:
+            LOGGER.warning("LLM returned empty content for skill '%s'", skill_name)
+            return None
+
+        # Strip code fences if the LLM wraps in them despite instructions
+        improved_content = improved_content.strip()
+        if improved_content.startswith("```"):
+            lines = improved_content.split("\n")
+            # Remove first and last line if they are fences
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            improved_content = "\n".join(lines)
+
+        # Validate the improved content has valid frontmatter
+        from pathlib import Path as _Path
+        test_skill = parse_skill_content(
+            _Path(f"/tmp/{skill_name}.md"),  # noqa: S108
+            improved_content,
+            _Path("/tmp"),  # noqa: S108
+        )
+        if not test_skill:
+            LOGGER.warning("LLM generated invalid skill content for '%s'", skill_name)
+            return None
+
+        # Generate change summary
+        summary_prompt = SUMMARY_PROMPT_TEMPLATE.format(
+            original=current_content[:2000],
+            improved=improved_content[:2000],
+            failure_summary=failure_reasons_text[:500],
+        )
+        change_summary = await self._call_llm(summary_prompt)
+        if not change_summary:
+            change_summary = f"Automated improvement based on {failures}/{total} failed executions."
+
+        # Determine file name
+        skill_file_name = self._get_skill_file_name(context_id, skill_name)
+
+        # Create failure signals for the proposal
+        failure_signals = [
+            {
+                "trace_id": evt.get("trace_id", ""),
+                "outcome": evt.get("outcome", ""),
+                "reason": (evt.get("reason", "") or "")[:200],
+                "step_label": evt.get("step_label", ""),
+            }
+            for evt in relevant_events[:10]
+        ]
+
+        # Create DB proposal
+        # Write to context overlay immediately (self-healing -- applied before admin sees it)
+        await self._write_overlay(context_id, skill_file_name, improved_content)
+
+        proposal = SkillImprovementProposal(
+            id=uuid.uuid4(),
+            context_id=context_id,
+            skill_name=skill_name,
+            skill_file_name=skill_file_name,
+            original_content=current_content,
+            proposed_content=improved_content,
+            change_summary=change_summary.strip(),
+            failure_signals=failure_signals,
+            total_executions=total,
+            failed_executions=failures,
+            status="applied",  # Already live -- admin can revert if needed
+        )
+        session.add(proposal)
+        await session.flush()
+
+        LOGGER.info(
+            "Created skill improvement proposal for '%s' (context %s): %d/%d failures",
+            skill_name,
+            context_id,
+            failures,
+            total,
+        )
+
+        return proposal
+
+    async def _read_skill_content(
+        self,
+        context_id: UUID,
+        skill_name: str,
+    ) -> str | None:
+        """Read current skill content (context overlay first, then global).
+
+        Args:
+            context_id: Context UUID.
+            skill_name: Skill name.
+
+        Returns:
+            Raw skill markdown content, or None if not found.
+        """
+        # Check context overlay first
+        context_dir = get_context_dir(context_id)
+        skills_dir = context_dir / "skills"
+        if skills_dir.exists():
+            for file_path in skills_dir.iterdir():
+                if file_path.is_file() and file_path.suffix == ".md":
+                    try:
+                        content = file_path.read_text(encoding="utf-8")
+                        skill = parse_skill_content(file_path, content, skills_dir)
+                        if skill and skill.name == skill_name:
+                            return content
+                    except Exception:
+                        continue
+
+        # Fall back to global registry
+        if self._skill_registry:
+            skill = self._skill_registry.get(skill_name)
+            if skill:
+                return skill.raw_content
+
+        return None
+
+    def _get_skill_file_name(self, context_id: UUID, skill_name: str) -> str:
+        """Determine the file name for a skill in the context overlay.
+
+        If a context overlay file already exists for this skill, use its name.
+        Otherwise, derive from the global skill's file name.
+        Falls back to sanitized skill name + .md.
+
+        Args:
+            context_id: Context UUID.
+            skill_name: Skill name.
+
+        Returns:
+            File name (basename only, e.g., "researcher.md").
+        """
+        # Check if context already has a file for this skill
+        context_dir = get_context_dir(context_id)
+        skills_dir = context_dir / "skills"
+        if skills_dir.exists():
+            for file_path in skills_dir.iterdir():
+                if file_path.is_file() and file_path.suffix == ".md":
+                    try:
+                        content = file_path.read_text(encoding="utf-8")
+                        skill = parse_skill_content(file_path, content, skills_dir)
+                        if skill and skill.name == skill_name:
+                            return file_path.name
+                    except Exception:
+                        continue
+
+        # Use global skill's file name
+        if self._skill_registry:
+            skill = self._skill_registry.get(skill_name)
+            if skill:
+                return skill.path.name
+
+        # Fallback: sanitize name
+        safe_name = skill_name.replace("/", "_").replace("\\", "_").replace("..", "_")
+        return f"{safe_name}.md"
+
+    async def _write_overlay(
+        self,
+        context_id: UUID,
+        file_name: str,
+        content: str,
+    ) -> None:
+        """Write improved skill to context overlay directory.
+
+        Args:
+            context_id: Context UUID.
+            file_name: Skill file name.
+            content: Improved skill content.
+        """
+        import asyncio
+
+        context_dir = ensure_context_directories(context_id)
+        skills_dir = context_dir / "skills"
+        skills_dir.mkdir(parents=True, exist_ok=True)
+        target = skills_dir / file_name
+
+        await asyncio.to_thread(target.write_text, content, "utf-8")
+
+        LOGGER.info(
+            "Wrote improved skill overlay '%s' for context %s",
+            file_name,
+            context_id,
+        )
+
+    async def _call_llm(self, prompt: str) -> str | None:
+        """Call LLM for content generation (non-streaming).
+
+        NOTE FOR ENGINEER: Verify whether `LiteLLMClient` exposes a non-streaming
+        `completion()` method. If not (it may only have `stream_chat()`), implement
+        this by consuming all chunks from `stream_chat()` and joining content tokens:
+
+            chunks = []
+            async for chunk in self._litellm.stream_chat(messages, model=model):
+                if chunk["type"] == "content" and chunk["content"]:
+                    chunks.append(chunk["content"])
+            return "".join(chunks) or None
+
+        Args:
+            prompt: The prompt to send.
+
+        Returns:
+            LLM response text, or None on failure.
+        """
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            response = await self._litellm.completion(
+                model=IMPROVEMENT_MODEL,
+                messages=messages,
+            )
+            # Extract content from response
+            if response and hasattr(response, "choices") and response.choices:
+                choice = response.choices[0]
+                if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                    return choice.message.content
+            return None
+        except Exception as exc:
+            LOGGER.error("LLM call failed: %s", exc, exc_info=True)
+            return None
+```
+
+**Ops tasks:**
+- Run `./stack check`
+
+**Files affected:**
+- `services/agent/src/core/runtime/skill_quality.py` (create)
+
+---
+
+### Step 4: Scheduler Integration
+
+The scheduler needs a way to trigger the skill quality analyser. Rather than adding a new mechanism, we add a **special scheduled job type**. When a scheduled job has `skill_prompt` starting with `[skill-quality-analysis]`, the scheduler recognizes it and runs the analyser directly instead of routing through AgentService.
+
+**Engineer tasks:**
+
+Modify `services/agent/src/interfaces/scheduler/adapter.py`:
+
+1. Add import at top (after existing imports):
+```python
+from core.runtime.skill_quality import SkillQualityAnalyser
+```
+
+2. In `_execute_job` method, add a check after the job is re-fetched and before the AgentService creation (around line 179, after `LOGGER.info("Executing scheduled job...")`):
+
+```python
+                # Check if this is a skill quality analysis job
+                if job.skill_prompt.startswith("[skill-quality-analysis]"):
+                    await self._run_skill_quality_analysis(job, session)
+                    return
+```
+
+3. Add new method to `SchedulerAdapter` class:
+
+```python
+    async def _run_skill_quality_analysis(
+        self,
+        job: ScheduledJob,
+        session: AsyncSession,
+    ) -> None:
+        """Run skill quality analysis for a context.
+
+        Parses analysis_days from skill_prompt if present, e.g.:
+        "[skill-quality-analysis] days=7"
+
+        Args:
+            job: The scheduled job.
+            session: Database session.
+        """
+        import time as _time
+
+        start_time = _time.monotonic()
+
+        # Parse analysis_days from prompt
+        analysis_days = 7
+        prompt_parts = job.skill_prompt.split()
+        for part in prompt_parts:
+            if part.startswith("days="):
+                try:
+                    analysis_days = int(part.split("=")[1])
+                except (ValueError, IndexError):
+                    pass
+
+        try:
+            # NOTE FOR ENGINEER: _litellm and _skill_registry are private attrs of
+            # ServiceFactory. Either expose them as properties on ServiceFactory, or
+            # pass them to SchedulerAdapter.__init__ explicitly to avoid fragile
+            # private attribute access.
+            analyser = SkillQualityAnalyser(
+                litellm=self._service_factory._litellm,
+                skill_registry=self._service_factory._skill_registry,
+            )
+
+            proposals = await asyncio.wait_for(
+                analyser.analyse_and_propose(
+                    context_id=job.context_id,
+                    session=session,
+                    analysis_days=analysis_days,
+                ),
+                timeout=float(job.timeout_seconds),
+            )
+
+            duration_ms = int((_time.monotonic() - start_time) * 1000)
+            context_url = f"/platformadmin/contexts/{job.context_id}?tab=skill-quality"
+            result_summary = (
+                f"Applied {len(proposals)} skill improvement(s). "
+                f"Review at: {context_url}"
+                if proposals
+                else "No underperforming skills found."
+            )
+
+            job.last_run_at = datetime.now(UTC).replace(tzinfo=None)
+            job.last_run_status = "success"
+            job.last_run_result = result_summary
+            job.last_run_duration_ms = duration_ms
+            job.run_count += 1
+            job.status = "active"
+            job.next_run_at = self._compute_next_run(job.cron_expression)
+            await session.commit()
+
+            LOGGER.info(
+                "Skill quality analysis for context %s completed: %s",
+                job.context_id,
+                result_summary,
+            )
+
+            # Send notification if configured
+            await self._send_notification(
+                job=job,
+                status="success",
+                result=result_summary,
+            )
+
+        except TimeoutError:
+            duration_ms = int((_time.monotonic() - start_time) * 1000)
+            job.last_run_at = datetime.now(UTC).replace(tzinfo=None)
+            job.last_run_status = "error"
+            job.last_run_result = f"Timed out after {job.timeout_seconds}s"
+            job.last_run_duration_ms = duration_ms
+            job.run_count += 1
+            job.error_count += 1
+            job.status = "error"
+            job.next_run_at = self._compute_next_run(job.cron_expression)
+            await session.commit()
+
+        except Exception as exc:
+            duration_ms = int((_time.monotonic() - start_time) * 1000)
+            error_msg = str(exc)[:500]
+            LOGGER.error("Skill quality analysis failed: %s", error_msg, exc_info=True)
+            job.last_run_at = datetime.now(UTC).replace(tzinfo=None)
+            job.last_run_status = "error"
+            job.last_run_result = f"Error: {error_msg}"
+            job.last_run_duration_ms = duration_ms
+            job.run_count += 1
+            job.error_count += 1
+            job.status = "error"
+            job.next_run_at = self._compute_next_run(job.cron_expression)
+            await session.commit()
+```
+
+**Important:** The early return means the normal AgentService flow is skipped for these jobs. The job still uses the same ScheduledJob DB model, just with a special prompt prefix.
+
+**Ops tasks:**
+- Run `./stack check`
+
+**Files affected:**
+- `services/agent/src/interfaces/scheduler/adapter.py` (modify)
+
+---
+
+### Step 5: Admin Portal API Endpoints
+
+Add REST endpoints for managing skill improvement proposals. These go in `services/agent/src/interfaces/http/admin_contexts.py` since proposals are context-scoped (just like skills management).
+
+**Engineer tasks:**
+
+Add the following endpoints to `admin_contexts.py`. Place them after the existing skill management endpoints (after the `delete_context_skill` endpoint, around line 2030+).
+
+1. Add import of `SkillImprovementProposal` to the existing imports from `core.db.models` at the top of the file (line 19-30):
+
+Add `SkillImprovementProposal` to the import list:
+```python
+from core.db.models import (
+    Context,
+    Conversation,
+    McpServer,
+    Message,
+    Session,
+    SkillImprovementProposal,  # ADD THIS
+    ToolPermission,
+    User,
+    UserContext,
+    UserCredential,
+    Workspace,
+)
+```
+
+2. Add new Pydantic models after `WriteFileRequest` (around line 1390):
+
+```python
+class ProposalResponse(BaseModel):
+    """Skill improvement proposal for API responses."""
+
+    id: str
+    skill_name: str
+    skill_file_name: str
+    change_summary: str
+    total_executions: int
+    failed_executions: int
+    failure_rate: float
+    status: str
+    reviewed_by: str | None
+    reviewed_at: str | None
+    created_at: str
+
+
+class ProposalDetailResponse(ProposalResponse):
+    """Full proposal detail including content."""
+
+    original_content: str
+    proposed_content: str
+    failure_signals: list[dict[str, object]]
+```
+
+3. Add the endpoints:
+
+```python
+# --- Skill Improvement Proposals ---
+
+
+@router.get(
+    "/{context_id}/api/skill-proposals",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def list_skill_proposals(
+    context_id: UUID,
+    status_filter: str | None = None,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """List skill improvement proposals for a context.
+
+    Args:
+        context_id: Context UUID.
+        status_filter: Optional status filter (pending_review, accepted, rejected, promoted).
+        session: Database session.
+
+    Returns:
+        List of proposals with metadata.
+    """
+    stmt = (
+        select(SkillImprovementProposal)
+        .where(SkillImprovementProposal.context_id == context_id)
+        .order_by(SkillImprovementProposal.created_at.desc())
+    )
+
+    if status_filter:
+        stmt = stmt.where(SkillImprovementProposal.status == status_filter)
+
+    result = await session.execute(stmt)
+    proposals = result.scalars().all()
+
+    items = []
+    for p in proposals:
+        total = p.total_executions or 1
+        items.append(
+            ProposalResponse(
+                id=str(p.id),
+                skill_name=p.skill_name,
+                skill_file_name=p.skill_file_name,
+                change_summary=p.change_summary,
+                total_executions=p.total_executions,
+                failed_executions=p.failed_executions,
+                failure_rate=p.failed_executions / total,
+                status=p.status,
+                reviewed_by=p.reviewed_by,
+                reviewed_at=p.reviewed_at.isoformat() if p.reviewed_at else None,
+                created_at=p.created_at.isoformat(),
+            ).model_dump()
+        )
+
+    pending_count = sum(1 for p in proposals if p.status == "pending_review")
+
+    return {"proposals": items, "total": len(items), "pending_count": pending_count}
+
+
+@router.get(
+    "/{context_id}/api/skill-proposals/{proposal_id}",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def get_skill_proposal(
+    context_id: UUID,
+    proposal_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Get full detail for a skill improvement proposal.
+
+    Args:
+        context_id: Context UUID.
+        proposal_id: Proposal UUID.
+        session: Database session.
+
+    Returns:
+        Full proposal including original and proposed content.
+    """
+    stmt = select(SkillImprovementProposal).where(
+        SkillImprovementProposal.id == proposal_id,
+        SkillImprovementProposal.context_id == context_id,
+    )
+    result = await session.execute(stmt)
+    proposal = result.scalar_one_or_none()
+
+    if not proposal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
+
+    total = proposal.total_executions or 1
+    return ProposalDetailResponse(
+        id=str(proposal.id),
+        skill_name=proposal.skill_name,
+        skill_file_name=proposal.skill_file_name,
+        change_summary=proposal.change_summary,
+        total_executions=proposal.total_executions,
+        failed_executions=proposal.failed_executions,
+        failure_rate=proposal.failed_executions / total,
+        status=proposal.status,
+        reviewed_by=proposal.reviewed_by,
+        reviewed_at=proposal.reviewed_at.isoformat() if proposal.reviewed_at else None,
+        created_at=proposal.created_at.isoformat(),
+        original_content=proposal.original_content,
+        proposed_content=proposal.proposed_content,
+        failure_signals=proposal.failure_signals,
+    ).model_dump()
+
+
+@router.post(
+    "/{context_id}/api/skill-proposals/{proposal_id}/revert",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def revert_skill_proposal(
+    context_id: UUID,
+    proposal_id: UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Revert an applied skill improvement proposal.
+
+    The improvement was already written to the context overlay when the
+    analyser ran. This undoes that change by restoring the original content:
+    - If original came from global skill: delete the overlay file entirely
+      (CompositeSkillRegistry falls back to global automatically)
+    - If original was a previous context overlay: restore it
+
+    Args:
+        context_id: Context UUID.
+        proposal_id: Proposal UUID.
+        request: FastAPI request.
+        session: Database session.
+
+    Returns:
+        Success message.
+    """
+    stmt = select(SkillImprovementProposal).where(
+        SkillImprovementProposal.id == proposal_id,
+        SkillImprovementProposal.context_id == context_id,
+        SkillImprovementProposal.status == "applied",
+    )
+    result = await session.execute(stmt)
+    proposal = result.scalar_one_or_none()
+
+    if not proposal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Proposal not found or not in 'applied' status",
+        )
+
+    from core.context.files import get_context_dir
+
+    context_dir = get_context_dir(context_id)
+    overlay_file = context_dir / "skills" / proposal.skill_file_name
+
+    # Determine whether original came from global or a previous overlay
+    # by checking the global registry directly (no app.state needed -- pass
+    # registry via dependency or read the global skills path directly).
+    # Simplest approach: if original_content matches what the global registry
+    # has for this skill, delete the overlay. Otherwise restore original content.
+    global_skills_base = Path("skills")  # Mount path -- adjust if different
+    global_candidates = list(global_skills_base.rglob(proposal.skill_file_name))
+
+    original_was_global = False
+    if global_candidates:
+        try:
+            global_content = global_candidates[0].read_text(encoding="utf-8")
+            original_was_global = global_content.strip() == proposal.original_content.strip()
+        except Exception:
+            pass
+
+    if original_was_global:
+        overlay_file.unlink(missing_ok=True)
+        LOGGER.info("Reverted '%s': deleted overlay, global skill restored", proposal.skill_name)
+    else:
+        overlay_file.write_text(proposal.original_content, encoding="utf-8")
+        LOGGER.info("Reverted '%s': restored previous overlay content", proposal.skill_name)
+
+    # Update proposal status
+    admin_email = getattr(request.state, "user_email", "admin")
+    proposal.status = "reverted"
+    proposal.reviewed_by = admin_email
+    proposal.reviewed_at = datetime.now(UTC).replace(tzinfo=None)
+    await session.commit()
+
+    LOGGER.info(
+        "Admin reverted skill proposal %s for '%s' (context %s)",
+        proposal_id,
+        proposal.skill_name,
+        context_id,
+    )
+
+    return {
+        "success": True,
+        "message": f"Reverted '{proposal.skill_name}'. Original skill restored.",
+    }
+
+
+@router.post(
+    "/{context_id}/api/skill-proposals/{proposal_id}/promote",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def promote_skill_to_global(
+    context_id: UUID,
+    proposal_id: UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Promote an accepted proposal to the global skills directory.
+
+    Copies the accepted skill content to /skills/ on disk. This persists
+    until the next container rebuild/deploy.
+
+    Args:
+        context_id: Context UUID.
+        proposal_id: Proposal UUID.
+        request: FastAPI request.
+        session: Database session.
+
+    Returns:
+        Success message with global file path.
+    """
+    stmt = select(SkillImprovementProposal).where(
+        SkillImprovementProposal.id == proposal_id,
+        SkillImprovementProposal.context_id == context_id,
+        SkillImprovementProposal.status == "applied",
+    )
+    result = await session.execute(stmt)
+    proposal = result.scalar_one_or_none()
+
+    if not proposal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Proposal not found or not in 'applied' status",
+        )
+
+    # Find the global skill to get the correct path
+    factory = request.app.state.service_factory
+    global_registry = factory._skill_registry
+    if not global_registry:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Global skill registry not available",
+        )
+
+    global_skill = global_registry.get(proposal.skill_name)
+    if not global_skill:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Global skill '{proposal.skill_name}' not found",
+        )
+
+    # Write to global skill path
+    global_skill.path.write_text(proposal.proposed_content, encoding="utf-8")
+
+    # Update status
+    admin_email = getattr(request.state, "user_email", "admin")
+    proposal.status = "promoted"
+    proposal.reviewed_by = admin_email
+    proposal.reviewed_at = datetime.now(UTC).replace(tzinfo=None)
+    await session.commit()
+
+    LOGGER.info(
+        "Admin promoted skill proposal %s to global: %s",
+        proposal_id,
+        global_skill.path,
+    )
+
+    return {
+        "success": True,
+        "message": (
+            f"Promoted '{proposal.skill_name}' to global. "
+            "NOTE: This writes to the container filesystem only -- "
+            "changes will be lost on next deploy. "
+            "To make permanent: commit the updated file to git."
+        ),
+        "global_path": str(global_skill.path),
+    }
+```
+
+**Ops tasks:**
+- Run `./stack check`
+
+**Files affected:**
+- `services/agent/src/interfaces/http/admin_contexts.py` (modify)
+
+---
+
+### Step 6: Admin Portal UI -- Skill Quality Tab
+
+Add a "Skill Quality" sub-tab to the existing context detail page. The context detail page already uses a tabbed layout.
+
+**Engineer tasks:**
+
+Modify `services/agent/src/interfaces/http/templates/admin_context_detail.html`:
+
+1. Add a new tab button in the tab bar (find the existing tab buttons for "Skills", etc., and add after it):
+
+```html
+<button class="tab-btn" onclick="switchTab('skill-quality')" id="tab-skill-quality">
+    Skill Quality
+    <span id="proposals-badge" class="badge badge-warning" style="display:none; margin-left:4px;">0</span>
+</button>
+```
+
+2. Add the tab content panel (after the existing skills tab content):
+
+```html
+<div id="content-skill-quality" class="tab-content" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="margin:0;">Skill Improvement Proposals</h3>
+        <div>
+            <select id="proposal-status-filter" onchange="loadProposals()" style="padding:6px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg-secondary);">
+                <option value="">All</option>
+                <option value="applied" selected>Applied (Active)</option>
+                <option value="reverted">Reverted</option>
+                <option value="promoted">Promoted to Global</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="proposals-list"></div>
+
+    <!-- Proposal Detail Modal -->
+    <div id="proposal-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:1000; overflow-y:auto;">
+        <div style="max-width:900px; margin:40px auto; background:var(--bg-primary); border-radius:12px; padding:24px; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h3 id="proposal-modal-title" style="margin:0;"></h3>
+                <button onclick="closeProposalModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--text-secondary);">X</button>
+            </div>
+
+            <div style="margin-bottom:16px;">
+                <p id="proposal-summary" style="color:var(--text-secondary);"></p>
+                <div style="display:flex; gap:16px; margin-top:8px;">
+                    <span class="badge" id="proposal-stats"></span>
+                    <span class="badge" id="proposal-status-badge"></span>
+                </div>
+            </div>
+
+            <div style="margin-bottom:16px;">
+                <h4>Failure Signals</h4>
+                <div id="proposal-failures" style="max-height:200px; overflow-y:auto; background:var(--bg-secondary); padding:12px; border-radius:8px; font-size:13px;"></div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+                <div>
+                    <h4>Original</h4>
+                    <pre id="proposal-original" style="background:var(--bg-secondary); padding:12px; border-radius:8px; max-height:400px; overflow-y:auto; font-size:12px; white-space:pre-wrap;"></pre>
+                </div>
+                <div>
+                    <h4>Proposed</h4>
+                    <pre id="proposal-proposed" style="background:var(--bg-secondary); padding:12px; border-radius:8px; max-height:400px; overflow-y:auto; font-size:12px; white-space:pre-wrap;"></pre>
+                </div>
+            </div>
+
+            <div id="proposal-actions" style="display:flex; gap:8px; justify-content:flex-end;"></div>
+        </div>
+    </div>
+</div>
+```
+
+3. Add JavaScript (in the existing `<script>` section):
+
+```javascript
+// --- Skill Quality Proposals ---
+
+let currentProposals = [];
+
+async function loadProposals() {
+    const filter = document.getElementById('proposal-status-filter').value;
+    const url = `/platformadmin/contexts/${CONTEXT_ID}/api/skill-proposals` +
+        (filter ? `?status_filter=${filter}` : '');
+
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('Failed to load proposals');
+        const data = await resp.json();
+        currentProposals = data.proposals || [];
+        renderProposals(currentProposals);
+
+        // Update badge -- shows count of active (applied) improvements awaiting admin awareness
+        const badge = document.getElementById('proposals-badge');
+        if (data.pending_count > 0) {
+            badge.textContent = data.pending_count;
+            badge.style.display = 'inline';
+            badge.title = `${data.pending_count} active improvement(s) -- click to review`;
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch (err) {
+        document.getElementById('proposals-list').innerHTML =
+            `<p style="color:var(--text-secondary);">Failed to load proposals: ${escapeHtml(err.message)}</p>`;
+    }
+}
+
+function renderProposals(proposals) {
+    const container = document.getElementById('proposals-list');
+    if (!proposals.length) {
+        container.innerHTML = '<p style="color:var(--text-secondary);">No proposals found.</p>';
+        return;
+    }
+
+    const rows = proposals.map(p => {
+        const failRate = (p.failure_rate * 100).toFixed(0);
+        const statusClass = {
+            'applied': 'badge-success',
+            'reverted': 'badge-error',
+            'promoted': 'badge-info',
+        }[p.status] || '';
+
+        const statusLabel = {
+            'applied': 'Active',
+            'reverted': 'Reverted',
+            'promoted': 'Promoted',
+        }[p.status] || p.status;
+
+        return `<tr style="cursor:pointer;" onclick="openProposalDetail('${escapeHtml(p.id)}')">
+            <td><strong>${escapeHtml(p.skill_name)}</strong></td>
+            <td>${escapeHtml(p.change_summary.substring(0, 80))}${p.change_summary.length > 80 ? '...' : ''}</td>
+            <td>${p.failed_executions}/${p.total_executions} (${failRate}%)</td>
+            <td><span class="badge ${statusClass}">${statusLabel}</span></td>
+            <td>${new Date(p.created_at).toLocaleDateString()}</td>
+        </tr>`;
+    }).join('');
+
+    container.innerHTML = `<table class="data-table">
+        <thead><tr>
+            <th>Skill</th><th>Summary</th><th>Failures</th><th>Status</th><th>Created</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function openProposalDetail(proposalId) {
+    const url = `/platformadmin/contexts/${CONTEXT_ID}/api/skill-proposals/${proposalId}`;
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error('Failed to load proposal');
+        const p = await resp.json();
+
+        document.getElementById('proposal-modal-title').textContent =
+            `Proposal: ${p.skill_name}`;
+        document.getElementById('proposal-summary').textContent = p.change_summary;
+        document.getElementById('proposal-stats').textContent =
+            `${p.failed_executions}/${p.total_executions} failures (${(p.failure_rate * 100).toFixed(0)}%)`;
+
+        const statusClass = {
+            'applied': 'badge-success',
+            'reverted': 'badge-error',
+            'promoted': 'badge-info',
+        }[p.status] || '';
+        const statusLabel = { 'applied': 'Active', 'reverted': 'Reverted', 'promoted': 'Promoted' }[p.status] || p.status;
+        document.getElementById('proposal-status-badge').className = `badge ${statusClass}`;
+        document.getElementById('proposal-status-badge').textContent = statusLabel;
+
+        // Failure signals
+        const failuresHtml = (p.failure_signals || []).map(f =>
+            `<div style="margin-bottom:4px;"><strong>[${escapeHtml(f.outcome)}]</strong> ${escapeHtml(f.reason || 'No reason')}</div>`
+        ).join('');
+        document.getElementById('proposal-failures').innerHTML = failuresHtml || '<em>No signals</em>';
+
+        // Content
+        document.getElementById('proposal-original').textContent = p.original_content;
+        document.getElementById('proposal-proposed').textContent = p.proposed_content;
+
+        // Actions
+        const actionsDiv = document.getElementById('proposal-actions');
+        if (p.status === 'applied') {
+            actionsDiv.innerHTML = `
+                <span style="font-size:12px; color:var(--text-secondary); margin-right:auto;">
+                    This improvement is currently active for this context.
+                </span>
+                <button class="btn btn-secondary" onclick="reviewProposal('${proposalId}', 'revert')"
+                    title="Restore the original skill content">Revert</button>
+                <button class="btn btn-primary" onclick="reviewProposal('${proposalId}', 'promote')"
+                    title="Copy to global /skills/ (ephemeral -- commit to git to persist)">
+                    Promote to Global
+                </button>
+            `;
+        } else {
+            actionsDiv.innerHTML = `<span style="font-size:12px; color:var(--text-secondary);">No further actions available.</span>`;
+        }
+
+        document.getElementById('proposal-modal').style.display = 'block';
+    } catch (err) {
+        alert('Failed to load proposal detail: ' + err.message);
+    }
+}
+
+function closeProposalModal() {
+    document.getElementById('proposal-modal').style.display = 'none';
+}
+
+async function reviewProposal(proposalId, action) {
+    const url = `/platformadmin/contexts/${CONTEXT_ID}/api/skill-proposals/${proposalId}/${action}`;
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCSRFToken(),
+            },
+        });
+        if (!resp.ok) {
+            const errData = await resp.json().catch(() => ({}));
+            throw new Error(errData.detail || 'Action failed');
+        }
+        const data = await resp.json();
+        closeProposalModal();
+        loadProposals();
+        showToast(data.message || `Proposal ${action}ed successfully`, 'success');
+    } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+    }
+}
+
+// Load proposals when tab is switched to
+const origSwitchTab = typeof switchTab === 'function' ? switchTab : null;
+// We'll hook into tab switching via the skill-quality tab specifically
+```
+
+**Important notes for the Engineer:**
+- The `CONTEXT_ID` variable should already be defined in the template (it is set from the route parameter for the context detail page). Search for existing usage of `CONTEXT_ID` or `contextId` in the template to find how it is exposed to JavaScript.
+- The `escapeHtml`, `getCSRFToken`, and `showToast` functions should already exist in the template. Verify by searching the file.
+- The `switchTab` function already exists. Hook into it to call `loadProposals()` when the skill-quality tab is selected. Find the existing `switchTab` function and add: `if (tabName === 'skill-quality') loadProposals();`
+- The CSS classes `badge-warning`, `badge-success`, `badge-error`, `badge-info`, `data-table`, `btn`, `btn-primary`, `btn-secondary` should already exist in the template's style section. If not, add minimal styles.
+
+**Ops tasks:**
+- Run `./stack check`
+
+**Files affected:**
+- `services/agent/src/interfaces/http/templates/admin_context_detail.html` (modify)
+
+---
+
+### Step 7: Unit Tests
+
+**Engineer tasks:**
+
+Create `services/agent/src/core/tests/test_skill_quality.py`:
+
+```python
+"""Tests for the SkillQualityAnalyser."""
+
+from __future__ import annotations
+
+import json
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from core.runtime.skill_quality import (
+    MIN_EXECUTIONS_THRESHOLD,
+    MIN_FAILURE_RATE,
+    SkillQualityAnalyser,
+)
+
+
+@pytest.fixture
+def mock_litellm() -> MagicMock:
+    """Create a mock LiteLLM client."""
+    client = MagicMock()
+    response = MagicMock()
+    choice = MagicMock()
+    choice.message.content = "---\nname: test_skill\ndescription: Improved\ntools: []\nmodel: agentchat\nmax_turns: 5\n---\n\nImproved instructions."
+    response.choices = [choice]
+    client.completion = AsyncMock(return_value=response)
+    return client
+
+
+@pytest.fixture
+def mock_skill_registry() -> MagicMock:
+    """Create a mock skill registry."""
+    registry = MagicMock()
+    skill = MagicMock()
+    skill.name = "test_skill"
+    skill.raw_content = "---\nname: test_skill\ndescription: Original\ntools: []\nmodel: agentchat\nmax_turns: 5\n---\n\nOriginal instructions."
+    skill.path = Path("/skills/general/test_skill.md")
+    registry.get.return_value = skill
+    return registry
+
+
+@pytest.mark.asyncio
+async def test_analyse_no_executions(mock_litellm: MagicMock, mock_skill_registry: MagicMock) -> None:
+    """Test that analysis with no executions returns empty."""
+    analyser = SkillQualityAnalyser(mock_litellm, mock_skill_registry)
+    context_id = uuid.uuid4()
+
+    mock_session = AsyncMock()
+    mock_session.get = AsyncMock(return_value=MagicMock())  # Context exists
+
+    with patch("core.runtime.skill_quality.count_skill_executions_for_context", new_callable=AsyncMock) as mock_count:
+        mock_count.return_value = {}
+
+        proposals = await analyser.analyse_and_propose(context_id, mock_session)
+
+    assert proposals == []
+
+
+@pytest.mark.asyncio
+async def test_analyse_below_threshold(mock_litellm: MagicMock, mock_skill_registry: MagicMock) -> None:
+    """Test that skills below execution threshold are skipped."""
+    analyser = SkillQualityAnalyser(mock_litellm, mock_skill_registry)
+    context_id = uuid.uuid4()
+
+    mock_session = AsyncMock()
+    mock_session.get = AsyncMock(return_value=MagicMock())
+
+    with patch("core.runtime.skill_quality.count_skill_executions_for_context", new_callable=AsyncMock) as mock_count:
+        mock_count.return_value = {
+            "test_skill": {"total": MIN_EXECUTIONS_THRESHOLD - 1, "SUCCESS": 1, "REPLAN": 1, "ABORT": 0, "RETRY": 0},
+        }
+
+        proposals = await analyser.analyse_and_propose(context_id, mock_session)
+
+    assert proposals == []
+
+
+@pytest.mark.asyncio
+async def test_analyse_below_failure_rate(mock_litellm: MagicMock, mock_skill_registry: MagicMock) -> None:
+    """Test that skills below failure rate threshold are skipped."""
+    analyser = SkillQualityAnalyser(mock_litellm, mock_skill_registry)
+    context_id = uuid.uuid4()
+
+    mock_session = AsyncMock()
+    mock_session.get = AsyncMock(return_value=MagicMock())
+
+    with patch("core.runtime.skill_quality.count_skill_executions_for_context", new_callable=AsyncMock) as mock_count:
+        mock_count.return_value = {
+            "test_skill": {"total": 10, "SUCCESS": 9, "REPLAN": 1, "ABORT": 0, "RETRY": 0},
+        }
+
+        proposals = await analyser.analyse_and_propose(context_id, mock_session)
+
+    assert proposals == []
+
+
+@pytest.mark.asyncio
+async def test_analyse_generates_proposal(mock_litellm: MagicMock, mock_skill_registry: MagicMock, tmp_path: Path) -> None:
+    """Test that a proposal is generated for an underperforming skill."""
+    analyser = SkillQualityAnalyser(mock_litellm, mock_skill_registry)
+    context_id = uuid.uuid4()
+
+    mock_session = AsyncMock()
+    mock_session.get = AsyncMock(return_value=MagicMock())
+    mock_session.add = MagicMock()
+    mock_session.flush = AsyncMock()
+
+    # Mock the pending proposals query
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = []
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
+    with (
+        patch("core.runtime.skill_quality.count_skill_executions_for_context", new_callable=AsyncMock) as mock_count,
+        patch("core.runtime.skill_quality.read_supervisor_events_for_context", new_callable=AsyncMock) as mock_events,
+        patch("core.runtime.skill_quality.get_context_dir") as mock_ctx_dir,
+        patch("core.runtime.skill_quality.ensure_context_directories") as mock_ensure_dirs,
+    ):
+        mock_count.return_value = {
+            "test_skill": {"total": 10, "SUCCESS": 3, "REPLAN": 5, "ABORT": 2, "RETRY": 0},
+        }
+        mock_events.return_value = [
+            {"trace_id": "abc", "outcome": "REPLAN", "reason": "Tool returned empty result", "step_label": "test_skill step"},
+        ]
+        # Mock context dir to avoid filesystem access
+        mock_ctx_dir.return_value = tmp_path
+        mock_ensure_dirs.return_value = tmp_path
+        (tmp_path / "skills").mkdir(exist_ok=True)
+
+        proposals = await analyser.analyse_and_propose(
+            context_id, mock_session, auto_write_overlay=True
+        )
+
+    assert len(proposals) == 1
+    assert proposals[0].skill_name == "test_skill"
+    assert proposals[0].status == "applied"
+    assert proposals[0].failed_executions == 7
+    assert proposals[0].total_executions == 10
+    mock_session.add.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_analyse_skips_pending(mock_litellm: MagicMock, mock_skill_registry: MagicMock) -> None:
+    """Test that skills with existing pending proposals are skipped."""
+    analyser = SkillQualityAnalyser(mock_litellm, mock_skill_registry)
+    context_id = uuid.uuid4()
+
+    mock_session = AsyncMock()
+    mock_session.get = AsyncMock(return_value=MagicMock())
+
+    # Mock the pending proposals query to return existing pending
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = ["test_skill"]  # already applied
+    mock_session.execute = AsyncMock(return_value=mock_result)
+
+    with (
+        patch("core.runtime.skill_quality.count_skill_executions_for_context", new_callable=AsyncMock) as mock_count,
+        patch("core.runtime.skill_quality.read_supervisor_events_for_context", new_callable=AsyncMock) as mock_events,
+    ):
+        mock_count.return_value = {
+            "test_skill": {"total": 10, "SUCCESS": 3, "REPLAN": 5, "ABORT": 2, "RETRY": 0},
+        }
+        mock_events.return_value = []
+
+        proposals = await analyser.analyse_and_propose(context_id, mock_session)
+
+    assert proposals == []
+```
+
+Also create tests for the span query helpers in `services/agent/src/core/tests/test_debug_logger_context.py`:
+
+```python
+"""Tests for context-scoped debug logger helpers."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from core.observability.debug_logger import (
+    _count_skill_executions_for_context,
+    _extract_supervisor_events_for_context,
+)
+
+
+@pytest.fixture
+def spans_file(tmp_path: Path) -> Path:
+    """Create a test spans.jsonl file."""
+    spans_path = tmp_path / "spans.jsonl"
+
+    span1 = {
+        "name": "agent_request",
+        "context": {"trace_id": "trace001", "span_id": "span001"},
+        "attributes": {"context_id": "ctx-111"},
+        "events": [
+            {
+                "name": "debug.supervisor",
+                "timestamp": "2026-02-20T10:00:00",
+                "attributes": {
+                    "debug.event_type": "supervisor",
+                    "debug.event_data": json.dumps({
+                        "outcome": "REPLAN",
+                        "reason": "Tool returned empty",
+                        "step_label": "researcher step",
+                    }),
+                    "debug.conversation_id": "conv-001",
+                },
+            },
+            {
+                "name": "debug.skill_step",
+                "timestamp": "2026-02-20T10:00:00",
+                "attributes": {
+                    "debug.event_type": "skill_step",
+                    "debug.event_data": json.dumps({
+                        "skill_name": "researcher",
+                        "outcome": "REPLAN",
+                    }),
+                },
+            },
+        ],
+    }
+
+    span2 = {
+        "name": "agent_request",
+        "context": {"trace_id": "trace002", "span_id": "span002"},
+        "attributes": {"context_id": "ctx-222"},  # Different context
+        "events": [
+            {
+                "name": "debug.supervisor",
+                "timestamp": "2026-02-20T11:00:00",
+                "attributes": {
+                    "debug.event_type": "supervisor",
+                    "debug.event_data": json.dumps({
+                        "outcome": "ABORT",
+                        "reason": "Auth failure",
+                        "step_label": "backlog step",
+                    }),
+                },
+            },
+        ],
+    }
+
+    span3 = {
+        "name": "agent_request",
+        "context": {"trace_id": "trace003", "span_id": "span003"},
+        "attributes": {"context_id": "ctx-111"},
+        "events": [
+            {
+                "name": "debug.skill_step",
+                "timestamp": "2026-02-20T12:00:00",
+                "attributes": {
+                    "debug.event_type": "skill_step",
+                    "debug.event_data": json.dumps({
+                        "skill_name": "researcher",
+                        "outcome": "SUCCESS",
+                    }),
+                },
+            },
+        ],
+    }
+
+    with spans_path.open("w") as f:
+        for span in [span1, span2, span3]:
+            f.write(json.dumps(span) + "\n")
+
+    return spans_path
+
+
+def test_extract_supervisor_events_filters_by_context(spans_file: Path) -> None:
+    """Supervisor events are filtered by context_id."""
+    events = _extract_supervisor_events_for_context(
+        spans_file, "ctx-111", "2026-02-01T00:00:00"
+    )
+    assert len(events) == 1
+    assert events[0]["outcome"] == "REPLAN"
+    assert events[0]["trace_id"] == "trace001"
+
+
+def test_extract_supervisor_events_excludes_other_context(spans_file: Path) -> None:
+    """Events from other contexts are excluded."""
+    events = _extract_supervisor_events_for_context(
+        spans_file, "ctx-222", "2026-02-01T00:00:00"
+    )
+    assert len(events) == 1
+    assert events[0]["outcome"] == "ABORT"
+
+
+def test_extract_supervisor_events_respects_time_filter(spans_file: Path) -> None:
+    """Events before the cutoff are excluded."""
+    events = _extract_supervisor_events_for_context(
+        spans_file, "ctx-111", "2026-02-21T00:00:00"
+    )
+    assert len(events) == 0
+
+
+def test_count_skill_executions_for_context(spans_file: Path) -> None:
+    """Skill executions are counted per skill per outcome."""
+    counts = _count_skill_executions_for_context(
+        spans_file, "ctx-111", "2026-02-01T00:00:00"
+    )
+    assert "researcher" in counts
+    assert counts["researcher"]["total"] == 2
+    assert counts["researcher"]["REPLAN"] == 1
+    assert counts["researcher"]["SUCCESS"] == 1
+
+
+def test_count_skill_executions_empty_context(spans_file: Path) -> None:
+    """Unknown context returns empty counts."""
+    counts = _count_skill_executions_for_context(
+        spans_file, "ctx-999", "2026-02-01T00:00:00"
+    )
+    assert counts == {}
+```
+
+**Ops tasks:**
+- Run `./stack check`
+- Run `pytest services/agent/src/core/tests/test_skill_quality.py services/agent/src/core/tests/test_debug_logger_context.py -v`
+
+**Files affected:**
+- `services/agent/src/core/tests/test_skill_quality.py` (create)
+- `services/agent/src/core/tests/test_debug_logger_context.py` (create)
+
+---
+
+## 5. Configuration Changes
+
+### Environment Variables
+
+None required. The feature uses existing infrastructure:
+- LiteLLM client (already configured)
+- Database (already configured)
+- Span log path (already configured via `TRACE_SPAN_LOG_PATH`)
+
+### Scheduler Job Setup
+
+To enable skill quality analysis for a context, create a scheduled job via the admin portal with:
+
+- **Name:** `skill-quality-analysis`
+- **Cron expression:** `0 3 * * 1` (weekly, Monday at 03:00 UTC)
+- **Skill prompt:** `[skill-quality-analysis] days=7`
+- **Timeout:** `600` (10 minutes -- LLM calls can be slow)
+- **Notification channel:** email/telegram (optional)
+
+This uses the existing scheduler UI. No new UI needed for job creation.
+
+---
+
+## 6. Testing Strategy
+
+### Unit Tests (Step 7)
+- `test_skill_quality.py`: Tests for SkillQualityAnalyser
+- `test_debug_logger_context.py`: Tests for span query helpers
+
+### Manual Testing
+1. Create a few spans.jsonl entries manually with supervisor REPLAN/ABORT events for a test context
+2. Run the analyser manually via Python shell or a test endpoint
+3. Verify proposals appear in admin portal
+4. Test accept/reject/promote flows
+
+### Integration Test (Optional, Post-MVP)
+- Create a scheduled job, trigger it manually, verify proposal creation
+
+---
+
+## 7. Security Considerations
+
+| Risk | Mitigation |
+|------|------------|
+| **Path traversal in skill_file_name** | The `_get_skill_file_name` method derives names from existing skill files or sanitizes the name. The admin endpoints already validate filenames (no `/`, `..`). |
+| **LLM prompt injection via failure reasons** | Failure reasons come from supervisor evaluations (trusted internal data). The LLM output is validated for valid frontmatter before being written. |
+| **Unauthorized proposal review** | All endpoints require `verify_admin_user` (Entra ID auth). |
+| **CSRF on mutation endpoints** | All POST endpoints use `require_csrf` dependency. |
+| **Large span file reads** | The `_extract_supervisor_events_for_context` function has a `limit` parameter and processes in reverse (newest first). Still, very large files could be slow. Future: consider indexing or time-based file rotation. |
+| **Context isolation** | Proposals are scoped to `context_id` with FK constraint. All queries filter by context. |
+| **Global skill promotion** | Only admins can promote. Writing to `/skills/` is disk-only (container ephemeral). Persists until redeploy. |
+
+---
+
+## 8. Success Criteria
+
+1. A scheduled job can analyse skill execution quality for a context
+2. Underperforming skills (>30% REPLAN/ABORT rate, >5 executions) get improvement proposals
+3. Proposals are visible in the admin portal with diff view
+4. Admin can accept/reject proposals
+5. Accepted proposals can be promoted to global
+6. Rejected proposals revert any auto-written overlay
+7. All quality checks pass (`stack check`)
+8. Unit tests cover core logic
+
+---
+
+## 9. Agent Delegation
+
+### Engineer (Sonnet) - Implementation
+- Steps 1-7: All code creation and modification
+- Debug complex mypy errors if they arise
+
+### Ops (Haiku) - Quality and Deployment
+- After each step: Run `./stack check`
+- After Step 7: Run tests specifically
+- After all steps complete: Commit and create PR
+
+### Cost Optimization
+Each step follows:
+1. Engineer writes/modifies code
+2. Engineer delegates to Ops for `./stack check`
+3. Ops reports back (or escalates)
+4. Repeat for next step
+
+---
+
+## 10. Risks and Dependencies
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| Span data insufficient (too few events) | No proposals generated | Set `MIN_EXECUTIONS_THRESHOLD` to 5 (conservative). Admin can lower via config later. |
+| LLM generates invalid skill content | Proposal not created | Validate with `parse_skill_content()` before saving. |
+| Large spans.jsonl slows analysis | Slow scheduled job | Limit to 500 events, process newest first. Rotation already in place. |
+| Supervisor events lack skill_name | Imprecise failure matching | Match by step_label and reason text (best effort). Future: add skill_name to supervisor debug events. |
+| Auto-write overlay conflicts with manual edits | Admin confusion | Reject endpoint reverts to original if content matches proposal. |
+
+### Known Limitation: Supervisor Events Missing skill_name
+
+The current `log_supervisor()` call in `service.py:680` does NOT include `skill_name` in its event data. It only has `step_label`, `outcome`, and `reason`. The `step_label` is the plan step label (e.g., "Gather server metrics") which may or may not contain the skill name.
+
+**Recommended follow-up (not in this PR):** Add `skill_name=plan_step.tool or "unknown"` to the `log_supervisor()` call so future analysis is more precise. For now, the analyser uses best-effort matching by step_label and reason text, combined with the skill_step events which DO have skill_name.
+
+---
+
+## 11. File Summary
+
+| File | Action | Description |
+|------|--------|-------------|
+| `services/agent/src/core/db/models.py` | Modify | Add `SkillImprovementProposal` model |
+| `services/agent/alembic/versions/20260224_add_skill_improvement_proposals.py` | Create | Database migration |
+| `services/agent/src/core/observability/debug_logger.py` | Modify | Add context-scoped span query functions |
+| `services/agent/src/core/runtime/skill_quality.py` | Create | `SkillQualityAnalyser` service |
+| `services/agent/src/interfaces/scheduler/adapter.py` | Modify | Add skill quality analysis job type |
+| `services/agent/src/interfaces/http/admin_contexts.py` | Modify | Add proposal API endpoints |
+| `services/agent/src/interfaces/http/templates/admin_context_detail.html` | Modify | Add Skill Quality tab UI |
+| `services/agent/src/core/tests/test_skill_quality.py` | Create | Unit tests for analyser |
+| `services/agent/src/core/tests/test_debug_logger_context.py` | Create | Unit tests for span queries |

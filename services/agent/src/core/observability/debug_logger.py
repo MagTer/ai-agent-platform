@@ -23,9 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.models import SystemConfig
 
-# Path kept for backward compatibility (no longer written to)
-DEBUG_LOGS_PATH = Path("data/debug_logs.jsonl")
-
 # Toggle cache with TTL
 _debug_enabled_cache: tuple[bool, float] | None = None
 _DEBUG_CACHE_TTL = 30.0  # seconds
@@ -42,7 +39,7 @@ def invalidate_debug_cache() -> None:
 
 
 def configure_debug_log_handler(
-    log_path: str | Path = DEBUG_LOGS_PATH,
+    log_path: str | Path = Path("data/debug_logs.jsonl"),
     max_bytes: int = 10 * 1024 * 1024,
     backup_count: int = 3,
 ) -> None:
@@ -220,6 +217,212 @@ async def read_debug_logs(
     """
     return await _read_debug_events_from_spans(
         trace_id=trace_id, event_type=event_type, limit=limit
+    )
+
+
+def _extract_supervisor_events_for_context(
+    spans_path: Path,
+    context_id: str,
+    since_iso: str,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Extract supervisor REPLAN/ABORT events for a specific context.
+
+    Reads spans.jsonl and filters by:
+    1. Span attributes.context_id == context_id
+    2. Events with name starting with "debug."
+    3. Event attribute debug.event_type == "supervisor"
+    4. Event timestamp >= since_iso
+    5. Event data outcome in (REPLAN, ABORT)
+
+    Args:
+        spans_path: Path to spans.jsonl file.
+        context_id: Context UUID string to filter by.
+        since_iso: ISO timestamp cutoff (only events after this).
+        limit: Maximum results to return.
+
+    Returns:
+        List of dicts with keys: trace_id, outcome, reason, step_label, timestamp,
+        conversation_id, skill_name
+    """
+    if not spans_path.exists():
+        return []
+
+    results: list[dict[str, Any]] = []
+
+    try:
+        with spans_path.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return []
+
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        if len(results) >= limit:
+            break
+
+        try:
+            span_record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        # Filter by context_id (set as root span attribute)
+        span_attrs = span_record.get("attributes", {})
+        if span_attrs.get("context_id") != context_id:
+            continue
+
+        span_trace_id = span_record.get("context", {}).get("trace_id", "")
+
+        events = span_record.get("events", [])
+        for evt in reversed(events):
+            evt_name = evt.get("name", "")
+            if not evt_name.startswith("debug."):
+                continue
+
+            evt_attrs = evt.get("attributes", {})
+            if evt_attrs.get("debug.event_type") != "supervisor":
+                continue
+
+            # Parse event data
+            event_data_str = evt_attrs.get("debug.event_data", "{}")
+            try:
+                event_data = json.loads(event_data_str)
+            except (json.JSONDecodeError, TypeError):
+                event_data = {}
+
+            outcome = event_data.get("outcome", "")
+            if outcome not in ("REPLAN", "ABORT"):
+                continue
+
+            # Check timestamp
+            evt_ts = evt.get("timestamp", "")
+            if evt_ts and evt_ts < since_iso:
+                continue
+
+            skill_name_evt = event_data.get("skill_name")
+
+            results.append(
+                {
+                    "trace_id": span_trace_id,
+                    "outcome": outcome,
+                    "reason": event_data.get("reason", ""),
+                    "step_label": event_data.get("step_label", ""),
+                    "timestamp": evt_ts,
+                    "conversation_id": evt_attrs.get("debug.conversation_id"),
+                    "skill_name": skill_name_evt,
+                }
+            )
+
+            if len(results) >= limit:
+                break
+
+    return results
+
+
+async def read_supervisor_events_for_context(
+    context_id: str,
+    since_iso: str,
+    limit: int = 500,
+) -> list[dict[str, Any]]:
+    """Async wrapper for reading supervisor failure events for a context.
+
+    Args:
+        context_id: Context UUID string.
+        since_iso: ISO timestamp cutoff.
+        limit: Maximum number of entries.
+
+    Returns:
+        List of supervisor failure events (REPLAN/ABORT only).
+    """
+    spans_path = _get_spans_path()
+    return await asyncio.to_thread(
+        _extract_supervisor_events_for_context,
+        spans_path,
+        context_id,
+        since_iso,
+        limit,
+    )
+
+
+def _count_skill_executions_for_context(
+    spans_path: Path,
+    context_id: str,
+    since_iso: str,
+) -> dict[str, dict[str, int]]:
+    """Count skill executions by outcome for a context.
+
+    Returns:
+        Dict mapping skill_name -> {"total": N, "SUCCESS": N, "REPLAN": N, "ABORT": N, "RETRY": N}
+    """
+    if not spans_path.exists():
+        return {}
+
+    counts: dict[str, dict[str, int]] = {}
+
+    try:
+        with spans_path.open("r", encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        return {}
+
+    for line in lines:
+        if not line.strip():
+            continue
+
+        try:
+            span_record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        span_attrs = span_record.get("attributes", {})
+        if span_attrs.get("context_id") != context_id:
+            continue
+
+        events = span_record.get("events", [])
+        for evt in events:
+            evt_name = evt.get("name", "")
+            if not evt_name.startswith("debug."):
+                continue
+
+            evt_attrs = evt.get("attributes", {})
+            if evt_attrs.get("debug.event_type") != "skill_step":
+                continue
+
+            evt_ts = evt.get("timestamp", "")
+            if evt_ts and evt_ts < since_iso:
+                continue
+
+            event_data_str = evt_attrs.get("debug.event_data", "{}")
+            try:
+                event_data = json.loads(event_data_str)
+            except (json.JSONDecodeError, TypeError):
+                continue
+
+            skill_name = event_data.get("skill_name", "unknown")
+            outcome = event_data.get("outcome", "unknown")
+
+            if skill_name not in counts:
+                counts[skill_name] = {"total": 0, "SUCCESS": 0, "REPLAN": 0, "ABORT": 0, "RETRY": 0}
+
+            counts[skill_name]["total"] += 1
+            if outcome in counts[skill_name]:
+                counts[skill_name][outcome] += 1
+
+    return counts
+
+
+async def count_skill_executions_for_context(
+    context_id: str,
+    since_iso: str,
+) -> dict[str, dict[str, int]]:
+    """Async wrapper for counting skill executions by outcome for a context."""
+    spans_path = _get_spans_path()
+    return await asyncio.to_thread(
+        _count_skill_executions_for_context,
+        spans_path,
+        context_id,
+        since_iso,
     )
 
 
@@ -446,6 +649,7 @@ class DebugLogger:
         outcome: str,
         reason: str,
         conversation_id: str | None = None,
+        skill_name: str | None = None,
     ) -> None:
         """Log a supervisor decision.
 
@@ -455,6 +659,7 @@ class DebugLogger:
             outcome: Outcome (SUCCESS, RETRY, REPLAN, ABORT).
             reason: Reason for the decision.
             conversation_id: Optional conversation ID.
+            skill_name: Optional skill name (tool field of the plan step).
         """
         await self.log_event(
             trace_id=trace_id,
@@ -463,6 +668,7 @@ class DebugLogger:
                 "step_label": step_label,
                 "outcome": outcome,
                 "reason": reason[:500],  # Truncate
+                "skill_name": skill_name,
             },
             conversation_id=conversation_id,
         )

@@ -239,6 +239,24 @@ class ServiceFactory:
             )
             pool._negative_cache[context_id] = time.monotonic()
 
+    @property
+    def litellm(self) -> LiteLLMClient:
+        """Return the shared LiteLLM client.
+
+        Returns:
+            The shared LiteLLMClient instance.
+        """
+        return self._litellm
+
+    @property
+    def skill_registry(self) -> SkillRegistryProtocol | None:
+        """Return the shared skill registry.
+
+        Returns:
+            The shared skill registry instance, or None if not configured.
+        """
+        return self._skill_registry
+
     async def close(self) -> None:
         """Close the shared AsyncQdrantClient.
 

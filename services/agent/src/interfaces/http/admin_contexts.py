@@ -22,6 +22,7 @@ from core.db.models import (
     McpServer,
     Message,
     Session,
+    SkillImprovementProposal,
     ToolPermission,
     User,
     UserContext,
@@ -1390,6 +1391,30 @@ class WriteFileRequest(BaseModel):
     content: str = Field(..., description="File content")
 
 
+class ProposalResponse(BaseModel):
+    """Skill improvement proposal for API responses."""
+
+    id: str
+    skill_name: str
+    skill_file_name: str
+    change_summary: str
+    total_executions: int
+    failed_executions: int
+    failure_rate: float
+    status: str
+    reviewed_by: str | None
+    reviewed_at: str | None
+    created_at: str
+
+
+class ProposalDetailResponse(ProposalResponse):
+    """Full proposal detail including content."""
+
+    original_content: str
+    proposed_content: str
+    failure_signals: list[dict[str, object]]
+
+
 @router.put(
     "/{context_id}/api/files/{file_name}",
     dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
@@ -2049,6 +2074,279 @@ async def delete_context_skill(
     )
 
     return {"success": True, "message": f"Skill '{file_name}' deleted"}
+
+
+# --- Skill Improvement Proposals ---
+
+
+@router.get(
+    "/{context_id}/api/skill-proposals",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def list_skill_proposals(
+    context_id: UUID,
+    status_filter: str | None = None,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """List skill improvement proposals for a context.
+
+    Args:
+        context_id: Context UUID.
+        status_filter: Optional status filter (applied, reverted, promoted).
+        session: Database session.
+
+    Returns:
+        List of proposals with metadata.
+    """
+    stmt = (
+        select(SkillImprovementProposal)
+        .where(SkillImprovementProposal.context_id == context_id)
+        .order_by(SkillImprovementProposal.created_at.desc())
+    )
+
+    if status_filter:
+        stmt = stmt.where(SkillImprovementProposal.status == status_filter)
+
+    result = await session.execute(stmt)
+    proposals = result.scalars().all()
+
+    items = []
+    for p in proposals:
+        total = p.total_executions or 1
+        items.append(
+            ProposalResponse(
+                id=str(p.id),
+                skill_name=p.skill_name,
+                skill_file_name=p.skill_file_name,
+                change_summary=p.change_summary,
+                total_executions=p.total_executions,
+                failed_executions=p.failed_executions,
+                failure_rate=p.failed_executions / total,
+                status=p.status,
+                reviewed_by=p.reviewed_by,
+                reviewed_at=p.reviewed_at.isoformat() if p.reviewed_at else None,
+                created_at=p.created_at.isoformat(),
+            ).model_dump()
+        )
+
+    applied_count = sum(1 for p in proposals if p.status == "applied")
+
+    return {"proposals": items, "total": len(items), "pending_count": applied_count}
+
+
+@router.get(
+    "/{context_id}/api/skill-proposals/{proposal_id}",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def get_skill_proposal(
+    context_id: UUID,
+    proposal_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Get full detail for a skill improvement proposal.
+
+    Args:
+        context_id: Context UUID.
+        proposal_id: Proposal UUID.
+        session: Database session.
+
+    Returns:
+        Full proposal including original and proposed content.
+    """
+    stmt = select(SkillImprovementProposal).where(
+        SkillImprovementProposal.id == proposal_id,
+        SkillImprovementProposal.context_id == context_id,
+    )
+    result = await session.execute(stmt)
+    proposal = result.scalar_one_or_none()
+
+    if not proposal:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Proposal not found")
+
+    total = proposal.total_executions or 1
+    return ProposalDetailResponse(
+        id=str(proposal.id),
+        skill_name=proposal.skill_name,
+        skill_file_name=proposal.skill_file_name,
+        change_summary=proposal.change_summary,
+        total_executions=proposal.total_executions,
+        failed_executions=proposal.failed_executions,
+        failure_rate=proposal.failed_executions / total,
+        status=proposal.status,
+        reviewed_by=proposal.reviewed_by,
+        reviewed_at=proposal.reviewed_at.isoformat() if proposal.reviewed_at else None,
+        created_at=proposal.created_at.isoformat(),
+        original_content=proposal.original_content,
+        proposed_content=proposal.proposed_content,
+        failure_signals=proposal.failure_signals,
+    ).model_dump()
+
+
+@router.post(
+    "/{context_id}/api/skill-proposals/{proposal_id}/revert",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def revert_skill_proposal(
+    context_id: UUID,
+    proposal_id: UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Revert an applied skill improvement proposal.
+
+    The improvement was already written to the context overlay when the
+    analyser ran. This undoes that change by restoring the original content:
+    - If original came from global skill: delete the overlay file entirely
+      (CompositeSkillRegistry falls back to global automatically)
+    - If original was a previous context overlay: restore it
+
+    Args:
+        context_id: Context UUID.
+        proposal_id: Proposal UUID.
+        request: FastAPI request.
+        session: Database session.
+
+    Returns:
+        Success message.
+    """
+    stmt = select(SkillImprovementProposal).where(
+        SkillImprovementProposal.id == proposal_id,
+        SkillImprovementProposal.context_id == context_id,
+        SkillImprovementProposal.status == "applied",
+    )
+    result = await session.execute(stmt)
+    proposal = result.scalar_one_or_none()
+
+    if not proposal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Proposal not found or not in 'applied' status",
+        )
+
+    from core.context.files import get_context_dir
+
+    context_dir = get_context_dir(context_id)
+    overlay_file = context_dir / "skills" / proposal.skill_file_name
+
+    # Determine whether original came from global or a previous overlay
+    global_skills_base = Path("skills")  # Mount path
+    global_candidates = list(global_skills_base.rglob(proposal.skill_file_name))
+
+    original_was_global = False
+    if global_candidates:
+        try:
+            global_content = global_candidates[0].read_text(encoding="utf-8")
+            original_was_global = global_content.strip() == proposal.original_content.strip()
+        except Exception as exc:
+            LOGGER.debug("Could not read global skill candidate: %s", exc)
+
+    if original_was_global:
+        overlay_file.unlink(missing_ok=True)
+        LOGGER.info("Reverted '%s': deleted overlay, global skill restored", proposal.skill_name)
+    else:
+        overlay_file.write_text(proposal.original_content, encoding="utf-8")
+        LOGGER.info("Reverted '%s': restored previous overlay content", proposal.skill_name)
+
+    # Update proposal status
+    admin_email = getattr(request.state, "user_email", "admin")
+    proposal.status = "reverted"
+    proposal.reviewed_by = admin_email
+    proposal.reviewed_at = datetime.now(UTC).replace(tzinfo=None)
+    await session.commit()
+
+    LOGGER.info(
+        "Admin reverted skill proposal %s for '%s' (context %s)",
+        proposal_id,
+        proposal.skill_name,
+        context_id,
+    )
+
+    return {
+        "success": True,
+        "message": f"Reverted '{proposal.skill_name}'. Original skill restored.",
+    }
+
+
+@router.post(
+    "/{context_id}/api/skill-proposals/{proposal_id}/promote",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def promote_skill_to_global(
+    context_id: UUID,
+    proposal_id: UUID,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Promote an accepted proposal to the global skills directory.
+
+    Copies the accepted skill content to /skills/ on disk. This persists
+    until the next container rebuild/deploy.
+
+    Args:
+        context_id: Context UUID.
+        proposal_id: Proposal UUID.
+        request: FastAPI request.
+        session: Database session.
+
+    Returns:
+        Success message with global file path.
+    """
+    stmt = select(SkillImprovementProposal).where(
+        SkillImprovementProposal.id == proposal_id,
+        SkillImprovementProposal.context_id == context_id,
+        SkillImprovementProposal.status == "applied",
+    )
+    result = await session.execute(stmt)
+    proposal = result.scalar_one_or_none()
+
+    if not proposal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Proposal not found or not in 'applied' status",
+        )
+
+    # Find the global skill to get the correct path
+    factory = request.app.state.service_factory
+    global_registry = factory.skill_registry
+    if not global_registry:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Global skill registry not available",
+        )
+
+    global_skill = global_registry.get(proposal.skill_name)
+    if not global_skill:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Global skill '{proposal.skill_name}' not found",
+        )
+
+    # Write to global skill path
+    global_skill.path.write_text(proposal.proposed_content, encoding="utf-8")
+
+    # Update status
+    admin_email = getattr(request.state, "user_email", "admin")
+    proposal.status = "promoted"
+    proposal.reviewed_by = admin_email
+    proposal.reviewed_at = datetime.now(UTC).replace(tzinfo=None)
+    await session.commit()
+
+    LOGGER.info(
+        "Admin promoted skill proposal %s to global: %s",
+        proposal_id,
+        global_skill.path,
+    )
+
+    return {
+        "success": True,
+        "message": (
+            f"Promoted '{proposal.skill_name}' to global. "
+            "NOTE: This writes to the container filesystem only -- "
+            "changes will be lost on next deploy. "
+            "To make permanent: commit the updated file to git."
+        ),
+        "global_path": str(global_skill.path),
+    }
 
 
 __all__ = ["router"]

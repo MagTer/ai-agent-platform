@@ -683,6 +683,7 @@ class AgentService:
                 outcome=outcome.value,
                 reason=reason,
                 conversation_id=conversation_id,
+                skill_name=plan_step.tool if plan_step.executor == "skill" else None,
             )
 
             # Record OTel metrics
@@ -1421,6 +1422,9 @@ class AgentService:
                                 "context_name": db_context.name or "",
                             }
                         )
+                    # Enrich root span with DB-resolved conversation_id
+                    if db_conversation:
+                        set_span_attributes({"conversation_id": str(db_conversation.id)})
 
                     # Phase 1.5: Check for pending HITL and resume if present
                     pending_hitl = (db_conversation.conversation_metadata or {}).get("pending_hitl")

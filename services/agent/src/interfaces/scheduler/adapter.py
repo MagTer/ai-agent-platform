@@ -24,6 +24,7 @@ from core.db.models import ScheduledJob
 from core.protocols.email import EmailMessage
 from core.providers import get_email_service_optional
 from core.runtime.service_factory import ServiceFactory
+from core.runtime.skill_quality import SkillQualityAnalyser
 
 LOGGER = logging.getLogger(__name__)
 
@@ -176,6 +177,11 @@ class SchedulerAdapter:
                     job.cron_expression,
                 )
 
+                # Check if this is a skill quality analysis job
+                if job.skill_prompt.startswith("[skill-quality-analysis]"):
+                    await self._run_skill_quality_analysis(job, session)
+                    return
+
                 try:
                     # Create context-scoped AgentService
                     agent_service = await self._service_factory.create_service(
@@ -278,6 +284,105 @@ class SchedulerAdapter:
             LOGGER.error("Fatal error executing job %s: %s", job_id, e, exc_info=True)
         finally:
             self._running_jobs.discard(job_id)
+
+    async def _run_skill_quality_analysis(
+        self,
+        job: ScheduledJob,
+        session: AsyncSession,
+    ) -> None:
+        """Run skill quality analysis for a context.
+
+        Parses analysis_days from skill_prompt if present, e.g.:
+        "[skill-quality-analysis] days=7"
+
+        Args:
+            job: The scheduled job.
+            session: Database session.
+        """
+        import time as _time
+
+        start_time = _time.monotonic()
+
+        # Parse analysis_days from prompt
+        analysis_days = 7
+        prompt_parts = job.skill_prompt.split()
+        for part in prompt_parts:
+            if part.startswith("days="):
+                try:
+                    analysis_days = int(part.split("=")[1])
+                except (ValueError, IndexError):
+                    pass
+
+        try:
+            analyser = SkillQualityAnalyser(
+                litellm=self._service_factory.litellm,
+                skill_registry=self._service_factory.skill_registry,
+            )
+
+            proposals = await asyncio.wait_for(
+                analyser.analyse_and_propose(
+                    context_id=job.context_id,
+                    session=session,
+                    analysis_days=analysis_days,
+                ),
+                timeout=float(job.timeout_seconds),
+            )
+
+            duration_ms = int((_time.monotonic() - start_time) * 1000)
+            context_url = f"/platformadmin/contexts/{job.context_id}?tab=skill-quality"
+            result_summary = (
+                f"Applied {len(proposals)} skill improvement(s). " f"Review at: {context_url}"
+                if proposals
+                else "No underperforming skills found."
+            )
+
+            job.last_run_at = datetime.now(UTC).replace(tzinfo=None)
+            job.last_run_status = "success"
+            job.last_run_result = result_summary
+            job.last_run_duration_ms = duration_ms
+            job.run_count += 1
+            job.status = "active"
+            job.next_run_at = self._compute_next_run(job.cron_expression)
+            await session.commit()
+
+            LOGGER.info(
+                "Skill quality analysis for context %s completed: %s",
+                job.context_id,
+                result_summary,
+            )
+
+            # Send notification if configured
+            await self._send_notification(
+                job=job,
+                status="success",
+                result=result_summary,
+            )
+
+        except TimeoutError:
+            duration_ms = int((_time.monotonic() - start_time) * 1000)
+            job.last_run_at = datetime.now(UTC).replace(tzinfo=None)
+            job.last_run_status = "error"
+            job.last_run_result = f"Timed out after {job.timeout_seconds}s"
+            job.last_run_duration_ms = duration_ms
+            job.run_count += 1
+            job.error_count += 1
+            job.status = "error"
+            job.next_run_at = self._compute_next_run(job.cron_expression)
+            await session.commit()
+
+        except Exception as exc:
+            duration_ms = int((_time.monotonic() - start_time) * 1000)
+            error_msg = str(exc)[:500]
+            LOGGER.error("Skill quality analysis failed: %s", error_msg, exc_info=True)
+            job.last_run_at = datetime.now(UTC).replace(tzinfo=None)
+            job.last_run_status = "error"
+            job.last_run_result = f"Error: {error_msg}"
+            job.last_run_duration_ms = duration_ms
+            job.run_count += 1
+            job.error_count += 1
+            job.status = "error"
+            job.next_run_at = self._compute_next_run(job.cron_expression)
+            await session.commit()
 
     @staticmethod
     def _compute_next_run(cron_expression: str) -> datetime:
