@@ -242,30 +242,28 @@ class SkillQualityAnalyser:
         )
         return proposals
 
-    async def analyse_single_skill(
+    async def analyse_from_ratings(
         self,
         context_id: UUID,
         skill_name: str,
-        failure_signals: list[dict[str, Any]],
+        ratings: list[Any],
         session: AsyncSession,
     ) -> SkillImprovementProposal | None:
-        """Analyse and propose improvement for a single skill using pre-collected signals.
+        """Analyse and propose improvement using quality rating data.
 
-        Called by the post-mortem hook when a skill's accumulated failure weight crosses
-        the analysis threshold. Unlike analyse_and_propose(), this does NOT scan span logs --
-        it uses the failure_signals accumulated in the skill_failure_weights table.
+        Called by the evaluator threshold trigger when a skill's average
+        score drops below the threshold.
 
         Args:
             context_id: Context UUID.
             skill_name: Name of the skill to analyse.
-            failure_signals: List of failure signal dicts from the weight accumulation table.
-                Each entry: {"trace_id": str, "reason": str, "outcome": str, "weight": float}
+            ratings: List of SkillQualityRating objects with scores and notes.
             session: Database session (caller manages commit).
 
         Returns:
-            Created SkillImprovementProposal, or None if generation was skipped/failed.
+            Created SkillImprovementProposal, or None if skipped.
         """
-        # Skip if there is already an applied (unreacted) proposal for this skill
+        # Skip if already has an applied proposal
         existing_stmt = select(SkillImprovementProposal).where(
             SkillImprovementProposal.context_id == context_id,
             SkillImprovementProposal.skill_name == skill_name,
@@ -279,29 +277,43 @@ class SkillQualityAnalyser:
             )
             return None
 
-        # Compute execution stats from signals
-        total_signals = len(failure_signals)
-        abort_count = sum(1 for s in failure_signals if s.get("outcome") == "abort")
-        replan_count = total_signals - abort_count
+        # Build failure reasons from rating notes
+        functional_notes = []
+        formatting_notes = []
+        for r in ratings:
+            notes = getattr(r, "notes", "") or ""
+            fscore = getattr(r, "functional_score", 3)
+            fmscore = getattr(r, "formatting_score", 3)
+            if fscore <= 3 and notes:
+                functional_notes.append(f"[Functional {fscore}/5] {notes}")
+            if fmscore <= 3 and notes:
+                formatting_notes.append(f"[Formatting {fmscore}/5] {notes}")
 
         # Build supervisor_events-compatible list for _generate_proposal
         supervisor_events = [
             {
-                "trace_id": s.get("trace_id", ""),
-                "outcome": s.get("outcome", "REPLAN").upper(),
-                "reason": s.get("reason", ""),
+                "trace_id": "",
+                "outcome": "REPLAN",
+                "reason": note,
                 "step_label": skill_name,
                 "skill_name": skill_name,
             }
-            for s in failure_signals
+            for note in (functional_notes + formatting_notes)[:15]
         ]
 
-        # Synthesize counts dict matching the format expected by _generate_proposal
+        total_ratings = len(ratings)
+        low_scores = sum(
+            1
+            for r in ratings
+            if (getattr(r, "functional_score", 5) + getattr(r, "formatting_score", 5)) / 2.0
+            <= QUALITY_EVAL_AVG_THRESHOLD
+        )
+
         counts = {
-            "total": max(total_signals, MIN_EXECUTIONS_THRESHOLD),
-            "ABORT": abort_count,
-            "REPLAN": replan_count,
-            "SUCCESS": 0,
+            "total": max(total_ratings, MIN_EXECUTIONS_THRESHOLD),
+            "ABORT": 0,
+            "REPLAN": low_scores,
+            "SUCCESS": total_ratings - low_scores,
         }
 
         try:
@@ -310,12 +322,14 @@ class SkillQualityAnalyser:
                 skill_name=skill_name,
                 counts=counts,
                 supervisor_events=supervisor_events,
-                analysis_days=0,  # Not time-windowed -- signals are pre-collected
+                analysis_days=QUALITY_EVAL_LOOKBACK_DAYS,
                 session=session,
             )
             return proposal
         except Exception:
-            LOGGER.exception("Failed to generate proposal for skill '%s' (post-mortem)", skill_name)
+            LOGGER.exception(
+                "Failed to generate proposal for skill '%s' (from ratings)", skill_name
+            )
             return None
 
     async def _generate_proposal(
@@ -591,3 +605,297 @@ class SkillQualityAnalyser:
         except Exception as exc:
             LOGGER.error("LLM call failed: %s", exc, exc_info=True)
             return None
+
+
+# --- End-of-conversation quality evaluator ---
+
+# Threshold configuration
+QUALITY_EVAL_MIN_RATINGS = 5  # Minimum ratings before triggering analysis
+QUALITY_EVAL_AVG_THRESHOLD = 2.5  # Avg score <= this triggers analysis
+QUALITY_EVAL_LOOKBACK_DAYS = 14  # Days to look back for ratings
+
+# LLM model for evaluation (same as analyser -- runs once per conversation)
+EVALUATOR_MODEL = "agentchat"
+
+EVALUATOR_PROMPT_TEMPLATE = (
+    "You are a quality evaluator for an AI agent platform.\n\n"
+    "A user had a conversation with the agent. The agent used skills to complete the request.\n"
+    "Evaluate each skill's performance.\n\n"
+    "## Skills Used\n\n"
+    "{skills_used}\n\n"
+    "## Conversation Output (final assistant response)\n\n"
+    "{conversation_output}\n\n"
+    "## Evaluation Criteria\n\n"
+    "For each skill, provide two scores (1-5):\n\n"
+    "**Functional Score** (did the skill accomplish its task?):\n"
+    "- 5: Perfect execution, correct results, no replans needed\n"
+    "- 4: Good execution, minor issues that self-corrected\n"
+    "- 3: Acceptable but required retries or partial results\n"
+    "- 2: Poor execution, significant errors or missing data\n"
+    "- 1: Complete failure, task not accomplished\n\n"
+    "**Formatting Score** (was the output well-structured?):\n"
+    "- 5: Clean, well-formatted, appropriate structure\n"
+    "- 4: Good formatting with minor issues\n"
+    "- 3: Acceptable but could be better organized\n"
+    "- 2: Poor formatting, raw data or unstructured output\n"
+    "- 1: Completely unformatted, raw JSON or garbled\n\n"
+    "## Response Format\n\n"
+    "Return ONLY valid JSON (no markdown fences). One object per skill:\n"
+    '{{"ratings": [{{"skill_name": "...", "functional_score": N, '
+    '"formatting_score": N, "notes": "brief explanation"}}]}}\n'
+)
+
+
+async def evaluate_conversation_quality(
+    context_id: UUID,
+    conversation_id: UUID,
+    trace_id: str,
+) -> None:
+    """Background task: evaluate skill quality after conversation completes.
+
+    Opens its own DB session (NOT the request session -- same pattern as
+    the removed post-mortem hook).
+
+    Args:
+        context_id: Context UUID.
+        conversation_id: Conversation UUID.
+        trace_id: Trace ID for reading span events.
+    """
+    import json
+
+    from core.db.engine import AsyncSessionLocal
+    from core.db.models import Conversation, Message, SkillQualityRating
+    from core.observability.debug_logger import is_quality_eval_enabled
+
+    try:
+        async with AsyncSessionLocal() as session:
+            # Check toggles (both debug_enabled AND quality_eval_enabled)
+            if not await is_quality_eval_enabled(session):
+                return
+
+            # 1. Get skills used from span events (skill_step events for this trace)
+            from core.observability.debug_logger import count_skill_executions_for_context
+
+            since = (datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=1)).isoformat()
+            execution_counts = await count_skill_executions_for_context(str(context_id), since)
+
+            if not execution_counts:
+                LOGGER.debug(
+                    "No skill executions found for conversation %s, skipping evaluation",
+                    conversation_id,
+                )
+                return
+
+            skills_used = list(execution_counts.keys())
+
+            # 2. Get the final assistant message for this conversation
+            from sqlalchemy import select as sa_select
+
+            # Find sessions for this conversation, then the latest assistant message
+            conv = await session.get(Conversation, conversation_id)
+            if not conv:
+                LOGGER.warning("Conversation %s not found for quality evaluation", conversation_id)
+                return
+
+            from core.db.models import Session as DbSession
+
+            sess_stmt = sa_select(DbSession.id).where(DbSession.conversation_id == conversation_id)
+            sess_result = await session.execute(sess_stmt)
+            session_ids = [row[0] for row in sess_result.all()]
+
+            if not session_ids:
+                return
+
+            msg_stmt = (
+                sa_select(Message)
+                .where(
+                    Message.session_id.in_(session_ids),
+                    Message.role == "assistant",
+                )
+                .order_by(Message.created_at.desc())
+                .limit(1)
+            )
+            msg_result = await session.execute(msg_stmt)
+            assistant_msg = msg_result.scalar_one_or_none()
+
+            if not assistant_msg or not assistant_msg.content:
+                LOGGER.debug("No assistant message for conversation %s", conversation_id)
+                return
+
+            conversation_output = assistant_msg.content[:3000]
+
+            # 3. Build evaluation prompt
+            skills_text = "\n".join(f"- {name}" for name in skills_used)
+            prompt = EVALUATOR_PROMPT_TEMPLATE.format(
+                skills_used=skills_text,
+                conversation_output=conversation_output,
+            )
+
+            # 4. Call LLM
+            from core.runtime.config import get_settings
+            from core.runtime.litellm_client import LiteLLMClient
+            from core.runtime.models import AgentMessage as RuntimeMessage
+
+            litellm = LiteLLMClient(get_settings())
+            messages = [RuntimeMessage(role="user", content=prompt)]
+            chunks: list[str] = []
+            async for chunk in litellm.stream_chat(messages, model=EVALUATOR_MODEL):
+                chunk_content = chunk.get("content")
+                if chunk.get("type") == "content" and chunk_content:
+                    chunks.append(chunk_content)
+
+            raw_response = "".join(chunks).strip()
+            if not raw_response:
+                LOGGER.warning("Empty LLM response for quality evaluation")
+                return
+
+            # Strip markdown fences if present
+            if raw_response.startswith("```"):
+                lines = raw_response.split("\n")
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                raw_response = "\n".join(lines)
+
+            # 5. Parse response
+            try:
+                parsed = json.loads(raw_response)
+            except json.JSONDecodeError:
+                LOGGER.warning("Failed to parse quality evaluation JSON: %s", raw_response[:200])
+                return
+
+            ratings_data = parsed.get("ratings", [])
+            if not isinstance(ratings_data, list):
+                LOGGER.warning("Invalid ratings format in quality evaluation")
+                return
+
+            # 6. Save ratings
+            saved_skills: list[str] = []
+            for entry in ratings_data:
+                skill_name = entry.get("skill_name", "")
+                if skill_name not in skills_used:
+                    continue  # LLM hallucinated a skill name
+
+                functional = entry.get("functional_score", 3)
+                formatting = entry.get("formatting_score", 3)
+                notes = entry.get("notes", "")
+
+                # Clamp scores to 1-5
+                functional = max(1, min(5, int(functional)))
+                formatting = max(1, min(5, int(formatting)))
+
+                rating = SkillQualityRating(
+                    context_id=context_id,
+                    conversation_id=conversation_id,
+                    skill_name=skill_name,
+                    functional_score=functional,
+                    formatting_score=formatting,
+                    notes=str(notes)[:500],
+                )
+                session.add(rating)
+                saved_skills.append(skill_name)
+
+            await session.commit()
+
+            LOGGER.info(
+                "Quality evaluation complete for conversation %s: %d skill(s) rated",
+                conversation_id,
+                len(saved_skills),
+            )
+
+            # 7. Check if any skill needs analysis (threshold trigger)
+            await _check_quality_thresholds(
+                session=session,
+                context_id=context_id,
+                skill_names=saved_skills,
+                litellm=litellm,
+            )
+
+    except Exception:
+        LOGGER.exception(
+            "Quality evaluation failed for conversation %s (context %s)",
+            conversation_id,
+            context_id,
+        )
+
+
+async def _check_quality_thresholds(
+    session: AsyncSession,
+    context_id: UUID,
+    skill_names: list[str],
+    litellm: LiteLLMClient,
+) -> None:
+    """Check if any rated skill's recent average score is below threshold.
+
+    If so, trigger SkillQualityAnalyser for that skill.
+
+    Args:
+        session: Database session.
+        context_id: Context UUID.
+        skill_names: Skills to check.
+        litellm: LiteLLM client for analyser.
+    """
+    from sqlalchemy import func as sa_func
+    from sqlalchemy import select as sa_select
+
+    from core.db.models import SkillQualityRating
+
+    since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=QUALITY_EVAL_LOOKBACK_DAYS)
+
+    for skill_name in skill_names:
+        # Get recent ratings
+        stmt = sa_select(
+            sa_func.count(SkillQualityRating.id),
+            sa_func.avg(
+                (SkillQualityRating.functional_score + SkillQualityRating.formatting_score) / 2.0
+            ),
+        ).where(
+            SkillQualityRating.context_id == context_id,
+            SkillQualityRating.skill_name == skill_name,
+            SkillQualityRating.created_at >= since,
+        )
+        result = await session.execute(stmt)
+        row = result.one()
+        count = row[0] or 0
+        avg_score = float(row[1]) if row[1] is not None else 5.0
+
+        if count >= QUALITY_EVAL_MIN_RATINGS and avg_score <= QUALITY_EVAL_AVG_THRESHOLD:
+            LOGGER.info(
+                "Skill '%s' quality below threshold (avg %.2f over %d ratings) "
+                "-- triggering analysis for context %s",
+                skill_name,
+                avg_score,
+                count,
+                context_id,
+            )
+
+            # Get the rating notes for the analyser
+            notes_stmt = (
+                sa_select(SkillQualityRating)
+                .where(
+                    SkillQualityRating.context_id == context_id,
+                    SkillQualityRating.skill_name == skill_name,
+                    SkillQualityRating.created_at >= since,
+                )
+                .order_by(SkillQualityRating.created_at.desc())
+                .limit(QUALITY_EVAL_MIN_RATINGS * 2)
+            )
+            notes_result = await session.execute(notes_stmt)
+            recent_ratings = list(notes_result.scalars().all())
+
+            try:
+                analyser = SkillQualityAnalyser(
+                    litellm=litellm,
+                    skill_registry=None,  # Will fall back to global registry lookup
+                )
+                await analyser.analyse_from_ratings(
+                    context_id=context_id,
+                    skill_name=skill_name,
+                    ratings=recent_ratings,
+                    session=session,
+                )
+                await session.commit()
+            except Exception:
+                LOGGER.exception("Threshold-triggered analysis failed for skill '%s'", skill_name)
+                await session.rollback()

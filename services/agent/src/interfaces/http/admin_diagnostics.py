@@ -480,6 +480,63 @@ async def get_debug_status(
     return {"enabled": enabled, "log_count": log_count}
 
 
+@router.post(
+    "/quality-eval-toggle",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def toggle_quality_evaluation(
+    data: dict[str, bool],
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Toggle skill quality evaluation on/off."""
+    from sqlalchemy import select
+
+    from core.db.models import SystemConfig
+    from core.observability.debug_logger import invalidate_quality_eval_cache
+
+    enabled = data.get("enabled", False)
+
+    stmt = select(SystemConfig).where(SystemConfig.key == "skill_quality_evaluation_enabled")
+    result = await session.execute(stmt)
+    config = result.scalar_one_or_none()
+
+    if config:
+        config.value = "true" if enabled else "false"  # type: ignore[assignment]
+    else:
+        config = SystemConfig(
+            key="skill_quality_evaluation_enabled",
+            value="true" if enabled else "false",
+            description="Skill quality evaluation toggle (requires debug logging)",
+        )
+        session.add(config)
+
+    await session.commit()
+    invalidate_quality_eval_cache()
+    return {"enabled": enabled}
+
+
+@router.get("/quality-eval-status", dependencies=[Depends(verify_admin_user)])
+async def get_quality_eval_status(
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Get skill quality evaluation status."""
+    from core.observability.debug_logger import is_quality_eval_enabled
+
+    enabled = await is_quality_eval_enabled(session)
+
+    # Also get the raw toggle value (to show UI state even when debug is off)
+    from sqlalchemy import select
+
+    from core.db.models import SystemConfig
+
+    stmt = select(SystemConfig).where(SystemConfig.key == "skill_quality_evaluation_enabled")
+    result = await session.execute(stmt)
+    config = result.scalar_one_or_none()
+    raw_enabled = config.value == "true" if config else False
+
+    return {"enabled": enabled, "toggle_on": raw_enabled}
+
+
 def _get_diagnostics_content() -> str:
     """Return the main content HTML for the diagnostics dashboard."""
     return _CONTENT

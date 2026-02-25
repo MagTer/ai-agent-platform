@@ -27,6 +27,51 @@ from core.db.models import SystemConfig
 _debug_enabled_cache: tuple[bool, float] | None = None
 _DEBUG_CACHE_TTL = 30.0  # seconds
 
+# Skill quality evaluation toggle cache
+_quality_eval_enabled_cache: tuple[bool, float] | None = None
+_QUALITY_EVAL_CACHE_TTL = 30.0  # seconds
+
+
+def invalidate_quality_eval_cache() -> None:
+    """Invalidate the skill quality evaluation enabled cache."""
+    global _quality_eval_enabled_cache
+    _quality_eval_enabled_cache = None
+
+
+async def is_quality_eval_enabled(session: AsyncSession) -> bool:
+    """Check if skill quality evaluation is enabled (with caching).
+
+    Both debug_enabled AND skill_quality_evaluation_enabled must be true.
+
+    Args:
+        session: Database session.
+
+    Returns:
+        True if quality evaluation is enabled, False otherwise.
+    """
+    global _quality_eval_enabled_cache
+
+    now = time.time()
+    if _quality_eval_enabled_cache is not None:
+        cached_value, cached_time = _quality_eval_enabled_cache
+        if now - cached_time < _QUALITY_EVAL_CACHE_TTL:
+            return cached_value
+
+    # Check debug_enabled first (prerequisite)
+    debug_logger = DebugLogger(session)
+    if not await debug_logger.is_enabled():
+        _quality_eval_enabled_cache = (False, now)
+        return False
+
+    # Check quality eval toggle
+    stmt = select(SystemConfig).where(SystemConfig.key == "skill_quality_evaluation_enabled")
+    result = await session.execute(stmt)
+    config = result.scalar_one_or_none()
+
+    enabled = config.value == "true" if config else False
+    _quality_eval_enabled_cache = (enabled, now)
+    return enabled
+
 
 def invalidate_debug_cache() -> None:
     """Invalidate the debug enabled cache.

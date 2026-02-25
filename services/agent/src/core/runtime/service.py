@@ -30,7 +30,6 @@ from core.agents import (
 from core.command_loader import get_available_skill_names, get_registry_index
 from core.context_manager import ContextManager
 from core.db import Context, Conversation, Message, Session
-from core.db.engine import AsyncSessionLocal
 from core.models.pydantic_schemas import SupervisorDecision, TraceContext
 from core.observability.debug_logger import DebugLogger
 from core.observability.logging import log_event
@@ -1118,11 +1117,6 @@ class AgentService:
         skill_content_yielded = False
         awaiting_input_request: AwaitingInputRequest | None = None
 
-        # Accumulate step outcomes for post-mortem analysis
-        # Each entry: (skill_name, outcome, reason)
-        # Only skill steps are recorded (tool/completion steps are ignored)
-        step_outcome_history: list[tuple[str, str, str]] = []
-
         # Adaptive execution loop
         while replans_remaining >= 0 and not execution_complete:
             replan_count = max_replans - replans_remaining
@@ -1277,17 +1271,6 @@ class AgentService:
                             )
                         )
 
-                # Record skill step outcome for post-mortem
-                _is_skill_step = plan_step.executor == "skill" or plan_step.action == "skill"
-                if _is_skill_step and plan_step.tool:
-                    step_outcome_history.append(
-                        (
-                            plan_step.tool,
-                            step_outcome or "unknown",
-                            replan_reason or "",
-                        )
-                    )
-
                 # Handle replan outcome
                 if step_outcome == "replan":
                     reason = replan_reason or "Step failed"
@@ -1351,25 +1334,18 @@ class AgentService:
             if abort_execution:
                 break
 
-        # Post-mortem: accumulate skill failure weights in background
-        # Only for agentic plans with skill steps that had non-success outcomes
-        if step_outcome_history:
-            plan_succeeded = execution_complete and not abort_execution
-            _context_id: uuid.UUID | None = None
-            if db_conversation and db_conversation.context_id:
-                _context_id = db_conversation.context_id
+        # Quality evaluation: evaluate skills used in this conversation
+        # Runs as background task (non-blocking)
+        if db_conversation and db_conversation.context_id:
+            from core.runtime.skill_quality import evaluate_conversation_quality
 
-            if _context_id is not None:
-                asyncio.create_task(
-                    _request_post_mortem(
-                        context_id=_context_id,
-                        trace_id=trace_id,
-                        plan_succeeded=plan_succeeded,
-                        step_outcome_history=step_outcome_history,
-                        litellm=self._litellm,
-                        skill_registry=self._skill_registry,
-                    )
+            asyncio.create_task(
+                evaluate_conversation_quality(
+                    context_id=db_conversation.context_id,
+                    conversation_id=db_conversation.id,
+                    trace_id=trace_id,
                 )
+            )
 
         # Check if plan had an explicit completion step
         has_completion_step = bool(
@@ -1869,183 +1845,3 @@ class AgentService:
             remaining = still_pending
 
         return batches
-
-
-# --- Post-mortem skill quality analysis ---
-
-# Weight constants for failure severity
-_WEIGHT_ABORT_DIRECT = 1.0  # Skill was the final failing step (ABORT)
-_WEIGHT_REPLAN_ABORT = 0.5  # Skill caused REPLAN, plan ultimately aborted
-_WEIGHT_REPLAN_SUCCESS = 0.1  # Skill caused REPLAN, plan ultimately succeeded (self-corrected)
-
-# Accumulated weight threshold to trigger SkillQualityAnalyser
-_ANALYSIS_THRESHOLD = 3.0
-
-# Maximum number of failure signal entries to keep per skill (prevents unbounded growth)
-_MAX_SIGNALS_PER_SKILL = 50
-
-
-async def _request_post_mortem(
-    context_id: uuid.UUID,
-    trace_id: str,
-    plan_succeeded: bool,
-    step_outcome_history: list[tuple[str, str, str]],
-    litellm: LiteLLMClient,
-    skill_registry: SkillRegistryProtocol | None,
-) -> None:
-    """Background task: assign failure weights and trigger analysis if threshold crossed.
-
-    Opens its own DB session because the request session is closed after the response.
-
-    Args:
-        context_id: Context UUID.
-        trace_id: Trace ID for this request (for failure signal records).
-        plan_succeeded: Whether the plan completed successfully (no abort).
-        step_outcome_history: List of (skill_name, outcome, reason) tuples
-            collected during plan execution. Only skill steps are included.
-        litellm: LiteLLM client (for triggering analyser).
-        skill_registry: Skill registry (for triggering analyser).
-    """
-    try:
-        async with AsyncSessionLocal() as session:
-            skills_to_analyse = await _accumulate_weights(
-                session=session,
-                context_id=context_id,
-                trace_id=trace_id,
-                plan_succeeded=plan_succeeded,
-                step_outcome_history=step_outcome_history,
-            )
-            await session.commit()
-
-            # Trigger analysis for any skills that crossed the threshold
-            if skills_to_analyse:
-                from core.runtime.skill_quality import SkillQualityAnalyser
-
-                analyser = SkillQualityAnalyser(
-                    litellm=litellm,
-                    skill_registry=skill_registry,
-                )
-                for skill_name, signals in skills_to_analyse:
-                    try:
-                        LOGGER.info(
-                            "Triggering skill quality analysis for '%s' (context %s) "
-                            "-- weight threshold crossed",
-                            skill_name,
-                            context_id,
-                        )
-                        await analyser.analyse_single_skill(
-                            context_id=context_id,
-                            skill_name=skill_name,
-                            failure_signals=signals,
-                            session=session,
-                        )
-                        await session.commit()
-                    except Exception:
-                        LOGGER.exception("Post-mortem analysis failed for skill '%s'", skill_name)
-                        await session.rollback()
-
-    except Exception:
-        LOGGER.exception("Post-mortem hook failed for context %s", context_id)
-
-
-async def _accumulate_weights(
-    session: AsyncSession,
-    context_id: uuid.UUID,
-    trace_id: str,
-    plan_succeeded: bool,
-    step_outcome_history: list[tuple[str, str, str]],
-) -> list[tuple[str, list[dict[str, Any]]]]:
-    """Accumulate failure weights and return skills that crossed the threshold.
-
-    For each skill step with a non-success outcome, compute a weight based on
-    the step outcome and the overall plan outcome, then add it to the
-    skill_failure_weights table.
-
-    Args:
-        session: Database session (caller manages commit).
-        context_id: Context UUID.
-        trace_id: Trace ID for signal attribution.
-        plan_succeeded: Whether the overall plan succeeded.
-        step_outcome_history: List of (skill_name, outcome, reason) tuples.
-
-    Returns:
-        List of (skill_name, failure_signals) for skills that crossed the
-        analysis threshold. The failure_signals are the accumulated signals
-        that were stored in the DB row before it was reset.
-    """
-    from sqlalchemy import select
-
-    from core.db.models import SkillFailureWeight
-
-    # Compute per-skill weight deltas from this plan execution
-    skill_deltas: dict[str, list[tuple[float, str]]] = {}
-    for skill_name, outcome, reason in step_outcome_history:
-        if outcome == "success":
-            continue
-
-        if outcome == "abort":
-            weight = _WEIGHT_ABORT_DIRECT
-        elif outcome == "replan" and not plan_succeeded:
-            weight = _WEIGHT_REPLAN_ABORT
-        elif outcome == "replan" and plan_succeeded:
-            weight = _WEIGHT_REPLAN_SUCCESS
-        else:
-            # retry or unknown -- treat as low-weight signal
-            weight = _WEIGHT_REPLAN_SUCCESS
-
-        skill_deltas.setdefault(skill_name, []).append((weight, reason))
-
-    if not skill_deltas:
-        return []
-
-    triggered: list[tuple[str, list[dict[str, Any]]]] = []
-
-    for skill_name, deltas in skill_deltas.items():
-        total_delta = sum(w for w, _ in deltas)
-
-        # Upsert: fetch existing row or create new one
-        stmt = select(SkillFailureWeight).where(
-            SkillFailureWeight.context_id == context_id,
-            SkillFailureWeight.skill_name == skill_name,
-        )
-        result = await session.execute(stmt)
-        row = result.scalar_one_or_none()
-
-        new_signals = [
-            {
-                "trace_id": trace_id,
-                "reason": reason[:200],
-                "outcome": "abort" if w >= _WEIGHT_ABORT_DIRECT else "replan",
-                "weight": w,
-            }
-            for w, reason in deltas
-            if reason  # Only record signals that have a reason string
-        ]
-
-        if row is None:
-            row = SkillFailureWeight(
-                context_id=context_id,
-                skill_name=skill_name,
-                accumulated_weight=total_delta,
-                failure_signals=new_signals[-_MAX_SIGNALS_PER_SKILL:],
-            )
-            session.add(row)
-        else:
-            row.accumulated_weight += total_delta
-            # Append signals, keeping bounded
-            existing = row.failure_signals or []
-            combined = existing + new_signals
-            row.failure_signals = combined[-_MAX_SIGNALS_PER_SKILL:]
-
-        # Flush to ensure row.accumulated_weight is current
-        await session.flush()
-
-        # Check threshold
-        if row.accumulated_weight >= _ANALYSIS_THRESHOLD:
-            # Collect signals before reset
-            triggered.append((skill_name, list(row.failure_signals or [])))
-            # Reset weight and signals
-            row.accumulated_weight = 0.0
-            row.failure_signals = []
-
-    return triggered
