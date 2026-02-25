@@ -242,6 +242,82 @@ class SkillQualityAnalyser:
         )
         return proposals
 
+    async def analyse_single_skill(
+        self,
+        context_id: UUID,
+        skill_name: str,
+        failure_signals: list[dict[str, Any]],
+        session: AsyncSession,
+    ) -> SkillImprovementProposal | None:
+        """Analyse and propose improvement for a single skill using pre-collected signals.
+
+        Called by the post-mortem hook when a skill's accumulated failure weight crosses
+        the analysis threshold. Unlike analyse_and_propose(), this does NOT scan span logs --
+        it uses the failure_signals accumulated in the skill_failure_weights table.
+
+        Args:
+            context_id: Context UUID.
+            skill_name: Name of the skill to analyse.
+            failure_signals: List of failure signal dicts from the weight accumulation table.
+                Each entry: {"trace_id": str, "reason": str, "outcome": str, "weight": float}
+            session: Database session (caller manages commit).
+
+        Returns:
+            Created SkillImprovementProposal, or None if generation was skipped/failed.
+        """
+        # Skip if there is already an applied (unreacted) proposal for this skill
+        existing_stmt = select(SkillImprovementProposal).where(
+            SkillImprovementProposal.context_id == context_id,
+            SkillImprovementProposal.skill_name == skill_name,
+            SkillImprovementProposal.status == "applied",
+        )
+        result = await session.execute(existing_stmt)
+        if result.scalar_one_or_none() is not None:
+            LOGGER.info(
+                "Skipping '%s' -- already has an applied proposal awaiting review",
+                skill_name,
+            )
+            return None
+
+        # Compute execution stats from signals
+        total_signals = len(failure_signals)
+        abort_count = sum(1 for s in failure_signals if s.get("outcome") == "abort")
+        replan_count = total_signals - abort_count
+
+        # Build supervisor_events-compatible list for _generate_proposal
+        supervisor_events = [
+            {
+                "trace_id": s.get("trace_id", ""),
+                "outcome": s.get("outcome", "REPLAN").upper(),
+                "reason": s.get("reason", ""),
+                "step_label": skill_name,
+                "skill_name": skill_name,
+            }
+            for s in failure_signals
+        ]
+
+        # Synthesize counts dict matching the format expected by _generate_proposal
+        counts = {
+            "total": max(total_signals, MIN_EXECUTIONS_THRESHOLD),
+            "ABORT": abort_count,
+            "REPLAN": replan_count,
+            "SUCCESS": 0,
+        }
+
+        try:
+            proposal = await self._generate_proposal(
+                context_id=context_id,
+                skill_name=skill_name,
+                counts=counts,
+                supervisor_events=supervisor_events,
+                analysis_days=0,  # Not time-windowed -- signals are pre-collected
+                session=session,
+            )
+            return proposal
+        except Exception:
+            LOGGER.exception("Failed to generate proposal for skill '%s' (post-mortem)", skill_name)
+            return None
+
     async def _generate_proposal(
         self,
         context_id: UUID,

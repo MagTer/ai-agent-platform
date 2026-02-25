@@ -566,3 +566,33 @@ class SkillImprovementProposal(Base):
         Index("ix_proposal_context_skill", "context_id", "skill_name"),
         Index("ix_proposal_status", "status"),
     )
+
+
+class SkillFailureWeight(Base):
+    """Accumulated failure weight per skill per context.
+
+    Weights are added by the post-mortem hook after each agentic plan completes.
+    When accumulated_weight crosses the analysis threshold, SkillQualityAnalyser
+    is triggered for that skill and the weight is reset to zero.
+
+    Weight assignments per plan trajectory:
+    - Skill caused ABORT (final failing step): 1.0
+    - Skill caused REPLAN, plan ultimately aborted: 0.5
+    - Skill caused REPLAN, plan ultimately succeeded (self-corrected): 0.1
+    - Skill succeeded directly: 0.0 (no row written)
+    """
+
+    __tablename__ = "skill_failure_weights"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    context_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("contexts.id", ondelete="CASCADE"), index=True
+    )
+    skill_name: Mapped[str] = mapped_column(String, index=True)
+    accumulated_weight: Mapped[float] = mapped_column(default=0.0)
+    # JSON list of reason strings from supervisor decisions, for passing to the analyser
+    # Each entry: {"trace_id": str, "reason": str, "outcome": str, "weight": float}
+    failure_signals: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+    __table_args__ = (UniqueConstraint("context_id", "skill_name", name="uq_context_skill_weight"),)
