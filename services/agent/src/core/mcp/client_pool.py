@@ -457,6 +457,8 @@ class McpClientPool:
         health: dict[str, dict[str, Any]] = {}
 
         for context_id, clients in self._pools.items():
+            if not clients:
+                continue
             context_health = []
             for client in clients:
                 context_health.append(
