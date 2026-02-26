@@ -1,6 +1,6 @@
 """Add skill_improvement_proposals table.
 
-Revision ID: 20260224_skill_improvement_proposals
+Revision ID: 20260224_skill_proposals
 Revises: 20260222_display_name_contexts
 Create Date: 2026-02-24
 """
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-revision: str = "20260224_skill_improvement_proposals"
+revision: str = "20260224_skill_proposals"
 down_revision: str | None = "20260222_display_name_contexts"
 branch_labels = None
 depends_on = None

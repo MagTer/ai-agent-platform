@@ -1,7 +1,7 @@
 """Replace skill_failure_weights with skill_quality_ratings.
 
-Revision ID: 20260225_replace_weights_with_ratings
-Revises: 20260225_skill_failure_weights
+Revision ID: 20260225_replace_wt_rate
+Revises: 20260225_skill_fail_wt
 Create Date: 2026-02-25
 """
 
@@ -9,8 +9,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
 
-revision: str = "20260225_replace_weights_with_ratings"
-down_revision: str | None = "20260225_skill_failure_weights"
+revision: str = "20260225_replace_wt_rate"
+down_revision: str | None = "20260225_skill_fail_wt"
 branch_labels = None
 depends_on = None
 
@@ -66,7 +66,7 @@ def downgrade() -> None:
     op.drop_index("ix_rating_context_skill", table_name="skill_quality_ratings")
     op.drop_table("skill_quality_ratings")
 
-    # Recreate the old table (from 20260225_skill_failure_weights migration)
+    # Recreate the old table (from 20260225_skill_fail_wt migration)
     from sqlalchemy.dialects.postgresql import JSONB
 
     op.create_table(
