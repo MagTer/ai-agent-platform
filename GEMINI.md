@@ -16,7 +16,7 @@ Before marking ANY task as complete, you MUST execute the Quality Assurance CLI.
 
 
 ## 🚑 TROUBLESHOOTING
-* **Logs:** If you encounter issues, always check `services/agent/stack_up.log` using the `File Fetcher` before making assumptions.
+* **Logs:** Check container logs via `./stack dev logs` or `docker logs <container> --tail 50`.
 * **Quality checks:** Use `./stack check` for fast verification of code changes. See next section for available commands.
 
 ---
@@ -29,17 +29,21 @@ The `core/` layer uses **Protocol classes** to define interfaces. This enables c
 
 ```python
 # Protocols define interfaces (core/protocols/)
-from core.protocols import EmbedderProtocol, MemoryProtocol
+from core.protocols.embedder import IEmbedder
+from core.protocols.fetcher import IFetcher
 
 # Providers supply implementations (core/providers.py)
-from core.providers import get_embedder, get_memory_store
+from core.providers import get_embedder, get_fetcher
 ```
 
-**Key Protocols:**
-- `EmbedderProtocol`: Text embedding interface
-- `MemoryProtocol`: Vector memory store interface
-- `LLMProtocol`: LLM client interface
-- `ToolProtocol`: Tool execution interface
+**Key Protocols** (all in `core/protocols/`):
+- `IEmbedder` — text embedding interface (`embedder.py`)
+- `IFetcher` — web fetching interface (`fetcher.py`)
+- `IRAGManager` — RAG pipeline interface (`rag.py`)
+- `ICodeIndexer` — code indexing interface (`indexer.py`)
+- `IPriceTracker` / `IPriceScheduler` — price tracking (`price_tracker.py`)
+- `IOAuthClient` — OAuth flows (`oauth.py`)
+- `IEmailService` — email sending (`email.py`)
 
 ## 2. STATE MANAGEMENT (RACS)
 All state is hierarchical and persisted in PostgreSQL.
@@ -54,8 +58,8 @@ All state is hierarchical and persisted in PostgreSQL.
 *   **No Band-Aids:** Do not use `# noqa` unless absolutely necessary; rely on the relaxed config instead.
 
 ### 3.1 Python Rules
-*   **Version:** Python 3.11+
-*   **Async:** All I/O is `async/await`. Use `httpx` and `AsyncPG`.
+*   **Version:** Python 3.11–3.12 (runtime: 3.12)
+*   **Async:** All I/O is `async/await`. Use `httpx` for HTTP and `SQLAlchemy 2.0 async` for DB (not AsyncPG directly).
 *   **Imports:** Absolute imports only.
     * ✅ `from core.db import models`
     * ❌ `from ..core import models`
@@ -65,7 +69,7 @@ All state is hierarchical and persisted in PostgreSQL.
 *   **Preserve:** Do not remove comments or existing functionality unless explicitly asked.
 
 ### 3.3 Code Editing
-*   **Use:** Always use Context7 to get code suggestions before editing.
+*   **Read before write:** Always read the target file before editing. Never guess at existing code.
 
 ---
 
@@ -135,61 +139,62 @@ info = format_error_for_ai(code)
 # }
 ```
 
-### 5.2 Diagnostics Endpoint
-**`GET /diagnostics/summary`** returns AI-optimized health report:
-- `overall_status`: HEALTHY | DEGRADED | CRITICAL
-- `failed_components`: List with error codes and recovery hints
-- `recommended_actions`: Prioritized list of fixes
+### 5.2 Diagnostics API
+All diagnostic endpoints are under `/platformadmin/api/` and require `X-Api-Key` header:
+
+```bash
+KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
+BASE="https://agent-dev.falle.se/platformadmin/api"
+
+# System health
+curl -s -H "X-Api-Key: $KEY" $BASE/status | python3 -m json.tool
+
+# Find recent errors
+curl -s -H "X-Api-Key: $KEY" "$BASE/traces/search?status=ERR&limit=10"
+
+# Investigate a specific request
+curl -s -H "X-Api-Key: $KEY" "$BASE/investigate/{trace_id}"
+```
 
 ---
 
 ## 6. SELF-CORRECTION & DEBUGGING
-The Agent can debug its own runtime errors using the diagnostics APIs.
 
 ### 6.1 Diagnostics API Reference
-Use these endpoints for autonomous troubleshooting:
+All access via Traefik — no direct host ports exposed.
 
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/diagnostics/summary` | GET | AI-optimized health report with error codes and recovery hints |
-| `/diagnostics/crash-log` | GET | Read `last_crash.log` content via API (no file access needed) |
-| `/diagnostics/run` | POST | Run integration tests on all components |
-| `/diagnostics/traces` | GET | Get recent traces (add `?show_all=true` to include health checks) |
-| `/diagnostics/metrics` | GET | System health metrics with error hotspots |
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /platformadmin/api/status` | Health status (HEALTHY/DEGRADED/CRITICAL) |
+| `GET /platformadmin/api/otel-metrics` | Error rate, avg latency, token usage |
+| `GET /platformadmin/api/traces/search?status=ERR` | Recent error traces |
+| `GET /platformadmin/api/investigate/{trace_id}` | Full trace + debug events + summary |
+| `GET /platformadmin/api/debug/logs?trace_id=X` | Debug events for a trace |
+| `GET /platformadmin/api/conversations` | Recent conversations |
 
 ### 6.2 Troubleshooting Workflow
-1. **Check Health Status First:**
-   ```bash
-   curl http://localhost:8000/diagnostics/summary
-   ```
-   Returns `overall_status` (HEALTHY | DEGRADED | CRITICAL) and `recommended_actions`.
+```bash
+KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
+BASE="https://agent-dev.falle.se/platformadmin/api"
 
-2. **Read Crash Logs:**
-   ```bash
-   curl http://localhost:8000/diagnostics/crash-log
-   ```
-   Returns `{ "exists": true/false, "content": "...", "modified": "ISO timestamp" }`
+# 1. Overall health
+curl -s -H "X-Api-Key: $KEY" $BASE/status
 
-3. **Search Specific Traces:**
-   The diagnostics dashboard (`/diagnostics/`) includes:
-   - TraceID search box for filtering
-   - "Show diagnostic/health traces" toggle
-   - Span waterfall visualization
+# 2. Find failures
+curl -s -H "X-Api-Key: $KEY" "$BASE/traces/search?status=ERR&limit=5"
 
-4. **Run Integration Tests:**
-   ```bash
-   curl -X POST http://localhost:8000/diagnostics/run
-   ```
-   Tests: LiteLLM, Qdrant, PostgreSQL, SearXNG, Embedder, Internet, Workspace.
+# 3. Investigate specific trace
+curl -s -H "X-Api-Key: $KEY" "$BASE/investigate/TRACE_ID_HERE"
+```
 
-### 6.3 Crash Logs
-* **Crash Logs**: Unhandled exceptions are written to `services/agent/last_crash.log`.
-* **API Access**: Use `GET /diagnostics/crash-log` instead of file system access.
-* **Path**: `services/agent/last_crash.log` (Relative to service root)
+### 6.3 Debug Events (OTel Spans)
+Debug events are stored as OpenTelemetry span events in `data/spans.jsonl`.
+Enabled via `SystemConfig.debug_enabled = "true"` in the admin portal (Diagnostics page).
+There is NO `last_crash.log` or separate debug log file.
 
-* **Agent Scenarios**: (Logic Verification)
-    * **MANDATORY:** Every feature flow needs a scenario test in `src/core/tests/test_agent_scenarios.py`.
-    * Use `MockLLMClient` to ensure deterministic execution.
+### 6.4 Agent Scenarios
+* **MANDATORY:** Every feature flow needs a scenario test in `src/core/tests/test_agent_scenarios.py`.
+* Use `MockLLMClient` to ensure deterministic execution.
 
 ---
 
@@ -197,6 +202,27 @@ Use these endpoints for autonomous troubleshooting:
 1.  **NO SECRETS:** Never output API keys or credentials in chat.
 2.  **INFRASTRUCTURE:** Do NOT edit `docker-compose.yml` without explicit user approval.
 3.  **LIBRARIES:** Do NOT add new `pip` dependencies without checking if a standard library alternative exists.
+
+## 7.1 GIT SAFETY
+**NEVER use these commands — they destroy uncommitted work:**
+```bash
+git reset --hard   # FORBIDDEN
+git stash          # FORBIDDEN — stashes get lost and forgotten
+git checkout .     # FORBIDDEN
+git clean -f       # FORBIDDEN
+git push --force   # FORBIDDEN
+```
+
+**Safe pattern:**
+```bash
+git status                    # Always check first
+# If dirty: commit all changes (even unrelated) before switching branches
+git commit -am "wip: save work before context switch"
+git pull --rebase origin main # Safe sync
+```
+
+**Alembic revision IDs must be ≤32 characters** (PostgreSQL `alembic_version` varchar(32) limit).
+Example: `20260224_skill_proposals` ✅ — `20260224_add_skill_improvement_proposals` ❌
 
 ---
 
@@ -226,10 +252,14 @@ python -m pytest src/core/tests/test_skill_delegate.py -v
 ### Important Paths
 | Path | Purpose |
 |------|---------|
-| `core/protocols/` | Protocol definitions for DI |
+| `core/protocols/` | Protocol definitions for DI (`IEmbedder`, `IFetcher`, etc.) |
 | `core/providers.py` | Implementation providers |
 | `core/observability/error_codes.py` | Structured error codes |
-| `core/tests/mocks.py` | Test mocks (MockLLMClient, InMemoryAsyncSession) |
+| `core/observability/debug_logger.py` | Debug events as OTel span events |
+| `core/runtime/skill_quality.py` | Self-healing skill quality analyser |
+| `core/tests/mocks.py` | Test mocks (`MockLLMClient`, `InMemoryAsyncSession`) |
+| `core/db/models.py` | All DB models incl. `SkillImprovementProposal`, `SkillQualityRating` |
+| `config/tools.yaml` | Tool registration |
 | `./stack` | Quality check CLI (lint, typecheck, test) |
 
 ---
