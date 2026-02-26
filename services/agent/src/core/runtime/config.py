@@ -225,10 +225,6 @@ class Settings(BaseModel):
         default="",
         description="DEPRECATED: Use email_from_address instead.",
     )
-    price_tracker_check_interval_hours: int = Field(
-        default=6,
-        description="Default interval between automatic price checks.",
-    )
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> Settings:

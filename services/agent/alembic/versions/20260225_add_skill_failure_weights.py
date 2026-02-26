@@ -1,7 +1,7 @@
 """Add skill_failure_weights table.
 
-Revision ID: 20260225_skill_failure_weights
-Revises: 20260224_skill_improvement_proposals
+Revision ID: 20260225_skill_fail_wt
+Revises: 20260224_skill_proposals
 Create Date: 2026-02-25
 """
 
@@ -9,8 +9,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
-revision: str = "20260225_skill_failure_weights"
-down_revision: str | None = "20260224_skill_improvement_proposals"
+revision: str = "20260225_skill_fail_wt"
+down_revision: str | None = "20260224_skill_proposals"
 branch_labels = None
 depends_on = None
 
