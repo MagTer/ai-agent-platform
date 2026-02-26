@@ -398,6 +398,21 @@ The ops agent can autonomously fix these issues:
 
 ---
 
+## Alembic Migration Gotchas
+
+**Revision ID length:** Must be <=32 chars. PostgreSQL's `alembic_version` table uses
+`varchar(32)`. IDs >32 chars cause migration failure. Check before running:
+```bash
+echo -n "your_revision_id_here" | wc -c
+```
+
+**Testmon WAL:** If CI testmon cache step fails with SQLite errors, run:
+```bash
+sqlite3 services/agent/.testmondata "PRAGMA wal_checkpoint(TRUNCATE);"
+```
+
+---
+
 ## Escalation with Context
 
 **When escalating deployment failures to Engineer/Opus, ALWAYS include:**

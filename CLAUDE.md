@@ -234,6 +234,8 @@ All of the following must be staged before pushing — they are **source files, 
 
 Build artifacts to skip: `.testmondata`, `.venv/`, `__pycache__/`, `.stack/dev-deployments.json`
 
+- Alembic revision IDs must be <=32 characters (PostgreSQL varchar(32) limit)
+
 **If this fails, you MUST fix errors. No exceptions.**
 
 ---
@@ -474,7 +476,8 @@ if step.tool == "my_integration":
     │   │   ├── tool_runner.py    # Tool invocation and schema generation
     │   │   ├── hitl.py           # Human-in-the-loop workflow coordinator
     │   │   ├── config.py         # RuntimeConfig (all runtime settings)
-    │   │   └── litellm_client.py # LiteLLM client wrapper
+    │   │   ├── litellm_client.py # LiteLLM client wrapper
+    │   │   └── skill_quality.py  # SkillQualityAnalyser, evaluate_conversation_quality
     │   ├── observability/ # Tracing and monitoring
     │   │   ├── tracing.py        # Span export with size-based rotation
     │   │   └── error_codes.py    # Structured error codes
@@ -669,7 +672,7 @@ Edit(...) Edit(...) Edit(...) Edit(...)  # Expensive!
 
 ## Tech Stack
 
-- **Language:** Python 3.11+
+- **Language:** Python 3.11-3.12 (runtime: 3.12)
 - **Framework:** FastAPI (async)
 - **Database:** PostgreSQL (SQLAlchemy 2.0)
 - **Vector Store:** Qdrant
@@ -746,7 +749,7 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 
 **Core Architecture:**
 - `services/agent/config/tools.yaml` - Tool registration
-- `services/agent/src/core/db/models.py` - Database models
+- `services/agent/src/core/db/models.py` - Database models (Context, Workspace, SkillImprovementProposal, SkillQualityRating, etc.)
 - `services/agent/src/core/context/service.py` - ContextService (shared context resolution)
 - `services/agent/src/core/runtime/service.py` - AgentService (main runtime orchestrator)
 - `services/agent/src/core/runtime/persistence.py` - DB CRUD (conversations, sessions, messages)
@@ -758,6 +761,7 @@ The project uses a custom `stack` CLI for all operations. **Always run from proj
 - `services/agent/src/core/skills/registry.py` - Skill validation
 - `services/agent/src/core/skills/executor.py` - SkillExecutor (scoped execution)
 - `services/agent/src/core/auth/credential_service.py` - CredentialService (context-scoped)
+- `services/agent/src/core/runtime/skill_quality.py` - SkillQualityAnalyser, evaluate_conversation_quality (self-healing)
 - `services/agent/src/shared/models.py` - Shared Pydantic models (StepOutcome, etc.)
 - `services/agent/src/shared/chunk_filter.py` - ChunkFilter (verbosity + safety filtering)
 - `services/agent/src/interfaces/base.py` - PlatformAdapter ABC
@@ -780,7 +784,7 @@ interfaces/http/
 ├── admin_shared.py           # Navigation, shared components
 ├── admin_portal.py           # Main dashboard
 ├── admin_api.py              # Diagnostic API (machine-readable endpoints)
-├── admin_contexts.py         # Context management (primary management unit)
+├── admin_contexts.py         # Context management (primary management unit) + Skill Quality tab endpoints
 ├── admin_diagnostics.py      # Diagnostics dashboard
 ├── admin_mcp.py              # MCP server management (user-defined connections)
 ├── admin_oauth.py            # OAuth provider management
@@ -988,7 +992,8 @@ curl -s -H "X-Api-Key: $KEY" "$BASE/investigate/TRACE_ID_HERE" | python -m json.
 - **Config:** `AGENT_DIAGNOSTIC_API_KEY` in `.env`
 - Uses `DiagnosticsService` for health checks and trace analysis
 - OTel metrics stored in-memory via `core/observability/metrics.py` (snapshot dict)
-- Debug logs stored in `data/debug_logs.jsonl` (JSONL with rotation, not DB)
+- Debug events stored as OTel span events in `data/spans.jsonl` (see core/observability/debug_logger.py)
+- SystemConfig keys: `debug_enabled`, `skill_quality_evaluation_enabled` (toggle for self-healing system)
 
 ---
 

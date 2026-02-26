@@ -16,6 +16,9 @@
     <button class="tab" data-tab="scheduler" onclick="switchTab('scheduler')">Scheduler</button>
     <button class="tab" data-tab="files" onclick="switchTab('files')">Files</button>
     <button class="tab" data-tab="skills" onclick="switchTab('skills')">Skills</button>
+    <button class="tab" data-tab="skill-quality" onclick="switchTab('skill-quality')">Skill Quality
+        <span id="proposals-badge" class="badge badge-warning" style="display:none; margin-left:4px;">0</span>
+    </button>
 </div>
 
 <div id="tab-overview" class="tab-content active">
@@ -63,6 +66,58 @@
 <div id="tab-skills" class="tab-content" style="display:none;">
     <div class="card" id="skillsCard">
         <div class="loading">Loading...</div>
+    </div>
+</div>
+
+<div id="tab-skill-quality" class="tab-content" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="margin:0;">Skill Improvement Proposals</h3>
+        <div>
+            <select id="proposal-status-filter" onchange="loadProposals()" style="padding:6px 10px; border:1px solid var(--border); border-radius:6px; background:var(--bg-secondary);">
+                <option value="">All</option>
+                <option value="applied" selected>Applied (Active)</option>
+                <option value="reverted">Reverted</option>
+                <option value="promoted">Promoted to Global</option>
+            </select>
+        </div>
+    </div>
+
+    <div id="proposals-list"></div>
+
+    <!-- Proposal Detail Modal -->
+    <div id="proposal-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:1000; overflow-y:auto;">
+        <div style="max-width:900px; margin:40px auto; background:var(--bg-primary); border-radius:12px; padding:24px; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <h3 id="proposal-modal-title" style="margin:0;"></h3>
+                <button onclick="closeProposalModal()" style="background:none; border:none; font-size:20px; cursor:pointer; color:var(--text-secondary);">X</button>
+            </div>
+
+            <div style="margin-bottom:16px;">
+                <p id="proposal-summary" style="color:var(--text-secondary);"></p>
+                <div style="display:flex; gap:16px; margin-top:8px;">
+                    <span class="badge" id="proposal-stats"></span>
+                    <span class="badge" id="proposal-status-badge"></span>
+                </div>
+            </div>
+
+            <div style="margin-bottom:16px;">
+                <h4>Failure Signals</h4>
+                <div id="proposal-failures" style="max-height:200px; overflow-y:auto; background:var(--bg-secondary); padding:12px; border-radius:8px; font-size:13px;"></div>
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+                <div>
+                    <h4>Original</h4>
+                    <pre id="proposal-original" style="background:var(--bg-secondary); padding:12px; border-radius:8px; max-height:400px; overflow-y:auto; font-size:12px; white-space:pre-wrap;"></pre>
+                </div>
+                <div>
+                    <h4>Proposed</h4>
+                    <pre id="proposal-proposed" style="background:var(--bg-secondary); padding:12px; border-radius:8px; max-height:400px; overflow-y:auto; font-size:12px; white-space:pre-wrap;"></pre>
+                </div>
+            </div>
+
+            <div id="proposal-actions" style="display:flex; gap:8px; justify-content:flex-end;"></div>
+        </div>
     </div>
 </div>
 
@@ -515,6 +570,7 @@ function switchTab(tab) {
         else if (tab === 'scheduler') loadScheduler();
         else if (tab === 'files') loadFiles();
         else if (tab === 'skills') loadSkills();
+        else if (tab === 'skill-quality') loadProposals();
     }
 }
 
@@ -1833,6 +1889,143 @@ async function resetSkillToGlobal(skillName, fileName) {
         }
         loadedTabs['skills'] = false;
         loadSkills();
+    }
+}
+
+// --- Skill Quality Proposals ---
+
+let currentProposals = [];
+
+async function loadProposals() {
+    const filter = document.getElementById('proposal-status-filter').value;
+    const url = '/platformadmin/contexts/' + CONTEXT_ID + '/api/skill-proposals' +
+        (filter ? '?status_filter=' + encodeURIComponent(filter) : '');
+
+    try {
+        const resp = await fetchWithErrorHandling(url);
+        if (!resp) { document.getElementById('proposals-list').innerHTML = '<p style="color:var(--text-secondary);">Failed to load proposals.</p>'; return; }
+        const data = await resp.json();
+        currentProposals = data.proposals || [];
+        renderProposals(currentProposals);
+
+        // Update badge -- shows count of active (applied) improvements awaiting admin awareness
+        const badge = document.getElementById('proposals-badge');
+        if (data.pending_count > 0) {
+            badge.textContent = data.pending_count;
+            badge.style.display = 'inline';
+            badge.title = data.pending_count + ' active improvement(s) -- click to review';
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch (err) {
+        document.getElementById('proposals-list').innerHTML =
+            '<p style="color:var(--text-secondary);">Failed to load proposals: ' + escapeHtml(err.message) + '</p>';
+    }
+}
+
+function renderProposals(proposals) {
+    const container = document.getElementById('proposals-list');
+    if (!proposals.length) {
+        container.innerHTML = '<p style="color:var(--text-secondary);">No proposals found.</p>';
+        return;
+    }
+
+    const rows = proposals.map(p => {
+        const failRate = (p.failure_rate * 100).toFixed(0);
+        const statusClass = {
+            'applied': 'badge-success',
+            'reverted': 'badge-error',
+            'promoted': 'badge-info',
+        }[p.status] || '';
+
+        const statusLabel = {
+            'applied': 'Active',
+            'reverted': 'Reverted',
+            'promoted': 'Promoted',
+        }[p.status] || p.status;
+
+        return '<tr style="cursor:pointer;" onclick="openProposalDetail(\'' + escapeHtml(p.id) + '\')">' +
+            '<td><strong>' + escapeHtml(p.skill_name) + '</strong></td>' +
+            '<td>' + escapeHtml(p.change_summary.substring(0, 80)) + (p.change_summary.length > 80 ? '...' : '') + '</td>' +
+            '<td>' + p.failed_executions + '/' + p.total_executions + ' (' + failRate + '%)</td>' +
+            '<td><span class="badge ' + statusClass + '">' + statusLabel + '</span></td>' +
+            '<td>' + new Date(p.created_at).toLocaleDateString() + '</td>' +
+            '</tr>';
+    }).join('');
+
+    container.innerHTML = '<table class="conv-table"><thead><tr>' +
+        '<th>Skill</th><th>Summary</th><th>Failures</th><th>Status</th><th>Created</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+async function openProposalDetail(proposalId) {
+    const url = '/platformadmin/contexts/' + CONTEXT_ID + '/api/skill-proposals/' + proposalId;
+    try {
+        const resp = await fetchWithErrorHandling(url);
+        if (!resp) return;
+        const p = await resp.json();
+
+        document.getElementById('proposal-modal-title').textContent = 'Proposal: ' + p.skill_name;
+        document.getElementById('proposal-summary').textContent = p.change_summary;
+        document.getElementById('proposal-stats').textContent =
+            p.failed_executions + '/' + p.total_executions + ' failures (' + (p.failure_rate * 100).toFixed(0) + '%)';
+
+        const statusClass = { 'applied': 'badge-success', 'reverted': 'badge-error', 'promoted': 'badge-info' }[p.status] || '';
+        const statusLabel = { 'applied': 'Active', 'reverted': 'Reverted', 'promoted': 'Promoted' }[p.status] || p.status;
+        document.getElementById('proposal-status-badge').className = 'badge ' + statusClass;
+        document.getElementById('proposal-status-badge').textContent = statusLabel;
+
+        // Failure signals
+        const failuresHtml = (p.failure_signals || []).map(f =>
+            '<div style="margin-bottom:4px;"><strong>[' + escapeHtml(f.outcome) + ']</strong> ' + escapeHtml(f.reason || 'No reason') + '</div>'
+        ).join('');
+        document.getElementById('proposal-failures').innerHTML = failuresHtml || '<em>No signals</em>';
+
+        // Content
+        document.getElementById('proposal-original').textContent = p.original_content;
+        document.getElementById('proposal-proposed').textContent = p.proposed_content;
+
+        // Actions
+        const actionsDiv = document.getElementById('proposal-actions');
+        if (p.status === 'applied') {
+            actionsDiv.innerHTML =
+                '<span style="font-size:12px; color:var(--text-secondary); margin-right:auto;">' +
+                'This improvement is currently active for this context.' +
+                '</span>' +
+                '<button class="btn btn-secondary" onclick="reviewProposal(\'' + proposalId + '\', \'revert\')" ' +
+                'title="Restore the original skill content">Revert</button>' +
+                '<button class="btn btn-primary" onclick="reviewProposal(\'' + proposalId + '\', \'promote\')" ' +
+                'title="Copy to global /skills/ (ephemeral -- commit to git to persist)">' +
+                'Promote to Global</button>';
+        } else {
+            actionsDiv.innerHTML = '<span style="font-size:12px; color:var(--text-secondary);">No further actions available.</span>';
+        }
+
+        document.getElementById('proposal-modal').style.display = 'block';
+    } catch (err) {
+        showToast('Failed to load proposal detail: ' + err.message, 'error');
+    }
+}
+
+function closeProposalModal() {
+    document.getElementById('proposal-modal').style.display = 'none';
+}
+
+async function reviewProposal(proposalId, action) {
+    const url = '/platformadmin/contexts/' + CONTEXT_ID + '/api/skill-proposals/' + proposalId + '/' + action;
+    try {
+        const resp = await fetchWithErrorHandling(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        if (!resp) return;
+        const data = await resp.json();
+        closeProposalModal();
+        loadedTabs['skill-quality'] = false;
+        loadProposals();
+        showToast(data.message || 'Proposal ' + action + 'ed successfully', 'success');
+    } catch (err) {
+        showToast('Error: ' + err.message, 'error');
     }
 }
 

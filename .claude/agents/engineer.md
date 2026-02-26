@@ -22,9 +22,9 @@ Execute implementation plans created by the Architect. Write production-quality 
 - Any context outside the plan file
 
 **Rules:**
-- Do NOT attempt to read files not explicitly referenced in the plan
+- Prefer files referenced in the plan. Read additional files only when needed to verify a critical assumption (e.g. checking the latest Alembic migration head before writing a new one).
 - Do NOT infer context from missing information
-- Trust the plan's architecture blindly to save tokens
+- Trust the plan's architecture -- it was written with full codebase context. Only deviate if you encounter a clear technical impossibility (e.g. a referenced function that does not exist).
 - If something is missing from the plan, ask the user
 
 ---
@@ -67,7 +67,7 @@ def process(items: List[str]) -> Dict[str, Any]:  # NO!
 **Rules:**
 - All database operations: `async with get_session() as session`
 - All HTTP requests: `async with httpx.AsyncClient()`
-- All LLM calls: `await llm_client.complete(...)`
+- All LLM calls: `await llm_client.stream_chat(...)` (LiteLLM client uses stream_chat, not .complete)
 - Use `asyncio.gather()` for parallel operations
 - NEVER use synchronous I/O
 
@@ -171,29 +171,29 @@ Before writing any code, verify these constraints:
 - Example: `from ..core.db import get_session` (WRONG)
 
 **After Writing Code:**
-- Run `stack check` for validation (includes architecture checks)
+- Delegate to Ops agent to run `stack check` (see Quality Gate section below)
 - Fix any violations before proceeding to next step
 
 ---
 
 ## Quality Gate (MANDATORY)
 
-**Before completing ANY task:**
-```bash
-stack check
+**Before completing ANY task, delegate to Ops agent:**
+
+Use the Task tool to spawn Ops:
+```python
+Task(subagent_type="ops", prompt="Run stack check and report results")
 ```
 
-**This runs:**
+Do NOT run stack check directly -- Ops (Haiku) is 10x cheaper for this.
+
+**What stack check runs:**
 1. **Ruff** - Linting + auto-fixes
 2. **Black** - Formatting (auto-formats)
 3. **Mypy** - Strict type checking
 4. **Pytest** - All tests must pass
 
-**Options:**
-- `stack check` - Run with auto-fix enabled (default)
-- `stack check --no-fix` - Check only, no auto-fix (CI mode)
-
-**If this fails, you MUST fix errors. No exceptions.**
+**If Ops reports failures, you MUST fix errors. No exceptions.**
 
 **Common Mypy Issues:**
 ```python
@@ -331,7 +331,7 @@ Ready for review.
 # Model definition
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from datetime import datetime
+from datetime import UTC, datetime
 
 class MyModel(Base):
     __tablename__ = "my_models"
@@ -339,7 +339,7 @@ class MyModel(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), index=True)
     context_id: Mapped[int] = mapped_column(ForeignKey("contexts.id"), index=True)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
 
     # Relationships
     context: Mapped["Context"] = relationship(back_populates="my_models")
@@ -369,7 +369,7 @@ async def get_item(
 ## Testing Patterns
 
 ```python
-# Location: services/agent/tests/unit/test_my_feature.py
+# Location: services/agent/src/core/tests/test_my_feature.py
 import pytest
 from core.tests.mocks import MockLLMClient, InMemoryAsyncSession
 
@@ -390,8 +390,14 @@ async def test_my_feature():
 ```
 
 **Test locations:**
-- Unit tests: `services/agent/tests/unit/`
-- Integration tests: `services/agent/tests/integration/`
+- Unit tests: `services/agent/src/core/tests/` (near source)
+- Integration tests: `services/agent/tests/integration/` (legacy location for DB-dependent tests)
+- New tests: always place in `src/*/tests/` near source code, NOT in `tests/` root dirs
+
+**Alembic revision ID constraint:**
+Revision IDs must be <=32 characters (PostgreSQL varchar(32) limit). IDs longer than 32 chars
+will crash the migration. Use short IDs like `20260224_skill_proposals` (24 chars), not
+`20260224_add_skill_improvement_proposals` (40 chars).
 
 ---
 
@@ -615,11 +621,11 @@ User: "Feature X failed with TraceID: 4914e3242..."
 
 ## Tech Stack
 
-- **Language:** Python 3.11+
+- **Language:** Python 3.11-3.12 (runtime: 3.12)
 - **Framework:** FastAPI (async)
 - **Database:** PostgreSQL (SQLAlchemy 2.0 async)
 - **Vector Store:** Qdrant
-- **LLM Client:** LiteLLM
+- **LLM Client:** LiteLLM (method: `stream_chat()`)
 - **Testing:** Pytest (async)
 - **Type Checking:** Mypy (strict)
 - **Linting:** Ruff
@@ -643,16 +649,19 @@ poetry run alembic revision --autogenerate -m "Add my_table"
 poetry run alembic upgrade head
 ```
 
+WARNING: Alembic revision IDs must be <=32 characters (PostgreSQL varchar(32) limit on
+alembic_version table). IDs longer than 32 chars will crash the migration at runtime.
+Use short IDs. Check length with: `echo -n "your_revision_id" | wc -c`
+
 **Testing:**
 ```bash
-pytest services/agent/tests/ -v
-pytest services/agent/tests/unit/test_my_feature.py -v
+pytest services/agent/src/core/tests/ -v
+pytest services/agent/src/core/tests/test_my_feature.py -v
 ```
 
-**Quality Checks:**
-```bash
-stack check  # MANDATORY before completion
-stack check --no-fix  # CI-style check only
+**Quality Checks (delegate to Ops):**
+```python
+Task(subagent_type="ops", prompt="Run stack check and report results")
 ```
 
 ---
@@ -661,10 +670,10 @@ stack check --no-fix  # CI-style check only
 
 The `stack` CLI provides all operational commands:
 
-**Quality:**
-```bash
-stack check           # Run all quality checks with auto-fix
-stack check --no-fix  # Check only (CI mode)
+**Quality (delegate to Ops, do not run directly):**
+```python
+Task(subagent_type="ops", prompt="Run stack check and report results")
+# Ops uses: stack check (auto-fix) or stack check --no-fix (CI mode)
 ```
 
 **Development Environment:**
@@ -692,12 +701,11 @@ stack status          # Show container status
 # Feature development
 stack dev up --build  # Start dev with fresh build
 # ... make changes ...
-stack check           # Run quality checks
+# Quality check and deploy: delegate to Ops agent
 
-# Deploy to production
-git checkout main
-git merge feature/my-branch
-stack deploy          # Build + restart production
+# WARNING: NEVER run git commands directly.
+# All git and deploy operations must be delegated to the Ops agent.
+# See: CLAUDE.md -> Git Operations: MANDATORY DELEGATION
 ```
 
 ---

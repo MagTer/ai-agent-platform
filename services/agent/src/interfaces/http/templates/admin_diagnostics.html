@@ -172,6 +172,13 @@
                             </label>
                             <span id="debugToggleLabel" style="font-weight:600; font-size:13px">Loading...</span>
                         </div>
+                        <div class="debug-toggle-container" style="margin-left:24px;">
+                            <label class="debug-toggle">
+                                <input type="checkbox" id="qualityEvalToggle" onchange="toggleQualityEval(this.checked)">
+                                <span class="debug-toggle-slider"></span>
+                            </label>
+                            <span id="qualityEvalLabel" style="font-weight:600; font-size:13px">Loading...</span>
+                        </div>
                         <span style="font-size:13px; color:var(--text-muted)">Total: <strong id="debugLogCount">-</strong> logs</span>
                     </div>
                     <button class="btn" onclick="loadDebugLogs()">Refresh</button>
@@ -212,7 +219,7 @@
                         <li><strong>completion_response</strong> - LLM response</li>
                     </ul>
                     <p style="margin-top:10px; margin-bottom:0">
-                        Logs stored in <code>data/debug_logs.jsonl</code> with automatic rotation (10MB max, 3 backups).
+                        Debug events are stored as OTel span events in <code>data/spans.jsonl</code>.
                     </p>
                 </div>
 
@@ -749,6 +756,8 @@
         window.onTraceSearchInput = onTraceSearchInput;
         window.loadDebugLogs = loadDebugLogs;
         window.toggleDebugLogging = toggleDebugLogging;
+        window.toggleQualityEval = toggleQualityEval;
+        window.loadQualityEvalStatus = loadQualityEvalStatus;
         window.showDebugLogDetail = showDebugLogDetail;
         window.closeDebugLogModal = closeDebugLogModal;
         window.clearDebugTraceFilter = clearDebugTraceFilter;
@@ -1104,6 +1113,7 @@
                 document.getElementById('debugToggleLabel').textContent = status.enabled ? 'Enabled' : 'Disabled';
                 document.getElementById('debugLogCount').textContent = status.log_count;
             }
+            loadQualityEvalStatus();
 
             // Load logs
             let url = `${API_BASE}/debug-logs?limit=50`;
@@ -1166,8 +1176,38 @@
             if (res) {
                 document.getElementById('debugToggleLabel').textContent = enabled ? 'Enabled' : 'Disabled';
                 showToast(enabled ? 'Debug logging enabled' : 'Debug logging disabled', 'success');
+                loadQualityEvalStatus();
             } else {
                 document.getElementById('debugToggle').checked = !enabled;
+            }
+        }
+
+        async function toggleQualityEval(enabled) {
+            const res = await fetchWithErrorHandling(`${API_BASE}/quality-eval-toggle`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({enabled})
+            });
+            if (res) {
+                loadQualityEvalStatus();
+            }
+        }
+
+        async function loadQualityEvalStatus() {
+            const res = await fetchWithErrorHandling(`${API_BASE}/quality-eval-status`);
+            if (res) {
+                const data = await res.json();
+                document.getElementById('qualityEvalToggle').checked = data.toggle_on;
+                const label = document.getElementById('qualityEvalLabel');
+                if (!document.getElementById('debugToggle').checked) {
+                    label.textContent = 'Skill Quality Eval (requires Debug)';
+                    label.style.color = 'var(--text-muted)';
+                    document.getElementById('qualityEvalToggle').disabled = true;
+                } else {
+                    label.textContent = data.toggle_on ? 'Skill Quality Eval ON' : 'Skill Quality Eval OFF';
+                    label.style.color = data.toggle_on ? 'var(--success)' : 'var(--text-muted)';
+                    document.getElementById('qualityEvalToggle').disabled = false;
+                }
             }
         }
 

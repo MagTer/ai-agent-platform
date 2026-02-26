@@ -28,7 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.db.engine import get_db
 from core.db.models import Context, ScheduledJob
 from core.middleware.rate_limit import create_rate_limiter, rate_limit_exceeded_handler
-from core.observability.debug_logger import configure_debug_log_handler
 from core.observability.logging import setup_logging, setup_otel_log_bridge
 from core.observability.metrics import configure_metrics
 from core.observability.tracing import configure_tracing
@@ -238,15 +237,6 @@ def create_app(settings: Settings | None = None, service: AgentService | None = 
     )
     configure_metrics(settings.app_name)
     setup_otel_log_bridge(settings.app_name)
-
-    # Use temp directory for debug logs in test environment
-    if settings.environment == "test":
-        import tempfile
-
-        debug_log_path = Path(tempfile.gettempdir()) / "agent_debug_logs.jsonl"
-        configure_debug_log_handler(debug_log_path)
-    else:
-        configure_debug_log_handler()
 
     app = FastAPI(title=settings.app_name)
 

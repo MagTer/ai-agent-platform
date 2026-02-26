@@ -683,6 +683,7 @@ class AgentService:
                 outcome=outcome.value,
                 reason=reason,
                 conversation_id=conversation_id,
+                skill_name=plan_step.tool if plan_step.executor == "skill" else None,
             )
 
             # Record OTel metrics
@@ -1333,6 +1334,19 @@ class AgentService:
             if abort_execution:
                 break
 
+        # Quality evaluation: evaluate skills used in this conversation
+        # Runs as background task (non-blocking)
+        if db_conversation and db_conversation.context_id:
+            from core.runtime.skill_quality import evaluate_conversation_quality
+
+            asyncio.create_task(
+                evaluate_conversation_quality(
+                    context_id=db_conversation.context_id,
+                    conversation_id=db_conversation.id,
+                    trace_id=trace_id,
+                )
+            )
+
         # Check if plan had an explicit completion step
         has_completion_step = bool(
             plan is not None
@@ -1421,6 +1435,9 @@ class AgentService:
                                 "context_name": db_context.name or "",
                             }
                         )
+                    # Enrich root span with DB-resolved conversation_id
+                    if db_conversation:
+                        set_span_attributes({"conversation_id": str(db_conversation.id)})
 
                     # Phase 1.5: Check for pending HITL and resume if present
                     pending_hitl = (db_conversation.conversation_metadata or {}).get("pending_hitl")
