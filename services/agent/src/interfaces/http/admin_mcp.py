@@ -547,19 +547,19 @@ async def test_mcp_server(
             sanitize_log(e),
             exc_info=True,
         )
-        # Return type + short message to admin, but not full traceback/internal paths
+        # Store brief internal error for the DB record (not returned to client)
         error_type = type(e).__name__
         error_brief = str(e)[:200].split("\n")[0]
-        error_msg = f"{error_type}: {error_brief}"
+        internal_error_msg = f"{error_type}: {error_brief}"
         server.status = "error"
-        server.last_error = error_msg
+        server.last_error = internal_error_msg
         await session.commit()
 
         return {
             "success": False,
             "tools_count": 0,
-            "error": error_msg,
-            "message": f"Connection failed: {error_msg}",
+            "error": "Connection test failed. Check server logs for details.",
+            "message": "Connection failed. Check server URL, credentials, and network access.",
         }
 
 

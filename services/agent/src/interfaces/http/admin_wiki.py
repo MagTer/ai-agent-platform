@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from shared.sanitize import sanitize_log
 from sqlalchemy import nulls_last, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -354,10 +355,13 @@ async def trigger_wiki_import(
             async with AsyncSessionLocal() as bg_session:
                 await full_import(context_id, bg_session, force=force)
         except WikiImportError as e:
-            LOGGER.warning("Background wiki import failed for context %s: %s", context_id, e)
+            LOGGER.warning(
+                "Background wiki import failed for context %s: %s", context_id, sanitize_log(e)
+            )
         except Exception:
             LOGGER.exception(
-                "Unexpected error in background wiki import for context %s", context_id
+                "Unexpected error in background wiki import for context %s",
+                sanitize_log(context_id),
             )
 
     asyncio.create_task(_run_import_bg())
