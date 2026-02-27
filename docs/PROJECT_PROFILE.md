@@ -26,7 +26,6 @@ Deliver a local, containerised agent platform with actionable skills, transparen
 ## Outcome-Oriented View
 - Conversational completions with optional memory/tool metadata.
 - Research flows using the web_fetch tool and Qdrant context.
-- Documented roadmap for expanding tools (filesystem, calendar, Git, etc.).
 
 ## Onboarding Checklist
 1. Read `docs/README.md` for documentation map and working agreements, then review the

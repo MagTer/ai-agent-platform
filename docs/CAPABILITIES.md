@@ -14,7 +14,7 @@ See `config/tools.yaml` for the runtime tool registry and `docs/architecture/03_
 - **Observation hooks**: push interaction metrics (latency, tokens, tool usage) into structured logs for later analytics.
 
 ## Capability Catalog
-The previous n8n-focused catalog is being replaced with agent-native definitions. Track new entries under `capabilities/catalog.yaml` using the following schema:
+Track new entries under `capabilities/catalog.yaml` using the following schema:
 
 - `id`: globally unique capability identifier (e.g., `agent.web_research`).
 - `owner`: `agent` for FastAPI-native features or the service name for external dependencies.
@@ -51,7 +51,7 @@ User: "Create a security incident for the Security team"
 ```
 
 **Configuration:**
-Teams are defined in `services/agent/config/ado_mappings.yaml`. See [Team Structure Guide](AZURE_DEVOPS_TEAMS.md) for details.
+Teams are defined in the Database via the Admin Portal's Azure DevOps configuration tab.
 
 **Key Features:**
 - Automatic team validation with smart suggestions (Levenshtein distance)
