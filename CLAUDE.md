@@ -969,8 +969,8 @@ When troubleshooting the live platform from a Claude Code session:
 ```bash
 # Set up (once per session) -- all access via Traefik (no direct host ports)
 KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
-BASE_DEV="https://agent-dev.falle.se/platformadmin/api"
-BASE_PROD="https://agent.falle.se/platformadmin/api"
+BASE_DEV="https://agent-dev.example.com/platformadmin/api"
+BASE_PROD="https://agent.example.com/platformadmin/api"
 BASE=$BASE_DEV  # Default to dev
 
 # Health check

@@ -68,7 +68,7 @@ azure_devops(action="get_teams")
 azure_devops(action="list", team_alias="platform", state="Active")
 
 # By area path (still works for backwards compatibility)
-azure_devops(action="list", area_path="Web Teams\\Platform")
+azure_devops(action="list", area_path="Project\\Backend")
 ```
 
 **Benefits of team_alias:**
@@ -198,7 +198,7 @@ Did you mean: platform?
 **Solution:**
 1. Verify Area Path exists in Azure DevOps
 2. Check for typos in `ado_mappings.yaml`
-3. Ensure backslashes are properly escaped: `"Web Teams\\Platform"`
+3. Ensure backslashes are properly escaped: `"Project\\Backend"`
 
 ### Missing Tags on Work Items
 

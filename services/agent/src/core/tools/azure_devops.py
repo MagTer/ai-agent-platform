@@ -305,7 +305,7 @@ class AzureDevOpsTool(Tool):
     ) -> dict[str, Any]:
         """Resolve team configuration with validation.
 
-        Supports both team alias (e.g., 'infra') and owner name (e.g., 'Martin').
+        Supports both team alias (e.g., 'infra') and owner name (e.g., 'Alice').
 
         Returns:
             dict with: area_path, default_type, default_tags, _resolved_team

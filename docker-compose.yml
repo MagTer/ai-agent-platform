@@ -219,7 +219,7 @@ services:
       # Session settings
       - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET}
       # Public URL for OAuth callbacks
-      - WEBUI_URL=https://${DOMAIN:-agent.falle.se}
+      - WEBUI_URL=https://${DOMAIN:-agent.example.com}
       # Disable telemetry
       - SCARF_NO_ANALYTICS=true
       - DO_NOT_TRACK=true
@@ -254,7 +254,7 @@ services:
     expose:
       - "8090"
     environment:
-      COUCHDB_URL: https://couchdb.${DOMAIN:-agent.falle.se}
+      COUCHDB_URL: https://couchdb.${DOMAIN:-agent.example.com}
       COUCHDB_DB: obsidian
       COUCHDB_USER: ${COUCHDB_USER:-admin}
       COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}

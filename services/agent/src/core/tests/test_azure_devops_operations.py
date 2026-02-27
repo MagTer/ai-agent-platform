@@ -9,17 +9,17 @@ from core.tools.azure_devops import AzureDevOpsTool, _sanitize_wiql_value
 
 MOCK_MAPPINGS: dict = {
     "defaults": {
-        "area_path": "Web Teams\\Common",
+        "area_path": "Project\\Common",
         "default_type": "Feature",
     },
     "teams": {
         "platform": {
-            "area_path": "Web Teams\\Platform",
+            "area_path": "Project\\Backend",
             "default_type": "User Story",
             "default_tags": ["platform-team"],
         },
         "security": {
-            "area_path": "Web Teams\\Security",
+            "area_path": "Project\\Security",
             "default_type": "Bug",
             "default_tags": ["Security"],
         },
@@ -172,7 +172,7 @@ class TestCreateAction:
 
         assert paths["/fields/System.Title"] == "My Feature"
         assert "Feature description" in paths["/fields/System.Description"]
-        assert paths["/fields/System.AreaPath"] == "Web Teams\\Platform"
+        assert paths["/fields/System.AreaPath"] == "Project\\Backend"
 
     @pytest.mark.asyncio
     async def test_create_tag_deduplication(self, tool: AzureDevOpsTool) -> None:

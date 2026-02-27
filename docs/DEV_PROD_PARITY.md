@@ -20,7 +20,7 @@ Each environment runs as a separate Docker Compose project:
 | Project name | `ai-agent-platform-dev` | `ai-agent-platform-prod` |
 | CLI command | `./stack dev deploy` | `./stack deploy` |
 | Compose files | base + dev.yml | base + prod.yml |
-| Domain | `agent-dev.falle.se` | `agent.falle.se` |
+| Domain | `agent-dev.example.com` | `agent.example.com` |
 
 ## Data Isolation
 

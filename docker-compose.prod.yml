@@ -33,7 +33,7 @@ services:
       # Let's Encrypt
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@falle.se}"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@example.com}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
       # Logging
       - "--accesslog=true"
@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
     environment:
       # Public URL for OAuth callbacks
-      - WEBUI_URL=https://${DOMAIN:-agent.falle.se}
+      - WEBUI_URL=https://${DOMAIN:-agent.example.com}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/"]
       interval: 30s
@@ -94,7 +94,7 @@ services:
       # Enable Traefik routing
       - "traefik.enable=true"
       # HTTPS Router
-      - "traefik.http.routers.openwebui.rule=Host(`${DOMAIN:-agent.falle.se}`)"
+      - "traefik.http.routers.openwebui.rule=Host(`${DOMAIN:-agent.example.com}`)"
       - "traefik.http.routers.openwebui.entrypoints=websecure"
       - "traefik.http.routers.openwebui.tls.certresolver=letsencrypt"
       - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
@@ -137,7 +137,7 @@ services:
       # Enable Traefik routing for admin portal
       - "traefik.enable=true"
       # Admin portal router
-      - "traefik.http.routers.agent-admin.rule=Host(`${DOMAIN:-agent.falle.se}`) && PathPrefix(`/platformadmin`)"
+      - "traefik.http.routers.agent-admin.rule=Host(`${DOMAIN:-agent.example.com}`) && PathPrefix(`/platformadmin`)"
       - "traefik.http.routers.agent-admin.entrypoints=websecure"
       - "traefik.http.routers.agent-admin.tls.certresolver=letsencrypt"
       - "traefik.http.routers.agent-admin.service=agent-admin"

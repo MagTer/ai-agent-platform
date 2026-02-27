@@ -49,21 +49,21 @@ class TestTeamResolution:
         """Provide mock team mappings."""
         return {
             "defaults": {
-                "area_path": "Web Teams\\Common",
+                "area_path": "Project\\Common",
                 "default_type": "Feature",
             },
             "teams": {
                 "platform": {
-                    "area_path": "Web Teams\\Platform",
+                    "area_path": "Project\\Backend",
                     "default_type": "User story",
                 },
                 "security": {
-                    "area_path": "Web Teams\\Platform\\Security",
+                    "area_path": "Project\\Backend\\Security",
                     "default_type": "User Story",
                     "default_tags": ["Security", "SecurityIncidentHigh"],
                 },
                 "infra": {
-                    "area_path": "Web Teams\\Common\\Infra",
+                    "area_path": "Project\\Backend\\Infra",
                     "default_type": "User story",
                 },
             },
@@ -82,14 +82,14 @@ class TestTeamResolution:
     def test_resolve_valid_team(self, tool: AzureDevOpsTool, mock_mappings: dict) -> None:
         """Valid team alias should return correct config."""
         config = tool._resolve_team_config("platform", mock_mappings)
-        assert config["area_path"] == "Web Teams\\Platform"
+        assert config["area_path"] == "Project\\Backend"
         assert config["default_type"] == "User story"
         assert config["_resolved_team"] == "platform"
 
     def test_resolve_team_with_tags(self, tool: AzureDevOpsTool, mock_mappings: dict) -> None:
         """Team with tags should include them in config."""
         config = tool._resolve_team_config("security", mock_mappings)
-        assert config["area_path"] == "Web Teams\\Platform\\Security"
+        assert config["area_path"] == "Project\\Backend\\Security"
         assert config["default_tags"] == ["Security", "SecurityIncidentHigh"]
         assert config["_resolved_team"] == "security"
 
@@ -120,7 +120,7 @@ class TestTeamResolution:
     ) -> None:
         """None team_alias should return default config."""
         config = tool._resolve_team_config(None, mock_mappings)
-        assert config["area_path"] == "Web Teams\\Common"
+        assert config["area_path"] == "Project\\Common"
         assert config["default_type"] == "Feature"
         assert "_resolved_team" not in config
 
@@ -138,7 +138,7 @@ class TestTeamValidation:
         mappings = {
             "teams": {
                 "platform": {
-                    "area_path": "Web Teams\\Platform",
+                    "area_path": "Project\\Backend",
                     "default_type": "User story",
                 }
             }
@@ -165,7 +165,7 @@ class TestTeamValidation:
         mappings = {
             "teams": {
                 "platform": {
-                    "area_path": "Web Teams\\Platform",
+                    "area_path": "Project\\Backend",
                     # Missing default_type
                 }
             }
@@ -182,7 +182,7 @@ class TestTeamValidation:
                     # Missing both area_path and default_type
                 },
                 "security": {
-                    "area_path": "Web Teams\\Security",
+                    "area_path": "Project\\Security",
                     # Missing default_type
                 },
             }
@@ -206,11 +206,11 @@ class TestTeamAwareQuerying:
         return {
             "teams": {
                 "platform": {
-                    "area_path": "Web Teams\\Platform",
+                    "area_path": "Project\\Backend",
                     "default_type": "User story",
                 },
                 "security": {
-                    "area_path": "Web Teams\\Platform\\Security",
+                    "area_path": "Project\\Backend\\Security",
                     "default_type": "User Story",
                     "default_tags": ["Security"],
                 },
@@ -246,7 +246,7 @@ class TestTeamAwareQuerying:
             # Verify WIQL query contains team's area path
             call_args = mock_wit_client.query_by_wiql.call_args
             wiql_query = call_args[0][0]["query"]
-            assert "Web Teams\\Platform" in wiql_query
+            assert "Project\\Backend" in wiql_query
             assert "[System.State] = 'Active'" in wiql_query
 
     @pytest.mark.asyncio
@@ -276,7 +276,7 @@ class TestTeamAwareQuerying:
             # Verify WIQL query contains team area clause
             call_args = mock_wit_client.query_by_wiql.call_args
             wiql_query = call_args[0][0]["query"]
-            assert "Web Teams\\Platform\\Security" in wiql_query
+            assert "Project\\Backend\\Security" in wiql_query
             assert "[System.AreaPath] UNDER" in wiql_query
 
     @pytest.mark.asyncio
@@ -312,16 +312,16 @@ class TestGetTeamsAction:
         return {
             "teams": {
                 "platform": {
-                    "area_path": "Web Teams\\Platform",
+                    "area_path": "Project\\Backend",
                     "default_type": "User story",
                 },
                 "security": {
-                    "area_path": "Web Teams\\Platform\\Security",
+                    "area_path": "Project\\Backend\\Security",
                     "default_type": "User Story",
                     "default_tags": ["Security", "SecurityIncidentHigh"],
                 },
                 "infra": {
-                    "area_path": "Web Teams\\Common\\Infra",
+                    "area_path": "Project\\Backend\\Infra",
                     "default_type": "User story",
                 },
             }
@@ -346,11 +346,11 @@ class TestGetTeamsAction:
 
             assert "### Configured Teams" in result
             assert "**platform**" in result
-            assert "Area Path: Web Teams\\Platform" in result
+            assert "Area Path: Project\\Backend" in result
             assert "Default Type: User story" in result
 
             assert "**security**" in result
-            assert "Area Path: Web Teams\\Platform\\Security" in result
+            assert "Area Path: Project\\Backend\\Security" in result
             assert "Default Tags: Security, SecurityIncidentHigh" in result
 
             assert "**infra**" in result
@@ -402,12 +402,12 @@ class TestBackwardsCompatibility:
         """Provide mock team mappings."""
         return {
             "defaults": {
-                "area_path": "Web Teams\\Common",
+                "area_path": "Project\\Common",
                 "default_type": "Feature",
             },
             "teams": {
                 "platform": {
-                    "area_path": "Web Teams\\Platform",
+                    "area_path": "Project\\Backend",
                     "default_type": "User story",
                 }
             },
@@ -468,4 +468,4 @@ class TestBackwardsCompatibility:
             document = call_args[1]["document"]
             area_field = [d for d in document if "AreaPath" in d.get("path", "")]
             assert len(area_field) == 1
-            assert area_field[0]["value"] == "Web Teams\\Common"
+            assert area_field[0]["value"] == "Project\\Common"

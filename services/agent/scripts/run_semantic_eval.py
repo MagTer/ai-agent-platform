@@ -13,7 +13,7 @@ Usage:
 
 Requires:
     - Running agent stack (./stack dev up or ./stack up)
-    - Valid user in database (default: magnus@falle.se)
+    - Valid user in database (default: test@example.com)
 """
 
 import argparse
@@ -33,7 +33,7 @@ init(autoreset=True)
 # Configuration
 AGENT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_AGENT_URL = os.getenv("AGENT_BASE_URL", "http://localhost:8001")
-DEFAULT_USER_EMAIL = os.getenv("TEST_USER_EMAIL", "magnus@falle.se")
+DEFAULT_USER_EMAIL = os.getenv("TEST_USER_EMAIL", "test@example.com")
 REQUEST_TIMEOUT = 120.0  # 2 minutes for LLM responses
 
 

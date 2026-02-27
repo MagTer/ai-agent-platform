@@ -144,7 +144,7 @@ All diagnostic endpoints are under `/platformadmin/api/` and require `X-Api-Key`
 
 ```bash
 KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
-BASE="https://agent-dev.falle.se/platformadmin/api"
+BASE="https://agent-dev.example.com/platformadmin/api"
 
 # System health
 curl -s -H "X-Api-Key: $KEY" $BASE/status | python3 -m json.tool
@@ -175,7 +175,7 @@ All access via Traefik — no direct host ports exposed.
 ### 6.2 Troubleshooting Workflow
 ```bash
 KEY=$(grep AGENT_DIAGNOSTIC_API_KEY .env | cut -d= -f2)
-BASE="https://agent-dev.falle.se/platformadmin/api"
+BASE="https://agent-dev.example.com/platformadmin/api"
 
 # 1. Overall health
 curl -s -H "X-Api-Key: $KEY" $BASE/status
