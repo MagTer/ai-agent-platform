@@ -8,7 +8,6 @@ Use this index as the single entry point into the refactored Python-based stack.
 - [Project Profile](./PROJECT_PROFILE.md) – persona, product vision, and non-functional constraints that apply to every change.
 - [Delivery Model](./DELIVERY_MODEL.md) – iteration cadence, Definition of Done, and review checklist tuned for the Python agent workflow.
 - [Contributing Guide](./contributing.md) – Codex-specific coding rules, required local checks, and dependency/documentation hygiene.
-- [Roadmap](./ROADMAP.md) – milestone sequencing for the FastAPI agent, stack CLI, and memory features.
 - [Capabilities](./CAPABILITIES.md) – current and planned behaviours exposed by the agent API and tool layer.
 - [Architecture Overview](./architecture/README.md) – high-level service map plus pointers into the detailed `docs/architecture/` set.
   - [docs/architecture/01_stack.md](./architecture/01_stack.md) – Docker Compose services, stack lifecycle, and stack CLI usage.
@@ -30,14 +29,14 @@ Use this index as the single entry point into the refactored Python-based stack.
 5. Treat Docker Compose, environment files, and the agent configuration as code – commit generated outputs when feasible.
 
 ## Contributing Workflow
-1. Identify the roadmap item you are advancing in [ROADMAP.md](./ROADMAP.md).
+1. Identify the architectural component or feature you are documenting.
 2. Confirm constraints in [PROJECT_PROFILE.md](./PROJECT_PROFILE.md) and architectural intent via [architecture/README.md](./architecture/README.md).
 3. Implement changes with Poetry-managed tooling (`poetry run ...`), keeping the stack CLI commands idempotent.
 4. Run linting, tests, and any relevant smoke tests documented in [OPERATIONS.md](./OPERATIONS.md).
 5. Update documentation to reflect the behaviour change before opening a PR.
 
 ## Stack CLI Add-ons
-- The Typer-based CLI supports more than `up`, `down`, and `status`: reuse `poetry run stack repo ...` to snapshot configurations, `poetry run stack n8n` to export/import workflows, and `poetry run stack qdrant` for schema/backups alongside the operational Runbook (`docs/OPERATIONS.md`).
+- The Typer-based CLI supports more than `up`, `down`, and `status`: reuse `poetry run stack repo ...` to snapshot configurations, and `poetry run stack qdrant` for schema/backups alongside the operational Runbook (`docs/OPERATIONS.md`).
 
 ## Future Enhancements
 - Production runbooks for deploying the FastAPI agent and stack CLI outside of local Docker.
