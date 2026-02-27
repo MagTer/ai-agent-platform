@@ -52,6 +52,5 @@ Scripts live under `scripts/`. While the `stack` CLI is the main entrypoint, the
 | Task | Command |
 |------|---------|
 | Snapshot repo | `poetry run stack repo save` |
-| Export/import n8n | `poetry run stack n8n export/import` |
 | Backup Qdrant | `poetry run stack qdrant backup` |
 | Ensure Qdrant schema | `poetry run stack qdrant ensure-schema` |

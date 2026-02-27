@@ -694,5 +694,4 @@ LOGGER.debug(f"Tools after filter: {filtered_registry.list_tools()}")
 
 - [Admin API Documentation](./ADMIN_API.md)
 - [OAuth Setup Guide](./OAUTH_SETUP.md)
-- [Original Refactor Plan](./MULTI_TENANT_REFACTOR_PLAN.md)
 - [Architecture Overview](./ARCHITECTURE.md)
