@@ -144,7 +144,7 @@ async def ado_config_dashboard(
             </div>
             <div style="margin-bottom:12px;">
                 <label style="display:block; font-size:12px; font-weight:600; margin-bottom:6px; color:var(--text-muted);">Area Path *</label>
-                <input id="teamAreaPath" type="text" required style="width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:13px;" placeholder="Web Teams\\Common\\Infra">
+                <input id="teamAreaPath" type="text" required style="width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:13px;" placeholder="Project\\Backend\\Infra">
             </div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
                 <div>
