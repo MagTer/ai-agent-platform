@@ -31,7 +31,7 @@ class TestErrorCode:
         """Verify error codes are organized by category prefix."""
         for code in ErrorCode:
             prefix = code.value.split("_")[0]
-            expected = ["TOOL", "LLM", "DB", "NET", "CONFIG", "RAG", "SKILL", "UNKNOWN"]
+            expected = ["TOOL", "LLM", "DB", "NET", "CONFIG", "RAG", "SKILL", "AUTH", "UNKNOWN"]
             assert prefix in expected, f"Unexpected prefix for {code}"
 
 
