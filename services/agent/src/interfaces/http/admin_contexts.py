@@ -1267,6 +1267,106 @@ async def delete_context_credential(
     return {"success": True, "message": f"Deleted {credential.credential_type} credential"}
 
 
+# Obsidian Vault configuration endpoints
+
+_OBSIDIAN_CREDENTIAL_TYPE = "obsidian_vault"
+
+
+class ObsidianConfigRequest(BaseModel):
+    """Request to save Obsidian Vault config for a context."""
+
+    auth_token: str = Field(..., min_length=1, description="Obsidian auth token")
+    vault_name: str = Field("", description="Remote vault name")
+    sync_mode: str = Field("bidirectional", description="Sync mode: bidirectional or pull-only")
+
+
+@router.get(
+    "/{context_id}/obsidian",
+    dependencies=[Depends(verify_admin_user)],
+)
+async def get_obsidian_config(
+    context_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Get Obsidian Vault config for a context (token masked)."""
+    stmt = select(UserCredential).where(
+        UserCredential.context_id == context_id,
+        UserCredential.credential_type == _OBSIDIAN_CREDENTIAL_TYPE,
+    )
+    result = await session.execute(stmt)
+    cred = result.scalar_one_or_none()
+
+    if not cred:
+        return {"configured": False}
+
+    meta = cred.credential_metadata or {}
+    return {
+        "configured": True,
+        "credential_id": str(cred.id),
+        "vault_name": meta.get("vault_name", ""),
+        "sync_mode": meta.get("sync_mode", "bidirectional"),
+        "token_preview": "***" + cred.encrypted_value[-4:] if cred.encrypted_value else "***",
+    }
+
+
+@router.post(
+    "/{context_id}/obsidian",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def save_obsidian_config(
+    context_id: UUID,
+    request: ObsidianConfigRequest,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Save Obsidian Vault config for a context (creates or replaces credential)."""
+    from core.auth.credential_service import CredentialService
+    from core.runtime.config import get_settings
+
+    settings = get_settings()
+    if not settings.credential_encryption_key:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Credential encryption not configured (AGENT_CREDENTIAL_ENCRYPTION_KEY missing)",
+        )
+
+    cred_service = CredentialService(settings.credential_encryption_key)
+    credential = await cred_service.store_credential(
+        context_id=context_id,
+        credential_type=_OBSIDIAN_CREDENTIAL_TYPE,
+        value=request.auth_token,
+        metadata={"vault_name": request.vault_name, "sync_mode": request.sync_mode},
+        session=session,
+    )
+    await session.commit()
+    return {"success": True, "credential_id": str(credential.id)}
+
+
+@router.delete(
+    "/{context_id}/obsidian",
+    dependencies=[Depends(verify_admin_user), Depends(require_csrf)],
+)
+async def delete_obsidian_config(
+    context_id: UUID,
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """Remove Obsidian Vault config for a context."""
+    stmt = select(UserCredential).where(
+        UserCredential.context_id == context_id,
+        UserCredential.credential_type == _OBSIDIAN_CREDENTIAL_TYPE,
+    )
+    result = await session.execute(stmt)
+    cred = result.scalar_one_or_none()
+
+    if not cred:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Obsidian config not found"
+        )
+
+    await session.delete(cred)
+    await session.commit()
+    return {"success": True}
+
+
 # File management endpoints for pinned files
 
 

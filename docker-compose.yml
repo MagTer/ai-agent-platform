@@ -51,6 +51,7 @@ services:
       - ./services/agent/scripts:/app/scripts
       - ./services/agent/pyproject.toml:/app/pyproject.toml
       - ./services/agent/data:/app/data  # Bind mount for trace logs (accessible from host)
+      - vault_data:/vault
     environment:
       AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
       QDRANT_URL: http://qdrant:6333
@@ -249,19 +250,17 @@ services:
       # This prevents router conflicts when running multiple environments
       - "traefik.enable=false"
 
-  vault-mcp:
-    build: ./services/vault-mcp
-    expose:
-      - "8090"
+  obsidian-headless:
+    build: ./services/obsidian-headless
+    volumes:
+      - vault_data:/vault
     environment:
-      COUCHDB_URL: https://couchdb.${DOMAIN:-agent.example.com}
-      COUCHDB_DB: obsidian
-      COUCHDB_USER: ${COUCHDB_USER:-admin}
-      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
+      OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN:-}
+    restart: unless-stopped
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 256M
           cpus: '0.5'
     logging:
       driver: "json-file"
@@ -271,6 +270,7 @@ services:
 
 volumes:
   postgres_data:
+  vault_data:
 
 networks:
   default:

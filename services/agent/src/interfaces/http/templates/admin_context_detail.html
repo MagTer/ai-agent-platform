@@ -19,6 +19,7 @@
     <button class="tab" data-tab="skill-quality" onclick="switchTab('skill-quality')">Skill Quality
         <span id="proposals-badge" class="badge badge-warning" style="display:none; margin-left:4px;">0</span>
     </button>
+    <button class="tab" data-tab="obsidian" onclick="switchTab('obsidian')">Obsidian Vault</button>
 </div>
 
 <div id="tab-overview" class="tab-content active">
@@ -461,6 +462,49 @@
     </div>
 </div>
 
+<div id="tab-obsidian" class="tab-content" style="display:none;">
+    <div class="card" id="obsidianCard">
+        <div class="card-header" style="display:flex; justify-content:space-between; align-items:center;">
+            <span class="card-title">Obsidian Vault</span>
+            <span id="obsidian-status-badge" class="badge" style="display:none;"></span>
+        </div>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+            Connect an Obsidian Sync vault so the agent can read and write notes.
+            Obtain the auth token by running <code>npx obsidian-headless@latest ob login</code> on any machine with Node.js 22.
+        </p>
+        <div id="obsidianConfigDisplay" style="display:none; margin-bottom:16px;">
+            <div class="detail-grid" id="obsidianDetails"></div>
+            <div style="margin-top:12px;">
+                <button class="btn btn-sm" onclick="showObsidianForm()">Edit</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteObsidianConfig()" style="margin-left:8px;">Remove</button>
+            </div>
+        </div>
+        <div id="obsidianForm">
+            <form onsubmit="saveObsidianConfig(event)">
+                <div class="form-group">
+                    <label>Auth Token</label>
+                    <input type="password" id="obsidianToken" placeholder="Paste token from ~/.config/obsidian-headless/auth_token" autocomplete="new-password">
+                </div>
+                <div class="form-group">
+                    <label>Remote Vault Name</label>
+                    <input type="text" id="obsidianVaultName" placeholder="e.g. MyVault">
+                </div>
+                <div class="form-group">
+                    <label>Sync Mode</label>
+                    <select id="obsidianSyncMode">
+                        <option value="bidirectional">Bidirectional</option>
+                        <option value="pull-only">Pull-only (read-only)</option>
+                    </select>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn" onclick="cancelObsidianForm()" id="obsidianCancelBtn" style="display:none;">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <!-- SECTION_SEPARATOR -->
 .tab-bar { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 24px; }
 .tab { padding: 12px 20px; border: none; background: none; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--text-muted); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.15s; }
@@ -571,6 +615,7 @@ function switchTab(tab) {
         else if (tab === 'files') loadFiles();
         else if (tab === 'skills') loadSkills();
         else if (tab === 'skill-quality') loadProposals();
+        else if (tab === 'obsidian') loadObsidian();
     }
 }
 
@@ -2027,6 +2072,70 @@ async function reviewProposal(proposalId, action) {
     } catch (err) {
         showToast('Error: ' + err.message, 'error');
     }
+}
+
+// --- Obsidian Vault Tab ---
+async function loadObsidian() {
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/obsidian');
+    if (!res) return;
+    const data = await res.json();
+    const badge = document.getElementById('obsidian-status-badge');
+    if (data.configured) {
+        badge.style.display = 'inline-block';
+        badge.className = 'badge badge-success';
+        badge.textContent = 'Configured';
+        document.getElementById('obsidianDetails').innerHTML =
+            '<span class="detail-label">Vault Name</span><span class="detail-value">' + (data.vault_name || '(not set)') + '</span>' +
+            '<span class="detail-label">Sync Mode</span><span class="detail-value">' + data.sync_mode + '</span>' +
+            '<span class="detail-label">Token</span><span class="detail-value" style="font-family:monospace;">' + data.token_preview + '</span>';
+        document.getElementById('obsidianConfigDisplay').style.display = 'block';
+        document.getElementById('obsidianForm').style.display = 'none';
+    } else {
+        badge.style.display = 'inline-block';
+        badge.className = 'badge';
+        badge.textContent = 'Not configured';
+        document.getElementById('obsidianConfigDisplay').style.display = 'none';
+        document.getElementById('obsidianForm').style.display = 'block';
+        document.getElementById('obsidianCancelBtn').style.display = 'none';
+    }
+}
+
+function showObsidianForm() {
+    document.getElementById('obsidianConfigDisplay').style.display = 'none';
+    document.getElementById('obsidianForm').style.display = 'block';
+    document.getElementById('obsidianCancelBtn').style.display = 'inline-block';
+}
+
+function cancelObsidianForm() {
+    document.getElementById('obsidianForm').style.display = 'none';
+    document.getElementById('obsidianConfigDisplay').style.display = 'block';
+}
+
+async function saveObsidianConfig(event) {
+    event.preventDefault();
+    const token = document.getElementById('obsidianToken').value.trim();
+    const vaultName = document.getElementById('obsidianVaultName').value.trim();
+    const syncMode = document.getElementById('obsidianSyncMode').value;
+    if (!token) { showToast('Auth token is required', 'error'); return; }
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/obsidian', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ auth_token: token, vault_name: vaultName, sync_mode: syncMode }),
+    });
+    if (!res) return;
+    document.getElementById('obsidianToken').value = '';
+    loadedTabs['obsidian'] = false;
+    loadObsidian();
+    showToast('Obsidian Vault config saved', 'success');
+}
+
+async function deleteObsidianConfig() {
+    if (!confirm('Remove Obsidian Vault config for this context?')) return;
+    const res = await fetchWithErrorHandling('/platformadmin/contexts/' + CONTEXT_ID + '/obsidian', { method: 'DELETE' });
+    if (!res) return;
+    loadedTabs['obsidian'] = false;
+    loadObsidian();
+    showToast('Obsidian Vault config removed', 'success');
 }
 
 // Initialize: read hash from URL on page load
