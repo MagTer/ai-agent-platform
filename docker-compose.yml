@@ -34,8 +34,12 @@ services:
     build:
       context: ./services/agent
       dockerfile: Dockerfile
-      # Optional: Enable Node.js and Gemini CLI (adds ~350MB to image)
-      # Uncomment the following lines to enable:
+      args:
+        # Install Node.js 22 + obsidian-headless inside the agent container so the
+        # VaultTool can run "ob sync" per-context using credentials from admin portal.
+        # Add ~100MB to the image. Set to "false" to disable vault sync support.
+        INCLUDE_VAULT: "true"
+      # Optional: Enable Node.js 20 and Gemini CLI (adds ~350MB, separate from INCLUDE_VAULT)
       # args:
       #   INCLUDE_NODEJS: "true"
     image: ai-agent-platform-agent:latest
@@ -249,24 +253,6 @@ services:
       # Traefik disabled by default - enabled in environment-specific overrides
       # This prevents router conflicts when running multiple environments
       - "traefik.enable=false"
-
-  obsidian-headless:
-    build: ./services/obsidian-headless
-    volumes:
-      - vault_data:/vault
-    environment:
-      OBSIDIAN_AUTH_TOKEN: ${OBSIDIAN_AUTH_TOKEN:-}
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.5'
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
 
 volumes:
   postgres_data:
