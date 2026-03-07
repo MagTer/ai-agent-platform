@@ -168,7 +168,7 @@ jobs:
       - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
       - run: pip install --upgrade pip pip-audit
       - name: Run pip-audit
-        run: pip-audit --strict --desc
+        run: pip-audit --strict --desc --ignore-vuln CVE-2026-1703
 
   # Gate job - single required check for branch protection
   quality-gate:

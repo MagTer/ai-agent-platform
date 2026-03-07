@@ -34,8 +34,12 @@ services:
     build:
       context: ./services/agent
       dockerfile: Dockerfile
-      # Optional: Enable Node.js and Gemini CLI (adds ~350MB to image)
-      # Uncomment the following lines to enable:
+      args:
+        # Install Node.js 22 + obsidian-headless inside the agent container so the
+        # VaultTool can run "ob sync" per-context using credentials from admin portal.
+        # Add ~100MB to the image. Set to "false" to disable vault sync support.
+        INCLUDE_VAULT: "true"
+      # Optional: Enable Node.js 20 and Gemini CLI (adds ~350MB, separate from INCLUDE_VAULT)
       # args:
       #   INCLUDE_NODEJS: "true"
     image: ai-agent-platform-agent:latest
@@ -51,6 +55,7 @@ services:
       - ./services/agent/scripts:/app/scripts
       - ./services/agent/pyproject.toml:/app/pyproject.toml
       - ./services/agent/data:/app/data  # Bind mount for trace logs (accessible from host)
+      - vault_data:/vault
     environment:
       AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
       QDRANT_URL: http://qdrant:6333
@@ -249,28 +254,9 @@ services:
       # This prevents router conflicts when running multiple environments
       - "traefik.enable=false"
 
-  vault-mcp:
-    build: ./services/vault-mcp
-    expose:
-      - "8090"
-    environment:
-      COUCHDB_URL: https://couchdb.${DOMAIN:-agent.example.com}
-      COUCHDB_DB: obsidian
-      COUCHDB_USER: ${COUCHDB_USER:-admin}
-      COUCHDB_PASSWORD: ${COUCHDB_PASSWORD}
-    deploy:
-      resources:
-        limits:
-          memory: 128M
-          cpus: '0.5'
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
-
 volumes:
   postgres_data:
+  vault_data:
 
 networks:
   default:

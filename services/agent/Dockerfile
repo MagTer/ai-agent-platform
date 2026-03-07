@@ -1,8 +1,15 @@
 FROM python:3.11-slim
 
-# Build argument to optionally include Node.js and Gemini CLI
-# Set to "true" to enable Node.js installation (adds ~350MB to image)
+# Build argument to optionally include Node.js 20 and Gemini CLI (adds ~350MB to image)
 ARG INCLUDE_NODEJS=false
+
+# Build argument to include Node.js 22 and obsidian-headless sync CLI.
+# obsidian-headless (https://www.npmjs.com/package/obsidian-headless) is an npm
+# package that wraps the Obsidian Sync protocol in a headless CLI ("ob").
+# Node.js 22 is the minimum required version. When enabled (~100MB extra), the
+# VaultTool can run "ob sync" as a subprocess per-context, reading each context's
+# auth token from CredentialService (admin portal) -- no shared env vars.
+ARG INCLUDE_VAULT=false
 
 ENV POETRY_VERSION=1.8.2 \
     POETRY_HOME="/opt/poetry" \
@@ -18,13 +25,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && curl -sSL https://install.python-poetry.org | python3 - \
     && ln -s /opt/poetry/bin/poetry /usr/local/bin/poetry \
-    # Conditionally install Node.js if INCLUDE_NODEJS=true
-    && if [ "$INCLUDE_NODEJS" = "true" ]; then \
+    # Optionally install Node.js 20 + Gemini CLI (INCLUDE_NODEJS=true, adds ~350MB)
+    && if [ "$INCLUDE_NODEJS" = "true" ] && [ "$INCLUDE_VAULT" != "true" ]; then \
         mkdir -p /etc/apt/keyrings \
         && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
         && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
         && apt-get update && apt-get install -y nodejs \
         && npm install -g @google/gemini-cli@latest; \
+    fi \
+    # Optionally install Node.js 22 + obsidian-headless (INCLUDE_VAULT=true, ~100MB extra).
+    # Node.js 22 is required by obsidian-headless. If both INCLUDE_NODEJS and INCLUDE_VAULT
+    # are true, Node.js 22 wins and Gemini CLI is also installed (compatible with Node 22).
+    && if [ "$INCLUDE_VAULT" = "true" ]; then \
+        mkdir -p /etc/apt/keyrings \
+        && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+        && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+        && apt-get update && apt-get install -y nodejs \
+        && npm install -g obsidian-headless \
+        && if [ "$INCLUDE_NODEJS" = "true" ]; then npm install -g @google/gemini-cli@latest; fi; \
     fi \
     # Remove build dependencies to reduce image size
     && apt-get purge -y build-essential \

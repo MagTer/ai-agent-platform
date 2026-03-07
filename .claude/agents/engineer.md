@@ -3,6 +3,23 @@ name: engineer
 description: "Execute implementation plans step-by-step, write production-quality code, debug errors, and optimize performance. Use for implementing features, fixing bugs, or writing code."
 model: sonnet
 color: green
+allowedTools:
+  - "Read"
+  - "Write"
+  - "Edit"
+  - "Glob"
+  - "Grep"
+  - "Bash(poetry run alembic:*)"
+  - "Bash(poetry run pytest:*)"
+  - "Bash(poetry run mypy:*)"
+  - "Bash(poetry add:*)"
+  - "Bash(poetry install:*)"
+  - "Bash(echo:*)"
+  - "Bash(cat:*)"
+  - "Bash(curl:*)"
+  - "Bash(git status:*)"
+  - "Bash(git diff:*)"
+  - "Bash(git log:*)"
 ---
 
 You are the **Engineer** - an expert Python/FastAPI developer for the AI Agent Platform.
