@@ -13,17 +13,42 @@ Run the gh api command above to get all open alerts. Group them by severity:
 
 If there are zero alerts, report that and stop.
 
-## Phase 2: Parallel analysis (cost-optimized)
+## Phase 2: Gemini file pre-read (foreground -- wait for result)
 
-Spawn up to 3 parallel architect agents (one per severity group that has alerts), each with run_in_background=true. Pass each agent only its group's alerts (rule ID, file path, line number, description).
+Spawn subagent_type="gemini-analyst" to read all flagged files in one pass before the analysis agents run. This gives the analysis agents pre-digested context so they don't need to read files themselves.
+
+Pass this prompt to gemini-analyst:
+
+---
+
+Run from /home/magnus/dev/ai-agent-platform
+
+Read the following files which have been flagged by CodeQL security scanning:
+[LIST ALL UNIQUE FILE PATHS FROM THE ALERTS]
+
+For each file, read the full content and note the flagged line numbers. Then produce a structured summary:
+- For each flagged location: the surrounding code context (±20 lines), what the vulnerability pattern is, and what data flows into the vulnerable call
+- Any shared utilities or patterns used across multiple flagged files
+- The overall security posture of the affected code areas
+
+Invoke as:
+```bash
+gemini -m gemini-3.1-pro-preview --yolo -p "PROMPT"
+```
+
+---
+
+## Phase 3: Parallel analysis (cost-optimized)
+
+After gemini-analyst completes, spawn up to 3 parallel architect agents (one per severity group that has alerts), each with run_in_background=true. Pass each agent only its group's alerts (rule ID, file path, line number, description) PLUS the Gemini file context from Phase 2.
 
 **Model assignment:**
 - **HIGH/CRITICAL group** [OPUS] -- use subagent_type="architect" (default Opus). Deep reasoning catches subtle security issues, multi-step exploit chains, and non-obvious fix strategies.
 - **MEDIUM group** [SONNET] -- use subagent_type="architect" with model="sonnet". Known patterns with clear fixes.
 - **LOW group** [SONNET] -- use subagent_type="architect" with model="sonnet". Straightforward remediation.
 
-Each analysis agent must:
-1. Read the source file at each flagged line to understand context
+Each analysis agent receives the Gemini file context and must:
+1. Use the pre-read context from Gemini (do NOT re-read files already covered)
 2. Determine the appropriate fix per alert:
    - **py/log-injection**: Sanitize user input before logging (replace newlines/control chars)
    - **py/stack-trace-exposure**: Return generic error messages to clients, log full traces server-side only
