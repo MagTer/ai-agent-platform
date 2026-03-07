@@ -46,6 +46,7 @@ allowedTools:
   - "Bash(cat:*)"
   - "Bash(echo:*)"
   - "Bash(sqlite3:*)"
+  - "Bash(printf:*)"
 ---
 
 # Ops Agent
@@ -211,13 +212,13 @@ git status
 # 2. Stage specific files (not -A)
 git add path/to/file1.py path/to/file2.py
 
-# 3. Commit with HEREDOC for message
-git commit -m "$(cat <<'EOF'
+# 3. Write commit message to file, then commit with -F (avoids $() subshell permission prompts)
+cat > /tmp/commit-msg.txt << 'EOF'
 feat: Description here
 
 Co-Authored-By: Claude <noreply@anthropic.com>
 EOF
-)"
+git commit -F /tmp/commit-msg.txt
 ```
 
 ### Creating PRs
@@ -229,8 +230,8 @@ git checkout -b feat/description
 # 2. Push branch
 git push -u origin feat/description
 
-# 3. Create PR
-gh pr create --title "feat: Title" --body "$(cat <<'EOF'
+# 3. Write PR body to file, then use --body-file (avoids $() subshell permission prompts)
+cat > /tmp/pr-body.txt << 'EOF'
 ## Summary
 - Change 1
 - Change 2
@@ -240,7 +241,7 @@ gh pr create --title "feat: Title" --body "$(cat <<'EOF'
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
-)"
+gh pr create --title "feat: Title" --body-file /tmp/pr-body.txt
 ```
 
 ### Merging PRs

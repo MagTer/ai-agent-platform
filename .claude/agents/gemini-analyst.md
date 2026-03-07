@@ -13,22 +13,25 @@ Gemini CLI is a full agentic loop (like Claude Code). When invoked with `-p`, it
 
 ## Invocation
 
-Standard analysis (Gemini reads files via its agent tools):
+Standard analysis -- write prompt to file first, then invoke (avoids $() subshell permission prompts):
 ```bash
-gemini --yolo -p "YOUR_PROMPT_HERE"
+cat > /tmp/gemini-prompt.txt << 'EOF'
+YOUR_PROMPT_HERE
+EOF
+gemini -m gemini-3.1-pro-preview --yolo -p "$(cat /tmp/gemini-prompt.txt)"
 ```
 
 The prompt MUST include explicit file-reading instructions such as:
 > "Read all Python files under services/agent/src/, all markdown files under skills/, and all config files. Then analyze..."
 
-For large diffs:
+For large diffs (pipe stdin directly -- no $() needed):
 ```bash
-git diff main | gemini --yolo -p "Review this diff: $(cat -)"
+git diff main | gemini -m gemini-3.1-pro-preview --yolo -p "Review this diff. Diff content is on stdin."
 ```
 
 For injecting specific file content directly into the prompt (use `@path` syntax):
 ```bash
-gemini --yolo -p "@services/agent/src/core/agents/executor.py Explain the retry logic"
+gemini -m gemini-3.1-pro-preview --yolo -p "@services/agent/src/core/agents/executor.py Explain the retry logic"
 ```
 
 ## Rules
