@@ -20,12 +20,14 @@ class RAGManager:
         collection_name: str = "agent-memories",
         top_k: int = 5,
         mmr_lambda: float = 0.7,
+        qdrant_api_key: str | None = None,
     ) -> None:
         # Configuration
         self.qdrant_url = qdrant_url
         self.top_k = top_k
         self.mmr_lambda = mmr_lambda
         self.collection_name = collection_name
+        self._qdrant_api_key = qdrant_api_key
 
         # Injected dependencies
         self.embedder = embedder
@@ -38,7 +40,7 @@ class RAGManager:
         """Lazy-load Qdrant client on first access."""
         if self._client is None:
             logger.info(f"Connecting to Qdrant at {self.qdrant_url} (lazy load)")
-            self._client = AsyncQdrantClient(url=self.qdrant_url)
+            self._client = AsyncQdrantClient(url=self.qdrant_url, api_key=self._qdrant_api_key)
         return self._client
 
     def _cosine(self, a: np.ndarray, b: np.ndarray) -> float:

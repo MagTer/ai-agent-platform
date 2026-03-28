@@ -20,9 +20,10 @@ class CodeIndexer:
         embedder: IEmbedder,
         qdrant_url: str = "http://qdrant:6333",
         collection_name: str = "agent-memories",
+        qdrant_api_key: str | None = None,
     ):
         self.root_path = root_path
-        self.client = AsyncQdrantClient(url=qdrant_url)
+        self.client = AsyncQdrantClient(url=qdrant_url, api_key=qdrant_api_key)
         self.collection_name = collection_name
         self.embedder = embedder
         self.splitter = CodeSplitter()

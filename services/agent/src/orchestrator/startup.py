@@ -55,6 +55,7 @@ async def register_providers(
         embedder=embedder,
         qdrant_url=str(settings.qdrant_url),
         collection_name=settings.qdrant_collection,
+        qdrant_api_key=settings.qdrant_api_key,
     )
     set_rag_manager(rag_manager)
 
