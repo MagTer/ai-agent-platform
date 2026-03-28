@@ -7,18 +7,6 @@ import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from shared.models import (
-    AgentMessage,
-    AgentRequest,
-    AgentResponse,
-    AwaitingInputCategory,
-    AwaitingInputRequest,
-    Plan,
-    PlanStep,
-    RoutingDecision,
-    StepOutcome,
-    StepResult,
-)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.agents import (
@@ -49,6 +37,18 @@ from core.skills import SkillExecutor, SkillRegistryProtocol
 from core.system_commands import handle_system_command
 from core.tools import ToolRegistry
 from core.tools.base import ToolConfirmationError
+from shared.models import (
+    AgentMessage,
+    AgentRequest,
+    AgentResponse,
+    AwaitingInputCategory,
+    AwaitingInputRequest,
+    Plan,
+    PlanStep,
+    RoutingDecision,
+    StepOutcome,
+    StepResult,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -445,7 +445,8 @@ class AgentService:
 
         This method detects common failure patterns that should trigger an automatic
         replan without requiring supervisor LLM evaluation. This saves latency and cost
-        for obvious failures like authentication errors, timeouts, or resource not found.
+        for obvious failures like authentication errors, timeouts, resource not found,
+        or insufficient RAG retrieval.
 
         Only checks text patterns when the step explicitly reported an error status.
         Successful results (status="ok") are always sent to the step supervisor for
@@ -460,8 +461,13 @@ class AgentService:
             Tuple of (should_replan, reason). If should_replan is True,
             the step should trigger a replan immediately.
         """
-        # Only auto-replan on explicit error status. Successful results should
-        # be evaluated by the step supervisor to avoid false positives.
+        # Check for rag_search insufficient retrieval - this can happen even on "ok" status
+        # because rag_search returns structured output with retrieval_sufficient flag
+        if plan_step.tool == "rag_search":
+            return self._check_rag_retrieval_sufficiency(step_result, plan_step)
+
+        # Only auto-replan on explicit error status for non-rag_search tools.
+        # Successful results should be evaluated by the step supervisor to avoid false positives.
         if step_result.status != "error":
             LOGGER.debug(
                 "Auto-replan skipped for step '%s' (status=%s, not error)",
@@ -503,6 +509,83 @@ class AgentService:
 
         # Generic error fallback
         return True, f"Tool returned error: {output[:200]}"
+
+    def _check_rag_retrieval_sufficiency(
+        self, step_result: StepResult, plan_step: PlanStep
+    ) -> tuple[bool, str]:
+        """Check if rag_search result indicates insufficient retrieval for replan.
+
+        Parses the structured JSON output from rag_search and checks the
+        retrieval_sufficient flag. If false, triggers auto-replan with feedback
+        including scores and threshold for transparency.
+
+        Args:
+            step_result: The result from rag_search execution
+            plan_step: The plan step that was executed
+
+        Returns:
+            Tuple of (should_replan, reason). If should_replan is True,
+            the step should trigger a replan immediately due to insufficient retrieval.
+        """
+        import json
+
+        # Get output from result - rag_search stores results in "output" field
+        output_str = str(step_result.result.get("output", "") or "")
+
+        if not output_str:
+            LOGGER.debug("Auto-replan rag_search: no output to check")
+            return False, ""
+
+        try:
+            output_data = json.loads(output_str)
+        except json.JSONDecodeError:
+            LOGGER.warning("Auto-replan rag_search: invalid JSON in output")
+            return False, ""
+
+        # Check if retrieval_sufficient field exists
+        if "retrieval_sufficient" not in output_data:
+            LOGGER.debug("Auto-replan rag_search: no retrieval_sufficient field")
+            return False, ""
+
+        retrieval_sufficient = output_data.get("retrieval_sufficient", True)
+
+        # If retrieval is sufficient, no replan needed
+        if retrieval_sufficient:
+            LOGGER.debug("Auto-replan rag_search: retrieval_sufficient=true, no replan")
+            return False, ""
+
+        # Retrieval is insufficient - prepare detailed reason
+        avg_score = output_data.get("avg_score", 0.0)
+        threshold = output_data.get("threshold", 0.65)
+        result_count = output_data.get("result_count", 0)
+        min_score = output_data.get("min_score", 0.0)
+        max_score = output_data.get("max_score", 0.0)
+
+        # Log structured info for observability
+        LOGGER.info(
+            "Auto-replan rag_search triggered: retrieval_sufficient=false "
+            "(avg_score=%.4f, threshold=%.4f, result_count=%d)",
+            avg_score,
+            threshold,
+            result_count,
+        )
+
+        # Distinguish empty results from low-scoring results
+        if result_count == 0:
+            reason = (
+                "RAG retrieval returned no results. "
+                "The knowledge base may not contain relevant information for this query. "
+                "Consider broadening the search terms or using a different approach."
+            )
+        else:
+            reason = (
+                f"RAG retrieval insufficient: average relevance score {avg_score:.4f} "
+                f"is below threshold {threshold:.4f}. Retrieved {result_count} documents "
+                f"with scores ranging from {min_score:.4f} to {max_score:.4f}. "
+                f"Consider refining the query or using external tools."
+            )
+
+        return True, reason
 
     async def _execute_step_with_retry(
         self,
@@ -639,6 +722,32 @@ class AgentService:
                     auto_span.set_attribute("triggered", should_auto_replan)
                     if auto_reason:
                         auto_span.set_attribute("reason", auto_reason)
+
+                    # Capture retrieval-specific attributes for observability
+                    if plan_step.tool == "rag_search" and should_auto_replan:
+                        auto_span.set_attribute("auto_replan", True)
+                        auto_span.set_attribute("reason", "retrieval_insufficient")
+                        # Try to extract scores from result for detailed tracing
+                        try:
+                            import json
+
+                            output_str = str(step_execution_result.result.get("output", "") or "")
+                            if output_str:
+                                output_data = json.loads(output_str)
+                                auto_span.set_attribute(
+                                    "avg_score", output_data.get("avg_score", 0.0)
+                                )
+                                auto_span.set_attribute(
+                                    "threshold", output_data.get("threshold", 0.65)
+                                )
+                                auto_span.set_attribute(
+                                    "result_count", output_data.get("result_count", 0)
+                                )
+                        except Exception:
+                            # Ignore extraction errors - the replan reason already has the info
+                            LOGGER.debug(
+                                "Failed to extract retrieval metrics for span", exc_info=True
+                            )
 
                 if should_auto_replan:
                     LOGGER.info(

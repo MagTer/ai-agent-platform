@@ -7,7 +7,6 @@ from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from shared.models import AgentMessage, AgentRequest
 
 from core.db import Context, Conversation
 from core.runtime.config import Settings
@@ -16,6 +15,7 @@ from core.runtime.memory import MemoryRecord, MemoryStore
 from core.runtime.service import AgentService
 from core.skills.registry import Skill
 from core.tools.base import Tool
+from shared.models import AgentMessage, AgentRequest
 
 # Reusable test context ID (valid UUID)
 _CTX_ID = "00000000-0000-0000-0000-000000000001"
@@ -325,4 +325,131 @@ async def test_should_auto_replan_patterns(tmp_path: Path) -> None:
     )
     should_replan, reason = service._should_auto_replan(step_result, plan_step)
     assert should_replan is False, "Should not replan on successful output with error-like keywords"
+    assert reason == ""
+
+
+@pytest.mark.asyncio
+async def test_should_auto_replan_rag_search_insufficient_retrieval(tmp_path: Path) -> None:
+    """Test auto-replan detection for rag_search with insufficient retrieval."""
+    from shared.models import PlanStep, StepResult
+
+    settings = Settings()
+    service = AgentService(
+        settings=settings,
+        litellm=cast(LiteLLMClient, MockLiteLLMClient()),
+        memory=cast(MemoryStore, DummyMemory()),
+    )
+
+    # Create a rag_search plan step
+    plan_step = PlanStep(
+        id="rag-step",
+        label="Search knowledge base",
+        executor="skill",
+        action="skill",
+        tool="rag_search",
+        args={"query": "some obscure topic"},
+    )
+
+    # Test: retrieval_sufficient=false triggers auto-replan with low scores
+    rag_output = {
+        "results": [{"id": "1", "score": 0.45, "content": "low relevance doc"}],
+        "result_count": 1,
+        "min_score": 0.45,
+        "max_score": 0.45,
+        "avg_score": 0.45,
+        "threshold": 0.65,
+        "retrieval_sufficient": False,
+    }
+    step_result = StepResult(
+        step=plan_step,
+        status="ok",  # Even with ok status, retrieval_sufficient=false should trigger replan
+        result={"output": json.dumps(rag_output)},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is True
+    assert "insufficient" in reason.lower() or "below threshold" in reason.lower()
+    assert "0.45" in reason or "0.4500" in reason  # avg_score
+    assert "0.65" in reason or "0.6500" in reason  # threshold
+
+    # Test: empty results (result_count=0) triggers auto-replan with different message
+    rag_output_empty = {
+        "results": [],
+        "result_count": 0,
+        "min_score": 0.0,
+        "max_score": 0.0,
+        "avg_score": 0.0,
+        "threshold": 0.65,
+        "retrieval_sufficient": False,
+    }
+    step_result = StepResult(
+        step=plan_step,
+        status="ok",
+        result={"output": json.dumps(rag_output_empty)},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is True
+    assert "no results" in reason.lower() or "returned no results" in reason.lower()
+
+    # Test: retrieval_sufficient=true does NOT trigger replan
+    rag_output_sufficient = {
+        "results": [{"id": "1", "score": 0.75, "content": "high relevance doc"}],
+        "result_count": 1,
+        "min_score": 0.75,
+        "max_score": 0.75,
+        "avg_score": 0.75,
+        "threshold": 0.65,
+        "retrieval_sufficient": True,
+    }
+    step_result = StepResult(
+        step=plan_step,
+        status="ok",
+        result={"output": json.dumps(rag_output_sufficient)},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is False
+    assert reason == ""
+
+    # Test: non-rag_search tool still follows error status rule
+    other_step = PlanStep(
+        id="other-step",
+        label="Other tool",
+        executor="skill",
+        action="skill",
+        tool="other_tool",
+        args={},
+    )
+    # Successful status should not trigger replan even if output mentions low scores
+    step_result = StepResult(
+        step=other_step,
+        status="ok",
+        result={"output": "Some output with retrieval_sufficient: false"},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, other_step)
+    assert should_replan is False, "Non-rag_search tool should not auto-replan on ok status"
+    assert reason == ""
+
+    # Test: rag_search with invalid JSON output - no replan
+    step_result = StepResult(
+        step=plan_step,
+        status="ok",
+        result={"output": "invalid json"},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is False
+    assert reason == ""
+
+    # Test: rag_search with no output - no replan
+    step_result = StepResult(
+        step=plan_step,
+        status="ok",
+        result={},
+        messages=[],
+    )
+    should_replan, reason = service._should_auto_replan(step_result, plan_step)
+    assert should_replan is False
     assert reason == ""
