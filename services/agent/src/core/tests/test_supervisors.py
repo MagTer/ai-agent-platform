@@ -106,13 +106,12 @@ class TestPlanSupervisorAgent:
         assert result.steps[0].tool == "researcher"
 
     @pytest.mark.asyncio
-    async def test_consult_expert_migration(
+    async def test_consult_expert_raises_deprecated_error(
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
-        """Test that consult_expert steps are migrated to skills-native format."""
+        """Test that a plan with a consult_expert step raises ValueError."""
         supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
 
-        # Old format with consult_expert
         plan = Plan(
             description="Old format plan",
             steps=[
@@ -134,45 +133,8 @@ class TestPlanSupervisorAgent:
             ],
         )
 
-        result = await supervisor.review(plan)
-        # Should be migrated to skills-native format
-        assert result.steps[0].executor == "skill"
-        assert result.steps[0].action == "skill"
-        assert result.steps[0].tool == "researcher"
-        assert result.steps[0].args.get("goal") == "Find info"
-        assert "skill" not in result.steps[0].args
-
-    @pytest.mark.asyncio
-    async def test_missing_skill_arg_no_migration(
-        self, mock_registry: ToolRegistry, skill_names: set[str]
-    ) -> None:
-        """Test that consult_expert without skill arg is not migrated."""
-        supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
-
-        plan = Plan(
-            description="Missing skill arg",
-            steps=[
-                PlanStep(
-                    id="1",
-                    label="Research",
-                    executor="agent",
-                    action="tool",
-                    tool="consult_expert",
-                    args={"goal": "Find info"},  # Missing 'skill' arg
-                ),
-                PlanStep(
-                    id="2",
-                    label="Answer",
-                    executor="litellm",
-                    action="completion",
-                    args={},
-                ),
-            ],
-        )
-
-        result = await supervisor.review(plan)
-        # Without skill arg, consult_expert is not migrated
-        assert result.steps[0].tool == "consult_expert"
+        with pytest.raises(ValueError, match="deprecated step type"):
+            await supervisor.review(plan)
 
     @pytest.mark.asyncio
     async def test_wrong_executor_for_tool_warns(
