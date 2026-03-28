@@ -122,6 +122,10 @@ class InMemoryAsyncSession:
         result.scalars.return_value.first.return_value = None
         return result
 
+    async def flush(self) -> None:
+        """Flush pending changes (no-op for in-memory)."""
+        pass
+
     async def close(self) -> None:
         """Close the session (no-op)."""
         pass
