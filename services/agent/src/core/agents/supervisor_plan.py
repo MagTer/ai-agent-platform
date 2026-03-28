@@ -89,14 +89,7 @@ class PlanSupervisorAgent:
             # 3. Validate tool and skill references
             for step in plan.steps:
                 if step.action == "tool" and step.tool:
-                    if step.tool == "consult_expert":
-                        raise ValueError(
-                            f"Step '{step.label}': consult_expert is a deprecated step type. "
-                            "Update the plan to use executor='skill' with the skill name "
-                            "in the 'tool' field."
-                        )
-
-                    elif self._tool_registry:
+                    if self._tool_registry:
                         # Validate other tool references
                         if not self._tool_registry.get(step.tool):
                             warnings.append(f"Step '{step.label}': Unknown tool '{step.tool}'")

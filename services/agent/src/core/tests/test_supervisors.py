@@ -106,37 +106,6 @@ class TestPlanSupervisorAgent:
         assert result.steps[0].tool == "researcher"
 
     @pytest.mark.asyncio
-    async def test_consult_expert_raises_deprecated_error(
-        self, mock_registry: ToolRegistry, skill_names: set[str]
-    ) -> None:
-        """Test that a plan with a consult_expert step raises ValueError."""
-        supervisor = PlanSupervisorAgent(tool_registry=mock_registry, skill_names=skill_names)
-
-        plan = Plan(
-            description="Old format plan",
-            steps=[
-                PlanStep(
-                    id="1",
-                    label="Research",
-                    executor="agent",
-                    action="tool",
-                    tool="consult_expert",
-                    args={"skill": "researcher", "goal": "Find info"},
-                ),
-                PlanStep(
-                    id="2",
-                    label="Answer",
-                    executor="litellm",
-                    action="completion",
-                    args={},
-                ),
-            ],
-        )
-
-        with pytest.raises(ValueError, match="deprecated step type"):
-            await supervisor.review(plan)
-
-    @pytest.mark.asyncio
     async def test_wrong_executor_for_tool_warns(
         self, mock_registry: ToolRegistry, skill_names: set[str]
     ) -> None:
