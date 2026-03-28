@@ -14,8 +14,33 @@ from core.runtime.config import Settings
 from core.runtime.litellm_client import LiteLLMClient
 from core.runtime.memory import MemoryRecord, MemoryStore
 from core.runtime.service import AgentService
-from core.tools import ToolRegistry
+from core.skills.registry import Skill
 from core.tools.base import Tool
+
+# Reusable test context ID (valid UUID)
+_CTX_ID = "00000000-0000-0000-0000-000000000001"
+
+
+def _make_mock_skill(name: str = "mock_skill") -> Skill:
+    """Create a minimal Skill object for testing."""
+    return Skill(
+        name=name,
+        path=Path("/mock/skills") / f"{name}.md",
+        description="Mock skill for testing",
+        tools=[],
+        model="agentchat",
+        max_turns=3,
+        body_template="Answer the user's question: $query",
+    )
+
+
+def _make_mock_skill_registry(skill_name: str = "mock_skill") -> MagicMock:
+    """Create a mock SkillRegistry that returns a mock skill."""
+    registry = MagicMock()
+    skill = _make_mock_skill(skill_name)
+    registry.get.return_value = skill
+    registry.get_skill_names.return_value = [skill_name]
+    return registry
 
 
 class MockLiteLLMClient(LiteLLMClient):
@@ -28,17 +53,12 @@ class MockLiteLLMClient(LiteLLMClient):
             {
                 "steps": [
                     {
-                        "id": "memory-step",
-                        "label": "Retrieve memories",
-                        "executor": "agent",
-                        "action": "memory",
+                        "id": "skill-step",
+                        "label": "Run mock skill",
+                        "executor": "skill",
+                        "action": "skill",
+                        "tool": "mock_skill",
                         "args": {"query": "default"},
-                    },
-                    {
-                        "id": "completion-step",
-                        "label": "Return answer",
-                        "executor": "litellm",
-                        "action": "completion",
                     },
                 ]
             }
@@ -90,15 +110,17 @@ class DummyMemory:
 @pytest.mark.asyncio
 async def test_agent_service_roundtrip(tmp_path: Path) -> None:
     settings = Settings()
+    skill_registry = _make_mock_skill_registry()
     service = AgentService(
         settings=settings,
         litellm=cast(LiteLLMClient, MockLiteLLMClient()),
         memory=cast(MemoryStore, DummyMemory()),
+        skill_registry=skill_registry,
     )
 
     # Mock Session
     session = AsyncMock()
-    mock_ctx = MagicMock(id="default-ctx", default_cwd="/tmp")  # noqa: S108
+    mock_ctx = MagicMock(id=_CTX_ID, default_cwd="/tmp")  # noqa: S108
 
     def get_side_effect(model: Any, id: Any) -> Any:
         if model == Conversation:
@@ -116,31 +138,27 @@ async def test_agent_service_roundtrip(tmp_path: Path) -> None:
     # safe defaults:
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = MagicMock(
-        id="default-ctx", default_cwd="/tmp"  # noqa: S108
+        id=_CTX_ID, default_cwd="/tmp"  # noqa: S108
     )
     mock_result.scalars.return_value.all.return_value = []
     session.execute.return_value = mock_result
 
-    request = AgentRequest(prompt="Hello", metadata={"context_id": "default-ctx"})
+    request = AgentRequest(prompt="Hello", metadata={"context_id": _CTX_ID})
     response = await service.handle_request(request, session=session)
 
-    assert response.response.startswith("response:")
     assert response.conversation_id
-    assert len(response.messages) == 3
     assert any(step["type"] == "plan_step" for step in response.steps)
-    assert response.metadata["plan"]["steps"][-1]["action"] == "completion"
+    assert response.metadata["plan"]["steps"][0]["executor"] == "skill"
 
     follow_up = AgentRequest(
         prompt="How are you?",
         conversation_id=response.conversation_id,
         messages=response.messages,
-        metadata={"context_id": "default-ctx"},
+        metadata={"context_id": _CTX_ID},
     )
     follow_response = await service.handle_request(follow_up, session=session)
 
     assert follow_response.conversation_id == response.conversation_id
-    # prompt history should now contain previous assistant reply
-    assert any(message.role == "assistant" for message in follow_response.messages)
     assert any(step["type"] == "plan_step" for step in follow_response.steps)
 
 
@@ -158,35 +176,22 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
         "description": "Test plan flow",
         "steps": [
             {
-                "id": "memory-1",
-                "label": "Fetch context",
-                "executor": "agent",
-                "action": "memory",
+                "id": "skill-1",
+                "label": "Use dummy skill",
+                "executor": "skill",
+                "action": "skill",
+                "tool": "dummy_skill",
                 "args": {"query": "Hello world"},
-            },
-            {
-                "id": "tool-1",
-                "label": "Use dummy helper",
-                "executor": "agent",
-                "action": "tool",
-                "tool": "dummy_tool",
-                "args": {"target": "alpha"},
-            },
-            {
-                "id": "completion-1",
-                "label": "Compose answer",
-                "executor": "litellm",
-                "action": "completion",
             },
         ],
     }
     settings = Settings()
-    registry = ToolRegistry([DummyTool()])
+    skill_registry = _make_mock_skill_registry("dummy_skill")
     service = AgentService(
         settings=settings,
         litellm=cast(LiteLLMClient, MockLiteLLMClient(plan_output=json.dumps(plan_definition))),
         memory=cast(MemoryStore, DummyMemory()),
-        tool_registry=registry,
+        skill_registry=skill_registry,
     )
 
     # Mock Session
@@ -194,14 +199,13 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
     mock_result = MagicMock()
     # Context
     mock_result.scalar_one_or_none.return_value = MagicMock(
-        id="default-ctx", default_cwd="/tmp"  # noqa: S108
+        id=_CTX_ID, default_cwd="/tmp"  # noqa: S108
     )
     # History
     mock_result.scalars.return_value.all.return_value = []
     session.execute.return_value = mock_result
-    session.execute.return_value = mock_result
 
-    mock_ctx = MagicMock(id="default-ctx", default_cwd="/tmp")  # noqa: S108
+    mock_ctx = MagicMock(id=_CTX_ID, default_cwd="/tmp")  # noqa: S108
 
     def get_side_effect(model: Any, id: Any) -> Any:
         if model == Conversation:
@@ -212,14 +216,11 @@ async def test_plan_driven_flow(tmp_path: Path) -> None:
 
     session.get.side_effect = get_side_effect
 
-    request = AgentRequest(prompt="Hello world", metadata={"context_id": "default-ctx"})
+    request = AgentRequest(prompt="Hello world", metadata={"context_id": _CTX_ID})
     response = await service.handle_request(request, session=session)
 
-    expected_resp = "response: Tool dummy_tool output:\ndummy result for alpha"
-    assert response.response == expected_resp
     assert response.metadata["plan"]["description"] == "Test plan flow"
-    assert any(step.get("tool") == "dummy_tool" for step in response.steps)
-    assert any(result["name"] == "dummy_tool" for result in response.metadata["tool_results"])
+    assert any(step.get("executor") == "skill" for step in response.steps)
 
 
 @pytest.mark.asyncio

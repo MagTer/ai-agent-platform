@@ -14,8 +14,42 @@ from core.runtime.config import Settings
 from core.runtime.litellm_client import LiteLLMClient
 from core.runtime.memory import MemoryStore
 from core.runtime.service import AgentService
+from core.skills.registry import Skill
 from core.tools import Tool, ToolRegistry, load_tool_registry
 from core.tools.web_fetch import WebFetchTool
+
+
+def _make_mock_skill_registry(skill_name: str = "mock_skill") -> MagicMock:
+    """Create a mock SkillRegistry that returns a mock skill."""
+    registry = MagicMock()
+    skill = Skill(
+        name=skill_name,
+        path=Path("/mock/skills") / f"{skill_name}.md",
+        description="Mock skill for testing",
+        tools=[],
+        model="agentchat",
+        max_turns=3,
+        body_template="Answer the user's question.",
+    )
+    registry.get.return_value = skill
+    registry.get_skill_names.return_value = [skill_name]
+    return registry
+
+
+_PLAN_JSON = json.dumps(
+    {
+        "steps": [
+            {
+                "id": "skill-step",
+                "label": "Run mock skill",
+                "executor": "skill",
+                "action": "skill",
+                "tool": "mock_skill",
+                "args": {},
+            },
+        ]
+    }
+)
 
 
 class MockLiteLLMClient:
@@ -32,34 +66,27 @@ class MockLiteLLMClient:
         model: str | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
-        chunk = MagicMock()
-        chunk.choices = [MagicMock()]
-        chunk.choices[0].delta.content = "ok"
-        yield chunk
+        # Check if this is a planner call (contains planner system prompt marker)
+        msgs = list(messages)
+        system_content = ""
+        for m in msgs:
+            if isinstance(m, AgentMessage) and m.role == "system":
+                system_content = m.content or ""
+            elif isinstance(m, dict) and m.get("role") == "system":
+                system_content = str(m.get("content", ""))
+        if "PLANNER AGENT" in system_content or "You are the Planner Agent" in system_content:
+            yield {"type": "content", "content": _PLAN_JSON}
+        elif "SUPERVISOR" in system_content or "plan_supervisor" in system_content.lower():
+            yield {"type": "content", "content": json.dumps({"decision": "ok", "issues": []})}
+        else:
+            yield {"type": "content", "content": "ok"}
 
     async def plan(
         self,
         messages: list[AgentMessage] | list[dict[str, str]],
         model: str | None = None,
     ) -> str:
-        return json.dumps(
-            {
-                "steps": [
-                    {
-                        "id": "memory",
-                        "label": "Fetch memories",
-                        "executor": "agent",
-                        "action": "memory",
-                    },
-                    {
-                        "id": "completion",
-                        "label": "Compose reply",
-                        "executor": "litellm",
-                        "action": "completion",
-                    },
-                ]
-            }
-        )
+        return _PLAN_JSON
 
 
 class DummyMemory:
@@ -117,17 +144,19 @@ async def test_agent_service_executes_tool(tmp_path: Path) -> None:
         tool_result_max_chars=100,
     )
     tool_registry = ToolRegistry([DummyTool()])
+    skill_registry = _make_mock_skill_registry("mock_skill")
     service = AgentService(
         settings=settings,
         litellm=cast(LiteLLMClient, MockLiteLLMClient()),
         memory=cast(MemoryStore, DummyMemory()),
         tool_registry=tool_registry,
+        skill_registry=skill_registry,
     )
 
     request = AgentRequest(
         prompt="hello",
         metadata={
-            "context_id": "default-ctx",
+            "context_id": "00000000-0000-0000-0000-000000000001",
             "tools": ["dummy"],
             "tool_calls": [
                 {
@@ -142,11 +171,13 @@ async def test_agent_service_executes_tool(tmp_path: Path) -> None:
     session = AsyncMock()
     mock_result = MagicMock()
     mock_result.scalar_one_or_none.return_value = MagicMock(
-        id="default-ctx", default_cwd="/tmp"  # noqa: S108
+        id="00000000-0000-0000-0000-000000000001", default_cwd="/tmp"  # noqa: S108
     )
     mock_result.scalars.return_value.all.return_value = []
     session.execute.return_value = mock_result
-    mock_ctx = MagicMock(id="default-ctx", default_cwd="/tmp")  # noqa: S108
+    mock_ctx = MagicMock(
+        id="00000000-0000-0000-0000-000000000001", default_cwd="/tmp"  # noqa: S108
+    )
 
     def get_side_effect(model: Any, id: Any) -> Any:
         if model == Conversation:

@@ -1138,7 +1138,12 @@ class AgentService:
                 raise ValueError("Plan is None after generation")
 
             if not plan.steps:
-                plan = self._fallback_plan(request.prompt)
+                LOGGER.error("Planner returned an empty plan — cannot execute.")
+                yield {
+                    "type": "error",
+                    "content": "Planning failed: the planner did not produce any steps.",
+                }
+                return
 
             # Execute steps
             needs_replan = False
@@ -1732,28 +1737,6 @@ class AgentService:
     def _describe_tools(self, allowlist: set[str] | None = None) -> list[dict[str, Any]]:
         """Generate tool descriptions for LLM. Delegates to ToolRunner."""
         return self._tool_runner._describe_tools(allowlist)
-
-    def _fallback_plan(self, prompt: str) -> Plan:
-        return Plan(
-            steps=[
-                PlanStep(
-                    id=str(uuid.uuid4()),
-                    label="Retrieve relevant memories",
-                    executor="agent",
-                    action="memory",
-                    args={"query": prompt},
-                    description="Default memory lookup before the completion.",
-                ),
-                PlanStep(
-                    id=str(uuid.uuid4()),
-                    label="Generate final answer",
-                    executor="litellm",
-                    action="completion",
-                    description="Fallback completion step.",
-                ),
-            ],
-            description="Fallback plan generated when the planner response was invalid.",
-        )
 
     @staticmethod
     def _coerce_tool_call_args(raw_args: dict[str, Any]) -> dict[str, Any]:
