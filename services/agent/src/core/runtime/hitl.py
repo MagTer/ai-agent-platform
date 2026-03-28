@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import uuid
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from shared.models import AgentMessage, AgentRequest, PlanStep
+from pydantic import ValidationError
+
+from shared.models import AgentMessage, AgentRequest, DraftOutput, PlanStep
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import Conversation, Message, Session
@@ -287,6 +290,64 @@ class HITLCoordinator:
     ) -> dict[str, Any] | None:
         """Extract draft data from requirements_drafter skill messages.
 
+        First attempts structured JSON parsing using DraftOutput Pydantic model.
+        Falls back to regex parsing for backward compatibility.
+
+        Args:
+            skill_messages: List of message dicts from the skill execution
+
+        Returns:
+            Dict with draft fields, or None if extraction fails
+        """
+        # First try structured JSON extraction
+        for msg in reversed(skill_messages):
+            content = msg.get("content", "")
+            if not content:
+                continue
+
+            # Try to find JSON in code blocks
+            json_str: str | None = None
+
+            # Pattern 1: JSON in triple backticks
+            json_block_match = re.search(
+                r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL
+            )
+            if json_block_match:
+                json_str = json_block_match.group(1)
+            else:
+                # Pattern 2: Raw JSON starting with {
+                json_match = re.search(r"(\{[\s\S]*\"draft\"[\s\S]*\})", content)
+                if json_match:
+                    json_str = json_match.group(1)
+
+            if json_str:
+                try:
+                    draft_output = DraftOutput.model_validate_json(json_str)
+                    draft_data: dict[str, Any] = {
+                        "type": draft_output.draft.type,
+                        "team_alias": draft_output.draft.team_alias,
+                        "title": draft_output.draft.title,
+                        "description": draft_output.draft.description,
+                        "acceptance_criteria": draft_output.draft.acceptance_criteria,
+                        "tags": draft_output.draft.tags,
+                    }
+                    LOGGER.info("Successfully extracted draft via structured JSON parsing")
+                    return draft_data
+                except (ValidationError, json.JSONDecodeError) as e:
+                    LOGGER.warning(
+                        "JSON parsing failed for DraftOutput, falling back to regex: %s", e
+                    )
+                    # Continue to regex fallback
+
+        # Fallback: regex-based extraction for backward compatibility
+        LOGGER.info("Attempting regex fallback for draft extraction")
+        return self._extract_draft_from_messages_regex(skill_messages)
+
+    def _extract_draft_from_messages_regex(
+        self, skill_messages: list[dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """Extract draft data using regex patterns (backward compatibility fallback).
+
         Parses the conversation to find the draft structure including:
         - type (User Story, Feature, Bug)
         - team
@@ -356,12 +417,12 @@ class HITLCoordinator:
 
             # Validate minimum required fields
             if draft.get("title") and draft.get("team_alias") and draft.get("type"):
-                LOGGER.info("Extracted draft: %s", draft)
+                LOGGER.info("Extracted draft via regex fallback: %s", draft)
                 return draft
             missing = [f for f in ("title", "team_alias", "type") if not draft.get(f)]
-            LOGGER.warning("Draft missing required fields: %s", missing)
+            LOGGER.warning("Regex fallback draft missing required fields: %s", missing)
 
-        LOGGER.warning("Could not extract draft from skill messages")
+        LOGGER.warning("Could not extract draft from skill messages via regex fallback")
         return None
 
     async def _execute_requirements_writer(
