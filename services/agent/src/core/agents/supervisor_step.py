@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
+from typing import Any, Literal
 
 import orjson
-from shared.models import AgentMessage, PlanStep, StepOutcome, StepResult
 
 from core.models.pydantic_schemas import SupervisorDecision, TraceContext
 from core.observability.logging import log_event
 from core.observability.tracing import current_trace_ids, start_span
 from core.runtime.litellm_client import LiteLLMClient
+from shared.models import AgentMessage, PlanStep, StepOutcome, StepResult
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,6 +23,94 @@ class StepSupervisorAgent:
     intended goal, detecting issues like empty results, hidden errors,
     or mismatched intent vs output.
     """
+
+    def _parse_rag_search_output(
+        self, output: str
+    ) -> dict[str, Any] | None:
+        """Parse rag_search tool output to extract retrieval metrics.
+
+        Args:
+            output: The raw output string from the tool execution.
+
+        Returns:
+            Dictionary with retrieval metrics if parseable, None otherwise.
+            Contains: result_count, avg_score, threshold, retrieval_sufficient.
+        """
+        if not output or not output.strip():
+            return None
+
+        try:
+            data = orjson.loads(output)
+            # Check if this looks like a rag_search structured output
+            if "retrieval_sufficient" not in data:
+                return None
+
+            return {
+                "result_count": data.get("result_count", 0),
+                "avg_score": data.get("avg_score", 0.0),
+                "threshold": data.get("threshold", 0.65),
+                "retrieval_sufficient": data.get("retrieval_sufficient", False),
+                "min_score": data.get("min_score", 0.0),
+                "max_score": data.get("max_score", 0.0),
+            }
+        except orjson.JSONDecodeError:
+            return None
+        except Exception:
+            return None
+
+    def _get_retrieval_feedback(
+        self, metrics: dict[str, Any]
+    ) -> tuple[StepOutcome, str, str | None]:
+        """Generate specific feedback for insufficient RAG retrieval.
+
+        Distinguishes between 'corpus does not contain this' vs 'wrong query phrasing'.
+
+        Args:
+            metrics: Dictionary with retrieval metrics from _parse_rag_search_output.
+
+        Returns:
+            Tuple of (outcome, reason, suggested_fix) with specific actionable feedback.
+        """
+        result_count = metrics.get("result_count", 0)
+        avg_score = metrics.get("avg_score", 0.0)
+        threshold = metrics.get("threshold", 0.65)
+
+        if result_count == 0:
+            # Empty results - corpus likely doesn't contain relevant content
+            reason = (
+                "Retrieval returned no documents. "
+                "The knowledge base may not contain relevant content for this query."
+            )
+            suggested_fix = (
+                "Consider: (1) Verify the knowledge base contains relevant documents, "
+                "(2) Try a broader query with more general terms, "
+                "(3) Use external search tools instead of RAG for this topic."
+            )
+        elif avg_score < threshold * 0.5:
+            # Very low scores - corpus doesn't contain this information
+            reason = (
+                f"Retrieval returned {result_count} documents but avg_score={avg_score:.3f} "
+                f"is well below threshold={threshold:.3f}. "
+                f"The corpus likely does not contain relevant information."
+            )
+            suggested_fix = (
+                "The knowledge base appears to lack relevant content. "
+                "Consider using web search or other external sources instead of RAG."
+            )
+        else:
+            # Moderate scores - query reformulation might help
+            reason = (
+                f"Retrieval returned {result_count} documents but avg_score={avg_score:.3f} "
+                f"is below threshold={threshold:.3f}. "
+                f"Query reformulation with more specific technical terms may improve results."
+            )
+            suggested_fix = (
+                "Try reformulating the query: (1) Use more specific technical terminology, "
+                "(2) Add domain-specific keywords, (3) Break complex queries into simpler parts, "
+                "(4) Check for synonyms the indexed documents might use."
+            )
+
+        return StepOutcome.REPLAN, reason, suggested_fix
 
     def __init__(
         self,
@@ -73,6 +161,39 @@ class StepSupervisorAgent:
         output = step_result.result.get("output", "")
         output_preview = str(output)[:2000] if output else "(empty output)"
 
+        # Check for rag_search with insufficient retrieval (structured feedback path)
+        if step_tool == "rag_search":
+            metrics = self._parse_rag_search_output(output)
+            if metrics and not metrics.get("retrieval_sufficient", True):
+                # Return specific retrieval-aware feedback without calling LLM
+                outcome, reason, suggested_fix = self._get_retrieval_feedback(metrics)
+
+                with start_span(
+                    "supervisor.step_review",
+                    attributes={
+                        "step_id": step.id,
+                        "step_label": step_label,
+                        "step_tool": step_tool or "",
+                        "execution_status": execution_status,
+                        "outcome": outcome.value,
+                        "reason": reason,
+                        "suggested_fix": suggested_fix,
+                        "retrieval_sufficient": False,
+                        "avg_score": metrics.get("avg_score", 0.0),
+                        "threshold": metrics.get("threshold", 0.65),
+                        "result_count": metrics.get("result_count", 0),
+                    },
+                ):
+                    LOGGER.info(
+                        "Supervisor (fast-path) reviewed rag_search '%s': %s - %s (fix: %s)",
+                        step_label,
+                        outcome.value,
+                        reason,
+                        suggested_fix,
+                    )
+
+                    return outcome, reason, suggested_fix
+
         # Build evaluation prompt
         system_prompt = AgentMessage(
             role="system",
@@ -102,6 +223,13 @@ class StepSupervisorAgent:
                 "  - Security violations\n"
                 "  - Data corruption risks\n"
                 "  - Unrecoverable system errors\n\n"
+                "## RAG_SEARCH RETRIEVAL EVALUATION\n"
+                "When evaluating rag_search results:\n"
+                "- Check 'retrieval_sufficient' field: if false, retrieval failed\n"
+                "- Empty results (result_count=0): suggest checking knowledge base content\n"
+                "- Low scores (avg_score < threshold): suggest query reformulation\n"
+                "- Very low scores (avg_score < 0.5*threshold): corpus likely lacks relevant info\n"
+                "- Moderate scores: suggest using more specific technical terminology\n\n"
                 "## RESPONSE FORMAT (Strict JSON Only)\n"
                 '{"outcome": "success" | "retry" | "replan" | "abort", '
                 '"reason": "Brief explanation", '

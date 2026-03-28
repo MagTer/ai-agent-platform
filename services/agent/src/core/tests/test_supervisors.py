@@ -253,3 +253,215 @@ class TestStepSupervisorAgent:
         assert "incomplete" in reason.lower()
         assert suggested_fix is not None
         assert "query" in suggested_fix.lower()
+
+    @pytest.mark.asyncio
+    async def test_rag_search_empty_results_fast_path_replan(self) -> None:
+        """Test fast-path REPLAN for rag_search with empty results (result_count=0)."""
+        mock_llm = MagicMock()
+        # LLM should NOT be called for fast-path detection
+        mock_llm.generate = AsyncMock(return_value='{"outcome": "success"}')
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "obscure topic"},
+        )
+        rag_output = (
+            '{"results": [], "result_count": 0, "min_score": 0.0, "max_score": 0.0, '
+            '"avg_score": 0.0, "retrieval_sufficient": false}'
+        )
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        # Should return REPLAN without calling LLM
+        assert outcome == StepOutcome.REPLAN
+        assert "no documents" in reason.lower() or "empty" in reason.lower()
+        assert suggested_fix is not None
+        assert "knowledge base" in suggested_fix.lower()
+        mock_llm.generate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rag_search_low_scores_fast_path_replan(self) -> None:
+        """Test fast-path REPLAN for rag_search with very low scores (corpus lacks info)."""
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(return_value='{"outcome": "success"}')
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "technical documentation"},
+        )
+        # Low scores well below threshold - corpus likely lacks relevant info
+        rag_output = (
+            '{"results": [{"id": "1", "score": 0.15}], "result_count": 1, '
+            '"min_score": 0.15, "max_score": 0.15, "avg_score": 0.15, '
+            '"retrieval_sufficient": false}'
+        )
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        assert outcome == StepOutcome.REPLAN
+        # Should indicate corpus lacks relevant info (avg_score < 0.5 * threshold)
+        assert "well below" in reason.lower() or "lacks" in reason.lower()
+        assert suggested_fix is not None
+        mock_llm.generate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rag_search_moderate_scores_suggests_reformulation(self) -> None:
+        """Test REPLAN for rag_search with moderate scores (query reformulation may help)."""
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(return_value='{"outcome": "success"}')
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "vague query"},
+        )
+        # Moderate scores below threshold but not terrible - query reformulation may help
+        rag_output = (
+            '{"results": [{"id": "1", "score": 0.45}, {"id": "2", "score": 0.55}], '
+            '"result_count": 2, "min_score": 0.45, "max_score": 0.55, "avg_score": 0.50, '
+            '"retrieval_sufficient": false}'
+        )
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        assert outcome == StepOutcome.REPLAN
+        # Should suggest query reformulation
+        assert "reformulation" in reason.lower() or "below threshold" in reason.lower()
+        assert suggested_fix is not None
+        assert "reformulating" in suggested_fix.lower() or "technical" in suggested_fix.lower()
+        mock_llm.generate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rag_search_sufficient_retrieval_skips_fast_path(self) -> None:
+        """Test that rag_search with sufficient retrieval uses normal LLM evaluation."""
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(
+            return_value='{"outcome": "success", "reason": "Retrieval successful"}'
+        )
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "relevant topic"},
+        )
+        # Sufficient retrieval - should NOT trigger fast-path
+        rag_output = (
+            '{"results": [{"id": "1", "score": 0.85}], "result_count": 1, '
+            '"min_score": 0.85, "max_score": 0.85, "avg_score": 0.85, '
+            '"retrieval_sufficient": true}'
+        )
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        # Should call LLM for normal evaluation since retrieval was sufficient
+        assert outcome == StepOutcome.SUCCESS
+        mock_llm.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_non_rag_search_tool_uses_normal_evaluation(self) -> None:
+        """Test that non-rag_search tools use normal LLM evaluation."""
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(
+            return_value='{"outcome": "success", "reason": "Step completed"}'
+        )
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="Web Search",
+            executor="agent",
+            action="tool",
+            tool="web_search",
+            args={"query": "test"},
+        )
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": "some results"},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        # Should use normal LLM evaluation
+        assert outcome == StepOutcome.SUCCESS
+        mock_llm.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_rag_search_invalid_json_uses_normal_evaluation(self) -> None:
+        """Test that invalid JSON output falls back to LLM evaluation."""
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(
+            return_value='{"outcome": "success", "reason": "Step completed"}'
+        )
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test"},
+        )
+        # Invalid JSON - should fall back to LLM
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": "not valid json"},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        # Should fall back to LLM for invalid JSON
+        assert outcome == StepOutcome.SUCCESS
+        mock_llm.generate.assert_called_once()
