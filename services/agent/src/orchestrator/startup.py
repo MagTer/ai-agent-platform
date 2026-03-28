@@ -50,7 +50,7 @@ async def register_providers(
     embedder = LiteLLMEmbedder(litellm_client)
     set_embedder(embedder)
 
-    # 2. RAG manager with embedder
+    # 2. RAG manager with embedder and default SemanticChunker
     rag_manager = RAGManager(
         embedder=embedder,
         qdrant_url=str(settings.qdrant_url),

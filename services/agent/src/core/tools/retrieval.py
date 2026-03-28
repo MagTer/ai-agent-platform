@@ -181,6 +181,7 @@ class RetrievalTool(Tool):
             "max_score": round(max_score, 4),
             "avg_score": round(avg_score, 4),
             "retrieval_sufficient": retrieval_sufficient,
+            "threshold": round(threshold, 4),  # Include actual threshold used for transparency
         }
 
         return json.dumps(output)

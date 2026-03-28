@@ -7,6 +7,8 @@ from qdrant_client.http import models
 
 from core.protocols import IEmbedder
 
+from ..indexer import SemanticChunker
+
 logger = logging.getLogger(__name__)
 
 
@@ -17,10 +19,11 @@ class RAGManager:
         self,
         embedder: IEmbedder,
         qdrant_url: str = "http://qdrant:6333",
-        collection_name: str = "agent-memories",
+        collection_name: str = "documents_v2",
         top_k: int = 5,
         mmr_lambda: float = 0.7,
         qdrant_api_key: str | None = None,
+        chunker: SemanticChunker | None = None,
     ) -> None:
         # Configuration
         self.qdrant_url = qdrant_url
@@ -31,6 +34,9 @@ class RAGManager:
 
         # Injected dependencies
         self.embedder = embedder
+
+        # Chunker with default SemanticChunker
+        self.chunker = chunker or SemanticChunker()
 
         # Lazy-loaded resources (NOT initialized here for faster startup)
         self._client: AsyncQdrantClient | None = None
@@ -170,31 +176,41 @@ class RAGManager:
         self,
         content: str,
         metadata: dict[str, Any],
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        chunker: SemanticChunker | None = None,
+        document_type: str = "prose",
     ) -> int:
         """
-        Ingest a document into Qdrant.
-        Splits content into chunks, embeds them, and upserts.
+        Ingest a document into Qdrant using semantic chunking.
+
+        Args:
+            content: The document content to ingest
+            metadata: Document metadata (uri, name, etc.)
+            chunker: Optional SemanticChunker instance (defaults to self.chunker)
+            document_type: Type of document ('markdown' or 'prose') for content-type routing
+
+        Returns:
+            Number of chunks ingested
         """
         if not content:
             return 0
 
-        # Simple chunking strategy
-        chunks = []
-        start = 0
-        while start < len(content):
-            end = start + chunk_size
-            chunk = content[start:end]
-            chunks.append(chunk)
-            start += chunk_size - chunk_overlap
+        # Use provided chunker or instance default
+        active_chunker = chunker or self.chunker
 
-        if not chunks:
+        # Semantic chunking with metadata preservation
+        chunks_with_metadata = active_chunker.split_text(
+            content, document_type=document_type
+        )
+
+        if not chunks_with_metadata:
             return 0
+
+        # Extract just the text chunks for embedding
+        chunk_texts = [c["text"] for c in chunks_with_metadata]
 
         try:
             # Embed all chunks
-            embeddings = await self.embedder.embed(chunks)
+            embeddings = await self.embedder.embed(chunk_texts)
             if not embeddings:
                 logger.warning("Embedder returned no embeddings")
                 return 0
@@ -202,11 +218,22 @@ class RAGManager:
             points = []
             import uuid
 
-            for i, (chunk, vector) in enumerate(zip(chunks, embeddings, strict=False)):
+            for i, (chunk_data, vector) in enumerate(zip(chunks_with_metadata, embeddings, strict=False)):
                 point_id = str(uuid.uuid4())
+                
+                # Build payload with chunk metadata preserved
                 payload = metadata.copy()
-                payload["text"] = chunk
+                payload["text"] = chunk_data["text"]
                 payload["chunk_index"] = i
+                
+                # Preserve semantic chunk metadata
+                chunk_metadata = chunk_data.get("metadata", {})
+                if "section_title" in chunk_metadata:
+                    payload["section_title"] = chunk_metadata["section_title"]
+                if "chunk_type" in chunk_metadata:
+                    payload["chunk_type"] = chunk_metadata["chunk_type"]
+                if "document_type" in chunk_metadata:
+                    payload["document_type"] = chunk_metadata["document_type"]
 
                 points.append(
                     models.PointStruct(

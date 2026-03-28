@@ -230,7 +230,7 @@ class TestShouldAutoReplan:
         # Should gracefully handle invalid JSON and not replan
         assert should_replan is False
 
-    def test_should_auto_replan_handles_missing_retrieval_sufficient_field(
+    def test_should_auto_replan_malformed_missing_retrieval_sufficient_field(
         self,
         agent_service: AgentService,
     ) -> None:
@@ -260,6 +260,120 @@ class TestShouldAutoReplan:
         should_replan, reason = agent_service._should_auto_replan(step_result, step)
 
         assert should_replan is False
+
+    def test_should_auto_replan_malformed_missing_result_count(
+        self,
+        agent_service: AgentService,
+    ) -> None:
+        """Test that missing result_count field defaults to 0 gracefully."""
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test"},
+        )
+
+        # JSON without result_count field
+        rag_output = json.dumps({
+            "results": [],
+            "min_score": 0.0,
+            "max_score": 0.0,
+            "avg_score": 0.0,
+            "retrieval_sufficient": False,
+            "threshold": 0.65,
+        })
+
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        should_replan, reason = agent_service._should_auto_replan(step_result, step)
+
+        # Should trigger replan (result_count defaults to 0 = empty results)
+        assert should_replan is True
+        assert "no results" in reason.lower() or "knowledge base" in reason.lower()
+
+    def test_should_auto_replan_malformed_negative_scores(
+        self,
+        agent_service: AgentService,
+    ) -> None:
+        """Test that negative scores (corrupted data) are handled gracefully."""
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test"},
+        )
+
+        # Negative scores - corrupted data
+        rag_output = json.dumps({
+            "results": [{"id": "1", "score": -0.15}],
+            "result_count": 1,
+            "min_score": -0.15,
+            "max_score": -0.15,
+            "avg_score": -0.15,
+            "retrieval_sufficient": False,
+            "threshold": 0.65,
+        })
+
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        should_replan, reason = agent_service._should_auto_replan(step_result, step)
+
+        # Should trigger replan (negative scores indicate issue)
+        assert should_replan is True
+        # Should mention scores are below threshold
+        assert "-0.15" in reason
+
+    def test_should_auto_replan_malformed_scores_above_one(
+        self,
+        agent_service: AgentService,
+    ) -> None:
+        """Test that scores above 1.0 (malformed) are still evaluated correctly."""
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test"},
+        )
+
+        # Scores above 1.0 - malformed but should still be evaluated
+        rag_output = json.dumps({
+            "results": [{"id": "1", "score": 1.5}],
+            "result_count": 1,
+            "min_score": 1.5,
+            "max_score": 1.5,
+            "avg_score": 1.5,
+            "retrieval_sufficient": False,
+            "threshold": 0.65,
+        })
+
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        should_replan, reason = agent_service._should_auto_replan(step_result, step)
+
+        # Should trigger replan (above threshold indicates issue, not sufficient)
+        assert should_replan is True
+        assert "1.5" in reason
 
     def test_should_auto_replan_handles_empty_output(
         self,

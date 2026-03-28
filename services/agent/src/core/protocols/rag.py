@@ -43,18 +43,19 @@ class IRAGManager(Protocol):
         self,
         content: str,
         metadata: dict[str, Any],
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        chunker: Any | None = None,
+        document_type: str = "prose",
     ) -> int:
         """Ingest a document into the vector store.
 
-        Chunks the content and stores embeddings with metadata.
+        Uses semantic chunking with configurable chunker for structure-aware
+        splitting. Content-type routing via document_type parameter.
 
         Args:
             content: Document text content.
             metadata: Metadata to attach to all chunks.
-            chunk_size: Size of each chunk in characters.
-            chunk_overlap: Overlap between chunks.
+            chunker: Optional SemanticChunker instance (uses instance default if not provided).
+            document_type: Type of document ('markdown' or 'prose') for content-type routing.
 
         Returns:
             Number of chunks ingested.

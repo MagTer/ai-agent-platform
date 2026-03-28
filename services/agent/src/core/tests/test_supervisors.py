@@ -435,7 +435,7 @@ class TestStepSupervisorAgent:
         mock_llm.generate.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_rag_search_invalid_json_uses_normal_evaluation(self) -> None:
+    async def test_rag_search_malformed_json_uses_normal_evaluation(self) -> None:
         """Test that invalid JSON output falls back to LLM evaluation."""
         mock_llm = MagicMock()
         mock_llm.generate = AsyncMock(
@@ -465,3 +465,153 @@ class TestStepSupervisorAgent:
         # Should fall back to LLM for invalid JSON
         assert outcome == StepOutcome.SUCCESS
         mock_llm.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_rag_search_malformed_missing_retrieval_sufficient_uses_normal_evaluation(self) -> None:
+        """Test that missing retrieval_sufficient field uses normal LLM evaluation."""
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(
+            return_value='{"outcome": "success", "reason": "Step completed"}'
+        )
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test"},
+        )
+        # Valid JSON but missing retrieval_sufficient field
+        rag_output = (
+            '{"results": [{"id": "1", "score": 0.85}], "result_count": 1, '
+            '"min_score": 0.85, "max_score": 0.85, "avg_score": 0.85}'
+        )
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        # Should fall back to LLM since retrieval_sufficient is missing
+        assert outcome == StepOutcome.SUCCESS
+        mock_llm.generate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_rag_search_malformed_missing_result_count_defaults_handled(self) -> None:
+        """Test that missing result_count field defaults to 0 gracefully."""
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(
+            return_value='{"outcome": "success", "reason": "Step completed"}'
+        )
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test"},
+        )
+        # Valid JSON missing result_count field
+        rag_output = (
+            '{"results": [], "min_score": 0.0, "max_score": 0.0, "avg_score": 0.0, '
+            '"retrieval_sufficient": false, "threshold": 0.65}'
+        )
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        # Should return REPLAN with empty results (result_count defaults to 0)
+        assert outcome == StepOutcome.REPLAN
+        assert "no documents" in reason.lower() or "knowledge base" in reason.lower()
+        mock_llm.generate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rag_search_malformed_negative_scores_handled_gracefully(self) -> None:
+        """Test that negative scores (corrupted data) are handled gracefully."""
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(
+            return_value='{"outcome": "success", "reason": "Step completed"}'
+        )
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test"},
+        )
+        # Negative scores - corrupted data
+        rag_output = (
+            '{"results": [{"id": "1", "score": -0.15}], "result_count": 1, '
+            '"min_score": -0.15, "max_score": -0.15, "avg_score": -0.15, '
+            '"retrieval_sufficient": false, "threshold": 0.65}'
+        )
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        # Should return REPLAN (negative scores indicate corrupted data)
+        assert outcome == StepOutcome.REPLAN
+        # Should indicate low scores (negative is below threshold)
+        assert "below" in reason.lower() or "threshold" in reason.lower()
+        mock_llm.generate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rag_search_malformed_scores_above_one_handled_correctly(self) -> None:
+        """Test that scores above 1.0 (malformed) are still evaluated correctly."""
+        mock_llm = MagicMock()
+        mock_llm.generate = AsyncMock(
+            return_value='{"outcome": "success", "reason": "Step completed"}'
+        )
+
+        supervisor = StepSupervisorAgent(mock_llm, model_name="test-model")
+
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test"},
+        )
+        # Scores above 1.0 - malformed but should still be evaluated
+        rag_output = (
+            '{"results": [{"id": "1", "score": 1.5}], "result_count": 1, '
+            '"min_score": 1.5, "max_score": 1.5, "avg_score": 1.5, '
+            '"retrieval_sufficient": false, "threshold": 0.65}'
+        )
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        outcome, reason, suggested_fix = await supervisor.review(step, step_result)
+
+        # Should still trigger REPLAN (above threshold suggests issue, but not sufficient)
+        assert outcome == StepOutcome.REPLAN
+        assert "below" in reason.lower() or "threshold" in reason.lower()
+        mock_llm.generate.assert_not_called()
