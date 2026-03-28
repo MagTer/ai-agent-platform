@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""
+Wrapper script to run the 'stack' CLI from the root directory.
+It adds 'services/agent/src' to sys.path so 'python3 stack.py ...' works.
+"""
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# Path to the agent service directory
+AGENT_DIR = Path(__file__).parent / "services" / "agent"
+
+
+def main():
+    """Run the stack CLI via poetry in the agent service directory."""
+
+    # Check if poetry is installed
+    if shutil.which("poetry") is None:
+        print("Error: 'poetry' not found. Please install poetry first.")
+        sys.exit(1)
+
+    # Construct the command
+    # We use 'python -m stack' to run the module directly
+    # PYTHONPATH=src ensures the 'stack' package is found within 'services/agent/src'
+    cmd = ["poetry", "run", "python", "-m", "stack"] + sys.argv[1:]
+
+    # Add environment variable for PYTHONPATH
+    env = {"PYTHONPATH": "src"}
+
+    # Run the command
+    try:
+        # Pass current environment variables as well, so PATH etc. are preserved
+        import os
+
+        full_env = os.environ.copy()
+        full_env.update(env)
+
+        subprocess.run(cmd, cwd=AGENT_DIR, env=full_env, check=True)  # noqa: S603
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
+    except KeyboardInterrupt:
+        sys.exit(130)
+
+
+if __name__ == "__main__":
+    main()
+#!/usr/bin/env python3
+"""Stack CLI - Self-bootstrapping entry point.
+
+This script automatically handles Poetry virtual environment activation.
+If not running inside a virtualenv, it re-executes itself via Poetry.
+
+Usage:
+    ./stack check        # Run all quality checks
+    ./stack lint         # Run linting only (fast)
+    ./stack typecheck    # Run type checking only
+    ./stack test         # Run tests only
+    ./stack up           # Start the stack
+    ./stack dev up       # Start dev environment
+    ./stack --help       # Show all commands
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+
+def main() -> None:
+    """Entry point that bootstraps via Poetry if needed."""
+    repo_root = Path(__file__).resolve().parent
+    agent_service = repo_root / "services" / "agent"
+
+    # Check if we're in a virtual environment or CI mode (dependencies installed globally)
+    in_venv = sys.prefix != sys.base_prefix or os.environ.get("VIRTUAL_ENV") is not None
+    ci_mode = os.environ.get("CI") is not None  # GitHub Actions sets CI=true
+
+    if not in_venv and not ci_mode:
+        # Re-execute via Poetry
+        import shutil
+
+        poetry_bin = shutil.which("poetry")
+        if not poetry_bin:
+            print("Error: Poetry not found. Please install Poetry first.")
+            print("  curl -sSL https://install.python-poetry.org | python3 -")
+            sys.exit(1)
+
+        # Use execvp to replace current process with poetry run
+        os.execvp(
+            poetry_bin,
+            [
+                poetry_bin,
+                "-C",
+                str(agent_service),
+                "run",
+                "python",
+                __file__,
+                *sys.argv[1:],
+            ],
+        )
+
+    # Now we're in the virtualenv - import and run the CLI
+    # Add the src directory to path so we can import stack
+    src_path = agent_service / "src"
+    if str(src_path) not in sys.path:
+        sys.path.insert(0, str(src_path))
+
+    from stack.cli import app
+
+    app()
+
+
+if __name__ == "__main__":
+    main()

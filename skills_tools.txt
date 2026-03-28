@@ -1,0 +1,47 @@
+skills/system/system_eval.md:tools: ["semantic_eval"]
+skills/system/wiki_sync.md:tools:
+skills/system/wiki_sync.md:Call the wiki_sync tool immediately:
+skills/system/wiki_sync.md:Report the result to the user exactly as returned by the tool.
+skills/work/requirements_drafter.md:tools:
+skills/work/requirements_drafter.md:**RULE 6**: NEVER call any tool with `action='create'`. NEVER call `requirements_writer`.
+skills/work/requirements_writer.md:tools:
+skills/work/requirements_writer.md:After successful creation, forward the tool result directly to the user — it already contains the work item ID, title, and a link. Append the team and type on new lines:
+skills/work/requirements_writer.md:[tool result from azure_devops]
+skills/work/tibp_researcher.md:tools:
+skills/work/tibp_researcher.md:**RULE 4**: DO NOT output planning text. No "I'll search for...", "Let me...". ONLY call the tool, then write the answer.
+skills/work/tibp_researcher.md:**RULE 5**: One search is enough - the tool returns 8 results which should cover the topic. Write your answer based on those results.
+skills/work/backlog_manager.md:tools:
+skills/work/backlog_manager.md:**YOUR VERY FIRST tool call MUST be one of these two patterns. No exceptions.**
+skills/work/backlog_manager.md:**RULE 2**: Once you have work item results, STOP making tool calls and format the response.
+skills/work/backlog_manager.md:**RULE 5**: You have LIMITED turns. Every unnecessary tool call risks truncation.
+skills/work/backlog_manager.md:          Ideal flow: 1-2 tool calls, then format and respond.
+skills/work/backlog_manager.md:4. Tool returns work items
+skills/general/obsidian_vault.md:tools: ["vault"]
+skills/general/obsidian_vault.md:Use the vault tool to help the user with their Obsidian notes. Available actions:
+skills/general/web_searcher.md:tools: ["web_search"]
+skills/general/web_searcher.md:**RULE 2**: After receiving search results, write your answer immediately. NO more tool calls.
+skills/general/web_searcher.md:**RULE 4**: DO NOT output planning text. No "I'll search for...", "Let me..." or explanations. ONLY call the tool silently, then write the answer.
+skills/general/researcher.md:tools: ["web_search", "web_fetch"]
+skills/general/researcher.md:**RULE 1**: Your training data is OUTDATED. You MUST use tools - never answer from memory alone.
+skills/general/researcher.md:**RULE 2**: You have budget for up to 7 turns and 6 tools per turn. Use strategically.
+skills/general/researcher.md:**RULE 3**: AVOID repeating identical tool calls - if you searched "X", don't search "X" again.
+skills/general/researcher.md:**RULE 5**: DO NOT output planning text. No "I'll search for...", "Let me..." or step explanations. ONLY call tools silently, then write the final answer.
+skills/general/researcher.md:- Answering without any tool calls
+skills/general/researcher.md:| Tool calls per turn | 6 |
+skills/general/researcher.md:3. STOP - no more tool calls
+skills/general/homey.md:tools: ["homey"]
+skills/general/homey.md:Use `device_name` parameter - the tool will find the correct device automatically.
+skills/general/homey.md:2. Use `device_name` with the name the user mentions - the tool handles the lookup automatically
+skills/general/homey.md:- Lists (devices/flows): Return the tool output EXACTLY as-is. Do NOT add any intro text before the list. Start your response directly with the first group heading.
+skills/general/price_tracker.md:tools: ["price_tracker"]
+skills/general/price_tracker.md:**RULE 1**: Always use the `price_tracker` tool to fetch current data. Never answer from memory.
+skills/general/deep_researcher.md:tools: ["web_search", "web_fetch"]
+skills/general/deep_researcher.md:**RULE 1**: Your training data is OUTDATED. You MUST use tools extensively.
+skills/general/deep_researcher.md:**RULE 2**: Each turn, call up to 6 tools (searches + fetches combined).
+skills/general/deep_researcher.md:**RULE 3**: NEVER repeat a tool call with identical arguments.
+skills/general/deep_researcher.md:**RULE 5**: After completing Phase 3, STOP and write your report. No more tool calls.
+skills/general/deep_researcher.md:**RULE 6**: DO NOT output planning text. No "I'll search for...", "Step 1:", or explanations. ONLY call tools silently, then write the final report.
+skills/general/deep_researcher.md:| Tool calls per turn | 6 | Parallel fetching |
+skills/general/deep_researcher.md:- STOP - no more tool calls after this
+skills/general/deep_researcher.md:- Continuing tool calls after writing report
+skills/development/software_engineer.md:tools:
