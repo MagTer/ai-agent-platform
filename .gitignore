@@ -30,3 +30,6 @@ services/agent/data/tibp_wiki_export/
 flows/credentials.json
 .mypy_cache/
 .testmondata
+
+# GSD planning docs (local-only)
+.planning/
