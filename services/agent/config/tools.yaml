@@ -1,3 +1,8 @@
+- name: rag_search
+  type: core.tools.retrieval.RetrievalTool
+  enabled: true
+  description: "Search the knowledge base using RAG retrieval with context isolation"
+
 - name: tibp_wiki_search
   type: core.tools.tibp_wiki_search.TibpWikiSearchTool
   enabled: true
