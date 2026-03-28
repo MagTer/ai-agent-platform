@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
 import pytest
@@ -514,3 +514,161 @@ class TestRetrievalToolActivityHint:
         assert retrieval_tool.activity_hint is not None
         assert "query" in retrieval_tool.activity_hint
         assert "{query}" in retrieval_tool.activity_hint["query"]
+
+
+class TestRetrievalToolGetThreshold:
+    """Test _get_threshold() method for dynamic threshold loading."""
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_without_session_returns_default(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test that _get_threshold returns default when no session provided."""
+        threshold = await retrieval_tool._get_threshold(db_session=None)
+        assert threshold == 0.65
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_from_system_config(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test that _get_threshold reads from SystemConfig."""
+        from core.db.models import SystemConfig
+
+        mock_session = AsyncMock()
+        mock_config = SystemConfig(
+            key="rag_retrieval_min_score",
+            value=0.80,
+            description="Custom threshold",
+        )
+
+        # Setup mock query result - execute returns an awaitable that returns the result
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_config
+        mock_session.execute.return_value = mock_result
+
+        threshold = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold == 0.80
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_fallback_to_default_on_missing_config(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test fallback to default when SystemConfig key doesn't exist."""
+        mock_session = AsyncMock()
+
+        # Setup mock query result - no config found
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        threshold = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold == 0.65
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_handles_string_value(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test that _get_threshold handles string values from SystemConfig."""
+        from core.db.models import SystemConfig
+
+        mock_session = AsyncMock()
+        mock_config = SystemConfig(
+            key="rag_retrieval_min_score",
+            value="0.75",  # String value
+            description="Threshold",
+        )
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_config
+        mock_session.execute.return_value = mock_result
+
+        threshold = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold == 0.75
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_fallback_on_exception(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test fallback to default when database query fails."""
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        threshold = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold == 0.65
+
+    @pytest.mark.asyncio
+    async def test_run_uses_dynamic_threshold_with_session(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that run() uses dynamic threshold when db_session is provided."""
+        from core.db.models import SystemConfig
+
+        # Results that would be sufficient at 0.65 but not at 0.80
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.70},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        mock_session = AsyncMock()
+        mock_config = SystemConfig(
+            key="rag_retrieval_min_score",
+            value=0.80,  # Higher threshold
+            description="Strict threshold",
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_config
+        mock_session.execute.return_value = mock_result
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+                db_session=mock_session,
+            )
+
+        output = json.loads(result)
+        # 0.70 avg score < 0.80 threshold, so insufficient
+        assert output["retrieval_sufficient"] is False
+
+    @pytest.mark.asyncio
+    async def test_run_uses_default_threshold_without_session(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that run() uses default threshold when db_session is None."""
+        # Results that are sufficient at default 0.65 threshold
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.70},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+                db_session=None,
+            )
+
+        output = json.loads(result)
+        # 0.70 avg score >= 0.65 default threshold, so sufficient
+        assert output["retrieval_sufficient"] is True
+
+
+class TestRetrievalToolDefaultThreshold:
+    """Test the default threshold constant."""
+
+    def test_default_threshold_constant(self) -> None:
+        """Test that DEFAULT_RAG_SUFFICIENCY_THRESHOLD is 0.65."""
+        from core.tools.retrieval import DEFAULT_RAG_SUFFICIENCY_THRESHOLD
+
+        assert DEFAULT_RAG_SUFFICIENCY_THRESHOLD == 0.65

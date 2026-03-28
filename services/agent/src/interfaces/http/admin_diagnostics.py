@@ -21,6 +21,41 @@ from interfaces.http.csrf import require_csrf
 
 LOGGER = logging.getLogger(__name__)
 
+
+async def ensure_config_defaults(session: AsyncSession) -> None:
+    """Ensure SystemConfig has default values for all required keys.
+
+    Idempotently creates default config entries if they don't exist.
+    Called during application startup to guarantee required config keys are present.
+
+    Args:
+        session: Database session for querying and inserting config values.
+    """
+    from core.db.models import SystemConfig
+
+    defaults: dict[str, tuple[Any, str]] = {
+        "rag_retrieval_min_score": (0.65, "Minimum relevance score for RAG retrieval sufficiency (0-1)"),
+    }
+
+    for key, (value, description) in defaults.items():
+        from sqlalchemy import select
+
+        stmt = select(SystemConfig).where(SystemConfig.key == key)
+        result = await session.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing is None:
+            config = SystemConfig(
+                key=key,
+                value=value,
+                description=description,
+            )
+            session.add(config)
+            LOGGER.info("Initialized SystemConfig: %s = %s", key, value)
+
+    await session.commit()
+
+
 router = APIRouter(
     prefix="/platformadmin/diagnostics",
     tags=["platform-admin", "diagnostics"],
