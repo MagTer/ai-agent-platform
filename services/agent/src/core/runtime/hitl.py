@@ -11,7 +11,6 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from pydantic import ValidationError
-
 from shared.models import AgentMessage, AgentRequest, DraftOutput, PlanStep, UserIntent
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,9 +27,15 @@ class HITLCoordinator:
     """Handles human-in-the-loop workflow for skill execution."""
 
     # Fast-path keywords for instant intent detection (no LLM call needed)
-    _APPROVE_KEYWORDS = {"yes", "approve", "ok", "okay", "confirm", "accept", "go ahead", "do it", "looks good", "sure"}
+    _APPROVE_KEYWORDS = {
+        "yes", "approve", "ok", "okay", "confirm", "accept", "go ahead", "do it", "looks good",
+        "sure",
+    }
     _REJECT_KEYWORDS = {"no", "cancel", "reject", "abort", "stop", "don't", "nevermind"}
-    _REQUEST_CHANGES_KEYWORDS = {"request changes", "revise", "edit", "change", "update", "modify", "not quite", "needs work"}
+    _REQUEST_CHANGES_KEYWORDS = {
+        "request changes", "revise", "edit", "change", "update", "modify", "not quite",
+        "needs work",
+    }
     # Confidence threshold for LLM-based classification
     _CONFIDENCE_THRESHOLD = 0.7
     # Timeout for intent classification (seconds)
@@ -113,13 +118,15 @@ class HITLCoordinator:
                     role="system",
                     content=(
                         "You are an intent classifier. Analyze the user's response to a HITL "
-                        "(Human-in-the-Loop) approval request and classify it into exactly one category.\n\n"
+                        "(Human-in-the-Loop) approval request and classify it into exactly one "
+                        "category.\n\n"
                         "Categories:\n"
                         "- APPROVE: User accepts or confirms the action\n"
                         "- REJECT: User declines or cancels the action\n"
                         "- REQUEST_CHANGES: User wants modifications before proceeding\n"
                         "- UNCLEAR: Cannot determine intent from the response\n\n"
-                        "Respond with exactly one word: APPROVE, REJECT, REQUEST_CHANGES, or UNCLEAR."
+                        "Respond with exactly one word: APPROVE, REJECT, REQUEST_CHANGES, "
+                        "or UNCLEAR."
                     ),
                 ),
                 AgentMessage(
@@ -160,8 +167,11 @@ class HITLCoordinator:
             )
             return intent, confidence
 
-        except asyncio.TimeoutError:
-            LOGGER.warning("Intent classification timed out after %.1fs, falling back to keyword matching", self._INTENT_CLASSIFICATION_TIMEOUT)
+        except TimeoutError:
+            LOGGER.warning(
+                "Intent classification timed out after %.1fs, falling back to keyword matching",
+                self._INTENT_CLASSIFICATION_TIMEOUT,
+            )
             return UserIntent.UNCLEAR, 0.0
         except Exception as e:
             LOGGER.warning("Intent classification failed: %s, falling back to keyword matching", e)

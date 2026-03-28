@@ -206,7 +206,7 @@ class WorkItemDraft(BaseModel):
         return [value.strip()] if value.strip() else []
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "WorkItemDraft":
+    def from_dict(cls, data: dict[str, Any]) -> WorkItemDraft:
         """Create from dict with flexible tag parsing."""
         parsed_data = dict(data)
         if "tags" in parsed_data:

@@ -2,27 +2,20 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
 import uuid
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import ValidationError
-
 from shared.models import (
-    AgentMessage,
     AgentRequest,
     AwaitingInputCategory,
     DraftOutput,
     HITLRequest,
-    PlanStep,
-    UserIntent,
     WorkItemDraft,
 )
 
-from core.db import Conversation, Message, Session
+from core.db import Conversation, Session
 from core.runtime.hitl import HITLCoordinator
 from core.tests.mocks import InMemoryAsyncSession, MockLLMClient
 
@@ -146,7 +139,7 @@ class TestHITLFullFlowApproval:
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
-                session=mock_db_session,
+                session=mock_db_session,  # type: ignore[arg-type]
                 db_session=mock_db_session_obj,
                 db_conversation=mock_conversation,
                 pending_hitl=pending_hitl,
@@ -155,9 +148,14 @@ class TestHITLFullFlowApproval:
 
             # Verify handoff thinking event with metadata
             thinking_events = [e for e in results if e.get("type") == "thinking"]
-            handoff_events = [e for e in thinking_events if e.get("metadata", {}).get("hitl_handoff")]
+            handoff_events = [
+                e for e in thinking_events if e.get("metadata", {}).get("hitl_handoff")
+            ]
             assert len(handoff_events) >= 1, "Expected at least one handoff thinking event"
-            assert any("creating work item" in str(e.get("content", "")).lower() for e in handoff_events)
+            assert any(
+                "creating work item" in str(e.get("content", "")).lower()
+                for e in handoff_events
+            )
 
             # Verify content was yielded
             content_events = [e for e in results if e.get("type") == "content"]
@@ -223,7 +221,7 @@ class TestHITLFullFlowApproval:
         with patch.object(coordinator, '_execute_requirements_writer', capture_writer):
             async for _ in coordinator._resume_hitl(
                 request=request,
-                session=mock_db_session,
+                session=mock_db_session,  # type: ignore[arg-type]
                 db_session=mock_db_session_obj,
                 db_conversation=mock_conversation,
                 pending_hitl=pending_hitl,
@@ -297,7 +295,7 @@ class TestHITLStatePersistence:
 
         async for _ in coordinator._resume_hitl(
             request=request,
-            session=mock_db_session,
+            session=mock_db_session,  # type: ignore[arg-type]
             db_session=mock_db_session_obj,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,
@@ -399,7 +397,7 @@ class TestHITLResumeAfterRestart:
         # Verify skill_messages are preserved and can be used
         async for _ in coordinator._resume_hitl(
             request=request,
-            session=mock_db_session,
+            session=mock_db_session,  # type: ignore[arg-type]
             db_session=mock_db_session_obj,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,
@@ -460,7 +458,7 @@ class TestHITLCancellationPath:
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
-                session=mock_db_session,
+                session=mock_db_session,  # type: ignore[arg-type]
                 db_session=mock_db_session_obj,
                 db_conversation=mock_conversation,
                 pending_hitl=pending_hitl,
@@ -496,7 +494,7 @@ class TestHITLCancellationPath:
 
         async for _ in coordinator._resume_hitl(
             request=request,
-            session=mock_db_session,
+            session=mock_db_session,  # type: ignore[arg-type]
             db_session=mock_db_session_obj,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,
@@ -539,7 +537,7 @@ class TestHITLCancellationPath:
             with patch.object(coordinator, '_execute_requirements_writer', mock_writer):
                 async for _ in coordinator._resume_hitl(
                     request=request,
-                    session=mock_db_session,
+                    session=mock_db_session,  # type: ignore[arg-type]
                     db_session=mock_db_session_obj,
                     db_conversation=mock_conversation,
                     pending_hitl=pending_hitl,
@@ -574,7 +572,10 @@ class TestHITLRevisionLoop:
                 "args": {},
             },
             "skill_messages": [
-                {"role": "assistant", "content": "DRAFT READY\n\nType: Bug\nTeam: qa\nTitle: Fix crash\nDescription: Fix the bug"}
+                {"role": "assistant", "content": (
+                    "DRAFT READY\n\nType: Bug\nTeam: qa\nTitle: Fix crash\n"
+                    "Description: Fix the bug"
+                )}
             ],
         }
         mock_conversation.conversation_metadata = {"pending_hitl": pending_hitl}
@@ -585,7 +586,7 @@ class TestHITLRevisionLoop:
         results = []
         async for event in coordinator._resume_hitl(
             request=request,
-            session=mock_db_session,
+            session=mock_db_session,  # type: ignore[arg-type]
             db_session=mock_db_session_obj,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,
@@ -594,7 +595,9 @@ class TestHITLRevisionLoop:
 
         # Verify revision thinking event
         thinking_events = [e for e in results if e.get("type") == "thinking"]
-        revision_events = [e for e in thinking_events if e.get("metadata", {}).get("hitl_revision")]
+        revision_events = [
+            e for e in thinking_events if e.get("metadata", {}).get("hitl_revision")
+        ]
         assert len(revision_events) >= 1, "Expected revision thinking event"
         assert any("revising" in str(e.get("content", "")).lower() for e in thinking_events)
 
@@ -648,7 +651,7 @@ class TestHITLRevisionLoop:
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
-                session=mock_db_session,
+                session=mock_db_session,  # type: ignore[arg-type]
                 db_session=mock_db_session_obj,
                 db_conversation=mock_conversation,
                 pending_hitl=pending_hitl,
@@ -657,7 +660,9 @@ class TestHITLRevisionLoop:
 
             # Verify revision thinking for each
             thinking_events = [e for e in results if e.get("type") == "thinking"]
-            revision_events = [e for e in thinking_events if e.get("metadata", {}).get("hitl_revision")]
+            revision_events = [
+                e for e in thinking_events if e.get("metadata", {}).get("hitl_revision")
+            ]
             assert len(revision_events) >= 1, f"Expected revision for '{change_input}'"
 
     @pytest.mark.asyncio
@@ -703,7 +708,7 @@ class TestHITLRevisionLoop:
         results_1 = []
         async for event in coordinator._resume_hitl(
             request=request_1,
-            session=mock_db_session,
+            session=mock_db_session,  # type: ignore[arg-type]
             db_session=mock_db_session_obj,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl_1,
@@ -770,7 +775,7 @@ class TestHITLMessagePropagation:
         with patch.object(coordinator, '_execute_requirements_writer', capture_writer):
             async for _ in coordinator._resume_hitl(
                 request=request,
-                session=mock_db_session,
+                session=mock_db_session,  # type: ignore[arg-type]
                 db_session=mock_db_session_obj,
                 db_conversation=mock_conversation,
                 pending_hitl=pending_hitl,
@@ -836,17 +841,14 @@ class TestHITLEventSequence:
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
-                session=mock_db_session,
+                session=mock_db_session,  # type: ignore[arg-type]
                 db_session=mock_db_session_obj,
                 db_conversation=mock_conversation,
                 pending_hitl=pending_hitl,
             ):
                 results.append(event)
 
-            # Verify event sequence
-            types = [e.get("type") for e in results]
-
-            # Should have thinking with handoff first
+            # Verify event sequence - should have thinking with handoff first
             handoff_idx = next(
                 (i for i, e in enumerate(results)
                  if e.get("type") == "thinking" and e.get("metadata", {}).get("hitl_handoff")),
@@ -896,7 +898,7 @@ class TestHITLEventSequence:
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
-                session=mock_db_session,
+                session=mock_db_session,  # type: ignore[arg-type]
                 db_session=mock_db_session_obj,
                 db_conversation=mock_conversation,
                 pending_hitl=pending_hitl,
@@ -956,7 +958,7 @@ class TestHITLEventSequence:
         results = []
         async for event in coordinator._resume_hitl(
             request=request,
-            session=mock_db_session,
+            session=mock_db_session,  # type: ignore[arg-type]
             db_session=mock_db_session_obj,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,
@@ -1002,7 +1004,7 @@ class TestHITLUnclearIntent:
         results = []
         async for event in coordinator._resume_hitl(
             request=request,
-            session=mock_db_session,
+            session=mock_db_session,  # type: ignore[arg-type]
             db_session=mock_db_session_obj,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,

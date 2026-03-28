@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from pydantic import ValidationError
 
 from core.runtime.config import Settings
 from core.runtime.memory import MemoryStore

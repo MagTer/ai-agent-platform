@@ -2,32 +2,29 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
-
 from shared.models import (
-    AgentMessage,
     AgentRequest,
     AwaitingInputCategory,
     DraftOutput,
     HITLRequest,
-    PlanStep,
     UserIntent,
     WorkItemDraft,
 )
 
-from core.db import Conversation, Message, Session
+from core.db import Conversation, Session
 from core.runtime.hitl import HITLCoordinator
 from core.tests.mocks import InMemoryAsyncSession, MockLLMClient
 
 
-async def async_iter(items):
+async def async_iter(items: list[dict]) -> AsyncIterator[dict]:
     """Helper to create async iterator from list."""
     for item in items:
         yield item
@@ -67,7 +64,7 @@ class TestWorkItemDraftModel:
     def test_draft_missing_required_fields(self) -> None:
         """Test that missing required fields raise ValidationError."""
         with pytest.raises(ValidationError) as exc_info:
-            WorkItemDraft(
+            WorkItemDraft(  # type: ignore[call-arg]
                 type="Bug",
                 # Missing team_alias
                 title="Fix button",
@@ -154,7 +151,8 @@ class TestDraftOutputModel:
         )
         output = DraftOutput(draft=draft, hitl=hitl)
         assert output.draft.title == "Add feature"
-        assert output.hitl.category == AwaitingInputCategory.CONFIRMATION
+        cat = AwaitingInputCategory.CONFIRMATION
+        assert output.hitl.category == cat  # type: ignore[union-attr]
 
     def test_draft_output_without_hitl(self) -> None:
         """Test creating a DraftOutput without HITL request."""
@@ -186,7 +184,7 @@ class TestDraftOutputModel:
         parsed = DraftOutput.model_validate_json(json_str)
         assert parsed.draft.title == "Push notifications"
         assert parsed.draft.tags == ["mobile", "notifications"]
-        assert parsed.hitl.prompt == "Does this look correct?"
+        assert parsed.hitl.prompt == "Does this look correct?"  # type: ignore[union-attr]
 
 
 class TestExtractDraftFromMessages:
@@ -487,7 +485,7 @@ class TestClassifyUserIntent:
     @pytest.mark.asyncio
     async def test_unclear_with_llm_fallback(self, coordinator: HITLCoordinator) -> None:
         """Test unclear input uses LLM for classification."""
-        coordinator._litellm.responses = ["APPROVE"]
+        coordinator._litellm.responses = ["APPROVE"]  # type: ignore[attr-defined]
         intent, confidence = await coordinator._classify_user_intent("perhaps this is tolerable")
         assert intent == UserIntent.APPROVE
         assert confidence == 0.95
@@ -495,15 +493,17 @@ class TestClassifyUserIntent:
     @pytest.mark.asyncio
     async def test_unclear_with_llm_reject(self, coordinator: HITLCoordinator) -> None:
         """Test LLM can classify as REJECT."""
-        coordinator._litellm.responses = ["REJECT"]
-        intent, confidence = await coordinator._classify_user_intent("that approach seems ill-advised")
+        coordinator._litellm.responses = ["REJECT"]  # type: ignore[attr-defined]
+        intent, confidence = await coordinator._classify_user_intent(
+            "that approach seems ill-advised"
+        )
         assert intent == UserIntent.REJECT
         assert confidence == 0.95
 
     @pytest.mark.asyncio
     async def test_unclear_with_llm_request_changes(self, coordinator: HITLCoordinator) -> None:
         """Test LLM can classify as REQUEST_CHANGES."""
-        coordinator._litellm.responses = ["REQUEST_CHANGES"]
+        coordinator._litellm.responses = ["REQUEST_CHANGES"]  # type: ignore[attr-defined]
         intent, confidence = await coordinator._classify_user_intent("It needs something different")
         assert intent == UserIntent.REQUEST_CHANGES
         assert confidence == 0.90
@@ -511,7 +511,7 @@ class TestClassifyUserIntent:
     @pytest.mark.asyncio
     async def test_llm_unclear_response(self, coordinator: HITLCoordinator) -> None:
         """Test LLM unclear response returns UNCLEAR with low confidence."""
-        coordinator._litellm.responses = ["I don't understand"]
+        coordinator._litellm.responses = ["I don't understand"]  # type: ignore[attr-defined]
         intent, confidence = await coordinator._classify_user_intent("what is this?")
         assert intent == UserIntent.UNCLEAR
         assert confidence == 0.50
@@ -520,7 +520,7 @@ class TestClassifyUserIntent:
     async def test_llm_timeout_returns_unclear(self, coordinator: HITLCoordinator) -> None:
         """Test that LLM timeout returns UNCLEAR with 0 confidence."""
         mock_litellm = MagicMock()
-        mock_litellm.generate = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_litellm.generate = AsyncMock(side_effect=TimeoutError())
         
         timeout_coordinator = HITLCoordinator(
             skill_registry=MagicMock(),
@@ -535,12 +535,12 @@ class TestClassifyUserIntent:
     @pytest.mark.asyncio
     async def test_llm_exception_returns_unclear(self, coordinator: HITLCoordinator) -> None:
         """Test that LLM exception returns UNCLEAR with 0 confidence."""
-        coordinator._litellm.responses = []
+        coordinator._litellm.responses = []  # type: ignore[attr-defined]
         
-        async def raise_error(*args, **kwargs):
+        async def raise_error(*args: Any, **kwargs: Any) -> str:
             raise ValueError("LLM error")
         
-        coordinator._litellm.generate = raise_error
+        coordinator._litellm.generate = raise_error  # type: ignore[method-assign]
         
         intent, confidence = await coordinator._classify_user_intent("test")
         assert intent == UserIntent.UNCLEAR
@@ -578,7 +578,10 @@ class TestHITLStateTransitions:
 
     @pytest.mark.asyncio
     async def test_resume_hitl_with_approval_executes_writer(
-        self, coordinator: HITLCoordinator, mock_db_session: Session, mock_conversation: Conversation
+        self,
+        coordinator: HITLCoordinator,
+        mock_db_session: Session,
+        mock_conversation: Conversation,
     ) -> None:
         """Test that approving a draft triggers requirements_writer execution."""
         pending_hitl = {
@@ -609,14 +612,14 @@ class TestHITLStateTransitions:
         mock_conversation.conversation_metadata = {"pending_hitl": pending_hitl}
         request = AgentRequest(prompt="yes")
         
-        async def mock_writer(*args, **kwargs):
+        async def mock_writer(*args: Any, **kwargs: Any) -> AsyncIterator[dict]:
             yield {"type": "content", "content": "Work item created!"}
         
         with patch.object(coordinator, '_execute_requirements_writer', mock_writer):
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
-                session=InMemoryAsyncSession(),
+                session=InMemoryAsyncSession(),  # type: ignore[arg-type]
                 db_session=mock_db_session,
                 db_conversation=mock_conversation,
                 pending_hitl=pending_hitl,
@@ -625,11 +628,17 @@ class TestHITLStateTransitions:
             
             # Check that handoff thinking event was yielded
             thinking_events = [e for e in results if e.get("type") == "thinking"]
-            assert any("creating work item" in str(e.get("content", "")).lower() for e in thinking_events)
+            assert any(
+                "creating work item" in str(e.get("content", "")).lower()
+                for e in thinking_events
+            )
 
     @pytest.mark.asyncio
     async def test_resume_hitl_with_rejection_cancels(
-        self, coordinator: HITLCoordinator, mock_db_session: Session, mock_conversation: Conversation
+        self,
+        coordinator: HITLCoordinator,
+        mock_db_session: Session,
+        mock_conversation: Conversation,
     ) -> None:
         """Test that rejecting a draft cancels work item creation."""
         pending_hitl = {
@@ -645,7 +654,7 @@ class TestHITLStateTransitions:
         results = []
         async for event in coordinator._resume_hitl(
             request=request,
-            session=InMemoryAsyncSession(),
+            session=InMemoryAsyncSession(),  # type: ignore[arg-type]
             db_session=mock_db_session,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,
@@ -657,7 +666,10 @@ class TestHITLStateTransitions:
 
     @pytest.mark.asyncio
     async def test_resume_hitl_with_request_changes_asks_for_revision(
-        self, coordinator: HITLCoordinator, mock_db_session: Session, mock_conversation: Conversation
+        self,
+        coordinator: HITLCoordinator,
+        mock_db_session: Session,
+        mock_conversation: Conversation,
     ) -> None:
         """Test that requesting changes triggers revision flow."""
         pending_hitl = {
@@ -673,7 +685,9 @@ class TestHITLStateTransitions:
                 "args": {},
             },
             "skill_messages": [
-                {"role": "assistant", "content": "DRAFT READY\n\nType: Bug\nTeam: web\nTitle: Fix\nDescription: Bug"}
+                {"role": "assistant", "content": (
+                    "DRAFT READY\n\nType: Bug\nTeam: web\nTitle: Fix\nDescription: Bug"
+                )}
             ],
         }
         
@@ -682,7 +696,7 @@ class TestHITLStateTransitions:
         results = []
         async for event in coordinator._resume_hitl(
             request=request,
-            session=InMemoryAsyncSession(),
+            session=InMemoryAsyncSession(),  # type: ignore[arg-type]
             db_session=mock_db_session,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,
@@ -694,7 +708,10 @@ class TestHITLStateTransitions:
 
     @pytest.mark.asyncio
     async def test_resume_hitl_clears_pending_after_completion(
-        self, coordinator: HITLCoordinator, mock_db_session: Session, mock_conversation: Conversation
+        self,
+        coordinator: HITLCoordinator,
+        mock_db_session: Session,
+        mock_conversation: Conversation,
     ) -> None:
         """Test that pending HITL is cleared after resuming."""
         pending_hitl = {
@@ -711,7 +728,7 @@ class TestHITLStateTransitions:
         
         async for _ in coordinator._resume_hitl(
             request=request,
-            session=session,
+            session=session,  # type: ignore[arg-type]
             db_session=mock_db_session,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,
@@ -722,7 +739,10 @@ class TestHITLStateTransitions:
 
     @pytest.mark.asyncio
     async def test_resume_hitl_with_unclear_intent_requests_clarification(
-        self, coordinator: HITLCoordinator, mock_db_session: Session, mock_conversation: Conversation
+        self,
+        coordinator: HITLCoordinator,
+        mock_db_session: Session,
+        mock_conversation: Conversation,
     ) -> None:
         """Test that unclear intent requests clarification from user."""
         pending_hitl = {
@@ -738,7 +758,7 @@ class TestHITLStateTransitions:
         results = []
         async for event in coordinator._resume_hitl(
             request=request,
-            session=InMemoryAsyncSession(),
+            session=InMemoryAsyncSession(),  # type: ignore[arg-type]
             db_session=mock_db_session,
             db_conversation=mock_conversation,
             pending_hitl=pending_hitl,
