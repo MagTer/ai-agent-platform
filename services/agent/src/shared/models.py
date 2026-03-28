@@ -167,6 +167,15 @@ class StepResult(BaseModel):
     messages: list[AgentMessage] = Field(default_factory=list)
 
 
+class UserIntent(str, Enum):
+    """Intent categories for HITL user responses."""
+
+    APPROVE = "approve"
+    REJECT = "reject"
+    REQUEST_CHANGES = "request_changes"
+    UNCLEAR = "unclear"
+
+
 class WorkItemDraft(BaseModel):
     """Structured work item draft extracted from LLM output.
 
@@ -245,6 +254,7 @@ __all__ = [
     "StepOutcome",
     "AwaitingInputCategory",
     "AwaitingInputRequest",
+    "UserIntent",
     "WorkItemDraft",
     "HITLRequest",
     "DraftOutput",

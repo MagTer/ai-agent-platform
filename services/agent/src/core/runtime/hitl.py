@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -11,7 +12,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from shared.models import AgentMessage, AgentRequest, DraftOutput, PlanStep
+from shared.models import AgentMessage, AgentRequest, DraftOutput, PlanStep, UserIntent
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db import Conversation, Message, Session
@@ -25,6 +26,15 @@ LOGGER = logging.getLogger(__name__)
 
 class HITLCoordinator:
     """Handles human-in-the-loop workflow for skill execution."""
+
+    # Fast-path keywords for instant intent detection (no LLM call needed)
+    _APPROVE_KEYWORDS = {"yes", "approve", "ok", "okay", "confirm", "accept", "go ahead", "do it", "looks good", "sure"}
+    _REJECT_KEYWORDS = {"no", "cancel", "reject", "abort", "stop", "don't", "nevermind"}
+    _REQUEST_CHANGES_KEYWORDS = {"request changes", "revise", "edit", "change", "update", "modify", "not quite", "needs work"}
+    # Confidence threshold for LLM-based classification
+    _CONFIDENCE_THRESHOLD = 0.7
+    # Timeout for intent classification (seconds)
+    _INTENT_CLASSIFICATION_TIMEOUT = 5.0
 
     def __init__(
         self,
@@ -64,6 +74,98 @@ class HITLCoordinator:
             ) and ("Acceptance Criteria" in content or "Success Metrics" in content):
                 return True
         return False
+
+    async def _classify_user_intent(
+        self, user_response: str
+    ) -> tuple[UserIntent, float]:
+        """Classify user response intent using semantic detection.
+
+        First checks for exact keyword matches (fast path).
+        If no keyword matches, uses LLM for semantic classification.
+
+        Args:
+            user_response: The user's natural language response
+
+        Returns:
+            Tuple of (intent, confidence) where confidence is:
+            - 1.0 for fast-path keyword matches
+            - LLM-reported confidence for semantic classification
+            - 0.0 for errors/timeouts
+        """
+        response_lower = user_response.lower().strip()
+
+        # Fast path: exact keyword matching
+        if any(kw in response_lower for kw in self._APPROVE_KEYWORDS):
+            LOGGER.debug("Fast-path intent detection: APPROVE (keyword match)")
+            return UserIntent.APPROVE, 1.0
+        if any(kw in response_lower for kw in self._REJECT_KEYWORDS):
+            LOGGER.debug("Fast-path intent detection: REJECT (keyword match)")
+            return UserIntent.REJECT, 1.0
+        if any(kw in response_lower for kw in self._REQUEST_CHANGES_KEYWORDS):
+            LOGGER.debug("Fast-path intent detection: REQUEST_CHANGES (keyword match)")
+            return UserIntent.REQUEST_CHANGES, 1.0
+
+        # Semantic classification via LLM
+        try:
+            LOGGER.debug("No keyword match, using LLM for intent classification")
+            messages = [
+                AgentMessage(
+                    role="system",
+                    content=(
+                        "You are an intent classifier. Analyze the user's response to a HITL "
+                        "(Human-in-the-Loop) approval request and classify it into exactly one category.\n\n"
+                        "Categories:\n"
+                        "- APPROVE: User accepts or confirms the action\n"
+                        "- REJECT: User declines or cancels the action\n"
+                        "- REQUEST_CHANGES: User wants modifications before proceeding\n"
+                        "- UNCLEAR: Cannot determine intent from the response\n\n"
+                        "Respond with exactly one word: APPROVE, REJECT, REQUEST_CHANGES, or UNCLEAR."
+                    ),
+                ),
+                AgentMessage(
+                    role="user",
+                    content=f"Classify this response: '{user_response}'",
+                ),
+            ]
+
+            start_time = asyncio.get_event_loop().time()
+            result = await asyncio.wait_for(
+                self._litellm.generate(messages, model="agentchat"),
+                timeout=self._INTENT_CLASSIFICATION_TIMEOUT,
+            )
+            elapsed = asyncio.get_event_loop().time() - start_time
+
+            raw_intent = result.strip().upper()
+
+            # Parse the LLM response
+            if "APPROVE" in raw_intent:
+                intent = UserIntent.APPROVE
+                confidence = 0.95
+            elif "REJECT" in raw_intent:
+                intent = UserIntent.REJECT
+                confidence = 0.95
+            elif "REQUEST_CHANGES" in raw_intent or "CHANGES" in raw_intent:
+                intent = UserIntent.REQUEST_CHANGES
+                confidence = 0.90
+            else:
+                intent = UserIntent.UNCLEAR
+                confidence = 0.50
+
+            LOGGER.debug(
+                "LLM intent classification: %s (confidence=%.2f, raw='%s', time=%.2fs)",
+                intent.value,
+                confidence,
+                raw_intent,
+                elapsed,
+            )
+            return intent, confidence
+
+        except asyncio.TimeoutError:
+            LOGGER.warning("Intent classification timed out after %.1fs, falling back to keyword matching", self._INTENT_CLASSIFICATION_TIMEOUT)
+            return UserIntent.UNCLEAR, 0.0
+        except Exception as e:
+            LOGGER.warning("Intent classification failed: %s, falling back to keyword matching", e)
+            return UserIntent.UNCLEAR, 0.0
 
     async def _resume_hitl(
         self,
@@ -119,20 +221,39 @@ class HITLCoordinator:
             LOGGER.info("Cleared pending HITL for conversation %s", db_conversation.id)
 
         # Check for handoff: requirements_drafter confirmation -> requirements_writer
-        user_response_lower = request.prompt.lower().strip()
-        is_approval = "approve" in user_response_lower or user_response_lower in (
-            "yes",
-            "ja",
-            "ok",
+        intent, confidence = await self._classify_user_intent(request.prompt)
+
+        LOGGER.debug(
+            "HITL intent classification: %s (confidence=%.2f) for prompt: %s",
+            intent.value,
+            confidence,
+            request.prompt[:100],
         )
-        is_request_changes = (
-            "request changes" in user_response_lower or "revise" in user_response_lower
-        )
-        is_cancel = (
-            "cancel" in user_response_lower
-            or "reject" in user_response_lower
-            or user_response_lower in ("no", "nej", "abort")
-        )
+
+        # Handle UNCLEAR intent with low confidence - ask for clarification
+        if intent == UserIntent.UNCLEAR or confidence < self._CONFIDENCE_THRESHOLD:
+            LOGGER.info("HITL: Intent unclear, requesting clarification")
+            clarification_msg = (
+                "I'm not sure what you'd like to do. Please respond with:\n"
+                "- **approve** (or yes/ok) to proceed with creating the work item\n"
+                "- **reject** (or no/cancel) to abort\n"
+                "- **request changes** to revise the draft"
+            )
+            yield {"type": "content", "content": clarification_msg}
+            session.add(
+                Message(
+                    session_id=db_session.id,
+                    role="assistant",
+                    content=clarification_msg,
+                    trace_id=trace_id,
+                )
+            )
+            await session.commit()
+            return
+
+        is_approval = intent == UserIntent.APPROVE
+        is_request_changes = intent == UserIntent.REQUEST_CHANGES
+        is_cancel = intent == UserIntent.REJECT
 
         if skill_name == "requirements_drafter" and category == "confirmation" and is_cancel:
             LOGGER.info("HITL: requirements_drafter cancelled by user")
