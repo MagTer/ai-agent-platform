@@ -147,6 +147,8 @@ services:
     #   - "6333:6333"
     expose:
       - "6333"
+    environment:
+      QDRANT__SERVICE__API_KEY: "${QDRANT__SERVICE__API_KEY}"
     volumes:
       - ./data/qdrant:/qdrant/storage
     healthcheck:
