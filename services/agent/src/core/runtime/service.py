@@ -24,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.agents import (
     PlannerAgent,
     PlanSupervisorAgent,
-    StepExecutorAgent,
     StepSupervisorAgent,
 )
 from core.command_loader import get_available_skill_names, get_registry_index
@@ -238,7 +237,6 @@ class AgentService:
     ) -> tuple[
         PlannerAgent,
         PlanSupervisorAgent,
-        StepExecutorAgent,
         StepSupervisorAgent,
         SkillExecutor | None,
         list[str],
@@ -246,7 +244,7 @@ class AgentService:
         """Instantiate all agents and executors.
 
         Returns:
-            Tuple of (planner, plan_supervisor, executor, step_supervisor,
+            Tuple of (planner, plan_supervisor, step_supervisor,
                       skill_executor, skill_names)
         """
         planner = PlannerAgent(self._litellm, model_name=self._settings.model_planner)
@@ -265,7 +263,6 @@ class AgentService:
             tool_registry=self._tool_registry,
             skill_names=set(skill_names) if skill_names else None,
         )
-        executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
         step_supervisor = StepSupervisorAgent(
             self._litellm, model_name=self._settings.model_supervisor
         )
@@ -278,7 +275,7 @@ class AgentService:
                 litellm=self._litellm,
             )
 
-        return planner, plan_supervisor, executor, step_supervisor, skill_executor, skill_names
+        return planner, plan_supervisor, step_supervisor, skill_executor, skill_names
 
     async def _route_chat_request(
         self,
@@ -328,7 +325,6 @@ class AgentService:
         self,
         plan_step: PlanStep,
         skill_executor: SkillExecutor | None,
-        executor: StepExecutorAgent,
         request: AgentRequest,
         prompt_history: list[AgentMessage],
         retry_feedback: str | None = None,
@@ -337,8 +333,7 @@ class AgentService:
 
         Args:
             plan_step: The step to execute
-            skill_executor: Optional skill executor
-            executor: The step executor agent
+            skill_executor: The skill executor
             request: The agent request
             prompt_history: Conversation history
             retry_feedback: Optional retry feedback from supervisor
@@ -346,11 +341,10 @@ class AgentService:
         Yields:
             Event dictionaries, with final event being step_result
         """
-        is_skill_step = plan_step.executor == "skill" or plan_step.action == "skill"
         step_result: StepResult | None = None
         awaiting_input_request: AwaitingInputRequest | None = None
 
-        if is_skill_step and skill_executor:
+        if skill_executor:
             async for event in skill_executor.execute_stream(
                 plan_step,
                 request=request,
@@ -434,23 +428,10 @@ class AgentService:
 
                 await asyncio.sleep(0)  # Force flush
         else:
-            # Use legacy StepExecutorAgent
-            async for event in executor.run_stream(
-                plan_step,
-                request=request,
-                conversation_id=request.conversation_id or str(uuid.uuid4()),
-                prompt_history=prompt_history,
-            ):
-                if event["type"] == "content":
-                    yield {"type": "content", "content": event["content"]}
-                elif event["type"] == "thinking":
-                    meta = (event.get("metadata") or {}).copy()
-                    meta["id"] = plan_step.id
-                    yield {"type": "thinking", "content": event["content"], "metadata": meta}
-                elif event["type"] == "result":
-                    step_result = event["result"]
-
-                await asyncio.sleep(0)  # Force flush
+            raise RuntimeError(
+                f"No SkillExecutor available for step '{plan_step.label}'. "
+                "All plan steps must use executor='skill'."
+            )
 
         # Yield result as final event
         yield {
@@ -527,7 +508,6 @@ class AgentService:
         self,
         plan_step: PlanStep,
         skill_executor: SkillExecutor | None,
-        executor: StepExecutorAgent,
         step_supervisor: StepSupervisorAgent,
         request: AgentRequest,
         prompt_history: list[AgentMessage],
@@ -539,8 +519,7 @@ class AgentService:
 
         Args:
             plan_step: The step to execute
-            skill_executor: Optional skill executor
-            executor: The step executor agent
+            skill_executor: The skill executor
             step_supervisor: The step supervisor
             request: The agent request
             prompt_history: Conversation history
@@ -590,7 +569,7 @@ class AgentService:
 
             try:
                 async for event in self._execute_step(
-                    plan_step, skill_executor, executor, request, prompt_history, retry_feedback
+                    plan_step, skill_executor, request, prompt_history, retry_feedback
                 ):
                     if event["type"] == "step_result":
                         step_execution_result = event["result"]
@@ -1049,7 +1028,6 @@ class AgentService:
         db_conversation: Conversation,
         planner: PlannerAgent,
         plan_supervisor: PlanSupervisorAgent,
-        executor: StepExecutorAgent,
         step_supervisor: StepSupervisorAgent,
         skill_executor: SkillExecutor | None,
         skill_names: list[str],
@@ -1065,9 +1043,8 @@ class AgentService:
             db_conversation: The Conversation
             planner: The planner agent
             plan_supervisor: The plan supervisor
-            executor: The step executor agent
             step_supervisor: The step supervisor
-            skill_executor: Optional skill executor
+            skill_executor: The skill executor
             skill_names: List of available skill names
             conversation_id: The conversation ID
 
@@ -1182,7 +1159,6 @@ class AgentService:
                 async for event in self._execute_step_with_retry(
                     plan_step,
                     skill_executor,
-                    executor,
                     step_supervisor,
                     request,
                     prompt_history,
@@ -1514,7 +1490,6 @@ class AgentService:
                     (
                         planner,
                         plan_supervisor,
-                        executor,
                         step_supervisor,
                         skill_executor,
                         skill_names,
@@ -1555,7 +1530,6 @@ class AgentService:
                         db_conversation,
                         planner,
                         plan_supervisor,
-                        executor,
                         step_supervisor,
                         skill_executor,
                         skill_names,
