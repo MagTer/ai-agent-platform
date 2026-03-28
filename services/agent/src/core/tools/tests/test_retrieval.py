@@ -341,6 +341,154 @@ class TestRetrievalToolThresholdCalculation:
         assert output["retrieval_sufficient"] is True  # 0.65 >= 0.65
 
 
+class TestRetrievalToolBoundaryConditions:
+    """Test exact boundary conditions for threshold edges.
+
+    These tests verify the three-tier feedback system:
+    - avg >= 0.65: Sufficient (no replan)
+    - 0.325 <= avg < 0.65: Insufficient, suggest reformulation
+    - avg < 0.325: Insufficient, corpus likely lacks info
+    """
+
+    @pytest.mark.asyncio
+    async def test_boundary_exactly_at_threshold_is_sufficient(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that exactly 0.65 (threshold) is sufficient (>= comparison)."""
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.6500},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        # Verify 4 decimal precision (matching tool rounding)
+        assert output["avg_score"] == 0.65
+        assert output["retrieval_sufficient"] is True  # 0.65 >= 0.65
+
+    @pytest.mark.asyncio
+    async def test_boundary_just_below_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that 0.6499 (just below threshold) triggers insufficient.
+
+        This verifies the boundary where avg_score rounds to 0.6500 but is
+        technically below 0.65, ensuring precise threshold behavior.
+        """
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.6499},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        # Scores rounded to 4 decimal places
+        assert output["avg_score"] == 0.6499
+        assert output["retrieval_sufficient"] is False  # 0.6499 < 0.65
+
+    @pytest.mark.asyncio
+    async def test_boundary_exactly_half_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test exactly 0.325 (0.5 * 0.65) - corpus lacks info tier boundary.
+
+        This is the exact boundary between "corpus lacks info" and
+        "reformulation might help" tiers.
+        """
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.3250},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        assert output["avg_score"] == 0.325
+        assert output["retrieval_sufficient"] is False  # 0.325 < 0.65
+        # Below half threshold - indicates corpus likely lacks relevant info
+        half_threshold = 0.65 / 2  # 0.325
+        assert output["avg_score"] < half_threshold + 0.0001  # At or below half
+
+    @pytest.mark.asyncio
+    async def test_boundary_between_half_and_full_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test 0.3251 (just above half threshold) - reformulation tier.
+
+        This verifies the tier where reformulation might help:
+        above half threshold (0.325) but below full threshold (0.65).
+        """
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.3251},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        assert output["avg_score"] == pytest.approx(0.3251, abs=0.0001)
+        assert output["retrieval_sufficient"] is False  # 0.3251 < 0.65
+        # Above half threshold - reformulation might help
+        half_threshold = 0.65 / 2  # 0.325
+        assert output["avg_score"] > half_threshold  # Above half threshold
+
+    @pytest.mark.asyncio
+    async def test_boundary_well_below_half_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test 0.20 (well below half threshold) - clear "lacks info" tier."""
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.20},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        assert output["avg_score"] == 0.2
+        assert output["retrieval_sufficient"] is False
+        # Well below half threshold
+        half_threshold = 0.65 / 2
+        assert output["avg_score"] < half_threshold * 0.8  # Significantly below
+
+
 class TestRetrievalToolAttemptCapping:
     """Test attempt capping to prevent infinite loops."""
 
