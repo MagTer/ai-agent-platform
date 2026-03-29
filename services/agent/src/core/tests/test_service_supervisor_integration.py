@@ -566,3 +566,180 @@ class TestCheckRagRetrievalSufficiency:
 
         assert should_replan is False
         assert reason == ""
+
+
+class TestRetrievalBoundaryConditions:
+    """Test exact boundary conditions for retrieval sufficiency tiers.
+
+    Three-tier feedback system:
+    - avg_score < 0.325 (half threshold): "corpus lacks info" tier
+    - 0.325 <= avg_score < 0.65: "reformulation might help" tier
+    - avg_score >= 0.65: sufficient (no replan)
+    """
+
+    @pytest.fixture
+    def agent_service(self) -> AgentService:
+        """Create an AgentService instance with mocked dependencies."""
+        mock_settings = MagicMock()
+        mock_litellm = MagicMock()
+        mock_memory = MagicMock()
+        return AgentService(
+            settings=mock_settings,
+            litellm=mock_litellm,
+            memory=mock_memory,
+        )
+
+    def test_boundary_exactly_at_threshold_is_sufficient(
+        self,
+        agent_service: AgentService,
+    ) -> None:
+        """Test that exactly 0.6500 equals threshold (>= comparison) for sufficiency."""
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test query"},
+        )
+
+        rag_output = json.dumps({
+            "results": [{"id": "1", "score": 0.6500}],
+            "result_count": 1,
+            "min_score": 0.6500,
+            "max_score": 0.6500,
+            "avg_score": 0.6500,
+            "retrieval_sufficient": True,  # 0.65 >= 0.65
+            "threshold": 0.65,
+        })
+
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        should_replan, reason = agent_service._should_auto_replan(step_result, step)
+
+        assert should_replan is False  # Sufficient at boundary
+        assert reason == ""
+
+    def test_boundary_just_below_threshold_triggers_replan(
+        self,
+        agent_service: AgentService,
+    ) -> None:
+        """Test that 0.6499 (just below threshold) triggers insufficient/replan."""
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test query"},
+        )
+
+        rag_output = json.dumps({
+            "results": [{"id": "1", "score": 0.6499}],
+            "result_count": 1,
+            "min_score": 0.6499,
+            "max_score": 0.6499,
+            "avg_score": 0.6499,
+            "retrieval_sufficient": False,  # 0.6499 < 0.65
+            "threshold": 0.65,
+        })
+
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        should_replan, reason = agent_service._should_auto_replan(step_result, step)
+
+        assert should_replan is True
+        assert "below" in reason.lower() or "insufficient" in reason.lower()
+        assert "0.6499" in reason or "0.6500" in reason or "0.65" in reason
+
+    def test_boundary_exactly_half_threshold_corpus_lacks_info(
+        self,
+        agent_service: AgentService,
+    ) -> None:
+        """Test exactly 0.325 (half of 0.65) - distinguishes 'corpus lacks info' tier.
+
+        This tests the boundary where avg_score equals exactly half the threshold.
+        Scores at or below this level indicate the corpus likely lacks the requested info.
+        """
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test query"},
+        )
+
+        rag_output = json.dumps({
+            "results": [{"id": "1", "score": 0.3250}],
+            "result_count": 1,
+            "min_score": 0.3250,
+            "max_score": 0.3250,
+            "avg_score": 0.3250,
+            "retrieval_sufficient": False,  # 0.325 < 0.65
+            "threshold": 0.65,
+        })
+
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        should_replan, reason = agent_service._should_auto_replan(step_result, step)
+
+        assert should_replan is True
+        # Verify precision to 4 decimal places
+        assert "0.3250" in reason or "0.33" in reason
+
+    def test_boundary_between_half_and_full_reformulation_tier(
+        self,
+        agent_service: AgentService,
+    ) -> None:
+        """Test 0.3251 (just above half threshold) - 'reformulation might help' tier.
+
+        This tests the boundary between 'corpus lacks info' (< 0.325) and
+        'reformulation might help' (>= 0.325 but < 0.65) tiers.
+        """
+        step = PlanStep(
+            id="1",
+            label="RAG Search",
+            executor="agent",
+            action="tool",
+            tool="rag_search",
+            args={"query": "test query"},
+        )
+
+        rag_output = json.dumps({
+            "results": [{"id": "1", "score": 0.3251}],
+            "result_count": 1,
+            "min_score": 0.3251,
+            "max_score": 0.3251,
+            "avg_score": 0.3251,
+            "retrieval_sufficient": False,  # 0.3251 < 0.65
+            "threshold": 0.65,
+        })
+
+        step_result = StepResult(
+            step=step,
+            status="ok",
+            result={"output": rag_output},
+            messages=[],
+        )
+
+        should_replan, reason = agent_service._should_auto_replan(step_result, step)
+
+        assert should_replan is True
+        # Verify 4 decimal precision
+        assert "0.3251" in reason or "0.33" in reason
