@@ -28,12 +28,26 @@ class HITLCoordinator:
 
     # Fast-path keywords for instant intent detection (no LLM call needed)
     _APPROVE_KEYWORDS = {
-        "yes", "approve", "ok", "okay", "confirm", "accept", "go ahead", "do it", "looks good",
+        "yes",
+        "approve",
+        "ok",
+        "okay",
+        "confirm",
+        "accept",
+        "go ahead",
+        "do it",
+        "looks good",
         "sure",
     }
     _REJECT_KEYWORDS = {"no", "cancel", "reject", "abort", "stop", "don't", "nevermind"}
     _REQUEST_CHANGES_KEYWORDS = {
-        "request changes", "revise", "edit", "change", "update", "modify", "not quite",
+        "request changes",
+        "revise",
+        "edit",
+        "change",
+        "update",
+        "modify",
+        "not quite",
         "needs work",
     }
     # Confidence threshold for LLM-based classification
@@ -80,9 +94,7 @@ class HITLCoordinator:
                 return True
         return False
 
-    async def _classify_user_intent(
-        self, user_response: str
-    ) -> tuple[UserIntent, float]:
+    async def _classify_user_intent(self, user_response: str) -> tuple[UserIntent, float]:
         """Classify user response intent using semantic detection.
 
         First checks for exact keyword matches (fast path).
@@ -440,9 +452,7 @@ class HITLCoordinator:
             json_str: str | None = None
 
             # Pattern 1: JSON in triple backticks
-            json_block_match = re.search(
-                r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL
-            )
+            json_block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
             if json_block_match:
                 json_str = json_block_match.group(1)
             else:

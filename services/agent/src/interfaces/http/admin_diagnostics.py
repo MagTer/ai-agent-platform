@@ -34,7 +34,10 @@ async def ensure_config_defaults(session: AsyncSession) -> None:
     from core.db.models import SystemConfig
 
     defaults: dict[str, tuple[Any, str]] = {
-        "rag_retrieval_min_score": (0.65, "Minimum relevance score for RAG retrieval sufficiency (0-1)"),
+        "rag_retrieval_min_score": (
+            0.65,
+            "Minimum relevance score for RAG retrieval sufficiency (0-1)",
+        ),
     }
 
     for key, (value, description) in defaults.items():

@@ -835,7 +835,7 @@ class TestRetrievalToolRuntimeThresholdUpdates:
 
         # Create a session mock that returns different config values on each call
         mock_session = AsyncMock()
-        
+
         # Mock results: score 0.70 would be sufficient at 0.65, insufficient at 0.80
         mock_results = [
             {"uri": "doc1", "text": "Content", "score": 0.70},
@@ -851,8 +851,8 @@ class TestRetrievalToolRuntimeThresholdUpdates:
         ]
 
         mock_execute_calls = 0
-        
-        async def mock_execute_side_effect(stmt):
+
+        async def mock_execute_side_effect(stmt: Any) -> MagicMock:
             nonlocal mock_execute_calls
             # Simulate changing config between calls
             if mock_execute_calls < len(mock_configs):
@@ -860,14 +860,14 @@ class TestRetrievalToolRuntimeThresholdUpdates:
             else:
                 # After last config, return None (like key deleted)
                 config = None
-            
+
             mock_execute_calls += 1
-            
+
             # Mock the result object chain
             mock_result = MagicMock()
             mock_result.scalar_one_or_none.return_value = config
             return mock_result
-        
+
         mock_session.execute.side_effect = mock_execute_side_effect
 
         with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
@@ -920,7 +920,7 @@ class TestRetrievalToolRuntimeThresholdUpdates:
     ) -> None:
         """Test fallback scenarios for threshold retrieval."""
         mock_session = AsyncMock()
-        
+
         # Mock results: score 0.70
         mock_results = [
             {"uri": "doc1", "text": "Content", "score": 0.70},
@@ -929,7 +929,7 @@ class TestRetrievalToolRuntimeThresholdUpdates:
 
         # Test 1: Exception during database query -> fallback to default (0.65)
         mock_session.execute.side_effect = Exception("Database timeout")
-        
+
         with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
             result = await retrieval_tool.run(
                 query="test query",
@@ -943,15 +943,15 @@ class TestRetrievalToolRuntimeThresholdUpdates:
         # Test 2: Invalid float conversion -> fallback to default (0.65)
         mock_session.execute.side_effect = None
         mock_result = MagicMock()
-        
+
         # Mock a config with invalid float value (dict instead of number/string)
         mock_config = MagicMock()
         mock_config.key = "rag_retrieval_min_score"
         mock_config.value = {"nested": "object"}  # Invalid for float conversion
-        
+
         mock_result.scalar_one_or_none.return_value = mock_config
         mock_session.execute.return_value = mock_result
-        
+
         with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
             result = await retrieval_tool.run(
                 query="test query 2",
@@ -966,9 +966,9 @@ class TestRetrievalToolRuntimeThresholdUpdates:
         mock_config = MagicMock()
         mock_config.key = "rag_retrieval_min_score"
         mock_config.value = 1  # Integer
-        
+
         mock_result.scalar_one_or_none.return_value = mock_config
-        
+
         with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
             result = await retrieval_tool.run(
                 query="test query 3",
@@ -988,7 +988,7 @@ class TestRetrievalToolRuntimeThresholdUpdates:
         from core.db.models import SystemConfig
 
         mock_session = AsyncMock()
-        
+
         # Setup a sequence of configs to return
         mock_configs = [
             SystemConfig(key="rag_retrieval_min_score", value=0.65, description="First"),
@@ -996,22 +996,22 @@ class TestRetrievalToolRuntimeThresholdUpdates:
             SystemConfig(key="rag_retrieval_min_score", value=0.50, description="Lower"),
             None,  # Config deleted
         ]
-        
+
         mock_execute_calls = 0
-        
-        async def mock_execute_side_effect(stmt):
+
+        async def mock_execute_side_effect(stmt: Any) -> MagicMock:
             nonlocal mock_execute_calls
             if mock_execute_calls < len(mock_configs):
                 config = mock_configs[mock_execute_calls]
             else:
                 config = None
-            
+
             mock_execute_calls += 1
-            
+
             mock_result = MagicMock()
             mock_result.scalar_one_or_none.return_value = config
             return mock_result
-        
+
         mock_session.execute.side_effect = mock_execute_side_effect
 
         # First call: 0.65

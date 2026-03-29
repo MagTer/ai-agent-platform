@@ -130,15 +130,17 @@ class RetrievalTool(Tool):
         attempt_key = f"{context_id}:{query}" if context_id else query
         current_attempts = self._attempt_counts.get(attempt_key, 0)
         if current_attempts >= self._MAX_ATTEMPTS:
-            return json.dumps({
-                "results": [],
-                "result_count": 0,
-                "min_score": 0.0,
-                "max_score": 0.0,
-                "avg_score": 0.0,
-                "retrieval_sufficient": False,
-                "error": f"Attempt cap exceeded (max {self._MAX_ATTEMPTS} per plan step)",
-            })
+            return json.dumps(
+                {
+                    "results": [],
+                    "result_count": 0,
+                    "min_score": 0.0,
+                    "max_score": 0.0,
+                    "avg_score": 0.0,
+                    "retrieval_sufficient": False,
+                    "error": f"Attempt cap exceeded (max {self._MAX_ATTEMPTS} per plan step)",
+                }
+            )
         self._attempt_counts[attempt_key] = current_attempts + 1
 
         # Build context isolation filters

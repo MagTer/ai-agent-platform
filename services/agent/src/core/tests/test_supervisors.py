@@ -467,7 +467,9 @@ class TestStepSupervisorAgent:
         mock_llm.generate.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_rag_search_malformed_missing_retrieval_sufficient_uses_normal_evaluation(self) -> None:
+    async def test_rag_search_malformed_missing_retrieval_sufficient_uses_normal_evaluation(
+        self,
+    ) -> None:
         """Test that missing retrieval_sufficient field uses normal LLM evaluation."""
         mock_llm = MagicMock()
         mock_llm.generate = AsyncMock(

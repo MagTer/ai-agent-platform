@@ -24,9 +24,7 @@ class StepSupervisorAgent:
     or mismatched intent vs output.
     """
 
-    def _parse_rag_search_output(
-        self, output: str
-    ) -> dict[str, Any] | None:
+    def _parse_rag_search_output(self, output: str) -> dict[str, Any] | None:
         """Parse rag_search tool output to extract retrieval metrics.
 
         Args:

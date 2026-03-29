@@ -29,7 +29,9 @@ def mock_qdrant_client() -> AsyncMock:
 
 
 @pytest.fixture
-def rag_manager_with_mock_client(mock_embedder: AsyncMock, mock_qdrant_client: AsyncMock) -> RAGManager:
+def rag_manager_with_mock_client(
+    mock_embedder: AsyncMock, mock_qdrant_client: AsyncMock
+) -> RAGManager:
     """Create a RAGManager with mocked Qdrant client."""
     with patch("modules.rag.AsyncQdrantClient", return_value=mock_qdrant_client):
         manager = RAGManager(
@@ -71,7 +73,7 @@ class TestRAGManagerIngestion:
 
             rag_manager_with_mock_client.chunker = semantic_chunker
 
-            result = await rag_manager_with_mock_client.ingest_document(content, metadata)
+            _ = await rag_manager_with_mock_client.ingest_document(content, metadata)
 
             # Verify chunker was called
             mock_split.assert_called_once_with(content, document_type="prose")
@@ -227,7 +229,9 @@ class TestRAGManagerIngestion:
             ]
             rag_manager_with_mock_client.chunker = semantic_chunker
 
-            result = await rag_manager_with_mock_client.ingest_document(content, metadata, document_type="markdown")
+            _ = await rag_manager_with_mock_client.ingest_document(
+                content, metadata, document_type="markdown"
+            )
 
             assert mock_qdrant_client.upsert.called
             points = mock_qdrant_client.upsert.call_args.kwargs["points"]
@@ -250,6 +254,7 @@ class TestRAGManagerIngestion:
 
         # Check that it's a coroutine (the async method returns a coroutine)
         import inspect
+
         assert inspect.iscoroutine(result)
 
     @pytest.mark.asyncio
@@ -271,7 +276,9 @@ class TestRAGManagerIngestion:
             mock_split.return_value = [{"text": "chunk1", "metadata": {}}]
             mock_embedder.embed.return_value = [[0.1] * 384]
 
-            result = await rag_manager_with_mock_client.ingest_document(content, {"uri": "doc1"}, chunker=None)
+            _ = await rag_manager_with_mock_client.ingest_document(
+                content, {"uri": "doc1"}, chunker=None
+            )
 
             # Verify chunker was called with the content
             mock_split.assert_called_once_with(content, document_type="prose")
@@ -337,9 +344,6 @@ def world():
         self,
     ) -> None:
         """Test that CodeIndexer uses CodeSplitter (which uses langchain)."""
-
-        mock_embedder = MagicMock()
-        mock_client = MagicMock()
 
         indexer = CodeSplitter()
 
@@ -410,12 +414,7 @@ More content here.
 """
         metadata = {"uri": "docs://guide", "name": "User Guide"}
 
-        # Use the actual SemanticChunker instance
-        chunker = rag_manager_with_mock_client.chunker
-
         # Mock embedder to return embeddings for all chunks
-        chunk_count = 3  # Expected chunk count from markdown
-
         async def mock_embed(texts: list[str]) -> list[list[float]]:
             # Return a unique embedding for each text
             return [[0.1] * 384 for _ in texts]
@@ -423,7 +422,9 @@ More content here.
         mock_embedder.embed.side_effect = mock_embed
 
         # Call ingest_document with actual chunker
-        result = await rag_manager_with_mock_client.ingest_document(content, metadata, document_type="markdown")
+        _ = await rag_manager_with_mock_client.ingest_document(
+            content, metadata, document_type="markdown"
+        )
 
         # Verify ingestion happened
         assert mock_qdrant_client.upsert.called
@@ -449,7 +450,9 @@ more content to ensure proper chunking behavior."""
 
         metadata = {"uri": "docs://article", "name": "Article"}
 
-        result = await rag_manager_with_mock_client.ingest_document(content, metadata, document_type="prose")
+        _ = await rag_manager_with_mock_client.ingest_document(
+            content, metadata, document_type="prose"
+        )
 
         # Verify ingestion
         assert mock_qdrant_client.upsert.called
@@ -459,7 +462,7 @@ more content to ensure proper chunking behavior."""
     def test_code_indexer_separate_from_semantic_chunker(
         self,
     ) -> None:
-        """Test that CodeIndexer (using langchain) and RAGManager (using chonkie) are independent."""
+        """Test that CodeIndexer and RAGManager chunkers are independent."""
         # CodeSplitter uses langchain
         code_splitter = CodeSplitter()
         from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -510,7 +513,6 @@ class TestCollectionIsolation:
         """Test that agent-memories is used for CodeIndexer."""
 
         mock_embedder = MagicMock()
-        mock_client = MagicMock()
 
         from modules.indexer.ingestion import CodeIndexer
 

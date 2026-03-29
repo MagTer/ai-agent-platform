@@ -145,7 +145,8 @@ class TestQdrantAuthenticationFailure:
             headers={},  # type: ignore[arg-type]
         )
 
-        memory = MemoryStore(
+        # MemoryStore constructor validates auth on initialization
+        MemoryStore(
             settings=settings,
             context_id=uuid4(),
             client=mock_client,
@@ -177,7 +178,8 @@ class TestQdrantAuthenticationFailure:
         mock_collection_info.config.params.vectors.size = 384
         mock_client.get_collection.return_value = mock_collection_info
 
-        memory = MemoryStore(
+        # MemoryStore constructor validates auth on initialization
+        MemoryStore(
             settings=settings,
             context_id=uuid4(),
             client=mock_client,

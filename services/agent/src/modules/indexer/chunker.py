@@ -2,6 +2,7 @@
 Semantic chunking module using Chonkie library.
 Provides structure-aware chunking with content-type routing.
 """
+
 from typing import Any
 
 from chonkie import RecursiveChunker
@@ -30,9 +31,7 @@ class SemanticChunker:
 
         # Initialize splitters for different content types
         # Markdown recipe handles headings and structure automatically
-        self.markdown_splitter = RecursiveChunker.from_recipe(
-            "markdown", chunk_size=chunk_size
-        )
+        self.markdown_splitter = RecursiveChunker.from_recipe("markdown", chunk_size=chunk_size)
         # Prose uses default rules with sentence boundary detection
         self.prose_splitter = RecursiveChunker(chunk_size=chunk_size)
 

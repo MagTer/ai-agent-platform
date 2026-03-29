@@ -279,7 +279,7 @@ async def test_analyse_excludes_retrieval_skills(
         mock_registry = MagicMock()
         mock_registry_class.return_value = mock_registry
 
-        def get_skill(name: str):
+        def get_skill(name: str) -> Any:
             if name == "rag_searcher":
                 skill = MagicMock()
                 skill.name = "rag_searcher"
@@ -573,12 +573,8 @@ Research the given topic.
             patch(
                 "core.db.engine.AsyncSessionLocal",
             ) as mock_factory,
-            patch(
-                "core.runtime.skill_quality.EVALUATOR_PROMPT_TEMPLATE"
-            ),
-            patch(
-                "core.runtime.skill_quality.LiteLLMClient"
-            ) as mock_litellm_class,
+            patch("core.runtime.skill_quality.EVALUATOR_PROMPT_TEMPLATE"),
+            patch("core.runtime.skill_quality.LiteLLMClient") as mock_litellm_class,
         ):
             mock_session = AsyncMock()
             mock_factory.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -601,10 +597,12 @@ Research the given topic.
             mock_msg_stmt = MagicMock()
             mock_msg_stmt.scalar_one_or_none = AsyncMock(return_value=mock_message)
 
-            mock_session.execute = AsyncMock(side_effect=[
-                mock_session_stmt.execute,
-                mock_msg_stmt.scalar_one_or_none,
-            ])
+            mock_session.execute = AsyncMock(
+                side_effect=[
+                    mock_session_stmt.execute,
+                    mock_msg_stmt.scalar_one_or_none,
+                ]
+            )
 
             # Mock LLM response with ratings
             mock_litellm_instance = MagicMock()
@@ -618,9 +616,11 @@ Research the given topic.
             # Patch skill file reading for registry lookup
             with patch(
                 "core.skills.registry.Path.read_text",
-                side_effect=lambda encoding="utf-8": retrieval_skill_content
-                if "internal_knowledge_searcher" in str(Path.read_text(Path(__file__)))
-                else non_retrieval_skill_content,
+                side_effect=lambda encoding="utf-8": (
+                    retrieval_skill_content
+                    if "internal_knowledge_searcher" in str(Path.read_text(Path(__file__)))
+                    else non_retrieval_skill_content
+                ),
             ):
                 await evaluate_conversation_quality(
                     context_id=context_id,
@@ -809,7 +809,7 @@ async def test_list_skill_proposals() -> None:
     mock_session.execute = AsyncMock(return_value=mock_session_execute_result)
 
     # Call the function directly (bypassing FastAPI router for unit test)
-    result = await list_skill_proposals(
+    result: dict[str, Any] = await list_skill_proposals(
         context_id=context_id,
         session=mock_session,
     )
@@ -850,13 +850,11 @@ async def test_get_skill_proposal_detail() -> None:
 
     mock_session = AsyncMock()
     mock_session.execute = AsyncMock(
-        return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=mock_proposal)
-        )
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_proposal))
     )
 
     # Call the function directly (bypassing FastAPI router for unit test)
-    result = await get_skill_proposal(
+    result: dict[str, Any] = await get_skill_proposal(
         context_id=context_id,
         proposal_id=proposal_id,
         session=mock_session,
@@ -890,9 +888,7 @@ async def test_revert_skill_proposal() -> None:
 
     mock_session = AsyncMock()
     mock_session.execute = AsyncMock(
-        return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=mock_proposal)
-        )
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_proposal))
     )
 
     # Create a mock request
@@ -910,7 +906,7 @@ async def test_revert_skill_proposal() -> None:
         mock_write.return_value = None
 
         # Call the function directly (bypassing FastAPI router for unit test)
-        result = await revert_skill_proposal(
+        result: dict[str, Any] = await revert_skill_proposal(
             context_id=context_id,
             proposal_id=proposal_id,
             request=mock_request,
@@ -973,13 +969,11 @@ async def test_promote_skill_proposal() -> None:
 
     mock_session = AsyncMock()
     mock_session.execute = AsyncMock(
-        return_value=MagicMock(
-            scalar_one_or_none=MagicMock(return_value=mock_proposal)
-        )
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=mock_proposal))
     )
 
     # Call the function directly (bypassing FastAPI router for unit test)
-    result = await promote_skill_to_global(
+    result: dict[str, Any] = await promote_skill_to_global(
         context_id=context_id,
         proposal_id=proposal_id,
         request=mock_request,
@@ -1040,9 +1034,7 @@ async def test_quality_eval_enabled_runs_evaluation() -> None:
             "core.db.engine.AsyncSessionLocal",
         ) as mock_factory,
         # Patch the full evaluate_conversation_quality to skip the LLM call
-        patch(
-            "core.runtime.skill_quality.evaluate_conversation_quality"
-        ) as mock_eval,
+        patch("core.runtime.skill_quality.evaluate_conversation_quality") as mock_eval,
     ):
         # The function will be replaced by a mock that simulates success
         mock_eval.side_effect = lambda *args, **kwargs: None

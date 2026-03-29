@@ -133,7 +133,6 @@ class TestWorkItemDraftModel:
         assert draft.tags == ["api"]
 
 
-
 class TestDraftOutputModel:
     """Tests for DraftOutput Pydantic model."""
 
@@ -305,10 +304,7 @@ class TestExtractDraftFromMessages:
             {
                 "role": "assistant",
                 "content": (
-                    "DRAFT READY\n\n"
-                    "Type: Bug\n"
-                    "Title: Fix crash\n"
-                    "Description: Something\n"
+                    "DRAFT READY\n\n" "Type: Bug\n" "Title: Fix crash\n" "Description: Something\n"
                 ),
             }
         ]
@@ -331,12 +327,14 @@ class TestExtractDraftFromMessages:
 
     def test_json_with_validation_error_falls_back(self, coordinator: HITLCoordinator) -> None:
         """Test that JSON with missing required fields falls back to regex."""
-        invalid_json = json.dumps({
-            "draft": {
-                "type": "Bug",
-                "description": "Something",
+        invalid_json = json.dumps(
+            {
+                "draft": {
+                    "type": "Bug",
+                    "description": "Something",
+                }
             }
-        })
+        )
         messages = [
             {
                 "role": "assistant",
@@ -521,13 +519,13 @@ class TestClassifyUserIntent:
         """Test that LLM timeout returns UNCLEAR with 0 confidence."""
         mock_litellm = MagicMock()
         mock_litellm.generate = AsyncMock(side_effect=TimeoutError())
-        
+
         timeout_coordinator = HITLCoordinator(
             skill_registry=MagicMock(),
             tool_registry=MagicMock(),
             litellm=mock_litellm,
         )
-        
+
         intent, confidence = await timeout_coordinator._classify_user_intent("some text")
         assert intent == UserIntent.UNCLEAR
         assert confidence == 0.0
@@ -536,12 +534,12 @@ class TestClassifyUserIntent:
     async def test_llm_exception_returns_unclear(self, coordinator: HITLCoordinator) -> None:
         """Test that LLM exception returns UNCLEAR with 0 confidence."""
         coordinator._litellm.responses = []  # type: ignore[attr-defined]
-        
+
         async def raise_error(*args: Any, **kwargs: Any) -> str:
             raise ValueError("LLM error")
-        
+
         coordinator._litellm.generate = raise_error  # type: ignore[method-assign]
-        
+
         intent, confidence = await coordinator._classify_user_intent("test")
         assert intent == UserIntent.UNCLEAR
         assert confidence == 0.0
@@ -611,11 +609,11 @@ class TestHITLStateTransitions:
         }
         mock_conversation.conversation_metadata = {"pending_hitl": pending_hitl}
         request = AgentRequest(prompt="yes")
-        
+
         async def mock_writer(*args: Any, **kwargs: Any) -> AsyncIterator[dict]:
             yield {"type": "content", "content": "Work item created!"}
-        
-        with patch.object(coordinator, '_execute_requirements_writer', mock_writer):
+
+        with patch.object(coordinator, "_execute_requirements_writer", mock_writer):
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
@@ -625,12 +623,11 @@ class TestHITLStateTransitions:
                 pending_hitl=pending_hitl,
             ):
                 results.append(event)
-            
+
             # Check that handoff thinking event was yielded
             thinking_events = [e for e in results if e.get("type") == "thinking"]
             assert any(
-                "creating work item" in str(e.get("content", "")).lower()
-                for e in thinking_events
+                "creating work item" in str(e.get("content", "")).lower() for e in thinking_events
             )
 
     @pytest.mark.asyncio
@@ -648,9 +645,9 @@ class TestHITLStateTransitions:
             "step": {},
             "skill_messages": [],
         }
-        
+
         request = AgentRequest(prompt="no")
-        
+
         results = []
         async for event in coordinator._resume_hitl(
             request=request,
@@ -660,7 +657,7 @@ class TestHITLStateTransitions:
             pending_hitl=pending_hitl,
         ):
             results.append(event)
-        
+
         content_events = [e for e in results if e.get("type") == "content"]
         assert any("cancelled" in str(e.get("content", "")).lower() for e in content_events)
 
@@ -685,14 +682,17 @@ class TestHITLStateTransitions:
                 "args": {},
             },
             "skill_messages": [
-                {"role": "assistant", "content": (
-                    "DRAFT READY\n\nType: Bug\nTeam: web\nTitle: Fix\nDescription: Bug"
-                )}
+                {
+                    "role": "assistant",
+                    "content": (
+                        "DRAFT READY\n\nType: Bug\nTeam: web\nTitle: Fix\nDescription: Bug"
+                    ),
+                }
             ],
         }
-        
+
         request = AgentRequest(prompt="change the title")
-        
+
         results = []
         async for event in coordinator._resume_hitl(
             request=request,
@@ -702,7 +702,7 @@ class TestHITLStateTransitions:
             pending_hitl=pending_hitl,
         ):
             results.append(event)
-        
+
         thinking_events = [e for e in results if e.get("type") == "thinking"]
         assert any("revising" in str(e.get("content", "")).lower() for e in thinking_events)
 
@@ -721,11 +721,11 @@ class TestHITLStateTransitions:
             "step": {},
             "skill_messages": [],
         }
-        
+
         mock_conversation.conversation_metadata = {"pending_hitl": pending_hitl}
         request = AgentRequest(prompt="no")
         session = InMemoryAsyncSession()
-        
+
         async for _ in coordinator._resume_hitl(
             request=request,
             session=session,  # type: ignore[arg-type]
@@ -734,7 +734,7 @@ class TestHITLStateTransitions:
             pending_hitl=pending_hitl,
         ):
             pass
-        
+
         assert "pending_hitl" not in mock_conversation.conversation_metadata
 
     @pytest.mark.asyncio
@@ -752,9 +752,9 @@ class TestHITLStateTransitions:
             "step": {},
             "skill_messages": [],
         }
-        
+
         request = AgentRequest(prompt="hmm, I'm confused")
-        
+
         results = []
         async for event in coordinator._resume_hitl(
             request=request,
@@ -764,6 +764,6 @@ class TestHITLStateTransitions:
             pending_hitl=pending_hitl,
         ):
             results.append(event)
-        
+
         content_events = [e for e in results if e.get("type") == "content"]
         assert any("not sure" in str(e.get("content", "")).lower() for e in content_events)

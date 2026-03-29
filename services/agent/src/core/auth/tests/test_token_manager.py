@@ -137,7 +137,8 @@ class TestTokenManagerInit:
         settings = Settings(
             homey_oauth_enabled=True,
             homey_client_id="test_client_id",
-            oauth_redirect_uri=None,  # Missing
+            oauth_redirect_uri_prod=None,  # Missing
+            oauth_redirect_uri_dev=None,  # Missing
         )
 
         manager = TokenManager(factory, settings)

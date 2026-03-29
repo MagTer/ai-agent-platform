@@ -135,7 +135,7 @@ class TestHITLFullFlowApproval:
             yield {"type": "thinking", "content": "Creating work item..."}
             yield {"type": "content", "content": "Work item #12345 created successfully!"}
 
-        with patch.object(coordinator, '_execute_requirements_writer', mock_writer):
+        with patch.object(coordinator, "_execute_requirements_writer", mock_writer):
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
@@ -153,8 +153,7 @@ class TestHITLFullFlowApproval:
             ]
             assert len(handoff_events) >= 1, "Expected at least one handoff thinking event"
             assert any(
-                "creating work item" in str(e.get("content", "")).lower()
-                for e in handoff_events
+                "creating work item" in str(e.get("content", "")).lower() for e in handoff_events
             )
 
             # Verify content was yielded
@@ -218,7 +217,7 @@ class TestHITLFullFlowApproval:
             captured_draft_data = draft_data
             yield {"type": "content", "content": "Created!"}
 
-        with patch.object(coordinator, '_execute_requirements_writer', capture_writer):
+        with patch.object(coordinator, "_execute_requirements_writer", capture_writer):
             async for _ in coordinator._resume_hitl(
                 request=request,
                 session=mock_db_session,  # type: ignore[arg-type]
@@ -404,6 +403,7 @@ class TestHITLResumeAfterRestart:
         ):
             pass
 
+
 class TestHITLCancellationPath:
     """Tests for cancellation flow: drafter → cancel → no writer."""
 
@@ -454,7 +454,7 @@ class TestHITLCancellationPath:
             writer_called = True
             yield {"type": "content", "content": "Should not reach here"}
 
-        with patch.object(coordinator, '_execute_requirements_writer', mock_writer):
+        with patch.object(coordinator, "_execute_requirements_writer", mock_writer):
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
@@ -534,7 +534,7 @@ class TestHITLCancellationPath:
                 writer_called = True
                 yield {"type": "content", "content": "Should not reach"}
 
-            with patch.object(coordinator, '_execute_requirements_writer', mock_writer):
+            with patch.object(coordinator, "_execute_requirements_writer", mock_writer):
                 async for _ in coordinator._resume_hitl(
                     request=request,
                     session=mock_db_session,  # type: ignore[arg-type]
@@ -572,10 +572,13 @@ class TestHITLRevisionLoop:
                 "args": {},
             },
             "skill_messages": [
-                {"role": "assistant", "content": (
-                    "DRAFT READY\n\nType: Bug\nTeam: qa\nTitle: Fix crash\n"
-                    "Description: Fix the bug"
-                )}
+                {
+                    "role": "assistant",
+                    "content": (
+                        "DRAFT READY\n\nType: Bug\nTeam: qa\nTitle: Fix crash\n"
+                        "Description: Fix the bug"
+                    ),
+                }
             ],
         }
         mock_conversation.conversation_metadata = {"pending_hitl": pending_hitl}
@@ -595,9 +598,7 @@ class TestHITLRevisionLoop:
 
         # Verify revision thinking event
         thinking_events = [e for e in results if e.get("type") == "thinking"]
-        revision_events = [
-            e for e in thinking_events if e.get("metadata", {}).get("hitl_revision")
-        ]
+        revision_events = [e for e in thinking_events if e.get("metadata", {}).get("hitl_revision")]
         assert len(revision_events) >= 1, "Expected revision thinking event"
         assert any("revising" in str(e.get("content", "")).lower() for e in thinking_events)
 
@@ -772,7 +773,7 @@ class TestHITLMessagePropagation:
             captured_draft = draft_data
             yield {"type": "content", "content": "Work item created"}
 
-        with patch.object(coordinator, '_execute_requirements_writer', capture_writer):
+        with patch.object(coordinator, "_execute_requirements_writer", capture_writer):
             async for _ in coordinator._resume_hitl(
                 request=request,
                 session=mock_db_session,  # type: ignore[arg-type]
@@ -837,7 +838,7 @@ class TestHITLEventSequence:
             yield {"type": "thinking", "content": "Creating..."}
             yield {"type": "content", "content": "Done"}
 
-        with patch.object(coordinator, '_execute_requirements_writer', mock_writer):
+        with patch.object(coordinator, "_execute_requirements_writer", mock_writer):
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
@@ -850,9 +851,12 @@ class TestHITLEventSequence:
 
             # Verify event sequence - should have thinking with handoff first
             handoff_idx = next(
-                (i for i, e in enumerate(results)
-                 if e.get("type") == "thinking" and e.get("metadata", {}).get("hitl_handoff")),
-                -1
+                (
+                    i
+                    for i, e in enumerate(results)
+                    if e.get("type") == "thinking" and e.get("metadata", {}).get("hitl_handoff")
+                ),
+                -1,
             )
             assert handoff_idx >= 0, "Expected handoff thinking event"
 
@@ -894,7 +898,7 @@ class TestHITLEventSequence:
         async def mock_writer(*args: Any, **kwargs: Any) -> Any:
             yield {"type": "content", "content": "Created"}
 
-        with patch.object(coordinator, '_execute_requirements_writer', mock_writer):
+        with patch.object(coordinator, "_execute_requirements_writer", mock_writer):
             results = []
             async for event in coordinator._resume_hitl(
                 request=request,
@@ -907,7 +911,8 @@ class TestHITLEventSequence:
 
             # Verify handoff event metadata
             handoff_events = [
-                e for e in results
+                e
+                for e in results
                 if e.get("type") == "thinking" and e.get("metadata", {}).get("hitl_handoff")
             ]
             assert len(handoff_events) >= 1
@@ -967,7 +972,8 @@ class TestHITLEventSequence:
 
         # Verify revision event metadata
         revision_events = [
-            e for e in results
+            e
+            for e in results
             if e.get("type") == "thinking" and e.get("metadata", {}).get("hitl_revision")
         ]
         assert len(revision_events) >= 1

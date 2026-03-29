@@ -48,7 +48,9 @@ New chapter content here.
 @pytest.fixture
 def sample_prose() -> str:
     """Create a sample prose document."""
-    return """This is a long prose document that needs to be chunked properly. The quick brown fox jumps over the lazy dog. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. This sentence continues with more text to ensure proper chunking behavior across sentence boundaries."""
+    return """This is a long prose document that needs to be chunked properly. The quick brown fox jumps over the lazy dog. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. This sentence continues with more text to ensure proper chunking behavior across sentence boundaries."""  # noqa: E501
+
+
 @pytest.fixture
 def empty_text() -> str:
     """Create an empty string."""
@@ -64,7 +66,9 @@ def whitespace_only_text() -> str:
 class TestSemanticChunkerMarkdown:
     """Tests for markdown chunking functionality."""
 
-    def test_split_markdown_with_headings(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_split_markdown_with_headings(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that markdown splitting respects heading boundaries."""
         result = chunker.split_text(sample_markdown, document_type="markdown")
 
@@ -76,14 +80,18 @@ class TestSemanticChunkerMarkdown:
             assert isinstance(chunk["text"], Chunk)
             assert isinstance(chunk["text"].text, str)
 
-    def test_markdown_metadata_contains_chunk_index(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_markdown_metadata_contains_chunk_index(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that markdown chunks have correct chunk_index metadata."""
         result = chunker.split_text(sample_markdown, document_type="markdown")
 
         for i, chunk in enumerate(result):
             assert chunk["metadata"]["chunk_index"] == i
 
-    def test_markdown_metadata_contains_total_chunks(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_markdown_metadata_contains_total_chunks(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that markdown chunks have total_chunks metadata."""
         result = chunker.split_text(sample_markdown, document_type="markdown")
 
@@ -91,23 +99,31 @@ class TestSemanticChunkerMarkdown:
         for chunk in result:
             assert chunk["metadata"]["total_chunks"] == total
 
-    def test_markdown_metadata_contains_chunk_type(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_markdown_metadata_contains_chunk_type(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that markdown chunks have semantic chunk_type."""
         result = chunker.split_text(sample_markdown, document_type="markdown")
 
         for chunk in result:
             assert chunk["metadata"]["chunk_type"] == "semantic"
 
-    def test_markdown_metadata_contains_document_type(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_markdown_metadata_contains_document_type(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that markdown chunks have markdown document_type."""
         result = chunker.split_text(sample_markdown, document_type="markdown")
 
         for chunk in result:
             assert chunk["metadata"]["document_type"] == "markdown"
 
-    def test_markdown_with_section_title(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_markdown_with_section_title(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that markdown chunks include section_title metadata."""
-        result = chunker.split_text(sample_markdown, document_type="markdown", section_title="Test Section")
+        result = chunker.split_text(
+            sample_markdown, document_type="markdown", section_title="Test Section"
+        )
 
         for chunk in result:
             assert chunk["metadata"]["section_title"] == "Test Section"
@@ -126,21 +142,27 @@ class TestSemanticChunkerProse:
             assert isinstance(chunk["text"], Chunk)
             assert isinstance(chunk["text"].text, str)
 
-    def test_prose_metadata_contains_chunk_index(self, chunker: SemanticChunker, sample_prose: str) -> None:
+    def test_prose_metadata_contains_chunk_index(
+        self, chunker: SemanticChunker, sample_prose: str
+    ) -> None:
         """Test that prose chunks have correct chunk_index metadata."""
         result = chunker.split_text(sample_prose, document_type="prose")
 
         for i, chunk in enumerate(result):
             assert chunk["metadata"]["chunk_index"] == i
 
-    def test_prose_metadata_contains_chunk_type(self, chunker: SemanticChunker, sample_prose: str) -> None:
+    def test_prose_metadata_contains_chunk_type(
+        self, chunker: SemanticChunker, sample_prose: str
+    ) -> None:
         """Test that prose chunks have semantic chunk_type."""
         result = chunker.split_text(sample_prose, document_type="prose")
 
         for chunk in result:
             assert chunk["metadata"]["chunk_type"] == "semantic"
 
-    def test_prose_metadata_contains_document_type(self, chunker: SemanticChunker, sample_prose: str) -> None:
+    def test_prose_metadata_contains_document_type(
+        self, chunker: SemanticChunker, sample_prose: str
+    ) -> None:
         """Test that prose chunks have prose document_type."""
         result = chunker.split_text(sample_prose, document_type="prose")
 
@@ -149,7 +171,9 @@ class TestSemanticChunkerProse:
 
     def test_prose_with_section_title(self, chunker: SemanticChunker, sample_prose: str) -> None:
         """Test that prose chunks include section_title metadata."""
-        result = chunker.split_text(sample_prose, document_type="prose", section_title="Introduction")
+        result = chunker.split_text(
+            sample_prose, document_type="prose", section_title="Introduction"
+        )
 
         for chunk in result:
             assert chunk["metadata"]["section_title"] == "Introduction"
@@ -158,7 +182,9 @@ class TestSemanticChunkerProse:
 class TestContentRoute:
     """Tests for content-type routing."""
 
-    def test_markdown_route_uses_markdown_splitter(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_markdown_route_uses_markdown_splitter(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that markdown content uses markdown splitter."""
         result_markdown = chunker.split_text(sample_markdown, document_type="markdown")
         result_prose = chunker.split_text(sample_markdown, document_type="prose")
@@ -167,7 +193,9 @@ class TestContentRoute:
         assert len(result_markdown) > 0
         assert len(result_prose) > 0
 
-    def test_split_file_routes_markdown(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_split_file_routes_markdown(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that split_file routes markdown content correctly."""
         result = chunker.split_file(sample_markdown, document_type="markdown")
 
@@ -187,7 +215,9 @@ class TestContentRoute:
 class TestEmptyContent:
     """Tests for empty and edge case content handling."""
 
-    def test_empty_string_returns_empty_list(self, chunker: SemanticChunker, empty_text: str) -> None:
+    def test_empty_string_returns_empty_list(
+        self, chunker: SemanticChunker, empty_text: str
+    ) -> None:
         """Test that empty string returns empty chunk list."""
         result = chunker.split_text(empty_text, document_type="prose")
 
@@ -199,7 +229,9 @@ class TestEmptyContent:
 
         assert result == []
 
-    def test_whitespace_only_text(self, chunker: SemanticChunker, whitespace_only_text: str) -> None:
+    def test_whitespace_only_text(
+        self, chunker: SemanticChunker, whitespace_only_text: str
+    ) -> None:
         """Test that whitespace-only text is handled gracefully."""
         result = chunker.split_text(whitespace_only_text, document_type="prose")
 
@@ -253,7 +285,9 @@ class TestMetadataAttachment:
         for chunk in result:
             assert required_fields.issubset(chunk["metadata"].keys())
 
-    def test_optional_section_title_metadata(self, chunker: SemanticChunker, sample_prose: str) -> None:
+    def test_optional_section_title_metadata(
+        self, chunker: SemanticChunker, sample_prose: str
+    ) -> None:
         """Test that section_title is optional in metadata."""
         result_without = chunker.split_text(sample_prose, document_type="prose")
         result_with = chunker.split_text(sample_prose, document_type="prose", section_title="Test")
@@ -263,9 +297,13 @@ class TestMetadataAttachment:
         # Chunks with section_title should have it
         assert result_with[0]["metadata"]["section_title"] == "Test"
 
-    def test_chunk_metadata_consistency(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_chunk_metadata_consistency(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that metadata is consistent across all chunks."""
-        result = chunker.split_text(sample_markdown, document_type="markdown", section_title="Consistent")
+        result = chunker.split_text(
+            sample_markdown, document_type="markdown", section_title="Consistent"
+        )
 
         for chunk in result:
             meta = chunk["metadata"]
@@ -278,7 +316,9 @@ class TestMetadataAttachment:
 class TestSplitFileAlias:
     """Tests for split_file method as alias for split_text."""
 
-    def test_split_file_delegates_to_split_text(self, chunker: SemanticChunker, sample_prose: str) -> None:
+    def test_split_file_delegates_to_split_text(
+        self, chunker: SemanticChunker, sample_prose: str
+    ) -> None:
         """Test that split_file produces equivalent results to split_text."""
         text = "Test content " * 20
 
@@ -288,22 +328,28 @@ class TestSplitFileAlias:
         # Both should have same number of chunks
         assert len(result_split_text) == len(result_split_file)
         # Each chunk should have same structure
-        for rt, rf in zip(result_split_text, result_split_file):
+        for rt, rf in zip(result_split_text, result_split_file, strict=True):
             # Check text content matches (Chunk.text is the same)
             assert rt["text"].text == rf["text"].text
             # Check metadata matches
             assert rt["metadata"] == rf["metadata"]
 
-    def test_split_file_preserves_document_type(self, chunker: SemanticChunker, sample_markdown: str) -> None:
+    def test_split_file_preserves_document_type(
+        self, chunker: SemanticChunker, sample_markdown: str
+    ) -> None:
         """Test that split_file preserves document_type routing."""
         result = chunker.split_file(sample_markdown, document_type="markdown")
 
         assert len(result) > 0
         assert all(chunk["metadata"]["document_type"] == "markdown" for chunk in result)
 
-    def test_split_file_preserves_section_title(self, chunker: SemanticChunker, sample_prose: str) -> None:
+    def test_split_file_preserves_section_title(
+        self, chunker: SemanticChunker, sample_prose: str
+    ) -> None:
         """Test that split_file preserves section_title in metadata."""
-        result = chunker.split_file(sample_prose, document_type="prose", section_title="Prose Section")
+        result = chunker.split_file(
+            sample_prose, document_type="prose", section_title="Prose Section"
+        )
 
         assert len(result) > 0
         assert all(chunk["metadata"]["section_title"] == "Prose Section" for chunk in result)
@@ -313,7 +359,9 @@ class TestChonkieIntegration:
     """Tests that mock Chonkie integration for routing verification."""
 
     @patch("modules.indexer.chunker.RecursiveChunker")
-    def test_markdown_recipe_used_for_markdown_type(self, mock_recursive_chunker: MagicMock, chunker: SemanticChunker) -> None:
+    def test_markdown_recipe_used_for_markdown_type(
+        self, mock_recursive_chunker: MagicMock, chunker: SemanticChunker
+    ) -> None:
         """Test that markdown document_type uses RecursiveChunker.from_recipe('markdown')."""
         mock_splitter = MagicMock()
         mock_splitter.chunk.return_value = ["chunk1", "chunk2"]

@@ -198,9 +198,7 @@ class RAGManager:
         active_chunker = chunker or self.chunker
 
         # Semantic chunking with metadata preservation
-        chunks_with_metadata = active_chunker.split_text(
-            content, document_type=document_type
-        )
+        chunks_with_metadata = active_chunker.split_text(content, document_type=document_type)
 
         if not chunks_with_metadata:
             return 0
@@ -218,14 +216,16 @@ class RAGManager:
             points = []
             import uuid
 
-            for i, (chunk_data, vector) in enumerate(zip(chunks_with_metadata, embeddings, strict=False)):
+            for i, (chunk_data, vector) in enumerate(
+                zip(chunks_with_metadata, embeddings, strict=False)
+            ):
                 point_id = str(uuid.uuid4())
-                
+
                 # Build payload with chunk metadata preserved
                 payload = metadata.copy()
                 payload["text"] = chunk_data["text"]
                 payload["chunk_index"] = i
-                
+
                 # Preserve semantic chunk metadata
                 chunk_metadata = chunk_data.get("metadata", {})
                 if "section_title" in chunk_metadata:

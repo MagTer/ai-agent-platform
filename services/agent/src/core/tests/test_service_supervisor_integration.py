@@ -41,15 +41,17 @@ class TestShouldAutoReplan:
             args={"query": "test query"},
         )
 
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 0.45}],
-            "result_count": 1,
-            "min_score": 0.45,
-            "max_score": 0.45,
-            "avg_score": 0.45,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.45}],
+                "result_count": 1,
+                "min_score": 0.45,
+                "max_score": 0.45,
+                "avg_score": 0.45,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -78,15 +80,17 @@ class TestShouldAutoReplan:
             args={"query": "test query"},
         )
 
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 0.85}],
-            "result_count": 1,
-            "min_score": 0.85,
-            "max_score": 0.85,
-            "avg_score": 0.85,
-            "retrieval_sufficient": True,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.85}],
+                "result_count": 1,
+                "min_score": 0.85,
+                "max_score": 0.85,
+                "avg_score": 0.85,
+                "retrieval_sufficient": True,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -114,15 +118,17 @@ class TestShouldAutoReplan:
         )
 
         # Empty results
-        rag_output = json.dumps({
-            "results": [],
-            "result_count": 0,
-            "min_score": 0.0,
-            "max_score": 0.0,
-            "avg_score": 0.0,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [],
+                "result_count": 0,
+                "min_score": 0.0,
+                "max_score": 0.0,
+                "avg_score": 0.0,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -151,18 +157,20 @@ class TestShouldAutoReplan:
             args={"query": "vague query"},
         )
 
-        rag_output = json.dumps({
-            "results": [
-                {"id": "1", "score": 0.50},
-                {"id": "2", "score": 0.55},
-            ],
-            "result_count": 2,
-            "min_score": 0.50,
-            "max_score": 0.55,
-            "avg_score": 0.525,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [
+                    {"id": "1", "score": 0.50},
+                    {"id": "2", "score": 0.55},
+                ],
+                "result_count": 2,
+                "min_score": 0.50,
+                "max_score": 0.55,
+                "avg_score": 0.525,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -245,10 +253,12 @@ class TestShouldAutoReplan:
         )
 
         # JSON without retrieval_sufficient field
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 0.85}],
-            "result_count": 1,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.85}],
+                "result_count": 1,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -276,14 +286,16 @@ class TestShouldAutoReplan:
         )
 
         # JSON without result_count field
-        rag_output = json.dumps({
-            "results": [],
-            "min_score": 0.0,
-            "max_score": 0.0,
-            "avg_score": 0.0,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [],
+                "min_score": 0.0,
+                "max_score": 0.0,
+                "avg_score": 0.0,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -313,15 +325,17 @@ class TestShouldAutoReplan:
         )
 
         # Negative scores - corrupted data
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": -0.15}],
-            "result_count": 1,
-            "min_score": -0.15,
-            "max_score": -0.15,
-            "avg_score": -0.15,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": -0.15}],
+                "result_count": 1,
+                "min_score": -0.15,
+                "max_score": -0.15,
+                "avg_score": -0.15,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -352,15 +366,17 @@ class TestShouldAutoReplan:
         )
 
         # Scores above 1.0 - malformed but should still be evaluated
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 1.5}],
-            "result_count": 1,
-            "min_score": 1.5,
-            "max_score": 1.5,
-            "avg_score": 1.5,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 1.5}],
+                "result_count": 1,
+                "min_score": 1.5,
+                "max_score": 1.5,
+                "avg_score": 1.5,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -430,15 +446,17 @@ class TestCheckRagRetrievalSufficiency:
             args={"query": "niche topic"},
         )
 
-        rag_output = json.dumps({
-            "results": [],
-            "result_count": 0,
-            "min_score": 0.0,
-            "max_score": 0.0,
-            "avg_score": 0.0,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [],
+                "result_count": 0,
+                "min_score": 0.0,
+                "max_score": 0.0,
+                "avg_score": 0.0,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -468,15 +486,17 @@ class TestCheckRagRetrievalSufficiency:
         )
 
         # Scores well below threshold (0.30 avg vs 0.65 threshold)
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 0.30}],
-            "result_count": 1,
-            "min_score": 0.30,
-            "max_score": 0.30,
-            "avg_score": 0.30,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.30}],
+                "result_count": 1,
+                "min_score": 0.30,
+                "max_score": 0.30,
+                "avg_score": 0.30,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -505,18 +525,20 @@ class TestCheckRagRetrievalSufficiency:
         )
 
         # Moderate scores - might improve with reformulation
-        rag_output = json.dumps({
-            "results": [
-                {"id": "1", "score": 0.50},
-                {"id": "2", "score": 0.55},
-            ],
-            "result_count": 2,
-            "min_score": 0.50,
-            "max_score": 0.55,
-            "avg_score": 0.525,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [
+                    {"id": "1", "score": 0.50},
+                    {"id": "2", "score": 0.55},
+                ],
+                "result_count": 2,
+                "min_score": 0.50,
+                "max_score": 0.55,
+                "avg_score": 0.525,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -545,15 +567,17 @@ class TestCheckRagRetrievalSufficiency:
             args={"query": "common topic"},
         )
 
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 0.85}],
-            "result_count": 1,
-            "min_score": 0.85,
-            "max_score": 0.85,
-            "avg_score": 0.85,
-            "retrieval_sufficient": True,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.85}],
+                "result_count": 1,
+                "min_score": 0.85,
+                "max_score": 0.85,
+                "avg_score": 0.85,
+                "retrieval_sufficient": True,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -603,15 +627,17 @@ class TestRetrievalBoundaryConditions:
             args={"query": "test query"},
         )
 
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 0.6500}],
-            "result_count": 1,
-            "min_score": 0.6500,
-            "max_score": 0.6500,
-            "avg_score": 0.6500,
-            "retrieval_sufficient": True,  # 0.65 >= 0.65
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.6500}],
+                "result_count": 1,
+                "min_score": 0.6500,
+                "max_score": 0.6500,
+                "avg_score": 0.6500,
+                "retrieval_sufficient": True,  # 0.65 >= 0.65
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -639,15 +665,17 @@ class TestRetrievalBoundaryConditions:
             args={"query": "test query"},
         )
 
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 0.6499}],
-            "result_count": 1,
-            "min_score": 0.6499,
-            "max_score": 0.6499,
-            "avg_score": 0.6499,
-            "retrieval_sufficient": False,  # 0.6499 < 0.65
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.6499}],
+                "result_count": 1,
+                "min_score": 0.6499,
+                "max_score": 0.6499,
+                "avg_score": 0.6499,
+                "retrieval_sufficient": False,  # 0.6499 < 0.65
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -680,15 +708,17 @@ class TestRetrievalBoundaryConditions:
             args={"query": "test query"},
         )
 
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 0.3250}],
-            "result_count": 1,
-            "min_score": 0.3250,
-            "max_score": 0.3250,
-            "avg_score": 0.3250,
-            "retrieval_sufficient": False,  # 0.325 < 0.65
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.3250}],
+                "result_count": 1,
+                "min_score": 0.3250,
+                "max_score": 0.3250,
+                "avg_score": 0.3250,
+                "retrieval_sufficient": False,  # 0.325 < 0.65
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -721,15 +751,17 @@ class TestRetrievalBoundaryConditions:
             args={"query": "test query"},
         )
 
-        rag_output = json.dumps({
-            "results": [{"id": "1", "score": 0.3251}],
-            "result_count": 1,
-            "min_score": 0.3251,
-            "max_score": 0.3251,
-            "avg_score": 0.3251,
-            "retrieval_sufficient": False,  # 0.3251 < 0.65
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.3251}],
+                "result_count": 1,
+                "min_score": 0.3251,
+                "max_score": 0.3251,
+                "avg_score": 0.3251,
+                "retrieval_sufficient": False,  # 0.3251 < 0.65
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,

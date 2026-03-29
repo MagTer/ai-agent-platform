@@ -220,9 +220,7 @@ class HITLRequest(BaseModel):
     Encapsulates the interaction request when a draft needs user approval.
     """
 
-    category: AwaitingInputCategory = Field(
-        description="Type of user input being requested"
-    )
+    category: AwaitingInputCategory = Field(description="Type of user input being requested")
     prompt: str = Field(description="Natural language prompt to present to the user")
     options: list[str] | None = Field(
         default=None, description="Available options for selection categories"

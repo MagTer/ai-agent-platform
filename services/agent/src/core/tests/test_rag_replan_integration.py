@@ -66,17 +66,19 @@ class TestMultiStepReplanLoop:
     ) -> None:
         """Test that first attempt with low scores returns REPLAN with feedback."""
         # Mock RAG response with insufficient scores
-        rag_output = json.dumps({
-            "results": [
-                {"id": "1", "score": 0.45, "uri": "doc1", "text": "Some content"},
-            ],
-            "result_count": 1,
-            "min_score": 0.45,
-            "max_score": 0.45,
-            "avg_score": 0.45,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        rag_output = json.dumps(
+            {
+                "results": [
+                    {"id": "1", "score": 0.45, "uri": "doc1", "text": "Some content"},
+                ],
+                "result_count": 1,
+                "min_score": 0.45,
+                "max_score": 0.45,
+                "avg_score": 0.45,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         mock_rag_manager.retrieve.return_value = [
             {"uri": "doc1", "text": "Some content", "score": 0.45},
@@ -137,31 +139,35 @@ class TestMultiStepReplanLoop:
     ) -> None:
         """Test that replan uses feedback from previous attempt."""
         # First attempt: low scores
-        first_rag_output = json.dumps({
-            "results": [
-                {"id": "1", "score": 0.45, "uri": "doc1", "text": "Some content"},
-            ],
-            "result_count": 1,
-            "min_score": 0.45,
-            "max_score": 0.45,
-            "avg_score": 0.45,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        first_rag_output = json.dumps(
+            {
+                "results": [
+                    {"id": "1", "score": 0.45, "uri": "doc1", "text": "Some content"},
+                ],
+                "result_count": 1,
+                "min_score": 0.45,
+                "max_score": 0.45,
+                "avg_score": 0.45,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         # Second attempt: higher scores after reformulation
-        second_rag_output = json.dumps({
-            "results": [
-                {"id": "1", "score": 0.75, "uri": "doc1", "text": "Better content"},
-                {"id": "2", "score": 0.70, "uri": "doc2", "text": "Another content"},
-            ],
-            "result_count": 2,
-            "min_score": 0.70,
-            "max_score": 0.75,
-            "avg_score": 0.725,
-            "retrieval_sufficient": True,
-            "threshold": 0.65,
-        })
+        second_rag_output = json.dumps(
+            {
+                "results": [
+                    {"id": "1", "score": 0.75, "uri": "doc1", "text": "Better content"},
+                    {"id": "2", "score": 0.70, "uri": "doc2", "text": "Another content"},
+                ],
+                "result_count": 2,
+                "min_score": 0.70,
+                "max_score": 0.75,
+                "avg_score": 0.725,
+                "retrieval_sufficient": True,
+                "threshold": 0.65,
+            }
+        )
 
         # Track call count for different queries
         call_tracker = {"first_call": True}
@@ -246,29 +252,33 @@ class TestMultiStepReplanLoop:
     ) -> None:
         """Test that sufficient scores after replan return SUCCESS outcome."""
         # Initial attempt: insufficient
-        insufficient_output = json.dumps({
-            "results": [{"id": "1", "score": 0.50, "uri": "doc1", "text": "Content"}],
-            "result_count": 1,
-            "min_score": 0.50,
-            "max_score": 0.50,
-            "avg_score": 0.50,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        insufficient_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.50, "uri": "doc1", "text": "Content"}],
+                "result_count": 1,
+                "min_score": 0.50,
+                "max_score": 0.50,
+                "avg_score": 0.50,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         # Retry: sufficient
-        sufficient_output = json.dumps({
-            "results": [
-                {"id": "1", "score": 0.75, "uri": "doc1", "text": "Better content"},
-                {"id": "2", "score": 0.80, "uri": "doc2", "text": "Another content"},
-            ],
-            "result_count": 2,
-            "min_score": 0.75,
-            "max_score": 0.80,
-            "avg_score": 0.775,
-            "retrieval_sufficient": True,
-            "threshold": 0.65,
-        })
+        sufficient_output = json.dumps(
+            {
+                "results": [
+                    {"id": "1", "score": 0.75, "uri": "doc1", "text": "Better content"},
+                    {"id": "2", "score": 0.80, "uri": "doc2", "text": "Another content"},
+                ],
+                "result_count": 2,
+                "min_score": 0.75,
+                "max_score": 0.80,
+                "avg_score": 0.775,
+                "retrieval_sufficient": True,
+                "threshold": 0.65,
+            }
+        )
 
         with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
             service = AgentService(
@@ -365,15 +375,17 @@ class TestMultiStepReplanLoop:
             )
 
             # All attempts return insufficient results
-            insufficient_output = json.dumps({
-                "results": [{"id": "1", "score": 0.20, "uri": "doc1", "text": "Content"}],
-                "result_count": 1,
-                "min_score": 0.20,
-                "max_score": 0.20,
-                "avg_score": 0.20,
-                "retrieval_sufficient": False,
-                "threshold": 0.65,
-            })
+            insufficient_output = json.dumps(
+                {
+                    "results": [{"id": "1", "score": 0.20, "uri": "doc1", "text": "Content"}],
+                    "result_count": 1,
+                    "min_score": 0.20,
+                    "max_score": 0.20,
+                    "avg_score": 0.20,
+                    "retrieval_sufficient": False,
+                    "threshold": 0.65,
+                }
+            )
 
             # Track replan decisions for each attempt
             replan_decisions = []
@@ -476,15 +488,17 @@ class TestMultiStepReplanLoop:
                 args={"query": "stubborn query"},
             )
 
-            insufficient_output = json.dumps({
-                "results": [{"id": "1", "score": 0.20, "uri": "doc1", "text": "Content"}],
-                "result_count": 1,
-                "min_score": 0.20,
-                "max_score": 0.20,
-                "avg_score": 0.20,
-                "retrieval_sufficient": False,
-                "threshold": 0.65,
-            })
+            insufficient_output = json.dumps(
+                {
+                    "results": [{"id": "1", "score": 0.20, "uri": "doc1", "text": "Content"}],
+                    "result_count": 1,
+                    "min_score": 0.20,
+                    "max_score": 0.20,
+                    "avg_score": 0.20,
+                    "retrieval_sufficient": False,
+                    "threshold": 0.65,
+                }
+            )
 
             # The _should_auto_replan method will return True for insufficient retrieval
             # The actual max limit is enforced by the service execution loop
@@ -554,6 +568,7 @@ class TestMultiStepReplanLoop:
     # Test 7: Boundary condition - exactly 3 replans allowed, 4th should stop
     # ────────────────────────────────────────────────────────────────────────────
 
+
 class TestStepSupervisorReplanIntegration:
     """Integration tests for StepSupervisor with replan outcomes."""
 
@@ -579,15 +594,17 @@ class TestStepSupervisorReplanIntegration:
             args={"query": "test query"},
         )
 
-        insufficient_output = json.dumps({
-            "results": [{"id": "1", "score": 0.40, "uri": "doc1", "text": "Content"}],
-            "result_count": 1,
-            "min_score": 0.40,
-            "max_score": 0.40,
-            "avg_score": 0.40,
-            "retrieval_sufficient": False,
-            "threshold": 0.65,
-        })
+        insufficient_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.40, "uri": "doc1", "text": "Content"}],
+                "result_count": 1,
+                "min_score": 0.40,
+                "max_score": 0.40,
+                "avg_score": 0.40,
+                "retrieval_sufficient": False,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -621,15 +638,17 @@ class TestStepSupervisorReplanIntegration:
             args={"query": "test query"},
         )
 
-        sufficient_output = json.dumps({
-            "results": [{"id": "1", "score": 0.80, "uri": "doc1", "text": "Content"}],
-            "result_count": 1,
-            "min_score": 0.80,
-            "max_score": 0.80,
-            "avg_score": 0.80,
-            "retrieval_sufficient": True,
-            "threshold": 0.65,
-        })
+        sufficient_output = json.dumps(
+            {
+                "results": [{"id": "1", "score": 0.80, "uri": "doc1", "text": "Content"}],
+                "result_count": 1,
+                "min_score": 0.80,
+                "max_score": 0.80,
+                "avg_score": 0.80,
+                "retrieval_sufficient": True,
+                "threshold": 0.65,
+            }
+        )
 
         step_result = StepResult(
             step=step,
@@ -706,15 +725,17 @@ class TestAgentServiceReplanLogic:
             )
 
             # Insufficient retrieval output
-            insufficient_output = json.dumps({
-                "results": [{"id": "1", "score": 0.40, "uri": "doc1", "text": "Content"}],
-                "result_count": 1,
-                "min_score": 0.40,
-                "max_score": 0.40,
-                "avg_score": 0.40,
-                "retrieval_sufficient": False,
-                "threshold": 0.65,
-            })
+            insufficient_output = json.dumps(
+                {
+                    "results": [{"id": "1", "score": 0.40, "uri": "doc1", "text": "Content"}],
+                    "result_count": 1,
+                    "min_score": 0.40,
+                    "max_score": 0.40,
+                    "avg_score": 0.40,
+                    "retrieval_sufficient": False,
+                    "threshold": 0.65,
+                }
+            )
 
             should_replan, feedback = service._should_auto_replan(
                 StepResult(
@@ -759,18 +780,20 @@ class TestAgentServiceReplanLogic:
             )
 
             # Sufficient retrieval output
-            sufficient_output = json.dumps({
-                "results": [
-                    {"id": "1", "score": 0.75, "uri": "doc1", "text": "Good content"},
-                    {"id": "2", "score": 0.80, "uri": "doc2", "text": "Another good content"},
-                ],
-                "result_count": 2,
-                "min_score": 0.75,
-                "max_score": 0.80,
-                "avg_score": 0.775,
-                "retrieval_sufficient": True,
-                "threshold": 0.65,
-            })
+            sufficient_output = json.dumps(
+                {
+                    "results": [
+                        {"id": "1", "score": 0.75, "uri": "doc1", "text": "Good content"},
+                        {"id": "2", "score": 0.80, "uri": "doc2", "text": "Another good content"},
+                    ],
+                    "result_count": 2,
+                    "min_score": 0.75,
+                    "max_score": 0.80,
+                    "avg_score": 0.775,
+                    "retrieval_sufficient": True,
+                    "threshold": 0.65,
+                }
+            )
 
             should_replan, feedback = service._should_auto_replan(
                 StepResult(
@@ -814,15 +837,17 @@ class TestAgentServiceReplanLogic:
             )
 
             # Empty results
-            empty_output = json.dumps({
-                "results": [],
-                "result_count": 0,
-                "min_score": 0.0,
-                "max_score": 0.0,
-                "avg_score": 0.0,
-                "retrieval_sufficient": False,
-                "threshold": 0.65,
-            })
+            empty_output = json.dumps(
+                {
+                    "results": [],
+                    "result_count": 0,
+                    "min_score": 0.0,
+                    "max_score": 0.0,
+                    "avg_score": 0.0,
+                    "retrieval_sufficient": False,
+                    "threshold": 0.65,
+                }
+            )
 
             should_replan, feedback = service._should_auto_replan(
                 StepResult(step=step, status="ok", result={"output": empty_output}, messages=[]),
