@@ -124,7 +124,7 @@ jobs:
             -f services/agent/Dockerfile \
             services/agent
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: 'agent:${{ github.sha }}'
           format: 'table'
@@ -133,7 +133,7 @@ jobs:
           exit-code: '1'
       - name: Generate Trivy SARIF report
         if: always()
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: 'agent:${{ github.sha }}'
           format: 'sarif'
