@@ -287,8 +287,7 @@ async def oauth_callback(
             endpoint="/platformadmin/oauth/callback",
             details={"state": state[:8] + "..."},
         )
-        return HTMLResponse(
-            content="""<!DOCTYPE html>
+        return HTMLResponse(content="""<!DOCTYPE html>
 <html>
 <head><title>Authorization Successful</title>
 <style>body{font-family:system-ui,sans-serif;text-align:center;padding:50px}h1{color:#2e7d32}</style>
@@ -298,8 +297,7 @@ async def oauth_callback(
 <p>You can close this window and return to the admin portal.</p>
 <script>setTimeout(()=>window.close(),3000)</script>
 </body>
-</html>"""
-        )
+</html>""")
 
     except OAuthError as e:
         log_security_event(

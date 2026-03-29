@@ -1,9 +1,7 @@
 services:
   litellm:
-    # TODO: Pin to SHA digest instead of mutable tag for supply chain security
-    # Example: ghcr.io/berriai/litellm@sha256:abc123...
-    # Get digest: docker pull ghcr.io/berriai/litellm:main-latest && docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/berriai/litellm:main-latest
-    image: ghcr.io/berriai/litellm:v1.63.8
+    # SHA-pinned for supply chain security (was: ghcr.io/berriai/litellm:v1.63.8)
+    image: ghcr.io/berriai/litellm@sha256:7c311546c25e7bb6e8cafede9fcd3d0d622ac636b5c9418befaa32e85dfb0186
     expose:
       - "4000"
     volumes:
@@ -72,6 +70,9 @@ services:
       AGENT_ENTRA_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
       AGENT_ENTRA_TENANT_ID: ${MICROSOFT_CLIENT_TENANT_ID:-}
       AGENT_ADMIN_JWT_SECRET: ${AGENT_ADMIN_JWT_SECRET:-}
+      # OAuth redirect URIs (environment-specific)
+      AGENT_OAUTH_REDIRECT_URI_PROD: ${AGENT_OAUTH_REDIRECT_URI_PROD:-}
+      AGENT_OAUTH_REDIRECT_URI_DEV: ${AGENT_OAUTH_REDIRECT_URI_DEV:-}
     # Port NOT exposed externally - only accessible via internal Docker network
     # This is a SECURITY REQUIREMENT: agent trusts X-OpenWebUI-* headers
     # ports:
@@ -109,7 +110,8 @@ services:
       - "traefik.enable=false"
 
   postgres:
-    image: postgres:15-alpine
+    # SHA-pinned for supply chain security (was: postgres:15-alpine)
+    image: postgres@sha256:fceb6f86328c36f2438fae3b851b0cc57c4a7e69a58c866d9ce24281f2cf0c9c
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable required}
@@ -138,15 +140,15 @@ services:
         max-file: "5"
 
   qdrant:
-    # TODO: Pin to SHA digest instead of mutable tag for supply chain security
-    # Example: qdrant/qdrant@sha256:def456...
-    # Get digest: docker pull qdrant/qdrant:latest && docker inspect --format='{{index .RepoDigests 0}}' qdrant/qdrant:latest
-    image: qdrant/qdrant:v1.17.0
+    # SHA-pinned for supply chain security (was: qdrant/qdrant:v1.17.0)
+    image: qdrant/qdrant@sha256:f1c7272cdac52b38c1a0e89313922d940ba50afd90d593a1605dbbc214e66ffb
     # Internal only - uncomment for local debugging
     # ports:
     #   - "6333:6333"
     expose:
       - "6333"
+    environment:
+      QDRANT__SERVICE__API_KEY: "${QDRANT__SERVICE__API_KEY}"
     volumes:
       - ./data/qdrant:/qdrant/storage
     healthcheck:
@@ -194,7 +196,8 @@ services:
         max-file: "5"
 
   open-webui:
-    image: ghcr.io/open-webui/open-webui:0.8.3
+    # SHA-pinned for supply chain security (was: ghcr.io/open-webui/open-webui:0.8.3)
+    image: ghcr.io/open-webui/open-webui@sha256:205e9cf23b66553643b065afcdeffb7f86b35bf36e0ce643dc56946a911954b7
     # Port exposed via Traefik, not directly
     # ports:
     #   - "3000:8080"

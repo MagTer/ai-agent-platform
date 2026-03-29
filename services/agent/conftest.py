@@ -9,11 +9,14 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from unittest.mock import MagicMock
+
 import pytest
 
 from core.runtime.config import Settings
 from core.runtime.memory import MemoryStore
 from core.runtime.service import AgentService
+from core.skills.registry import Skill
 from core.tests.mocks import MockLLMClient
 
 
@@ -45,10 +48,26 @@ from core.tools.filesystem import ReadFileTool
 
 
 @pytest.fixture
-def mock_agent_service(mock_litellm, mock_settings, mock_memory_store):
-    # Register core tools for testing
-    from pathlib import Path
+def mock_skill_registry():
+    """Mock skill registry returning a basic skill for testing."""
+    registry = MagicMock()
+    skill = Skill(
+        name="mock_skill",
+        path=Path("/mock/skills/mock_skill.md"),
+        description="Mock skill for testing",
+        tools=[],
+        model="agentchat",
+        max_turns=3,
+        body_template="Answer the user's question.",
+    )
+    registry.get.return_value = skill
+    registry.get_skill_names.return_value = ["mock_skill"]
+    return registry
 
+
+@pytest.fixture
+def mock_agent_service(mock_litellm, mock_settings, mock_memory_store, mock_skill_registry):
+    # Register core tools for testing
     registry = ToolRegistry([ReadFileTool(base_path=Path("/"))])
 
     return AgentService(
@@ -56,4 +75,5 @@ def mock_agent_service(mock_litellm, mock_settings, mock_memory_store):
         litellm=mock_litellm,
         memory=mock_memory_store,
         tool_registry=registry,
+        skill_registry=mock_skill_registry,
     )

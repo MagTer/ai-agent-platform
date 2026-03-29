@@ -1,0 +1,15 @@
+   134 services/agent/src/core/context_manager.py
+   144 services/agent/src/shared/content_classifier.py
+   144 services/agent/src/stack/qdrant.py
+   144 services/agent/src/stack/utils.py
+   157 services/agent/src/core/system_commands.py
+   165 services/agent/src/core/command_loader.py
+   168 services/agent/src/stack/compose.py
+   182 services/agent/src/shared/models.py
+   206 services/agent/src/core/providers.py
+   297 services/agent/src/stack/backup.py
+   365 services/agent/src/stack/tooling.py
+   497 services/agent/src/orchestrator/dispatcher.py
+   719 services/agent/src/stack/checks.py
+  1995 services/agent/src/stack/cli.py
+  5908 total

@@ -18,8 +18,7 @@ def global_registry() -> Generator[SkillRegistry, None, None]:
         skills_dir.mkdir()
 
         # Create global skill
-        (skills_dir / "global_skill.md").write_text(
-            """---
+        (skills_dir / "global_skill.md").write_text("""---
 name: "global_skill"
 description: "A global skill"
 tools: ["tool1"]
@@ -28,20 +27,17 @@ max_turns: 5
 ---
 
 Global skill body
-"""
-        )
+""")
 
         # Create another global skill
-        (skills_dir / "shared_skill.md").write_text(
-            """---
+        (skills_dir / "shared_skill.md").write_text("""---
 name: "shared_skill"
 description: "A skill in both global and context"
 tools: ["tool2"]
 ---
 
 Global version of shared skill
-"""
-        )
+""")
 
         registry = SkillRegistry(skills_dir=skills_dir)
         yield registry
@@ -55,28 +51,24 @@ def context_skills() -> Generator[dict[str, Skill], None, None]:
         skills_dir.mkdir()
 
         # Context-only skill
-        (skills_dir / "context_skill.md").write_text(
-            """---
+        (skills_dir / "context_skill.md").write_text("""---
 name: "context_skill"
 description: "A context-only skill"
 tools: ["tool3"]
 ---
 
 Context skill body
-"""
-        )
+""")
 
         # Override shared skill
-        (skills_dir / "shared_skill.md").write_text(
-            """---
+        (skills_dir / "shared_skill.md").write_text("""---
 name: "shared_skill"
 description: "Context override of shared skill"
 tools: ["tool4"]
 ---
 
 Context version of shared skill (overrides global)
-"""
-        )
+""")
 
         from core.skills.registry import parse_skill_content
 
@@ -190,8 +182,7 @@ async def test_load_skills_from_dir_success() -> None:
         skills_dir = Path(tmpdir)
 
         # Create valid skill file
-        (skills_dir / "test_skill.md").write_text(
-            """---
+        (skills_dir / "test_skill.md").write_text("""---
 name: "test_skill"
 description: "Test skill"
 tools: ["tool1", "tool2"]
@@ -200,8 +191,7 @@ max_turns: 10
 ---
 
 Skill body here
-"""
-        )
+""")
 
         from core.skills.registry import SkillRegistry
 
@@ -233,15 +223,13 @@ async def test_load_skills_from_dir_invalid_frontmatter() -> None:
         skills_dir = Path(tmpdir)
 
         # Create invalid skill file (malformed YAML)
-        (skills_dir / "bad_skill.md").write_text(
-            """---
+        (skills_dir / "bad_skill.md").write_text("""---
 name: "bad_skill
 invalid yaml: [unclosed
 ---
 
 Body
-"""
-        )
+""")
 
         from core.skills.registry import SkillRegistry
 
@@ -260,16 +248,14 @@ async def test_load_skills_from_dir_subdirectories() -> None:
         subdir.mkdir()
 
         # Create skill in subdirectory
-        (subdir / "researcher.md").write_text(
-            """---
+        (subdir / "researcher.md").write_text("""---
 name: "researcher"
 description: "Research skill"
 tools: ["web_search"]
 ---
 
 Research body
-"""
-        )
+""")
 
         from core.skills.registry import SkillRegistry
 

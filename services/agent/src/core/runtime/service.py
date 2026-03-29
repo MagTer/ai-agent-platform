@@ -24,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.agents import (
     PlannerAgent,
     PlanSupervisorAgent,
-    StepExecutorAgent,
     StepSupervisorAgent,
 )
 from core.command_loader import get_available_skill_names, get_registry_index
@@ -238,7 +237,6 @@ class AgentService:
     ) -> tuple[
         PlannerAgent,
         PlanSupervisorAgent,
-        StepExecutorAgent,
         StepSupervisorAgent,
         SkillExecutor | None,
         list[str],
@@ -246,7 +244,7 @@ class AgentService:
         """Instantiate all agents and executors.
 
         Returns:
-            Tuple of (planner, plan_supervisor, executor, step_supervisor,
+            Tuple of (planner, plan_supervisor, step_supervisor,
                       skill_executor, skill_names)
         """
         planner = PlannerAgent(self._litellm, model_name=self._settings.model_planner)
@@ -265,7 +263,6 @@ class AgentService:
             tool_registry=self._tool_registry,
             skill_names=set(skill_names) if skill_names else None,
         )
-        executor = StepExecutorAgent(self._memory, self._litellm, self._tool_registry)
         step_supervisor = StepSupervisorAgent(
             self._litellm, model_name=self._settings.model_supervisor
         )
@@ -278,7 +275,7 @@ class AgentService:
                 litellm=self._litellm,
             )
 
-        return planner, plan_supervisor, executor, step_supervisor, skill_executor, skill_names
+        return planner, plan_supervisor, step_supervisor, skill_executor, skill_names
 
     async def _route_chat_request(
         self,
@@ -328,7 +325,6 @@ class AgentService:
         self,
         plan_step: PlanStep,
         skill_executor: SkillExecutor | None,
-        executor: StepExecutorAgent,
         request: AgentRequest,
         prompt_history: list[AgentMessage],
         retry_feedback: str | None = None,
@@ -337,8 +333,7 @@ class AgentService:
 
         Args:
             plan_step: The step to execute
-            skill_executor: Optional skill executor
-            executor: The step executor agent
+            skill_executor: The skill executor
             request: The agent request
             prompt_history: Conversation history
             retry_feedback: Optional retry feedback from supervisor
@@ -346,11 +341,10 @@ class AgentService:
         Yields:
             Event dictionaries, with final event being step_result
         """
-        is_skill_step = plan_step.executor == "skill" or plan_step.action == "skill"
         step_result: StepResult | None = None
         awaiting_input_request: AwaitingInputRequest | None = None
 
-        if is_skill_step and skill_executor:
+        if skill_executor:
             async for event in skill_executor.execute_stream(
                 plan_step,
                 request=request,
@@ -434,23 +428,10 @@ class AgentService:
 
                 await asyncio.sleep(0)  # Force flush
         else:
-            # Use legacy StepExecutorAgent
-            async for event in executor.run_stream(
-                plan_step,
-                request=request,
-                conversation_id=request.conversation_id or str(uuid.uuid4()),
-                prompt_history=prompt_history,
-            ):
-                if event["type"] == "content":
-                    yield {"type": "content", "content": event["content"]}
-                elif event["type"] == "thinking":
-                    meta = (event.get("metadata") or {}).copy()
-                    meta["id"] = plan_step.id
-                    yield {"type": "thinking", "content": event["content"], "metadata": meta}
-                elif event["type"] == "result":
-                    step_result = event["result"]
-
-                await asyncio.sleep(0)  # Force flush
+            raise RuntimeError(
+                f"No SkillExecutor available for step '{plan_step.label}'. "
+                "All plan steps must use executor='skill'."
+            )
 
         # Yield result as final event
         yield {
@@ -464,7 +445,8 @@ class AgentService:
 
         This method detects common failure patterns that should trigger an automatic
         replan without requiring supervisor LLM evaluation. This saves latency and cost
-        for obvious failures like authentication errors, timeouts, or resource not found.
+        for obvious failures like authentication errors, timeouts, resource not found,
+        or insufficient RAG retrieval.
 
         Only checks text patterns when the step explicitly reported an error status.
         Successful results (status="ok") are always sent to the step supervisor for
@@ -479,8 +461,13 @@ class AgentService:
             Tuple of (should_replan, reason). If should_replan is True,
             the step should trigger a replan immediately.
         """
-        # Only auto-replan on explicit error status. Successful results should
-        # be evaluated by the step supervisor to avoid false positives.
+        # Check for rag_search insufficient retrieval - this can happen even on "ok" status
+        # because rag_search returns structured output with retrieval_sufficient flag
+        if plan_step.tool == "rag_search":
+            return self._check_rag_retrieval_sufficiency(step_result, plan_step)
+
+        # Only auto-replan on explicit error status for non-rag_search tools.
+        # Successful results should be evaluated by the step supervisor to avoid false positives.
         if step_result.status != "error":
             LOGGER.debug(
                 "Auto-replan skipped for step '%s' (status=%s, not error)",
@@ -523,11 +510,87 @@ class AgentService:
         # Generic error fallback
         return True, f"Tool returned error: {output[:200]}"
 
+    def _check_rag_retrieval_sufficiency(
+        self, step_result: StepResult, plan_step: PlanStep
+    ) -> tuple[bool, str]:
+        """Check if rag_search result indicates insufficient retrieval for replan.
+
+        Parses the structured JSON output from rag_search and checks the
+        retrieval_sufficient flag. If false, triggers auto-replan with feedback
+        including scores and threshold for transparency.
+
+        Args:
+            step_result: The result from rag_search execution
+            plan_step: The plan step that was executed
+
+        Returns:
+            Tuple of (should_replan, reason). If should_replan is True,
+            the step should trigger a replan immediately due to insufficient retrieval.
+        """
+        import json
+
+        # Get output from result - rag_search stores results in "output" field
+        output_str = str(step_result.result.get("output", "") or "")
+
+        if not output_str:
+            LOGGER.debug("Auto-replan rag_search: no output to check")
+            return False, ""
+
+        try:
+            output_data = json.loads(output_str)
+        except json.JSONDecodeError:
+            LOGGER.warning("Auto-replan rag_search: invalid JSON in output")
+            return False, ""
+
+        # Check if retrieval_sufficient field exists
+        if "retrieval_sufficient" not in output_data:
+            LOGGER.debug("Auto-replan rag_search: no retrieval_sufficient field")
+            return False, ""
+
+        retrieval_sufficient = output_data.get("retrieval_sufficient", True)
+
+        # If retrieval is sufficient, no replan needed
+        if retrieval_sufficient:
+            LOGGER.debug("Auto-replan rag_search: retrieval_sufficient=true, no replan")
+            return False, ""
+
+        # Retrieval is insufficient - prepare detailed reason
+        avg_score = output_data.get("avg_score", 0.0)
+        threshold = output_data.get("threshold", 0.65)
+        result_count = output_data.get("result_count", 0)
+        min_score = output_data.get("min_score", 0.0)
+        max_score = output_data.get("max_score", 0.0)
+
+        # Log structured info for observability
+        LOGGER.info(
+            "Auto-replan rag_search triggered: retrieval_sufficient=false "
+            "(avg_score=%.4f, threshold=%.4f, result_count=%d)",
+            avg_score,
+            threshold,
+            result_count,
+        )
+
+        # Distinguish empty results from low-scoring results
+        if result_count == 0:
+            reason = (
+                "RAG retrieval returned no results. "
+                "The knowledge base may not contain relevant information for this query. "
+                "Consider broadening the search terms or using a different approach."
+            )
+        else:
+            reason = (
+                f"RAG retrieval insufficient: average relevance score {avg_score:.4f} "
+                f"is below threshold {threshold:.4f}. Retrieved {result_count} documents "
+                f"with scores ranging from {min_score:.4f} to {max_score:.4f}. "
+                f"Consider refining the query or using external tools."
+            )
+
+        return True, reason
+
     async def _execute_step_with_retry(
         self,
         plan_step: PlanStep,
         skill_executor: SkillExecutor | None,
-        executor: StepExecutorAgent,
         step_supervisor: StepSupervisorAgent,
         request: AgentRequest,
         prompt_history: list[AgentMessage],
@@ -539,8 +602,7 @@ class AgentService:
 
         Args:
             plan_step: The step to execute
-            skill_executor: Optional skill executor
-            executor: The step executor agent
+            skill_executor: The skill executor
             step_supervisor: The step supervisor
             request: The agent request
             prompt_history: Conversation history
@@ -590,7 +652,7 @@ class AgentService:
 
             try:
                 async for event in self._execute_step(
-                    plan_step, skill_executor, executor, request, prompt_history, retry_feedback
+                    plan_step, skill_executor, request, prompt_history, retry_feedback
                 ):
                     if event["type"] == "step_result":
                         step_execution_result = event["result"]
@@ -660,6 +722,32 @@ class AgentService:
                     auto_span.set_attribute("triggered", should_auto_replan)
                     if auto_reason:
                         auto_span.set_attribute("reason", auto_reason)
+
+                    # Capture retrieval-specific attributes for observability
+                    if plan_step.tool == "rag_search" and should_auto_replan:
+                        auto_span.set_attribute("auto_replan", True)
+                        auto_span.set_attribute("reason", "retrieval_insufficient")
+                        # Try to extract scores from result for detailed tracing
+                        try:
+                            import json
+
+                            output_str = str(step_execution_result.result.get("output", "") or "")
+                            if output_str:
+                                output_data = json.loads(output_str)
+                                auto_span.set_attribute(
+                                    "avg_score", output_data.get("avg_score", 0.0)
+                                )
+                                auto_span.set_attribute(
+                                    "threshold", output_data.get("threshold", 0.65)
+                                )
+                                auto_span.set_attribute(
+                                    "result_count", output_data.get("result_count", 0)
+                                )
+                        except Exception:
+                            # Ignore extraction errors - the replan reason already has the info
+                            LOGGER.debug(
+                                "Failed to extract retrieval metrics for span", exc_info=True
+                            )
 
                 if should_auto_replan:
                     LOGGER.info(
@@ -1049,7 +1137,6 @@ class AgentService:
         db_conversation: Conversation,
         planner: PlannerAgent,
         plan_supervisor: PlanSupervisorAgent,
-        executor: StepExecutorAgent,
         step_supervisor: StepSupervisorAgent,
         skill_executor: SkillExecutor | None,
         skill_names: list[str],
@@ -1065,9 +1152,8 @@ class AgentService:
             db_conversation: The Conversation
             planner: The planner agent
             plan_supervisor: The plan supervisor
-            executor: The step executor agent
             step_supervisor: The step supervisor
-            skill_executor: Optional skill executor
+            skill_executor: The skill executor
             skill_names: List of available skill names
             conversation_id: The conversation ID
 
@@ -1161,7 +1247,12 @@ class AgentService:
                 raise ValueError("Plan is None after generation")
 
             if not plan.steps:
-                plan = self._fallback_plan(request.prompt)
+                LOGGER.error("Planner returned an empty plan — cannot execute.")
+                yield {
+                    "type": "error",
+                    "content": "Planning failed: the planner did not produce any steps.",
+                }
+                return
 
             # Execute steps
             needs_replan = False
@@ -1182,7 +1273,6 @@ class AgentService:
                 async for event in self._execute_step_with_retry(
                     plan_step,
                     skill_executor,
-                    executor,
                     step_supervisor,
                     request,
                     prompt_history,
@@ -1514,7 +1604,6 @@ class AgentService:
                     (
                         planner,
                         plan_supervisor,
-                        executor,
                         step_supervisor,
                         skill_executor,
                         skill_names,
@@ -1555,7 +1644,6 @@ class AgentService:
                         db_conversation,
                         planner,
                         plan_supervisor,
-                        executor,
                         step_supervisor,
                         skill_executor,
                         skill_names,
@@ -1758,28 +1846,6 @@ class AgentService:
     def _describe_tools(self, allowlist: set[str] | None = None) -> list[dict[str, Any]]:
         """Generate tool descriptions for LLM. Delegates to ToolRunner."""
         return self._tool_runner._describe_tools(allowlist)
-
-    def _fallback_plan(self, prompt: str) -> Plan:
-        return Plan(
-            steps=[
-                PlanStep(
-                    id=str(uuid.uuid4()),
-                    label="Retrieve relevant memories",
-                    executor="agent",
-                    action="memory",
-                    args={"query": prompt},
-                    description="Default memory lookup before the completion.",
-                ),
-                PlanStep(
-                    id=str(uuid.uuid4()),
-                    label="Generate final answer",
-                    executor="litellm",
-                    action="completion",
-                    description="Fallback completion step.",
-                ),
-            ],
-            description="Fallback plan generated when the planner response was invalid.",
-        )
 
     @staticmethod
     def _coerce_tool_call_args(raw_args: dict[str, Any]) -> dict[str, Any]:

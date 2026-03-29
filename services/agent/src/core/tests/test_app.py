@@ -15,7 +15,30 @@ from core.runtime.config import Settings
 from core.runtime.litellm_client import LiteLLMClient
 from core.runtime.memory import MemoryStore
 from core.runtime.service import AgentService
+from core.skills.registry import Skill
 from interfaces.http.app import create_app
+
+
+def _make_mock_skill(name: str = "mock_skill") -> Skill:
+    """Create a minimal Skill object for testing."""
+    return Skill(
+        name=name,
+        path=Path("/mock/skills") / f"{name}.md",
+        description="Mock skill for testing",
+        tools=[],
+        model="agentchat",
+        max_turns=3,
+        body_template="Answer the user's question.",
+    )
+
+
+def _make_mock_skill_registry(skill_name: str = "mock_skill") -> MagicMock:
+    """Create a mock SkillRegistry that returns a mock skill."""
+    registry = MagicMock()
+    skill = _make_mock_skill(skill_name)
+    registry.get.return_value = skill
+    registry.get_skill_names.return_value = [skill_name]
+    return registry
 
 
 class MockLiteLLMClient:
@@ -31,16 +54,12 @@ class MockLiteLLMClient:
             {
                 "steps": [
                     {
-                        "id": "memory",
-                        "label": "Fetch memories",
-                        "executor": "agent",
-                        "action": "memory",
-                    },
-                    {
-                        "id": "completion",
-                        "label": "Compose assistant reply",
-                        "executor": "litellm",
-                        "action": "completion",
+                        "id": "skill-step",
+                        "label": "Run mock skill",
+                        "executor": "skill",
+                        "action": "skill",
+                        "tool": "mock_skill",
+                        "args": {},
                     },
                 ]
             }
@@ -53,6 +72,32 @@ class MockLiteLLMClient:
         **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
         sequence = list(messages)
+        # Check if this is a planner call
+        system_content = ""
+        for m in sequence:
+            if hasattr(m, "role") and m.role == "system":
+                system_content = m.content or ""
+            elif isinstance(m, dict) and m.get("role") == "system":
+                system_content = m.get("content", "")
+        if "PLANNER AGENT" in system_content or "You are the Planner Agent" in system_content:
+            yield {
+                "type": "content",
+                "content": json.dumps(
+                    {
+                        "steps": [
+                            {
+                                "id": "skill-step",
+                                "label": "Run mock skill",
+                                "executor": "skill",
+                                "action": "skill",
+                                "tool": "mock_skill",
+                                "args": {},
+                            }
+                        ]
+                    }
+                ),
+            }
+            return
         content = (
             sequence[-1].content if hasattr(sequence[-1], "content") else sequence[-1]["content"]
         )
@@ -97,6 +142,7 @@ async def build_service(tmp_path: Path) -> AgentService:
         settings=settings,
         litellm=cast(LiteLLMClient, MockLiteLLMClient()),
         memory=memory,
+        skill_registry=_make_mock_skill_registry(),
     )
     return service
 
@@ -110,7 +156,9 @@ async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
     # Mock DB Dependency
     mock_session = AsyncMock()
 
-    mock_context = MagicMock(id="default-ctx", default_cwd="/tmp")  # noqa: S108
+    mock_context = MagicMock(
+        id="00000000-0000-0000-0000-000000000001", default_cwd="/tmp"  # noqa: S108
+    )
 
     def get_side_effect(model: Any, id: Any) -> Any:
         if model == Conversation:
@@ -123,7 +171,7 @@ async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
     mock_result = MagicMock()
     # Context
     mock_result.scalar_one_or_none.return_value = MagicMock(
-        id="default-ctx", default_cwd="/tmp"  # noqa: S108
+        id="00000000-0000-0000-0000-000000000001", default_cwd="/tmp"  # noqa: S108
     )
     # History
     mock_result.scalars.return_value.all.return_value = []
@@ -142,7 +190,7 @@ async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
             {"role": "system", "content": "be helpful"},
             {"role": "user", "content": "Hello"},
         ],
-        "metadata": {"tools": [], "context_id": "default-ctx"},
+        "metadata": {"tools": [], "context_id": "00000000-0000-0000-0000-000000000001"},
     }
 
     response = client.post("/v1/agent/chat/completions", json=payload)
@@ -166,7 +214,7 @@ async def test_chat_completions_roundtrip(tmp_path: Path) -> None:
             },
             {"role": "user", "content": "How are you?"},
         ],
-        "metadata": {"context_id": "default-ctx"},
+        "metadata": {"context_id": "00000000-0000-0000-0000-000000000001"},
     }
 
     second = client.post("/v1/agent/chat/completions", json=follow_payload)

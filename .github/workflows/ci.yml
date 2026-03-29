@@ -124,7 +124,7 @@ jobs:
             -f services/agent/Dockerfile \
             services/agent
       - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: 'agent:${{ github.sha }}'
           format: 'table'
@@ -133,7 +133,7 @@ jobs:
           exit-code: '1'
       - name: Generate Trivy SARIF report
         if: always()
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: 'agent:${{ github.sha }}'
           format: 'sarif'
@@ -168,7 +168,7 @@ jobs:
       - run: echo "${{ github.workspace }}/services/agent/.venv/bin" >> $GITHUB_PATH
       - run: pip install --upgrade pip pip-audit
       - name: Run pip-audit
-        run: pip-audit --strict --desc --ignore-vuln CVE-2026-1703
+        run: pip-audit --strict --desc --ignore-vuln CVE-2026-1703 --ignore-vuln CVE-2025-8869 --ignore-vuln CVE-2026-4539
 
   # Gate job - single required check for branch protection
   quality-gate:

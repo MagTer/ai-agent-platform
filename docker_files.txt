@@ -1,0 +1,706 @@
+# =============================================================================
+# DEVELOPMENT ENVIRONMENT
+# =============================================================================
+# Used when running: stack dev up
+#
+# This configuration:
+# - Uses separate database volumes to isolate dev data from prod
+# - Routes all traffic through Traefik (same as prod) via DOMAIN_DEV
+# - No direct port exposure -- all access via TLS through Traefik
+#
+# Access points (via Traefik, requires DOMAIN_DEV in .env):
+#   Open WebUI:  https://${DOMAIN_DEV}
+#   Agent Admin: https://${DOMAIN_DEV}/platformadmin
+# =============================================================================
+
+services:
+  # Agent with dev database and Traefik routing
+  agent:
+    environment:
+      AGENT_ENVIRONMENT: development
+      # Use dev database (same credentials as prod, different db name)
+      POSTGRES_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/agent_db_dev
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.agent-admin-dev.rule=Host(`${DOMAIN_DEV:-agent-dev.local}`) && PathPrefix(`/platformadmin`)"
+      - "traefik.http.routers.agent-admin-dev.entrypoints=websecure"
+      - "traefik.http.routers.agent-admin-dev.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.agent-admin-dev.service=agent-admin-dev"
+      - "traefik.http.services.agent-admin-dev.loadbalancer.server.port=8000"
+      # Security: Strip untrusted X-OpenWebUI-* headers
+      - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-agent-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      - "traefik.http.routers.agent-admin-dev.middlewares=strip-agent-headers-dev"
+
+  # Open WebUI with separate data volume and Traefik routing
+  open-webui:
+    volumes:
+      - ./data/openwebui_dev:/app/backend/data
+    environment:
+      - WEBUI_URL=https://${DOMAIN_DEV:-agent-dev.local}
+      - ENABLE_OAUTH_SIGNUP=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openwebui-dev.rule=Host(`${DOMAIN_DEV:-agent-dev.local}`)"
+      - "traefik.http.routers.openwebui-dev.entrypoints=websecure"
+      - "traefik.http.routers.openwebui-dev.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.openwebui-dev.service=openwebui-dev"
+      - "traefik.http.services.openwebui-dev.loadbalancer.server.port=8080"
+      # Security: Strip untrusted headers from external requests
+      - "traefik.http.middlewares.strip-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-headers-dev.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      # Security: Enable HSTS
+      - "traefik.http.middlewares.security-dev.headers.stsSeconds=31536000"
+      - "traefik.http.routers.openwebui-dev.middlewares=strip-headers-dev,security-dev"
+
+  # PostgreSQL with separate volume
+  postgres:
+    environment:
+      POSTGRES_DB: agent_db_dev
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+
+  # Qdrant with separate data
+  qdrant:
+    volumes:
+      - ./data/qdrant_dev:/qdrant/storage
+
+  # LiteLLM healthcheck
+  litellm:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  # Separate volume for dev database
+  postgres_data_dev:
+# =============================================================================
+# DEVELOPMENT OVERRIDES
+# =============================================================================
+# This file is automatically loaded when running: docker compose up
+# It exposes ports for local debugging and development tools.
+#
+# For production, use: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# =============================================================================
+
+services:
+  # Expose agent port for direct API testing
+  agent:
+    ports:
+      - "8000:8000"
+
+  # Expose Open WebUI directly (no Traefik in dev)
+  open-webui:
+    ports:
+      - "3000:8080"
+
+  # Expose database for local tools (DBeaver, pgAdmin, etc.)
+  postgres:
+    ports:
+      - "5432:5432"
+
+  # Expose Qdrant dashboard
+  qdrant:
+    ports:
+      - "6333:6333"
+
+  # Expose LiteLLM for debugging
+  litellm:
+    ports:
+      - "4000:4000"
+
+  # Expose SearxNG for testing searches
+  searxng:
+    ports:
+      - "${SEARXNG_PORT:-8080}:8080"
+# =============================================================================
+# PRODUCTION OVERRIDES
+# =============================================================================
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This adds:
+# - Traefik reverse proxy with automatic Let's Encrypt SSL
+# - Security headers and header stripping
+# - No direct port exposure (all traffic via Traefik)
+# - Restart policies for reliability
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # Traefik - Reverse Proxy with Let's Encrypt
+  # ===========================================================================
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      # Dynamic config for TLS options (Traefik v3 requires file provider)
+      - "--providers.file.filename=/etc/traefik/dynamic.yml"
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # HTTP to HTTPS redirect
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      # Let's Encrypt
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Logging
+      - "--accesslog=true"
+      - "--log.level=INFO"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/letsencrypt:/letsencrypt
+      - ./config/traefik-dynamic.yml:/etc/traefik/dynamic.yml:ro
+    networks:
+      - default
+      - proxy
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ===========================================================================
+  # Service Overrides for Production
+  # ===========================================================================
+
+  open-webui:
+    restart: unless-stopped
+    environment:
+      # Public URL for OAuth callbacks
+      - WEBUI_URL=https://${DOMAIN:-agent.example.com}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      # Enable Traefik routing
+      - "traefik.enable=true"
+      # HTTPS Router
+      - "traefik.http.routers.openwebui.rule=Host(`${DOMAIN:-agent.example.com}`)"
+      - "traefik.http.routers.openwebui.entrypoints=websecure"
+      - "traefik.http.routers.openwebui.tls.certresolver=letsencrypt"
+      - "traefik.http.services.openwebui.loadbalancer.server.port=8080"
+      # CRITICAL: Strip X-OpenWebUI-* headers from external requests
+      # This prevents authentication bypass attacks
+      - "traefik.http.middlewares.strip-headers.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-headers.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-headers.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-headers.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      # Security headers
+      - "traefik.http.middlewares.security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.security.headers.frameDeny=true"
+      - "traefik.http.middlewares.security.headers.browserXssFilter=true"
+      # Apply middlewares
+      - "traefik.http.routers.openwebui.middlewares=strip-headers,security"
+
+  agent:
+    restart: unless-stopped
+    environment:
+      AGENT_ENVIRONMENT: production
+    healthcheck:
+      timeout: 10s
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '2.0'
+        reservations:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      # Enable Traefik routing for admin portal
+      - "traefik.enable=true"
+      # Admin portal router
+      - "traefik.http.routers.agent-admin.rule=Host(`${DOMAIN:-agent.example.com}`) && PathPrefix(`/platformadmin`)"
+      - "traefik.http.routers.agent-admin.entrypoints=websecure"
+      - "traefik.http.routers.agent-admin.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.agent-admin.service=agent-admin"
+      - "traefik.http.services.agent-admin.loadbalancer.server.port=8000"
+      # Security: Strip X-OpenWebUI-* headers (prevents header spoofing)
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Email="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Name="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Id="
+      - "traefik.http.middlewares.strip-agent-headers.headers.customrequestheaders.X-OpenWebUI-User-Role="
+      # Security headers
+      - "traefik.http.middlewares.agent-security.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.agent-security.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.agent-security.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.agent-security.headers.frameDeny=true"
+      - "traefik.http.middlewares.agent-security.headers.browserXssFilter=true"
+      # Apply middlewares
+      - "traefik.http.routers.agent-admin.middlewares=strip-agent-headers,agent-security"
+
+  postgres:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  qdrant:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  litellm:
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  searxng:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  proxy:
+    external: true
+services:
+  litellm:
+    # TODO: Pin to SHA digest instead of mutable tag for supply chain security
+    # Example: ghcr.io/berriai/litellm@sha256:abc123...
+    # Get digest: docker pull ghcr.io/berriai/litellm:main-latest && docker inspect --format='{{index .RepoDigests 0}}' ghcr.io/berriai/litellm:main-latest
+    image: ghcr.io/berriai/litellm:v1.63.8
+    expose:
+      - "4000"
+    volumes:
+      - ./services/litellm/config.yaml:/app/config.yaml
+    command: [ "--config", "/app/config.yaml", "--port", "4000" ]
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    networks:
+      - default
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  agent:
+    build:
+      context: ./services/agent
+      dockerfile: Dockerfile
+      args:
+        # Install Node.js 22 + obsidian-headless inside the agent container so the
+        # VaultTool can run "ob sync" per-context using credentials from admin portal.
+        # Add ~100MB to the image. Set to "false" to disable vault sync support.
+        INCLUDE_VAULT: "true"
+      # Optional: Enable Node.js 20 and Gemini CLI (adds ~350MB, separate from INCLUDE_VAULT)
+      # args:
+      #   INCLUDE_NODEJS: "true"
+    image: ai-agent-platform-agent:latest
+    env_file:
+      - .env
+    volumes:
+      - ./services/agent/config:/app/config:ro
+      - ./services/agent/alembic:/app/alembic
+      - ./services/agent/alembic.ini:/app/alembic.ini
+      - ./skills:/app/skills:ro
+      - ./services/agent/src:/app/src
+      - ./services/agent/tests:/app/tests
+      - ./services/agent/scripts:/app/scripts
+      - ./services/agent/pyproject.toml:/app/pyproject.toml
+      - ./services/agent/data:/app/data  # Bind mount for trace logs (accessible from host)
+      - vault_data:/vault
+    environment:
+      AGENT_ENVIRONMENT: ${AGENT_ENVIRONMENT:-production}
+      QDRANT_URL: http://qdrant:6333
+      SEARXNG_URL: http://searxng:8080
+      POSTGRES_URL: ${POSTGRES_URL:-postgresql+asyncpg://postgres:postgres@postgres:5432/agent_db}
+      LITELLM_BASE_URL: http://litellm:4000
+      SKILLS_DIR: /app/skills
+      # Azure DevOps Integration
+      AZURE_DEVOPS_ORG: ${AZURE_DEVOPS_ORG:-}
+      AZURE_DEVOPS_PROJECT: ${AZURE_DEVOPS_PROJECT:-}
+      AZURE_DEVOPS_PAT: ${AZURE_DEVOPS_PAT:-}
+      # Entra ID OAuth for Admin Portal
+      AGENT_ENTRA_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      AGENT_ENTRA_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      AGENT_ENTRA_TENANT_ID: ${MICROSOFT_CLIENT_TENANT_ID:-}
+      AGENT_ADMIN_JWT_SECRET: ${AGENT_ADMIN_JWT_SECRET:-}
+    # Port NOT exposed externally - only accessible via internal Docker network
+    # This is a SECURITY REQUIREMENT: agent trusts X-OpenWebUI-* headers
+    # ports:
+    #   - "8000:8000"
+    expose:
+      - "8000"
+    depends_on:
+      qdrant:
+        condition: service_started
+      searxng:
+        condition: service_started
+      postgres:
+        condition: service_started
+      litellm:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      # Traefik disabled by default - enabled in environment-specific overrides
+      # This prevents router conflicts when running multiple environments
+      - "traefik.enable=false"
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD environment variable required}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Internal only - uncomment for local debugging
+    # ports:
+    #   - "5432:5432"
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  qdrant:
+    # TODO: Pin to SHA digest instead of mutable tag for supply chain security
+    # Example: qdrant/qdrant@sha256:def456...
+    # Get digest: docker pull qdrant/qdrant:latest && docker inspect --format='{{index .RepoDigests 0}}' qdrant/qdrant:latest
+    image: qdrant/qdrant:v1.17.0
+    # Internal only - uncomment for local debugging
+    # ports:
+    #   - "6333:6333"
+    expose:
+      - "6333"
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  searxng:
+    image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
+    # Internal only - uncomment for local debugging
+    # ports:
+    #   - "${SEARXNG_PORT:-8080}:8080"
+    expose:
+      - "8080"
+    volumes:
+      - ./services/searxng/settings.yml:/etc/searxng/settings.yml
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?SEARXNG_SECRET environment variable required}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:0.8.3
+    # Port exposed via Traefik, not directly
+    # ports:
+    #   - "3000:8080"
+    environment:
+      # OpenAI-compatible backend (our agent)
+      - OPENAI_API_BASE_URL=http://agent:8000/v1
+      - OPENAI_API_KEY=${AGENT_INTERNAL_API_KEY:-sk-dummy}
+      # Disable Ollama (we only use OpenAI-compatible backend)
+      - ENABLE_OLLAMA_API=false
+      # Disable arena model evaluation
+      - ENABLE_EVALUATION_ARENA_MODELS=false
+      # Ensure env vars override DB-persisted config on restart
+      - RESET_CONFIG_ON_START=true
+      # Microsoft Entra ID Authentication
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
+      - MICROSOFT_CLIENT_TENANT_ID=${MICROSOFT_CLIENT_TENANT_ID:-}
+      - OPENID_PROVIDER_URL=https://login.microsoftonline.com/${MICROSOFT_CLIENT_TENANT_ID:-common}/v2.0/.well-known/openid-configuration
+      # OAuth role management (sync admin status from Entra ID)
+      - ENABLE_OAUTH_ROLE_MANAGEMENT=true
+      - OAUTH_ROLES_CLAIM=roles
+      - OAUTH_ADMIN_ROLES=${OAUTH_ADMIN_ROLES:-platform-admin}
+      # Forward user identity to backend
+      - ENABLE_FORWARD_USER_INFO_HEADERS=true
+      # Allow new users to sign up via OAuth
+      - ENABLE_OAUTH_SIGNUP=true
+      # Session settings
+      - WEBUI_SECRET_KEY=${OPENWEBUI_SECRET}
+      # Public URL for OAuth callbacks
+      - WEBUI_URL=https://${DOMAIN:-agent.example.com}
+      # Disable telemetry
+      - SCARF_NO_ANALYTICS=true
+      - DO_NOT_TRACK=true
+      - ANONYMIZED_TELEMETRY=false
+    volumes:
+      - ./data/openwebui:/app/backend/data
+    depends_on:
+      - agent
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '2.0'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      # Traefik disabled by default - enabled in environment-specific overrides
+      # This prevents router conflicts when running multiple environments
+      - "traefik.enable=false"
+
+volumes:
+  postgres_data:
+  vault_data:
+
+networks:
+  default:
+    driver: bridgeFROM python:3.11-slim
+
+# Build argument to optionally include Node.js 20 and Gemini CLI (adds ~350MB to image)
+ARG INCLUDE_NODEJS=false
+
+# Build argument to include Node.js 22 and obsidian-headless sync CLI.
+# obsidian-headless (https://www.npmjs.com/package/obsidian-headless) is an npm
+# package that wraps the Obsidian Sync protocol in a headless CLI ("ob").
+# Node.js 22 is the minimum required version. When enabled (~100MB extra), the
+# VaultTool can run "ob sync" as a subprocess per-context, reading each context's
+# auth token from CredentialService (admin portal) -- no shared env vars.
+ARG INCLUDE_VAULT=false
+
+ENV POETRY_VERSION=1.8.2 \
+    POETRY_HOME="/opt/poetry" \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VIRTUALENVS_CREATE=false \
+    PYTHONPATH="/app/src"
+
+# Install system dependencies and Poetry
+# Split into two layers: build dependencies (removed) and runtime dependencies (kept)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl git ca-certificates gnupg \
+    # Build dependencies (will be removed after Poetry installation)
+    build-essential \
+    && curl -sSL https://install.python-poetry.org | python3 - \
+    && ln -s /opt/poetry/bin/poetry /usr/local/bin/poetry \
+    # Optionally install Node.js 20 + Gemini CLI (INCLUDE_NODEJS=true, adds ~350MB)
+    && if [ "$INCLUDE_NODEJS" = "true" ] && [ "$INCLUDE_VAULT" != "true" ]; then \
+        mkdir -p /etc/apt/keyrings \
+        && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+        && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+        && apt-get update && apt-get install -y nodejs \
+        && npm install -g @google/gemini-cli@latest; \
+    fi \
+    # Optionally install Node.js 22 + obsidian-headless (INCLUDE_VAULT=true, ~100MB extra).
+    # Node.js 22 is required by obsidian-headless. If both INCLUDE_NODEJS and INCLUDE_VAULT
+    # are true, Node.js 22 wins and Gemini CLI is also installed (compatible with Node 22).
+    && if [ "$INCLUDE_VAULT" = "true" ]; then \
+        mkdir -p /etc/apt/keyrings \
+        && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+        && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+        && apt-get update && apt-get install -y nodejs \
+        && npm install -g obsidian-headless \
+        && if [ "$INCLUDE_NODEJS" = "true" ]; then npm install -g @google/gemini-cli@latest; fi; \
+    fi \
+    # Remove build dependencies to reduce image size
+    && apt-get purge -y build-essential \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY pyproject.toml poetry.lock ./
+COPY alembic.ini ./
+COPY alembic ./alembic
+
+# Upgrade pip and wheel to fix base image CVEs
+# pip: CVE-2025-8869 (symlink extraction), CVE-2026-1703 (path traversal in wheels)
+# wheel: CVE-2026-24049
+RUN pip install --no-cache-dir --upgrade "pip>=26.0" "wheel>=0.46.2"
+
+# Use --no-cache to reduce image size
+# Remove Poetry after install - it's only needed as a build tool, not at runtime.
+# This also eliminates HIGH CVEs in Poetry's vendored deps (jaraco.context, wheel).
+RUN poetry install --no-root --only main --no-cache \
+    && rm -rf /opt/poetry /usr/local/bin/poetry
+
+COPY src ./src
+COPY entrypoint.sh ./entrypoint.sh
+
+# Create non-root user for security (container should not run as root)
+RUN groupadd --gid 1000 appgroup \
+    && useradd --uid 1000 --gid appgroup --shell /bin/bash --create-home appuser \
+    && chown -R appuser:appgroup /app \
+    && chmod +x /app/entrypoint.sh
+
+USER appuser
+
+EXPOSE 8000
+
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["uvicorn", "interfaces.http.app:create_app", "--host", "0.0.0.0", "--port", "8000", "--factory", "--proxy-headers", "--forwarded-allow-ips", "*"]

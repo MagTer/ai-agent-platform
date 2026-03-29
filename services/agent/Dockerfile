@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+# SHA-pinned for supply chain security (was: python:3.11-slim)
+FROM python:3.11-slim@sha256:9358444059ed78e2975ada2c189f1c1a3144a5dab6f35bff8c981afb38946634
 
 # Build argument to optionally include Node.js 20 and Gemini CLI (adds ~350MB to image)
 ARG INCLUDE_NODEJS=false

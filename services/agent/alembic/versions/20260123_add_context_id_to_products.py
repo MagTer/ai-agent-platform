@@ -28,8 +28,7 @@ def upgrade() -> None:
 
     # Migrate existing products: assign context_id from their watches
     # If a product has watches, use the context_id from the first watch
-    op.execute(
-        """
+    op.execute("""
         UPDATE price_tracker_products p
         SET context_id = (
             SELECT w.context_id
@@ -40,17 +39,14 @@ def upgrade() -> None:
         WHERE EXISTS (
             SELECT 1 FROM price_tracker_watches w WHERE w.product_id = p.id
         )
-    """
-    )
+    """)
 
     # For any products without watches, we need to handle them
     # In this case, we'll delete them as orphan products
-    op.execute(
-        """
+    op.execute("""
         DELETE FROM price_tracker_products
         WHERE context_id IS NULL
-    """
-    )
+    """)
 
     # Now make the column NOT NULL
     op.alter_column(

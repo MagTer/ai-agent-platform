@@ -172,6 +172,14 @@ class SkillQualityAnalyser:
             if total < MIN_EXECUTIONS_THRESHOLD:
                 continue
 
+            # Skip retrieval skills (they use rag_search tool)
+            if await _is_retrieval_skill(skill_name, session):
+                LOGGER.debug(
+                    "Skipping retrieval skill '%s' from scheduled quality analysis",
+                    skill_name,
+                )
+                continue
+
             failures = counts.get("REPLAN", 0) + counts.get("ABORT", 0)
             failure_rate = failures / total
             if failure_rate >= MIN_FAILURE_RATE:
@@ -646,6 +654,37 @@ EVALUATOR_PROMPT_TEMPLATE = (
 )
 
 
+async def _is_retrieval_skill(skill_name: str, session: AsyncSession) -> bool:
+    """Check if a skill is a retrieval skill (uses rag_search tool).
+
+    Args:
+        skill_name: Name of the skill to check.
+        session: Database session (not used currently, but kept for future use
+                 when skill metadata might be stored in DB).
+
+    Returns:
+        True if the skill has "rag_search" in its tools list, False otherwise.
+    """
+    from core.skills.registry import SkillRegistry
+
+    # Get global skill registry
+    registry = SkillRegistry()
+    skill = registry.get(skill_name)
+
+    if skill is None:
+        LOGGER.debug("Skill '%s' not found in registry, not treating as retrieval", skill_name)
+        return False
+
+    is_retrieval = "rag_search" in skill.tools
+    if is_retrieval:
+        LOGGER.debug(
+            "Skill '%s' is a retrieval skill (uses rag_search), excluding from quality analysis",
+            skill_name,
+        )
+
+    return is_retrieval
+
+
 async def evaluate_conversation_quality(
     context_id: UUID,
     conversation_id: UUID,
@@ -686,7 +725,25 @@ async def evaluate_conversation_quality(
                 )
                 return
 
-            skills_used = list(execution_counts.keys())
+            # Filter out retrieval skills before evaluation
+            skills_used_raw = list(execution_counts.keys())
+            skills_used: list[str] = []
+
+            for skill_name in skills_used_raw:
+                if await _is_retrieval_skill(skill_name, session):
+                    LOGGER.info(
+                        "Skipping quality evaluation for retrieval skill '%s'",
+                        skill_name,
+                    )
+                    continue
+                skills_used.append(skill_name)
+
+            if not skills_used:
+                LOGGER.debug(
+                    "All skills in conversation %s are retrieval skills, skipping evaluation",
+                    conversation_id,
+                )
+                return
 
             # 2. Get the final assistant message for this conversation
             from sqlalchemy import select as sa_select
@@ -844,6 +901,14 @@ async def _check_quality_thresholds(
     since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=QUALITY_EVAL_LOOKBACK_DAYS)
 
     for skill_name in skill_names:
+        # Skip retrieval skills entirely - don't trigger analysis
+        if await _is_retrieval_skill(skill_name, session):
+            LOGGER.debug(
+                "Skipping threshold check for retrieval skill '%s'",
+                skill_name,
+            )
+            continue
+
         # Get recent ratings
         stmt = sa_select(
             sa_func.count(SkillQualityRating.id),

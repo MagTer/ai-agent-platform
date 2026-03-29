@@ -102,8 +102,7 @@ class TestSkillRegistry:
 
             # Create a test skill file
             skill_file = skills_dir / "researcher.md"
-            skill_file.write_text(
-                """---
+            skill_file.write_text("""---
 name: researcher
 description: Web research skill
 tools:
@@ -113,8 +112,7 @@ model: agentchat
 max_turns: 5
 ---
 You are a research assistant.
-"""
-            )
+""")
 
             registry = SkillRegistry(skills_dir=skills_dir)
 
@@ -135,16 +133,14 @@ You are a research assistant.
             general_dir.mkdir()
 
             skill_file = general_dir / "homey.md"
-            skill_file.write_text(
-                """---
+            skill_file.write_text("""---
 name: homey
 description: Smart home control
 tools:
   - homey
 ---
 Control smart home devices.
-"""
-            )
+""")
 
             registry = SkillRegistry(skills_dir=skills_dir)
 
@@ -158,15 +154,13 @@ Control smart home devices.
         with tempfile.TemporaryDirectory() as tmpdir:
             skills_dir = Path(tmpdir)
             skill_file = skills_dir / "test.md"
-            skill_file.write_text(
-                """---
+            skill_file.write_text("""---
 name: test
 tools:
   - nonexistent_tool
 ---
 Test skill.
-"""
-            )
+""")
 
             # Create mock tool registry
             mock_tool_registry = MagicMock()
@@ -185,13 +179,11 @@ Test skill.
         with tempfile.TemporaryDirectory() as tmpdir:
             skills_dir = Path(tmpdir)
             skill_file = skills_dir / "myskill.md"
-            skill_file.write_text(
-                """---
+            skill_file.write_text("""---
 name: my_skill
 ---
 Test.
-"""
-            )
+""")
 
             registry = SkillRegistry(skills_dir=skills_dir)
             names = registry.get_skill_names()
@@ -205,13 +197,11 @@ Test.
         with tempfile.TemporaryDirectory() as tmpdir:
             skills_dir = Path(tmpdir)
             skill_file = skills_dir / "test.md"
-            skill_file.write_text(
-                """---
+            skill_file.write_text("""---
 name: test
 ---
 Test.
-"""
-            )
+""")
 
             registry = SkillRegistry(skills_dir=skills_dir)
             is_valid, msg = registry.validate_skill("test")
@@ -232,14 +222,12 @@ Test.
         with tempfile.TemporaryDirectory() as tmpdir:
             skills_dir = Path(tmpdir)
             skill_file = skills_dir / "test.md"
-            skill_file.write_text(
-                """---
+            skill_file.write_text("""---
 name: test
 description: A test skill
 ---
 Test.
-"""
-            )
+""")
 
             registry = SkillRegistry(skills_dir=skills_dir)
             index = registry.get_index()

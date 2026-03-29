@@ -35,26 +35,22 @@ def upgrade() -> None:
     )
 
     # 3. Data migration: map user credentials to their default context
-    op.execute(
-        """
+    op.execute("""
         UPDATE user_credentials uc SET context_id = (
             SELECT uctx.context_id FROM user_contexts uctx
             WHERE uctx.user_id = uc.user_id AND uctx.is_default = true
             LIMIT 1
         )
-        """
-    )
+        """)
 
     # Fallback: if is_default wasn't set, use any owner context
-    op.execute(
-        """
+    op.execute("""
         UPDATE user_credentials uc SET context_id = (
             SELECT uctx.context_id FROM user_contexts uctx
             WHERE uctx.user_id = uc.user_id AND uctx.role = 'owner'
             LIMIT 1
         ) WHERE uc.context_id IS NULL
-        """
-    )
+        """)
 
     # 4. Delete orphaned rows that couldn't be mapped
     op.execute("DELETE FROM user_credentials WHERE context_id IS NULL")
@@ -93,15 +89,13 @@ def downgrade() -> None:
     )
 
     # Map context_id back to user_id via user_contexts
-    op.execute(
-        """
+    op.execute("""
         UPDATE user_credentials uc SET user_id = (
             SELECT uctx.user_id FROM user_contexts uctx
             WHERE uctx.context_id = uc.context_id AND uctx.role = 'owner'
             LIMIT 1
         )
-        """
-    )
+        """)
 
     # Delete orphans and make NOT NULL
     op.execute("DELETE FROM user_credentials WHERE user_id IS NULL")

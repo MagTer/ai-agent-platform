@@ -38,15 +38,13 @@ def upgrade() -> None:
     # Initialize existing records with jittered values
     # next_check_at = COALESCE(last_checked_at, NOW()) + check_frequency_hours
     #                 + random jitter (±10%)
-    op.execute(
-        """
+    op.execute("""
         UPDATE price_tracker_product_stores
         SET next_check_at = COALESCE(last_checked_at, NOW())
                           + (check_frequency_hours * INTERVAL '1 hour')
                           + ((RANDOM() * 0.2 - 0.1) * check_frequency_hours * INTERVAL '1 hour')
         WHERE next_check_at IS NULL
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

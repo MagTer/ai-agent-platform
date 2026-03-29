@@ -248,7 +248,7 @@ class TestRAGManagerIngestDocument:
         # Short content that should produce 1 chunk
         content = "Short content"
         result = await rag_manager.ingest_document(
-            content, metadata={"uri": "test.txt"}, chunk_size=1000
+            content, metadata={"uri": "test.txt"}, document_type="prose"
         )
 
         assert result == 1
@@ -263,10 +263,10 @@ class TestRAGManagerIngestDocument:
         mock_client.upsert = AsyncMock()
         rag_manager._client = mock_client
 
-        # Long content (2000 chars)
-        content = "x" * 2000
+        # Long content - will produce multiple semantic chunks
+        content = "This is a test. " * 100
         result = await rag_manager.ingest_document(
-            content, metadata={"uri": "test.txt"}, chunk_size=500, chunk_overlap=100
+            content, metadata={"uri": "test.txt"}, document_type="prose"
         )
 
         # Should produce multiple chunks

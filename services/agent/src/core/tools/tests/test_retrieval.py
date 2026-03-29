@@ -1,0 +1,1047 @@
+"""Tests for Retrieval tool (rag_search)."""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import UUID, uuid4
+
+import pytest
+
+from core.tools.retrieval import RetrievalTool
+
+
+@pytest.fixture
+def retrieval_tool() -> RetrievalTool:
+    """Create a RetrievalTool instance for testing."""
+    # Reset class-level attempt counts between tests to ensure clean state
+    RetrievalTool._attempt_counts.clear()
+    return RetrievalTool()
+
+
+@pytest.fixture
+def mock_context_id() -> UUID:
+    """Create a mock context ID."""
+    return uuid4()
+
+
+@pytest.fixture
+def mock_rag_manager() -> AsyncMock:
+    """Create a mock RAG manager."""
+    return AsyncMock()
+
+
+class TestRetrievalToolInit:
+    """Test RetrievalTool initialization."""
+
+    def test_tool_attributes(self, retrieval_tool: RetrievalTool) -> None:
+        """Test that tool has correct attributes."""
+        assert retrieval_tool.name == "rag_search"
+        desc_lower = retrieval_tool.description.lower()
+        assert "retriev" in desc_lower
+        assert "knowledge base" in desc_lower
+        assert retrieval_tool.category == "domain"
+
+    def test_parameters_schema(self, retrieval_tool: RetrievalTool) -> None:
+        """Test that parameters schema is valid."""
+        params: dict[str, Any] = retrieval_tool.parameters
+        assert params["type"] == "object"
+        assert "query" in params["properties"]
+        assert "top_k" in params["properties"]
+        assert "collection_name" in params["properties"]
+        assert params["required"] == ["query"]
+        # Check constraints
+        assert params["properties"]["top_k"]["minimum"] == 1
+        assert params["properties"]["top_k"]["maximum"] == 20
+        assert params["properties"]["top_k"]["default"] == 5
+
+    def test_sufficiency_threshold(self, retrieval_tool: RetrievalTool) -> None:
+        """Test that sufficiency threshold is set."""
+        assert retrieval_tool._sufficiency_threshold == 0.65
+
+    def test_attempt_capping_constants(self, retrieval_tool: RetrievalTool) -> None:
+        """Test attempt capping constants."""
+        assert retrieval_tool._MAX_ATTEMPTS == 3
+        assert isinstance(retrieval_tool._attempt_counts, dict)
+
+
+class TestRetrievalToolSuccess:
+    """Test successful retrieval scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_successful_retrieval(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test successful retrieval with results."""
+        # Setup mock results with varying scores
+        mock_results = [
+            {
+                "uri": "https://example.com/doc1",
+                "text": "Content 1",
+                "score": 0.85,
+                "source": "memory",
+            },
+            {
+                "uri": "https://example.com/doc2",
+                "text": "Content 2",
+                "score": 0.72,
+                "source": "memory",
+            },
+            {
+                "uri": "https://example.com/doc3",
+                "text": "Content 3",
+                "score": 0.68,
+                "source": "memory",
+            },
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        # Parse JSON response
+        output = json.loads(result)
+
+        # Verify structure
+        assert "results" in output
+        assert "result_count" in output
+        assert "min_score" in output
+        assert "max_score" in output
+        assert "avg_score" in output
+        assert "retrieval_sufficient" in output
+        assert "threshold" in output  # Threshold should be included in output
+
+        # Verify data
+        assert output["result_count"] == 3
+        assert output["min_score"] == 0.68
+        assert output["max_score"] == 0.85
+        assert output["avg_score"] == pytest.approx(0.75, abs=0.01)
+        assert output["retrieval_sufficient"] is True  # 0.75 >= 0.65
+        assert output["threshold"] == 0.65  # Default threshold
+        assert len(output["results"]) == 3
+
+    @pytest.mark.asyncio
+    async def test_retrieval_with_custom_top_k(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test retrieval with custom top_k parameter."""
+        mock_rag_manager.retrieve.return_value = []
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            await retrieval_tool.run(
+                query="test query",
+                top_k=10,
+                context_id=str(mock_context_id),
+            )
+
+        # Verify RAG manager was called with correct top_k
+        call_kwargs = mock_rag_manager.retrieve.call_args[1]
+        assert call_kwargs["top_k"] == 10
+
+    @pytest.mark.asyncio
+    async def test_retrieval_with_custom_collection(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test retrieval with custom collection name."""
+        mock_rag_manager.retrieve.return_value = []
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            await retrieval_tool.run(
+                query="test query",
+                collection_name="custom-collection",
+                context_id=str(mock_context_id),
+            )
+
+        # Verify RAG manager was called with correct collection
+        call_kwargs = mock_rag_manager.retrieve.call_args[1]
+        assert call_kwargs["collection_name"] == "custom-collection"
+
+
+class TestRetrievalToolContextIsolation:
+    """Test context_id filtering for multi-tenant isolation."""
+
+    @pytest.mark.asyncio
+    async def test_context_id_filter_applied(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that context_id is passed as filter to RAG manager."""
+        mock_rag_manager.retrieve.return_value = []
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        # Verify filters were passed
+        call_kwargs = mock_rag_manager.retrieve.call_args[1]
+        assert call_kwargs["filters"] is not None
+        assert call_kwargs["filters"]["context_id"] == str(mock_context_id)
+
+    @pytest.mark.asyncio
+    async def test_no_context_id_no_filter(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+    ) -> None:
+        """Test that no filter is applied when context_id is None."""
+        mock_rag_manager.retrieve.return_value = []
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            await retrieval_tool.run(
+                query="test query",
+                context_id=None,
+            )
+
+        # Verify no filters were passed
+        call_kwargs = mock_rag_manager.retrieve.call_args[1]
+        assert call_kwargs["filters"] is None
+
+
+class TestRetrievalToolEmptyResults:
+    """Test handling of empty results."""
+
+    @pytest.mark.asyncio
+    async def test_empty_results(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test response when no documents are found."""
+        mock_rag_manager.retrieve.return_value = []
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+
+        assert output["results"] == []
+        assert output["result_count"] == 0
+        assert output["min_score"] == 0.0
+        assert output["max_score"] == 0.0
+        assert output["avg_score"] == 0.0
+        assert output["retrieval_sufficient"] is False
+
+    @pytest.mark.asyncio
+    async def test_results_without_scores(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test handling of results that lack score field."""
+        mock_results = [
+            {"uri": "doc1", "text": "Content 1"},  # No score
+            {"uri": "doc2", "text": "Content 2", "score": 0.75},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+
+        # Only the second result has a score
+        assert output["result_count"] == 2
+        assert output["min_score"] == 0.75
+        assert output["max_score"] == 0.75
+        assert output["avg_score"] == 0.75
+
+
+class TestRetrievalToolThresholdCalculation:
+    """Test threshold calculation for retrieval_sufficient."""
+
+    @pytest.mark.asyncio
+    async def test_sufficient_above_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test retrieval_sufficient=True when avg >= 0.65."""
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.70},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        assert output["retrieval_sufficient"] is True
+
+    @pytest.mark.asyncio
+    async def test_insufficient_below_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test retrieval_sufficient=False when avg < 0.65."""
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.50},
+            {"uri": "doc2", "text": "Content", "score": 0.60},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        avg = (0.50 + 0.60) / 2  # 0.55
+        assert output["avg_score"] == pytest.approx(avg, abs=0.01)
+        assert output["retrieval_sufficient"] is False  # 0.55 < 0.65
+
+    @pytest.mark.asyncio
+    async def test_exactly_at_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test retrieval_sufficient=True when avg == 0.65."""
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.65},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        assert output["avg_score"] == 0.65
+        assert output["retrieval_sufficient"] is True  # 0.65 >= 0.65
+
+
+class TestRetrievalToolBoundaryConditions:
+    """Test exact boundary conditions for threshold edges.
+
+    These tests verify the three-tier feedback system:
+    - avg >= 0.65: Sufficient (no replan)
+    - 0.325 <= avg < 0.65: Insufficient, suggest reformulation
+    - avg < 0.325: Insufficient, corpus likely lacks info
+    """
+
+    @pytest.mark.asyncio
+    async def test_boundary_exactly_at_threshold_is_sufficient(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that exactly 0.65 (threshold) is sufficient (>= comparison)."""
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.6500},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        # Verify 4 decimal precision (matching tool rounding)
+        assert output["avg_score"] == 0.65
+        assert output["retrieval_sufficient"] is True  # 0.65 >= 0.65
+
+    @pytest.mark.asyncio
+    async def test_boundary_just_below_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that 0.6499 (just below threshold) triggers insufficient.
+
+        This verifies the boundary where avg_score rounds to 0.6500 but is
+        technically below 0.65, ensuring precise threshold behavior.
+        """
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.6499},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        # Scores rounded to 4 decimal places
+        assert output["avg_score"] == 0.6499
+        assert output["retrieval_sufficient"] is False  # 0.6499 < 0.65
+
+    @pytest.mark.asyncio
+    async def test_boundary_exactly_half_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test exactly 0.325 (0.5 * 0.65) - corpus lacks info tier boundary.
+
+        This is the exact boundary between "corpus lacks info" and
+        "reformulation might help" tiers.
+        """
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.3250},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        assert output["avg_score"] == 0.325
+        assert output["retrieval_sufficient"] is False  # 0.325 < 0.65
+        # Below half threshold - indicates corpus likely lacks relevant info
+        half_threshold = 0.65 / 2  # 0.325
+        assert output["avg_score"] < half_threshold + 0.0001  # At or below half
+
+    @pytest.mark.asyncio
+    async def test_boundary_between_half_and_full_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test 0.3251 (just above half threshold) - reformulation tier.
+
+        This verifies the tier where reformulation might help:
+        above half threshold (0.325) but below full threshold (0.65).
+        """
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.3251},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        assert output["avg_score"] == pytest.approx(0.3251, abs=0.0001)
+        assert output["retrieval_sufficient"] is False  # 0.3251 < 0.65
+        # Above half threshold - reformulation might help
+        half_threshold = 0.65 / 2  # 0.325
+        assert output["avg_score"] > half_threshold  # Above half threshold
+
+    @pytest.mark.asyncio
+    async def test_boundary_well_below_half_threshold(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test 0.20 (well below half threshold) - clear "lacks info" tier."""
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.20},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        assert output["avg_score"] == 0.2
+        assert output["retrieval_sufficient"] is False
+        # Well below half threshold
+        half_threshold = 0.65 / 2
+        assert output["avg_score"] < half_threshold * 0.8  # Significantly below
+
+
+class TestRetrievalToolAttemptCapping:
+    """Test attempt capping to prevent infinite loops."""
+
+    @pytest.mark.asyncio
+    async def test_attempt_counting(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that attempts are counted per context+query."""
+        mock_rag_manager.retrieve.return_value = []
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            # First 3 calls should succeed
+            for _i in range(3):
+                result = await retrieval_tool.run(
+                    query="same query",
+                    context_id=str(mock_context_id),
+                )
+                output = json.loads(result)
+                assert "error" not in output  # No error yet
+
+            # 4th call should hit the cap
+            result = await retrieval_tool.run(
+                query="same query",
+                context_id=str(mock_context_id),
+            )
+            output = json.loads(result)
+            assert "error" in output
+            assert "Attempt cap exceeded" in output["error"]
+            assert output["result_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_attempt_counting_per_query(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that attempt counting is isolated per query."""
+        mock_rag_manager.retrieve.return_value = []
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            # Use 3 different queries
+            for i in range(3):
+                result = await retrieval_tool.run(
+                    query=f"query {i}",
+                    context_id=str(mock_context_id),
+                )
+                output = json.loads(result)
+                assert "error" not in output  # All should succeed
+
+    @pytest.mark.asyncio
+    async def test_attempt_counting_no_context_id(
+        self, retrieval_tool: RetrievalTool, mock_rag_manager: AsyncMock
+    ) -> None:
+        """Test attempt counting works without context_id."""
+        mock_rag_manager.retrieve.return_value = []
+
+        # Use unique query to avoid interference from previous tests
+        # (attempt counter is class-level and persists across tests)
+        unique_query = "unique query no context"
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            # First 3 calls should succeed
+            for _i in range(3):
+                result = await retrieval_tool.run(
+                    query=unique_query,
+                    context_id=None,
+                )
+                output = json.loads(result)
+                assert "error" not in output
+
+            # 4th call should hit the cap
+            result = await retrieval_tool.run(
+                query=unique_query,
+                context_id=None,
+            )
+            output = json.loads(result)
+            assert "error" in output
+            assert "Attempt cap exceeded" in output["error"]
+
+
+class TestRetrievalToolCollectionConstraints:
+    """Test collection parameter constraints."""
+
+    def test_collection_name_in_schema(self, retrieval_tool: RetrievalTool) -> None:
+        """Test that collection_name is in the parameters schema."""
+        params = retrieval_tool.parameters
+        assert "collection_name" in params["properties"]
+        # It's optional (no default means it can be null)
+        assert "collection_name" not in params["required"]
+
+    @pytest.mark.asyncio
+    async def test_collection_name_passed_to_rag(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that collection_name is passed through to RAG manager."""
+        mock_rag_manager.retrieve.return_value = []
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            await retrieval_tool.run(
+                query="test query",
+                collection_name="my-collection",
+                context_id=str(mock_context_id),
+            )
+
+        call_kwargs = mock_rag_manager.retrieve.call_args[1]
+        assert call_kwargs["collection_name"] == "my-collection"
+
+    @pytest.mark.asyncio
+    async def test_none_collection_passed_to_rag(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that None collection_name is passed to RAG manager."""
+        mock_rag_manager.retrieve.return_value = []
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            await retrieval_tool.run(
+                query="test query",
+                collection_name=None,
+                context_id=str(mock_context_id),
+            )
+
+        call_kwargs = mock_rag_manager.retrieve.call_args[1]
+        assert call_kwargs["collection_name"] is None
+
+
+class TestRetrievalToolScoreRounding:
+    """Test that scores are properly rounded."""
+
+    @pytest.mark.asyncio
+    async def test_score_rounding(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that scores are rounded to 4 decimal places."""
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.123456789},
+            {"uri": "doc2", "text": "Content", "score": 0.987654321},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+            )
+
+        output = json.loads(result)
+        # Verify rounding to 4 decimal places
+        assert output["min_score"] == 0.1235
+        assert output["max_score"] == 0.9877
+        assert output["avg_score"] == pytest.approx(0.5556, abs=0.0001)
+
+
+class TestRetrievalToolActivityHint:
+    """Test activity hint for UI display."""
+
+    def test_activity_hint_present(self, retrieval_tool: RetrievalTool) -> None:
+        """Test that activity hint is configured."""
+        assert retrieval_tool.activity_hint is not None
+        assert "query" in retrieval_tool.activity_hint
+        assert "{query}" in retrieval_tool.activity_hint["query"]
+
+
+class TestRetrievalToolGetThreshold:
+    """Test _get_threshold() method for dynamic threshold loading."""
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_without_session_returns_default(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test that _get_threshold returns default when no session provided."""
+        threshold = await retrieval_tool._get_threshold(db_session=None)
+        assert threshold == 0.65
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_from_system_config(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test that _get_threshold reads from SystemConfig."""
+        from core.db.models import SystemConfig
+
+        mock_session = AsyncMock()
+        mock_config = SystemConfig(
+            key="rag_retrieval_min_score",
+            value=0.80,
+            description="Custom threshold",
+        )
+
+        # Setup mock query result - execute returns an awaitable that returns the result
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_config
+        mock_session.execute.return_value = mock_result
+
+        threshold = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold == 0.80
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_fallback_to_default_on_missing_config(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test fallback to default when SystemConfig key doesn't exist."""
+        mock_session = AsyncMock()
+
+        # Setup mock query result - no config found
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
+
+        threshold = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold == 0.65
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_handles_string_value(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test that _get_threshold handles string values from SystemConfig."""
+        from core.db.models import SystemConfig
+
+        mock_session = AsyncMock()
+        mock_config = SystemConfig(
+            key="rag_retrieval_min_score",
+            value="0.75",  # String value
+            description="Threshold",
+        )
+
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_config
+        mock_session.execute.return_value = mock_result
+
+        threshold = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold == 0.75
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_fallback_on_exception(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test fallback to default when database query fails."""
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = Exception("Database error")
+
+        threshold = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold == 0.65
+
+    @pytest.mark.asyncio
+    async def test_run_uses_dynamic_threshold_with_session(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that run() uses dynamic threshold when db_session is provided."""
+        from core.db.models import SystemConfig
+
+        # Results that would be sufficient at 0.65 but not at 0.80
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.70},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        mock_session = AsyncMock()
+        mock_config = SystemConfig(
+            key="rag_retrieval_min_score",
+            value=0.80,  # Higher threshold
+            description="Strict threshold",
+        )
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_config
+        mock_session.execute.return_value = mock_result
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+                db_session=mock_session,
+            )
+
+        output = json.loads(result)
+        # 0.70 avg score < 0.80 threshold, so insufficient
+        assert output["retrieval_sufficient"] is False
+
+    @pytest.mark.asyncio
+    async def test_run_uses_default_threshold_without_session(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that run() uses default threshold when db_session is None."""
+        # Results that are sufficient at default 0.65 threshold
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.70},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+                db_session=None,
+            )
+
+        output = json.loads(result)
+        # 0.70 avg score >= 0.65 default threshold, so sufficient
+        assert output["retrieval_sufficient"] is True
+
+
+class TestRetrievalToolRuntimeThresholdUpdates:
+    """Test runtime threshold updates from SystemConfig.
+
+    These tests verify that SystemConfig threshold changes take effect at runtime
+    without requiring a restart of the service.
+    """
+
+    @pytest.mark.asyncio
+    async def test_runtime_threshold_update_changes_sufficiency(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test that threshold changes from 0.65 → 0.80 affect retrieval_sufficient."""
+        from core.db.models import SystemConfig
+
+        # Create a session mock that returns different config values on each call
+        mock_session = AsyncMock()
+
+        # Mock results: score 0.70 would be sufficient at 0.65, insufficient at 0.80
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.70},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        # Setup the mock to return different config values on each execute call
+        mock_configs = [
+            SystemConfig(key="rag_retrieval_min_score", value=0.65, description="Default"),
+            SystemConfig(key="rag_retrieval_min_score", value=0.80, description="Strict"),
+            SystemConfig(key="rag_retrieval_min_score", value="invalid", description="Bad"),
+            SystemConfig(key="rag_retrieval_min_score", value=None, description="Missing"),
+        ]
+
+        mock_execute_calls = 0
+
+        async def mock_execute_side_effect(stmt: Any) -> MagicMock:
+            nonlocal mock_execute_calls
+            # Simulate changing config between calls
+            if mock_execute_calls < len(mock_configs):
+                config = mock_configs[mock_execute_calls]
+            else:
+                # After last config, return None (like key deleted)
+                config = None
+
+            mock_execute_calls += 1
+
+            # Mock the result object chain
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = config
+            return mock_result
+
+        mock_session.execute.side_effect = mock_execute_side_effect
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            # Use different query strings to avoid hitting attempt cap (MAX_ATTEMPTS=3)
+            # First call: threshold 0.65, score 0.70 => sufficient
+            result1 = await retrieval_tool.run(
+                query="test query 1",
+                context_id=str(mock_context_id),
+                db_session=mock_session,
+            )
+            output1 = json.loads(result1)
+            assert output1["retrieval_sufficient"] is True  # 0.70 >= 0.65
+
+            # Second call: threshold 0.80, score 0.70 => insufficient
+            result2 = await retrieval_tool.run(
+                query="test query 2",
+                context_id=str(mock_context_id),
+                db_session=mock_session,
+            )
+            output2 = json.loads(result2)
+            assert output2["retrieval_sufficient"] is False  # 0.70 < 0.80
+
+            # Third call: invalid string value => fallback to default 0.65 => sufficient
+            result3 = await retrieval_tool.run(
+                query="test query 3",
+                context_id=str(mock_context_id),
+                db_session=mock_session,
+            )
+            output3 = json.loads(result3)
+            assert output3["retrieval_sufficient"] is True  # 0.70 >= 0.65 (fallback)
+
+            # Fourth call: None value => fallback to default 0.65 => sufficient
+            result4 = await retrieval_tool.run(
+                query="test query 4",
+                context_id=str(mock_context_id),
+                db_session=mock_session,
+            )
+            output4 = json.loads(result4)
+            assert output4["retrieval_sufficient"] is True  # 0.70 >= 0.65 (fallback)
+
+            # Verify all calls used the same mock session
+            assert mock_execute_calls == 4
+
+    @pytest.mark.asyncio
+    async def test_runtime_threshold_update_fallback_scenarios(
+        self,
+        retrieval_tool: RetrievalTool,
+        mock_rag_manager: AsyncMock,
+        mock_context_id: UUID,
+    ) -> None:
+        """Test fallback scenarios for threshold retrieval."""
+        mock_session = AsyncMock()
+
+        # Mock results: score 0.70
+        mock_results = [
+            {"uri": "doc1", "text": "Content", "score": 0.70},
+        ]
+        mock_rag_manager.retrieve.return_value = mock_results
+
+        # Test 1: Exception during database query -> fallback to default (0.65)
+        mock_session.execute.side_effect = Exception("Database timeout")
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query",
+                context_id=str(mock_context_id),
+                db_session=mock_session,
+            )
+            output = json.loads(result)
+            # Exception should cause fallback to default 0.65, score 0.70 is sufficient
+            assert output["retrieval_sufficient"] is True
+
+        # Test 2: Invalid float conversion -> fallback to default (0.65)
+        mock_session.execute.side_effect = None
+        mock_result = MagicMock()
+
+        # Mock a config with invalid float value (dict instead of number/string)
+        mock_config = MagicMock()
+        mock_config.key = "rag_retrieval_min_score"
+        mock_config.value = {"nested": "object"}  # Invalid for float conversion
+
+        mock_result.scalar_one_or_none.return_value = mock_config
+        mock_session.execute.return_value = mock_result
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query 2",
+                context_id=str(mock_context_id),
+                db_session=mock_session,
+            )
+            output = json.loads(result)
+            # Invalid value should cause fallback to default 0.65, score 0.70 is sufficient
+            assert output["retrieval_sufficient"] is True
+
+        # Test 3: Integer value from SystemConfig -> converted to float
+        mock_config = MagicMock()
+        mock_config.key = "rag_retrieval_min_score"
+        mock_config.value = 1  # Integer
+
+        mock_result.scalar_one_or_none.return_value = mock_config
+
+        with patch("core.tools.retrieval.get_rag_manager", return_value=mock_rag_manager):
+            result = await retrieval_tool.run(
+                query="test query 3",
+                context_id=str(mock_context_id),
+                db_session=mock_session,
+            )
+            output = json.loads(result)
+            # Integer 1 converted to float 1.0, score 0.70 < 1.0, insufficient
+            assert output["retrieval_sufficient"] is False
+
+    @pytest.mark.asyncio
+    async def test_get_threshold_with_session_changes(
+        self,
+        retrieval_tool: RetrievalTool,
+    ) -> None:
+        """Test direct _get_threshold() method with changing SystemConfig values."""
+        from core.db.models import SystemConfig
+
+        mock_session = AsyncMock()
+
+        # Setup a sequence of configs to return
+        mock_configs = [
+            SystemConfig(key="rag_retrieval_min_score", value=0.65, description="First"),
+            SystemConfig(key="rag_retrieval_min_score", value=0.80, description="Updated"),
+            SystemConfig(key="rag_retrieval_min_score", value=0.50, description="Lower"),
+            None,  # Config deleted
+        ]
+
+        mock_execute_calls = 0
+
+        async def mock_execute_side_effect(stmt: Any) -> MagicMock:
+            nonlocal mock_execute_calls
+            if mock_execute_calls < len(mock_configs):
+                config = mock_configs[mock_execute_calls]
+            else:
+                config = None
+
+            mock_execute_calls += 1
+
+            mock_result = MagicMock()
+            mock_result.scalar_one_or_none.return_value = config
+            return mock_result
+
+        mock_session.execute.side_effect = mock_execute_side_effect
+
+        # First call: 0.65
+        threshold1 = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold1 == 0.65
+
+        # Second call: 0.80 (updated at runtime)
+        threshold2 = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold2 == 0.80
+
+        # Third call: 0.50 (lower threshold)
+        threshold3 = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold3 == 0.50
+
+        # Fourth call: None -> fallback to default 0.65
+        threshold4 = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold4 == 0.65
+
+        # Fifth call: Same session, but mock exhausted -> returns None -> fallback to 0.65
+        threshold5 = await retrieval_tool._get_threshold(db_session=mock_session)
+        assert threshold5 == 0.65
+
+        assert mock_execute_calls == 5
+
+
+class TestRetrievalToolDefaultThreshold:
+    """Test the default threshold constant."""
+
+    def test_default_threshold_constant(self) -> None:
+        """Test that DEFAULT_RAG_SUFFICIENCY_THRESHOLD is 0.65."""
+        from core.tools.retrieval import DEFAULT_RAG_SUFFICIENCY_THRESHOLD
+
+        assert DEFAULT_RAG_SUFFICIENCY_THRESHOLD == 0.65

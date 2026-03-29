@@ -175,8 +175,7 @@ def upgrade() -> None:
     )
 
     # Seed initial stores
-    op.execute(
-        """
+    op.execute("""
         INSERT INTO price_tracker_stores (
             name, slug, store_type, base_url, parser_config, is_active
         )
@@ -185,8 +184,7 @@ def upgrade() -> None:
             ('Willys', 'willys', 'grocery', 'https://www.willys.se', '{}', true),
             ('Apotea', 'apotea', 'pharmacy', 'https://www.apotea.se', '{}', true),
             ('Med24', 'med24', 'pharmacy', 'https://www.med24.se', '{}', true)
-        """
-    )
+        """)
 
 
 def downgrade() -> None:

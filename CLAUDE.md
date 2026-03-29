@@ -1130,3 +1130,398 @@ def test_execute_step_returns_retry_on_timeout():
 - Platform skills in `skills/` are the application's domain logic (not instructions for Claude Code).
 - Claude Code agent configs live in `.claude/agents/` (separate from platform skills).
 - Surgical edits: preserve comments and existing functionality unless explicitly asked to change.
+
+<!-- GSD:project-start source:PROJECT.md -->
+## Project
+
+**AI Agent Platform**
+
+A personal multi-user AI agent platform built around skills-based agentic workflows. The platform lets Magnus interact with an AI assistant via Telegram and Open WebUI, backed by a 4-layer Python/FastAPI monolith that orchestrates LLM reasoning, tool use, and RAG retrieval across isolated per-user contexts. All coding, security, and verification is done by AI — Magnus directs, Claude builds.
+
+**Core Value:** The agent reliably executes multi-step agentic workflows (research, smart home control, backlog management, code fixes) with correct output format and self-correcting behavior — so Magnus can trust the result without checking under the hood.
+
+### Constraints
+
+- **Stack**: Python 3.12 + FastAPI — no language or framework changes
+- **Architecture**: 4-layer modular monolith with strict layer boundaries — modules cannot cross-import
+- **Language**: English for all code, configs, docs, commits; Swedish only for end-user chat responses
+- **Quality gate**: `stack check` (ruff + black + mypy + pytest) must pass before every PR push
+- **Git safety**: All changes via PRs; no direct pushes to main; ops agent handles all git operations
+- **Security**: OWASP Top 10 compliance; no credentials in code or logs; all tokens encrypted at rest
+- **Dependency discipline**: Check stdlib alternatives before adding new pip packages
+<!-- GSD:project-end -->
+
+<!-- GSD:stack-start source:codebase/STACK.md -->
+## Technology Stack
+
+## Languages
+- Python 3.11–3.12 (pinned range `>=3.11,<3.13`; Docker image uses `python:3.11-slim`; runtime is 3.12 per project memory)
+- HTML/CSS/JS - Admin portal templates in `services/agent/src/interfaces/http/templates/`
+- YAML - Skill definitions in `skills/`, tool config in `services/agent/config/tools.yaml`, model registry in `services/agent/config/models.yaml`
+## Runtime
+- Docker Compose (multi-service stack)
+- Python runtime: 3.12 in production (`python:3.11-slim` base image, upgraded at install)
+- Node.js 22 (optional build arg `INCLUDE_VAULT=true`) for `obsidian-headless` CLI
+- Node.js 20 (optional build arg `INCLUDE_NODEJS=true`) for `@google/gemini-cli`
+- Poetry 1.8.2
+- Lockfile: `services/agent/poetry.lock` (present)
+- Build system: `poetry-core>=1.8.0`
+## Frameworks
+- FastAPI `^0.133.0` - HTTP server, admin portal, OpenAI-compatible `/v1` API
+- Uvicorn `0.38.0` (with `standard` extras) - ASGI server
+- Pydantic `^2.12.0` - Data validation, settings management
+- SQLAlchemy `^2.0.45` - Async ORM (2.0 style)
+- Alembic `^1.17.2` - Database migrations
+- asyncpg `^0.31.0` - Async PostgreSQL driver
+- LiteLLM `^1.81.0` - LLM gateway client (calls internal LiteLLM proxy)
+- MCP `^1.26.0` - Model Context Protocol client (user-defined MCP server connections)
+- langchain-text-splitters `^1.1.0` - Document chunking for RAG
+- trafilatura `^2.0.0` - Web page content extraction
+- numpy `^1.26.4` - Vector operations
+- opentelemetry-sdk `^1.39.0` - Tracing and metrics
+- opentelemetry-exporter-otlp `^1.39.0` - OTLP span/log export (optional, env-gated)
+- openinference-instrumentation-litellm `^0.1.29` - Auto-instrument LiteLLM calls
+- opentelemetry-instrumentation-fastapi `^0.60b1` - Auto-instrument HTTP requests
+- opentelemetry-instrumentation-sqlalchemy `^0.60b1` - Auto-instrument DB queries
+- python-json-logger `^2.0.7` - Structured JSON logging
+- aiogram `^3.10.0` - Telegram Bot API (async)
+- cryptography `^46.0.3` - Fernet symmetric encryption for stored credentials and OAuth tokens
+- pyjwt `^2.10.1` - JWT signing for admin portal sessions
+- slowapi `^0.1.9` - Rate limiting middleware (wraps limits)
+- httpx `0.28.1` - Async HTTP client
+- python-dotenv `^1.0.1` - `.env` loading
+- pyyaml `^6.0.1` - YAML parsing (tools.yaml, models.yaml, skills)
+- croniter `^3.0` - Cron expression parsing for scheduler
+- orjson `^3.10` - Fast JSON serialization
+- pathspec `^0.12.1` - Gitignore-style path matching
+- python-multipart `^0.0.22` - Form data parsing (admin portal uploads)
+- rich `14.2.0` - Terminal output formatting (stack CLI)
+- typer `0.20.0` - CLI framework (stack CLI)
+- docker `^7.1.0` - Docker SDK (stack CLI deploys)
+- azure-devops `^7.1.0b4` - Azure DevOps REST API client
+- pytest `9.0.0`
+- pytest-asyncio `1.3.0`
+- pytest-cov `^6.0` - Coverage
+- pytest-testmon `^2.2.0` - Selective test execution (CI: skips unaffected tests)
+- pytest-xdist `^3.8.0` - Parallel test execution
+- aiosqlite `^0.22.1` - In-memory SQLite for tests
+- coverage `7.11.3`
+- ruff `0.14.4` - Linting (rules: E, F, I, B, UP, S, N; complexity < 18)
+- black `25.11.0` - Formatting (line length: 100)
+- mypy `^1.10.0` - Static type checking (strict mode, disallows `Any`)
+## Infrastructure Services (Docker Compose)
+- Internal port: 4000
+- Routes to OpenRouter for all LLM calls
+- Config: `services/litellm/config.yaml`
+- Budget limit: $5.00 (configurable)
+- Internal port: 5432
+- Primary relational database (contexts, sessions, conversations, credentials, etc.)
+- Connection URL: `postgresql+asyncpg://postgres:<password>@postgres:5432/agent_db`
+- Internal port: 6333
+- Vector database for semantic memory and RAG
+- Collection: `agent-memories`
+- Storage: bind-mounted `./data/qdrant`
+- Internal port: 8080
+- Self-hosted meta search engine (web search for agent tools)
+- Chat interface for end users
+- Connects to agent's OpenAI-compatible `/v1` endpoint
+- Microsoft Entra ID OIDC authentication
+- Reverse proxy with automatic Let's Encrypt TLS
+- Strips `X-OpenWebUI-*` headers on external ingress (auth bypass protection)
+- Exposes ports 80/443 only; all internal services unexposed
+## Build and Packaging
+- Entry point: `stack_cli_wrapper.py` at project root
+- Commands: `check`, `lint`, `typecheck`, `test`, `dev up/down/deploy/restart/logs`, `deploy`, `up/down/restart/logs/status/health`
+- Subprocess timeout: 900s for quality checks (920+ tests)
+- `DOCKER_BUILDKIT=1` enabled
+- Single `Dockerfile` at `services/agent/Dockerfile`
+- Base: `python:3.11-slim`
+- Optional Node.js layers controlled by build args `INCLUDE_VAULT` and `INCLUDE_NODEJS`
+- Image tag: `ai-agent-platform-agent:latest`
+- `docker-compose.yml` - Base services (all)
+- `docker-compose.override.yml` - Local dev port exposure (auto-loaded by Docker Compose)
+- `docker-compose.dev.yml` - Dev stack with Traefik routing, separate DB volumes
+- `docker-compose.prod.yml` - Production with Traefik, restart policies, no exposed ports
+## LLM Providers and Models
+| Alias | Resolved Model | Use |
+|-------|---------------|-----|
+| `planner` | `openai/gpt-oss-120b:exacto` | Plan generation |
+| `supervisor` | `openai/gpt-oss-120b:exacto` | Step outcome evaluation |
+| `composer` | `openai/gpt-oss-120b:exacto` | Final answer composition |
+| `skillsrunner` | `openai/gpt-oss-120b:exacto` | Default skill execution |
+| `skillsrunner_deep` | `google/gemini-2.5-flash` | Large-context skills (1M ctx) |
+| `software_engineer` | `google/gemini-2.5-flash` | Code investigation/fix |
+| `price_tracker` | `meta-llama/llama-4-scout` | Price extraction (fast) |
+| `price_tracker_fallback` | `anthropic/claude-haiku-4.5` | Price extraction fallback |
+| `agentchat` | `openai/gpt-oss-120b:exacto` | General chat skills |
+| `embedder` | `qwen/qwen3-embedding-8b` | Text embeddings (multilingual, 4096-dim) |
+- Primary models routed: `Groq > DeepInfra > Novita`
+- Gemini models routed via: `Google Vertex`
+- `openai/gpt-oss-120b:exacto` (Harmony format)
+- `deepseek/deepseek-r1-0528`, `deepseek/deepseek-v3.1-terminus`
+- `qwen/qwen3-235b-a22b-thinking-2507`, `qwen/qwen3-next-80b-a3b-thinking`, `qwen/qwen3-vl-235b-a22b-thinking`
+- `google/gemini-2.5-pro-preview`, `google/gemini-3-pro-preview`
+- `minimax/minimax-m1`, `minimax/minimax-m2`
+- `z-ai/glm-4.5`, `z-ai/glm-4.6:exacto`
+- `anthropic/claude-sonnet-4`, `anthropic/claude-opus-4.1`, `anthropic/claude-3.7-sonnet`
+## Configuration
+- Loaded from `.env` via `python-dotenv` on service startup
+- Settings class: `services/agent/src/core/runtime/config.py` (`Settings(BaseModel)`)
+- Env prefix: `AGENT_` for most settings
+- Production validation: requires `AGENT_CREDENTIAL_ENCRYPTION_KEY`, `AGENT_ADMIN_JWT_SECRET`, `AGENT_INTERNAL_API_KEY`
+- `services/agent/pyproject.toml` - Python dependencies and tool config
+- `services/agent/config/tools.yaml` - Tool registry (enabled tools and args)
+- `services/agent/config/models.yaml` - Model capability registry (reasoning mode per model)
+- `services/litellm/config.yaml` - LiteLLM proxy model list, routing, budget
+## Platform Requirements
+- Docker Compose v2
+- Poetry 1.8.2
+- Python 3.11–3.12
+- `.env` file populated from `.env.template`
+- Linux host with Docker (tested on Ubuntu/Tuxedo)
+- Traefik for TLS termination and routing
+- PostgreSQL data persisted in Docker named volume `postgres_data`
+- Qdrant data persisted via bind mount `./data/qdrant`
+- OTel span logs persisted via bind mount `./services/agent/data`
+<!-- GSD:stack-end -->
+
+<!-- GSD:conventions-start source:CONVENTIONS.md -->
+## Conventions
+
+## Python Version & Type Annotations
+## Async-First
+## Import Style
+## Naming Conventions
+## Formatting (Black + Ruff)
+- `S101` - `assert` allowed (test code)
+- `S104` - binding to `0.0.0.0` allowed (container deployment)
+- `B008` - function calls in default arguments allowed (FastAPI `Depends`)
+- `PLR0912`, `PLR0915` - branch and statement count not enforced via Ruff (McCabe limit used instead)
+## Mypy Strictness
+- `check_untyped_defs = true`
+- `disallow_untyped_defs = true`
+- `disallow_incomplete_defs = true`
+- `disallow_untyped_calls = true`
+- `no_implicit_optional = true`
+- `warn_redundant_casts = true`
+- `warn_unused_ignores = true`
+- `disable_error_code = ["import-untyped"]`
+## S105 False Positive Suppression
+## Architectural Rules
+- `core/` never imports from any layer above it
+- `modules/` never imports from other modules (use Protocol-based DI via `core/protocols/`)
+- `interfaces/` may import from all lower layers
+- Cross-module communication uses typed Protocol interfaces defined in `core/protocols/`
+## Language Rules
+- All Python identifiers, comments, docstrings
+- All HTML templates, JavaScript, CSS
+- All YAML config files (`config/tools.yaml`, skill `.md` files)
+- All Alembic migration messages
+- All commit messages and PR descriptions
+- All admin portal UI text
+## HTML Template Rules
+## Security Conventions
+## Alembic Migration Rules
+## Docstrings and Comments
+## Dependency Management
+<!-- GSD:conventions-end -->
+
+<!-- GSD:architecture-start source:ARCHITECTURE.md -->
+## Architecture
+
+## Pattern Overview
+- Layers depend only downward: `interfaces/ -> orchestrator/ -> core/` (modules is parallel to orchestrator)
+- `core/` never imports upward; it exposes Protocol interfaces for dependency injection
+- All I/O is async-first throughout the stack
+- Multi-tenant: every resource is scoped to a `context_id` (UUID)
+- Skills-native execution: Markdown files with YAML frontmatter are the primary execution unit
+- Self-correction via 4-level `StepOutcome` system (SUCCESS/RETRY/REPLAN/ABORT)
+## Layers
+- Purpose: Adapts external protocols to internal data structures; no business logic
+- Location: `services/agent/src/interfaces/`
+- Contains: HTTP/FastAPI routers, OpenWebUI adapter, Telegram adapter, Scheduler adapter, Admin portal modules
+- Depends on: `orchestrator/`, `core/`
+- Used by: External clients (Open WebUI, Telegram, CLI)
+- Entry: `interfaces/http/app.py` (FastAPI app factory), `interfaces/http/bootstrap.py` (lifespan)
+- Purpose: Request routing and dispatch; delegates to AgentService via Dispatcher
+- Location: `services/agent/src/orchestrator/`
+- Contains: `dispatcher.py` (routes messages), `startup.py`, `price_tracker.py`
+- Depends on: `core/`
+- Used by: `interfaces/`
+- Purpose: Isolated domain features (RAG, indexer, embedder, email, price tracker, etc.)
+- Location: `services/agent/src/modules/`
+- Contains: `rag/`, `indexer/`, `embedder/`, `fetcher/`, `homey/`, `email/`, `price_tracker/`
+- Rule: Can ONLY import `core/`. Cannot import other modules or `orchestrator/`
+- Used by: Tools in `core/tools/` that delegate to module functionality
+- Purpose: Execution runtime, database models, LLM clients, tools, skills, observability
+- Location: `services/agent/src/core/`
+- Contains: Agents, tools, skills, runtime, db, auth, observability, context management
+- Rule: NEVER imports from `interfaces/`, `orchestrator/`, or `modules/`
+- Purpose: Domain models shared by all layers (Pydantic schemas, streaming types)
+- Location: `services/agent/src/shared/`
+- Contains: `models.py` (AgentRequest, Plan, PlanStep, StepOutcome, etc.), `chunk_filter.py`, `streaming.py`, `content_classifier.py`
+- Rule: Imported by all layers; imports nothing from the project
+## Key Components
+- Main orchestration entry point for all agent requests
+- Coordinates: `PlannerAgent`, `StepExecutorAgent`, `SkillExecutor`, supervisors, persistence, HITL
+- Decomposes into sub-modules: `ConversationPersistence`, `ContextInjector`, `ToolRunner`, `HITLCoordinator`
+- Initialized per-request via `ServiceFactory` (not a singleton)
+- Generates structured `Plan` (list of `PlanStep`) from user prompt
+- Uses `model_planner` LLM setting
+- Sanitizes user input to prevent prompt injection
+- Returns `RoutingDecision`: FAST_PATH, CHAT, or AGENTIC
+- Validates the plan before execution begins
+- Checks tool/skill availability, enforces planning constraints
+- Executes individual `PlanStep` objects
+- Handles: memory search steps, tool execution steps, LLM completion steps
+- 120-second default timeout per tool call
+- Evaluates each step result and returns `StepOutcome`
+- Uses `model_supervisor` LLM setting
+- Primary execution path for skill-type plan steps
+- Enforces strict tool scoping: skill can only access tools listed in its frontmatter
+- Supports streaming, rate limiting, deduplication, retry feedback
+- Validates all skill `.md` files at startup
+- Checks that tool references in frontmatter exist in `ToolRegistry`
+- Protocol-based: `SkillRegistryProtocol` allows testable injection
+- Registers and looks up tool implementations
+- Base registry cloned per request with per-context permissions applied
+- MCP tools loaded dynamically per context OAuth
+- Routes incoming messages from platform adapters
+- Wraps `AgentService.execute_stream()` and `UnifiedOrchestrator`
+- Converts raw messages to `AgentRequest`, forwards to AgentService
+- Consolidates context resolution for all adapters
+- Methods: `resolve_for_authenticated_user()`, `resolve_for_platform()`, `resolve_for_conversation_id()`, `resolve_anonymous()`
+- Applied by adapters to `AgentChunk` streams before sending to users
+- Controls verbosity (DEFAULT/VERBOSE/DEBUG), filters raw model tokens, deduplicates plan descriptions
+- Human-in-the-loop workflow coordinator
+- Manages `AwaitingInputRequest` and paused skill execution state
+- All DB CRUD for conversations, sessions, messages
+- Used by `AgentService`
+- Injects pinned files and workspace rules into conversation history
+- Security: validates file paths before injection
+- End-of-conversation quality evaluator
+- Scores skills 1-5, writes `SkillQualityRating` records
+- Triggers `SkillImprovementProposal` generation when scores drop (self-healing)
+## Data Flow
+- Routed when `RoutingDecision.CHAT` is returned
+- `AgentService._route_chat_request()` calls `LiteLLMClient.generate()` directly
+- No planning or skill execution
+- All state persisted in PostgreSQL via SQLAlchemy 2.0 async
+- Vector memory in Qdrant (per-context filtered)
+- Streaming state passed via Python `AsyncGenerator` chains
+## State Hierarchy
+```
+```
+- Primary isolation unit; all data scoped to `context_id`
+- Has `pinned_files` (injected into every prompt), `default_cwd`, `config` (JSONB), `type`
+- Owns: Conversations, OAuthTokens, ToolPermissions, ScheduledJobs, Workspaces, Credentials
+- Tracks `platform` + `platform_id` (e.g., `openwebui` + chat UUID)
+- Holds `current_cwd` for tool execution directory state
+- `conversation_metadata` JSONB stores pending HITL state
+- Groups messages for a single agent request cycle
+- `active` flag; `session_metadata` JSONB
+- Roles: `user`, `assistant`, `system`, `tool`
+- `trace_id` links to OpenTelemetry trace for debugging
+## Database Models
+| Model | Table | Purpose |
+|-------|-------|---------|
+| `Context` | `contexts` | Multi-tenant workspace |
+| `Conversation` | `conversations` | Chat thread per platform |
+| `Session` | `sessions` | Per-request execution group |
+| `Message` | `messages` | Individual chat message |
+| `User` | `users` | User account (OpenWebUI identity) |
+| `UserContext` | `user_contexts` | User <-> Context junction with role |
+| `ToolPermission` | `tool_permissions` | Per-context tool allow/deny |
+| `UserCredential` | `user_credentials` | Fernet-encrypted credentials (scoped to context) |
+| `Workspace` | `workspaces` | Git repo per context |
+| `McpServer` | `mcp_servers` | User-defined MCP server config |
+| `ScheduledJob` | `scheduled_jobs` | Cron job definition per context |
+| `HomeyDeviceCache` | `homey_device_cache` | Cached smart-home device metadata |
+| `SkillQualityRating` | `skill_quality_ratings` | Per-conversation skill score (1-5) |
+| `SkillImprovementProposal` | `skill_improvement_proposals` | AI-generated skill improvements |
+| `SystemConfig` | `system_config` | Global key-value config (debug flags, etc.) |
+| `AdoTeamConfig` | `ado_team_configs` | Azure DevOps team mapping |
+| `WikiImport` | `wiki_imports` | ADO wiki import state per context |
+- `OAuthToken`: encrypted OAuth tokens per context
+- Encryption via Fernet (`encrypt_token()` / `decrypt_token()` with plaintext fallback)
+## Key Design Patterns
+- `core/` defines `Protocol` classes for interfaces (e.g., `SkillRegistryProtocol`)
+- Concrete implementations injected at startup in `interfaces/http/bootstrap.py`
+- Enables testing with `MockLLMClient`, `InMemoryAsyncSession` without touching `interfaces/`
+- `core/runtime/service_factory.py` creates isolated `AgentService` per request
+- Each service gets: cloned tool registry (filtered by context permissions), context-filtered memory, OAuth-authenticated MCP clients
+- Not a singleton; prevents cross-request state leakage
+- Skills defined as Markdown files (`skills/**/*.md`) with YAML frontmatter
+- Frontmatter declares: `name`, `description`, `tools` (scoped list), `model`, `max_turns`
+- `SkillRegistry` validates all skills at startup; invalid tool references log warnings
+- `SkillExecutor` builds a scoped tool set containing only `skill.tools` items
+- After each step, `StepSupervisorAgent` returns one of: SUCCESS, RETRY, REPLAN, ABORT
+- RETRY: re-execute same step with supervisor feedback injected (max 1 retry per step)
+- REPLAN: generate entirely new plan (max 3 replans per request)
+- ABORT: stop execution, return error to user
+- All execution paths use `AsyncGenerator` chains
+- `AgentChunk` is the streaming unit (`shared/streaming.py`)
+- `ChunkFilter` in adapters controls what reaches the user based on verbosity level
+- OpenTelemetry spans on all major operations (tracing via `core/observability/tracing.py`)
+- Debug events written to `data/debug_logs.jsonl` (JSONL, not DB) via `core/observability/debug_logger.py`
+- Structured error codes in `core/observability/error_codes.py`
+- OTel metrics in-memory snapshot via `core/observability/metrics.py`
+- SQLAlchemy instrumented for DB query tracing
+- `SkillQualityAnalyser` evaluates conversations post-completion
+- Scores below threshold trigger `SkillImprovementProposal` generation
+- Improvements written as context overlays; admins can revert or promote to global `/skills/`
+## Entry Points
+- Location: `services/agent/src/interfaces/http/app.py`
+- Triggers: HTTP requests from Open WebUI, CLI clients
+- Responsibilities: FastAPI app creation, router registration, middleware setup
+- Location: `services/agent/src/interfaces/http/bootstrap.py`
+- Triggers: FastAPI startup/shutdown
+- Responsibilities: DB pool init, LiteLLM client, SkillRegistry load, tool registration, system context seeding
+- Location: `services/agent/src/interfaces/http/agent_api.py`
+- Triggers: POST requests from Open WebUI pipeline
+- Responsibilities: Validate request, call `AgentService.execute_stream()`, stream SSE events
+- Location: `services/agent/src/interfaces/http/openwebui_adapter.py`
+- Triggers: POST `/v1/chat/completions` (OpenAI-compatible)
+- Responsibilities: Context resolution, Dispatcher call, SSE formatting with `ChunkFilter`
+- Location: `services/agent/src/interfaces/scheduler/adapter.py`
+- Triggers: Croniter-based in-process asyncio loop (60s check interval)
+- Responsibilities: Execute `ScheduledJob` entries as AgentService requests
+- Location: `services/agent/src/interfaces/telegram/adapter.py`
+- Triggers: Telegram Bot API webhook/polling
+- Responsibilities: Context resolution via `ContextService`, dispatch, plain-text rendering
+## Error Handling
+- `StepOutcome.RETRY`: transient errors (timeout, rate limit) trigger one automatic retry
+- `StepOutcome.REPLAN`: output mismatch triggers full replanning (max 3)
+- `StepOutcome.ABORT`: auth failures, invalid input, max retries exceeded
+- `ToolConfirmationError` (`core/tools/base.py`): raised when tool needs HITL confirmation before proceeding
+- Structured codes in `core/observability/error_codes.py` categories: TOOL_*, LLM_*, DB_*, NET_*, RAG_*
+## Cross-Cutting Concerns
+- Open WebUI: Entra ID session forwarded via `X-OpenWebUI-User-*` headers; role is authoritative from DB after first login
+- Internal API: `AGENT_INTERNAL_API_KEY` (Bearer or X-API-Key header)
+- Diagnostic API: `AGENT_DIAGNOSTIC_API_KEY`
+- Credentials: Fernet-encrypted, context-scoped in `user_credentials` table
+- SSRF protection in `modules/fetcher/`
+- CSP headers on all responses (`interfaces/http/middleware.py`)
+- Architecture baseline validator (`.architecture-baseline.json`) enforces layer rules
+- OAuth tokens and bearer credentials Fernet-encrypted at rest
+<!-- GSD:architecture-end -->
+
+<!-- GSD:workflow-start source:GSD defaults -->
+## GSD Workflow Enforcement
+
+Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+
+Use these entry points:
+- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
+- `/gsd:debug` for investigation and bug fixing
+- `/gsd:execute-phase` for planned phase work
+
+Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
+<!-- GSD:workflow-end -->
+
+<!-- GSD:profile-start -->
+## Developer Profile
+
+> Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
+> This section is managed by `generate-claude-profile` -- do not edit manually.
+<!-- GSD:profile-end -->

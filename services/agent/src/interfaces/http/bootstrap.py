@@ -245,6 +245,13 @@ def create_lifespan(settings: Settings, litellm_client: LiteLLMClient) -> Any:
         app.state.system_context_id = system_context_id
         await _seed_system_jobs(AsyncSessionLocal, system_context_id)
 
+        # Ensure SystemConfig defaults are initialized
+        from interfaces.http.admin_diagnostics import ensure_config_defaults
+
+        async with AsyncSessionLocal() as session:
+            await ensure_config_defaults(session)
+        LOGGER.info("SystemConfig defaults initialized")
+
         yield  # Application runs here
 
         # --- SHUTDOWN ---

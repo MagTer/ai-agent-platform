@@ -15,7 +15,8 @@ services:
   # Traefik - Reverse Proxy with Let's Encrypt
   # ===========================================================================
   traefik:
-    image: traefik:v3.0
+    # SHA-pinned for supply chain security (Traefik v3.3.6)
+    image: traefik@sha256:04e780ba48658bcd63f71dadd0a738488a452c66371d01f32ce25344a0ff20d6
     container_name: traefik
     restart: unless-stopped
     command:

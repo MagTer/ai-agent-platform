@@ -108,9 +108,13 @@ class Settings(BaseModel):
         default=None,
         description="Homey OAuth client secret (optional for public clients)",
     )
-    oauth_redirect_uri: HttpUrl | None = Field(
+    oauth_redirect_uri_prod: HttpUrl | None = Field(
         default=None,
-        description="OAuth callback URL (e.g., https://your-app.com/auth/oauth/callback)",
+        description="OAuth callback URL for production (e.g., https://agent.example.com/auth/oauth/callback)",
+    )
+    oauth_redirect_uri_dev: HttpUrl | None = Field(
+        default=None,
+        description="OAuth callback URL for development (e.g., https://agent-dev.example.com/auth/oauth/callback)",
     )
 
     # Admin Dashboard
@@ -225,6 +229,17 @@ class Settings(BaseModel):
         default="",
         description="DEPRECATED: Use email_from_address instead.",
     )
+
+    @property
+    def oauth_redirect_uri(self) -> HttpUrl | None:
+        """Return the OAuth redirect URI for the current environment.
+
+        Selects between prod and dev redirect URIs based on AGENT_ENVIRONMENT.
+        Falls back to the legacy single variable if environment-specific ones aren't set.
+        """
+        if self.environment == "production":
+            return self.oauth_redirect_uri_prod or self.oauth_redirect_uri_dev
+        return self.oauth_redirect_uri_dev or self.oauth_redirect_uri_prod
 
     @model_validator(mode="after")
     def validate_production_secrets(self) -> Settings:

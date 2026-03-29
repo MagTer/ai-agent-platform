@@ -167,6 +167,79 @@ class StepResult(BaseModel):
     messages: list[AgentMessage] = Field(default_factory=list)
 
 
+class UserIntent(str, Enum):
+    """Intent categories for HITL user responses."""
+
+    APPROVE = "approve"
+    REJECT = "reject"
+    REQUEST_CHANGES = "request_changes"
+    UNCLEAR = "unclear"
+
+
+class WorkItemDraft(BaseModel):
+    """Structured work item draft extracted from LLM output.
+
+    Replaces fragile regex-based parsing with structured JSON extraction.
+    """
+
+    type: str = Field(description="Work item type (e.g., Bug, User Story, Task)")
+    team_alias: str = Field(description="Short alias for the team (e.g., 'platform', 'web')")
+    title: str = Field(description="Short title for the work item")
+    description: str = Field(description="Detailed description of the work item")
+    acceptance_criteria: str | None = Field(
+        default=None, description="Acceptance criteria for the work item"
+    )
+    tags: list[str] = Field(default_factory=list, description="Tags/labels for categorization")
+
+    @staticmethod
+    def _parse_tags(value: str | list[str] | None) -> list[str]:
+        """Parse tags from string (comma/semicolon separated) or list."""
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return value
+        # Handle both comma and semicolon separators
+        separators = [",", ";"]
+        for sep in separators:
+            if sep in value:
+                return [tag.strip() for tag in value.split(sep) if tag.strip()]
+        return [value.strip()] if value.strip() else []
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> WorkItemDraft:
+        """Create from dict with flexible tag parsing."""
+        parsed_data = dict(data)
+        if "tags" in parsed_data:
+            parsed_data["tags"] = cls._parse_tags(parsed_data["tags"])
+        return cls(**parsed_data)
+
+
+class HITLRequest(BaseModel):
+    """Human-in-the-loop request for user confirmation or selection.
+
+    Encapsulates the interaction request when a draft needs user approval.
+    """
+
+    category: AwaitingInputCategory = Field(description="Type of user input being requested")
+    prompt: str = Field(description="Natural language prompt to present to the user")
+    options: list[str] | None = Field(
+        default=None, description="Available options for selection categories"
+    )
+
+
+class DraftOutput(BaseModel):
+    """Complete structured output from draft extraction.
+
+    Combines the work item draft with any HITL interaction request.
+    Designed for JSON parsing from LLM responses.
+    """
+
+    draft: WorkItemDraft = Field(description="The extracted work item draft")
+    hitl: HITLRequest | None = Field(
+        default=None, description="Optional HITL request for user confirmation"
+    )
+
+
 __all__ = [
     "AgentMessage",
     "AgentRequest",
@@ -179,4 +252,8 @@ __all__ = [
     "StepOutcome",
     "AwaitingInputCategory",
     "AwaitingInputRequest",
+    "UserIntent",
+    "WorkItemDraft",
+    "HITLRequest",
+    "DraftOutput",
 ]

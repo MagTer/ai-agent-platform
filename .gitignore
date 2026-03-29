@@ -30,3 +30,26 @@ services/agent/data/tibp_wiki_export/
 flows/credentials.json
 .mypy_cache/
 .testmondata
+
+# GSD planning docs (local-only)
+.planning/
+
+# ── GSD baseline (auto-generated) ──
+.gsd
+*.swp
+*.swo
+*~
+.idea/
+*.code-workspace
+!.env.example
+.next/
+dist/
+build/
+venv/
+target/
+vendor/
+*.log
+coverage/
+.cache/
+tmp/
+.testmondata*
