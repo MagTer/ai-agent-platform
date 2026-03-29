@@ -17,24 +17,20 @@ def upgrade() -> None:
     """Rename personal contexts to include owner email."""
     # Update personal contexts that have owner_email in config
     # New format: "Personal - user@example.com"
-    op.execute(
-        """
+    op.execute("""
         UPDATE contexts
         SET name = 'Personal - ' || (config->>'owner_email')
         WHERE type = 'personal'
           AND config->>'owner_email' IS NOT NULL
           AND name LIKE 'personal\\_%'
-        """
-    )
+        """)
 
 
 def downgrade() -> None:
     """Revert to UUID-based naming (best effort -- uses context id)."""
-    op.execute(
-        """
+    op.execute("""
         UPDATE contexts
         SET name = 'personal_' || id::text
         WHERE type = 'personal'
           AND name LIKE 'Personal - %'
-        """
-    )
+        """)

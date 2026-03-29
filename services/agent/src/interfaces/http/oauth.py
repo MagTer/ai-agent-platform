@@ -194,8 +194,7 @@ async def oauth_callback(
             endpoint="/auth/oauth/callback",
             details={"state": state[:8] + "..."},  # Partial state for correlation
         )
-        return HTMLResponse(
-            content="""
+        return HTMLResponse(content="""
             <!DOCTYPE html>
             <html>
                 <head>
@@ -216,8 +215,7 @@ async def oauth_callback(
                     </script>
                 </body>
             </html>
-            """
-        )
+            """)
 
     except OAuthError as e:
         log_security_event(

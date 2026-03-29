@@ -67,8 +67,7 @@ def mock_skill_registry(tmp_path: Path) -> SkillRegistry:
 
     # Create a skill with specific tools
     skill_file = skills_dir / "test_skill.md"
-    skill_file.write_text(
-        """---
+    skill_file.write_text("""---
 name: test_skill
 description: Test skill with specific tools
 tools:
@@ -77,8 +76,7 @@ model: agentchat
 max_turns: 3
 ---
 Test skill content.
-"""
-    )
+""")
 
     return SkillRegistry(skills_dir=skills_dir)
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # ruff: noqa: S608
 """Quick test script for Azure DevOps connection."""
+
 import asyncio
 import os
 import sys

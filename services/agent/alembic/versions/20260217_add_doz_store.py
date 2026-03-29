@@ -14,8 +14,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(
-        """
+    op.execute("""
         INSERT INTO price_tracker_stores
             (id, name, slug, store_type, base_url, parser_config, is_active)
         VALUES (
@@ -27,8 +26,7 @@ def upgrade() -> None:
             '{}',
             true
         )
-        """
-    )
+        """)
     op.execute(
         "ALTER TABLE price_tracker_product_stores "
         "ALTER COLUMN next_check_at TYPE TIMESTAMP WITHOUT TIME ZONE"

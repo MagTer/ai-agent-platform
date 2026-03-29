@@ -20,6 +20,7 @@ Exit codes
     Poetry could not complete the check (for example because the
     ``poetry`` executable is missing or the command failed).
 """
+
 from __future__ import annotations
 
 import argparse

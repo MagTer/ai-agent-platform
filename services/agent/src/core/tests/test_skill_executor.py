@@ -19,8 +19,7 @@ def skill_registry(tmp_path: Path) -> SkillRegistry:
     skills_dir = tmp_path / "skills"
     skills_dir.mkdir()
     skill_file = skills_dir / "test_skill.md"
-    skill_file.write_text(
-        """---
+    skill_file.write_text("""---
 name: test_skill
 description: A test skill for unit testing
 tools:
@@ -29,8 +28,7 @@ model: agentchat
 max_turns: 3
 ---
 You are a test skill. Answer questions briefly.
-"""
-    )
+""")
     return SkillRegistry(skills_dir=skills_dir)
 
 
